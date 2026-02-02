@@ -1,27 +1,30 @@
-mod cartridge;
-mod carts;
+mod input;
+mod roms;
 mod screen;
 mod settings;
+mod vm;
 
+use crate::vm::Vm;
+use input::Input;
 use pixels::{Pixels, SurfaceTexture};
 use screen::Screen;
 use settings::{HEIGHT, NAME, SCREEN_HEIGHT, SCREEN_WIDTH, WIDTH};
 use std::sync::Arc;
+use winit::event::WindowEvent;
+use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
-    event::WindowEvent,
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowAttributes},
 };
-
-use crate::cartridge::Cartridge;
 
 struct App {
     window: Option<Arc<Window>>,
     pixels: Option<Pixels<'static>>,
     screen: Screen,
-    cart: carts::BouncingPixel,
+    input: Input,
+    vm: Vm,
 }
 
 impl App {
@@ -30,7 +33,8 @@ impl App {
             window: None,
             pixels: None,
             screen: Screen::new(),
-            cart: carts::BouncingPixel::new(),
+            input: Input::new(),
+            vm: Vm::new(roms::test_rom()),
         }
     }
 }
@@ -61,11 +65,30 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
-                self.cart.update(&mut self.screen);
+                self.vm.reset();
+
+                while self.vm.pc() < self.vm.program().len() {
+                    self.vm.step(&mut self.screen);
+                }
 
                 if let Some(pixels) = self.pixels.as_mut() {
                     pixels.frame_mut().copy_from_slice(&self.screen.pixels);
                     let _ = pixels.render();
+                }
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                let pressed = event.state.is_pressed();
+
+                if let PhysicalKey::Code(code) = event.physical_key {
+                    match code {
+                        KeyCode::ArrowUp | KeyCode::KeyW => self.input.up = pressed,
+                        KeyCode::ArrowDown | KeyCode::KeyS => self.input.down = pressed,
+                        KeyCode::ArrowLeft | KeyCode::KeyA => self.input.left = pressed,
+                        KeyCode::ArrowRight | KeyCode::KeyD => self.input.right = pressed,
+                        KeyCode::KeyJ => self.input.a = pressed,
+                        KeyCode::KeyK => self.input.b = pressed,
+                        _ => {}
+                    }
                 }
             }
             _ => {}
