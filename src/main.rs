@@ -1,3 +1,4 @@
+mod buttons;
 mod input;
 mod roms;
 mod screen;
@@ -34,7 +35,7 @@ impl App {
             pixels: None,
             screen: Screen::new(),
             input: Input::new(),
-            vm: Vm::new(roms::test_rom()),
+            vm: Vm::new(roms::moving_pixel()),
         }
     }
 }
@@ -65,11 +66,7 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
-                self.vm.reset();
-
-                while self.vm.pc() < self.vm.program().len() {
-                    self.vm.step(&mut self.screen);
-                }
+                self.vm.run_frame(&self.input, &mut self.screen);
 
                 if let Some(pixels) = self.pixels.as_mut() {
                     pixels.frame_mut().copy_from_slice(&self.screen.pixels);
@@ -103,6 +100,8 @@ impl ApplicationHandler for App {
 }
 
 fn main() {
+    env_logger::init();
+
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
 

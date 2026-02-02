@@ -1,3 +1,5 @@
+use crate::buttons::Button;
+
 #[derive(Default, Clone, Copy)]
 pub struct Input {
     pub up: bool,
@@ -11,5 +13,16 @@ pub struct Input {
 impl Input {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn is_pressed(&self, button: Button) -> bool {
+        match button {
+            Button::Up => self.up,
+            Button::Down => self.down,
+            Button::Left => self.left,
+            Button::Right => self.right,
+            Button::A => self.a,
+            Button::B => self.b,
+        }
     }
 }
