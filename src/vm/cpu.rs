@@ -13,6 +13,10 @@ impl Cpu {
         }
     }
 
+    pub fn get_registers(&self) -> &[u8] {
+        &self.registers
+    }
+
     pub fn get_registers_len(&self) -> usize {
         self.registers.len()
     }

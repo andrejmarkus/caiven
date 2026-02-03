@@ -41,6 +41,21 @@ pub fn draw_pixel_from_register(vm: &mut Vm, _input: &Input, screen: &mut Screen
     vm.shift_pc(5);
 }
 
+pub fn palette(vm: &mut Vm, _input: &Input, _screen: &mut Screen) {
+    let index = vm.get_program()[vm.get_pc()] as usize;
+    let r = vm.get_program()[vm.get_pc() + 1];
+    let g = vm.get_program()[vm.get_pc() + 2];
+    let b = vm.get_program()[vm.get_pc() + 3];
+
+    info!(
+        "Setting palette index {} to color ({}, {}, {})",
+        index, r, g, b
+    );
+
+    vm.set_palette_color(index, r, g, b);
+    vm.shift_pc(4);
+}
+
 pub fn sprite(vm: &mut Vm, _input: &Input, screen: &mut Screen) {
     let rx = vm.get_program()[vm.get_pc()] as usize;
     let ry = vm.get_program()[vm.get_pc() + 1] as usize;
@@ -63,26 +78,17 @@ pub fn sprite(vm: &mut Vm, _input: &Input, screen: &mut Screen) {
             }
 
             let [r, g, b] = vm.get_palette_color(pixel as usize);
-            screen.set_pixel(x0 + sx as u32, y0 + sy as u32, r, g, b);
+            screen.set_pixel(
+                (x0 + sx as u32).wrapping_sub(vm.get_camera_x()),
+                (y0 + sy as u32).wrapping_sub(vm.get_camera_y()),
+                r,
+                g,
+                b,
+            );
         }
     }
 
     vm.shift_pc(3);
-}
-
-pub fn palette(vm: &mut Vm, _input: &Input, _screen: &mut Screen) {
-    let index = vm.get_program()[vm.get_pc()] as usize;
-    let r = vm.get_program()[vm.get_pc() + 1];
-    let g = vm.get_program()[vm.get_pc() + 2];
-    let b = vm.get_program()[vm.get_pc() + 3];
-
-    info!(
-        "Setting palette index {} to color ({}, {}, {})",
-        index, r, g, b
-    );
-
-    vm.set_palette_color(index, r, g, b);
-    vm.shift_pc(4);
 }
 
 pub fn tilemap(vm: &mut Vm, _input: &Input, screen: &mut Screen) {
@@ -117,8 +123,8 @@ pub fn tilemap(vm: &mut Vm, _input: &Input, screen: &mut Screen) {
 
                     let [r, g, b] = vm.get_palette_color(pixel as usize);
                     screen.set_pixel(
-                        x0 + tx * SPRITE_SIZE + sx,
-                        y0 + ty * SPRITE_SIZE + sy,
+                        (x0 + tx * SPRITE_SIZE + sx).wrapping_sub(vm.get_camera_x()),
+                        (y0 + ty * SPRITE_SIZE + sy).wrapping_sub(vm.get_camera_y()),
                         r,
                         g,
                         b,

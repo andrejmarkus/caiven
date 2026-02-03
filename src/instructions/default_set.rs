@@ -172,6 +172,22 @@ pub fn default_instruction_set() -> InstructionSet {
     });
 
     set.register(Instruction {
+        name: "POSC",
+        size: 3,
+        opcode: 0x60,
+        args: vec![ArgType::Register, ArgType::Register],
+        execute: operations::set_camera_position,
+    });
+
+    set.register(Instruction {
+        name: "MOVC",
+        size: 3,
+        opcode: 0x61,
+        args: vec![ArgType::Register, ArgType::Register],
+        execute: operations::move_camera,
+    });
+
+    set.register(Instruction {
         name: "WAIT",
         size: 1,
         opcode: 0xFF,

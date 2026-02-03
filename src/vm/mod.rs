@@ -1,5 +1,7 @@
+pub mod camera;
 pub mod cpu;
 pub mod memory;
+pub mod palette;
 
 use self::cpu::Cpu;
 use self::memory::Memory;
@@ -8,7 +10,8 @@ use crate::assembler::directives::default_directive_set;
 use crate::input::Input;
 use crate::instructions::InstructionSet;
 use crate::screen::Screen;
-use crate::settings::PALETTE_SIZE;
+use crate::vm::camera::Camera;
+use crate::vm::palette::Palette;
 use log::error;
 use std::sync::Arc;
 
@@ -16,27 +19,24 @@ pub struct Vm {
     cpu: Cpu,
     program: Vec<u8>,
     memory: Memory,
-    waiting: bool,
-    palette: [[u8; 3]; PALETTE_SIZE],
+    camera: Camera,
+    palette: Palette,
     instructions: Arc<InstructionSet>,
     assembler: Assembler,
+    waiting: bool,
 }
 
 impl Vm {
     pub fn new(instructions: Arc<InstructionSet>) -> Self {
-        let mut palette = [[0; 3]; PALETTE_SIZE];
-        for i in 0..PALETTE_SIZE {
-            palette[i] = [(i as u8), (i as u8), (i as u8)];
-        }
-
         Self {
             cpu: Cpu::new(),
             program: Vec::new(),
             memory: Memory::new(),
-            waiting: false,
-            palette,
+            camera: Camera::new(),
+            palette: Palette::new(),
             instructions: instructions.clone(),
             assembler: Assembler::new(instructions, Arc::new(default_directive_set())),
+            waiting: false,
         }
     }
 
@@ -54,6 +54,10 @@ impl Vm {
 
     pub fn get_pc(&self) -> usize {
         self.cpu.pc
+    }
+
+    pub fn get_registers(&self) -> &[u8] {
+        self.cpu.get_registers()
     }
 
     pub fn get_registers_len(&self) -> usize {
@@ -77,17 +81,11 @@ impl Vm {
     }
 
     pub fn get_palette_color(&self, index: usize) -> [u8; 3] {
-        if index < self.palette.len() {
-            self.palette[index]
-        } else {
-            [0, 0, 0]
-        }
+        self.palette.get_color(index)
     }
 
     pub fn set_palette_color(&mut self, index: usize, r: u8, g: u8, b: u8) {
-        if index < self.palette.len() {
-            self.palette[index] = [r, g, b];
-        }
+        self.palette.set_color(index, [r, g, b]);
     }
 
     pub fn set_pc(&mut self, address: usize) {
@@ -100,6 +98,26 @@ impl Vm {
 
     pub fn get_memory_length(&self) -> usize {
         self.memory.get_length()
+    }
+
+    pub fn get_camera_x(&self) -> u32 {
+        self.camera.get_x()
+    }
+
+    pub fn get_camera_y(&self) -> u32 {
+        self.camera.get_y()
+    }
+
+    pub fn set_camera_position(&mut self, x: u32, y: u32) {
+        self.camera.set_position(x, y);
+    }
+
+    pub fn move_camera_by(&mut self, dx: i32, dy: i32) {
+        self.camera.move_by(dx, dy);
+    }
+
+    pub fn is_waiting(&self) -> bool {
+        self.waiting
     }
 
     pub fn pause(&mut self) {

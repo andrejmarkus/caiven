@@ -1,10 +1,12 @@
 mod assembler;
+mod debugger;
 mod input;
 mod instructions;
 mod screen;
 mod settings;
 mod vm;
 
+use crate::debugger::Debugger;
 use crate::instructions::default_instruction_set;
 use crate::vm::Vm;
 use input::Input;
@@ -27,6 +29,7 @@ struct App {
     screen: Screen,
     input: Input,
     vm: Vm,
+    debugger: Debugger,
 }
 
 impl App {
@@ -41,6 +44,7 @@ impl App {
             screen: Screen::new(),
             input: Input::new(),
             vm,
+            debugger: Debugger::new(),
         }
     }
 }
@@ -77,7 +81,20 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => {
-                self.vm.run_frame(&self.input, &mut self.screen);
+                match self.debugger.get_mode() {
+                    debugger::DebugMode::Running => {
+                        self.vm.run_frame(&self.input, &mut self.screen);
+                    }
+                    debugger::DebugMode::Paused => {
+                        // Do nothing
+                    }
+                    debugger::DebugMode::Step => {
+                        self.vm.step(&self.input, &mut self.screen);
+                        self.debugger.check_breakpoint(self.vm.get_pc());
+                        self.debugger.dump_state(&self.vm);
+                        self.debugger.pause();
+                    }
+                }
 
                 if let Some(pixels) = self.pixels.as_mut() {
                     pixels.frame_mut().copy_from_slice(&self.screen.pixels);
@@ -95,6 +112,16 @@ impl ApplicationHandler for App {
                         KeyCode::ArrowRight | KeyCode::KeyD => self.input.right = pressed,
                         KeyCode::KeyJ => self.input.a = pressed,
                         KeyCode::KeyK => self.input.b = pressed,
+                        KeyCode::Space => {
+                            if pressed && !event.repeat {
+                                self.debugger.toggle_pause();
+                            }
+                        }
+                        KeyCode::KeyN => {
+                            if pressed && !event.repeat {
+                                self.debugger.step();
+                            }
+                        }
                         _ => {}
                     }
                 }
