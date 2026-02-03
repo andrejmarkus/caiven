@@ -1,5 +1,6 @@
 use crate::input::Input;
 use crate::screen::Screen;
+use crate::settings::SPRITE_SIZE;
 use crate::vm::Vm;
 use log::info;
 
@@ -54,16 +55,78 @@ pub fn sprite(vm: &mut Vm, _input: &Input, screen: &mut Screen) {
         raddr, x0, y0, rx, ry
     );
 
-    for sy in 0..8 {
-        for sx in 0..8 {
-            let pixel = vm.read_memory(base + sy * 8 + sx);
+    for sy in 0..SPRITE_SIZE {
+        for sx in 0..SPRITE_SIZE {
+            let pixel = vm.read_memory(base + sy as usize * SPRITE_SIZE as usize + sx as usize);
             if pixel == 0 {
                 continue;
             }
 
-            screen.set_pixel(x0 + sx as u32, y0 + sy as u32, pixel, pixel, pixel);
+            let [r, g, b] = vm.get_palette_color(pixel as usize);
+            screen.set_pixel(x0 + sx as u32, y0 + sy as u32, r, g, b);
         }
     }
 
     vm.shift_pc(3);
+}
+
+pub fn palette(vm: &mut Vm, _input: &Input, _screen: &mut Screen) {
+    let index = vm.get_program()[vm.get_pc()] as usize;
+    let r = vm.get_program()[vm.get_pc() + 1];
+    let g = vm.get_program()[vm.get_pc() + 2];
+    let b = vm.get_program()[vm.get_pc() + 3];
+
+    info!(
+        "Setting palette index {} to color ({}, {}, {})",
+        index, r, g, b
+    );
+
+    vm.set_palette_color(index, r, g, b);
+    vm.shift_pc(4);
+}
+
+pub fn tilemap(vm: &mut Vm, _input: &Input, screen: &mut Screen) {
+    let rx = vm.get_program()[vm.get_pc()] as usize;
+    let ry = vm.get_program()[vm.get_pc() + 1] as usize;
+    let rtiles = vm.get_program()[vm.get_pc() + 2] as usize;
+    let rmap = vm.get_program()[vm.get_pc() + 3] as usize;
+    let w = vm.get_program()[vm.get_pc() + 4] as u32;
+    let h = vm.get_program()[vm.get_pc() + 5] as u32;
+
+    let x0 = vm.get_register_value(rx) as u32;
+    let y0 = vm.get_register_value(ry) as u32;
+    let tiles_base = vm.get_register_value(rtiles) as usize;
+    let map_base = vm.get_register_value(rmap) as usize;
+
+    for ty in 0..h {
+        for tx in 0..w {
+            let map_index = (ty * w + tx) as usize;
+            let tile_index = vm.read_memory(map_base + map_index) as usize;
+
+            for sy in 0..SPRITE_SIZE {
+                for sx in 0..SPRITE_SIZE {
+                    let pixel = vm.read_memory(
+                        tiles_base
+                            + tile_index * (SPRITE_SIZE as usize * SPRITE_SIZE as usize)
+                            + sy as usize * SPRITE_SIZE as usize
+                            + sx as usize,
+                    );
+                    if pixel == 0 {
+                        continue;
+                    }
+
+                    let [r, g, b] = vm.get_palette_color(pixel as usize);
+                    screen.set_pixel(
+                        x0 + tx * SPRITE_SIZE + sx,
+                        y0 + ty * SPRITE_SIZE + sy,
+                        r,
+                        g,
+                        b,
+                    );
+                }
+            }
+        }
+    }
+
+    vm.shift_pc(6);
 }

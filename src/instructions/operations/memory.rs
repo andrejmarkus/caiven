@@ -60,3 +60,30 @@ pub fn store_to_memory_indirect(vm: &mut Vm, _input: &Input, _screen: &mut Scree
     vm.write_memory(address, value);
     vm.shift_pc(2);
 }
+
+pub fn copy(vm: &mut Vm, _input: &Input, _screen: &mut Screen) {
+    let dst_lo = vm.get_program()[vm.get_pc()] as usize;
+    let dst_hi = vm.get_program()[vm.get_pc() + 1] as usize;
+    let src_lo = vm.get_program()[vm.get_pc() + 2] as usize;
+    let src_hi = vm.get_program()[vm.get_pc() + 3] as usize;
+    let len_lo = vm.get_program()[vm.get_pc() + 4] as usize;
+    let len_hi = vm.get_program()[vm.get_pc() + 5] as usize;
+
+    let dst = dst_lo | (dst_hi << 8);
+    let src = src_lo | (src_hi << 8);
+    let length = len_lo | (len_hi << 8);
+
+    info!(
+        "Copying {} bytes from program address {} to memory address {}",
+        length, src, dst
+    );
+
+    for i in 0..length {
+        if dst + i >= vm.get_memory_length() || src + i >= vm.get_program().len() {
+            break;
+        }
+        let value = vm.get_program()[src + i];
+        vm.write_memory(dst + i, value);
+    }
+    vm.shift_pc(6);
+}

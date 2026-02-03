@@ -1,6 +1,4 @@
-use crate::instructions::{
-    ArgType, Instruction, InstructionSet, operations,
-};
+use crate::instructions::{ArgType, Instruction, InstructionSet, operations};
 
 pub fn default_instruction_set() -> InstructionSet {
     let mut set = InstructionSet::new();
@@ -74,6 +72,34 @@ pub fn default_instruction_set() -> InstructionSet {
     });
 
     set.register(Instruction {
+        name: "PAL",
+        size: 5,
+        opcode: 0x07,
+        args: vec![
+            ArgType::Value,
+            ArgType::Value,
+            ArgType::Value,
+            ArgType::Value,
+        ],
+        execute: operations::palette,
+    });
+
+    set.register(Instruction {
+        name: "TIL",
+        size: 7,
+        opcode: 0x08,
+        args: vec![
+            ArgType::Register,
+            ArgType::Register,
+            ArgType::Register,
+            ArgType::Register,
+            ArgType::Value,
+            ArgType::Value,
+        ],
+        execute: operations::tilemap,
+    });
+
+    set.register(Instruction {
         name: "JMP",
         size: 3,
         opcode: 0x10,
@@ -135,6 +161,14 @@ pub fn default_instruction_set() -> InstructionSet {
         opcode: 0x33,
         args: vec![ArgType::Register, ArgType::Register],
         execute: operations::store_to_memory_indirect,
+    });
+
+    set.register(Instruction {
+        name: "CPY",
+        size: 7,
+        opcode: 0x34,
+        args: vec![ArgType::Address, ArgType::Address, ArgType::Address],
+        execute: operations::copy,
     });
 
     set.register(Instruction {

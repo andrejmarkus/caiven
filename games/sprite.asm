@@ -1,29 +1,30 @@
-; Initialize sprite data in memory at address 128
-; We use a loop to generate a pattern
-; Registers:
-; R0: Address pointer
-; R1: Color value
-; R2: Loop counter
+init:
+    PAL 1 255 0 0
+    PAL 2 0 255 0
+    PAL 3 0 0 255
 
-MOV R0, 128 ; Start memory address for sprite
-MOV R1, 1   ; Initial color
-MOV R2, 64  ; Loop 64 times (8x8 pixels)
+    CPY 32, sprite, 64
 
-init_loop:
-    STMI R0, R1 ; Store val R1 to addr in R0
-    ADD R0, 1   ; Next addr
-    ADD R1, 1   ; Next color
-    DEC R2      ; Decrement loop counter
-    JNZ R2, init_loop ; Continue if R2 != 0
+    JMP start
 
-; Draw the sprite
-CLS
-MOV R0, 10  ; Screen X
-MOV R1, 10  ; Screen Y
-MOV R2, 128 ; RAM Address of sprite
+start:
+    CLS
+    MOV R0, 40
+    MOV R1, 40
+    MOV R2, 32
 
-SPT R0, R1, R2
+    SPT R0 R1 R2
 
 infinite_loop:
     WAIT
     JMP infinite_loop
+
+sprite:
+    .DB 0,0,0,0,0,0,0,0
+    .DB 0,0,1,1,1,1,0,0
+    .DB 0,1,1,1,1,1,1,0
+    .DB 0,1,1,1,1,1,1,0
+    .DB 0,1,1,1,1,1,1,0
+    .DB 0,1,1,1,1,1,1,0
+    .DB 0,0,1,1,1,1,0,0
+    .DB 0,0,0,0,0,0,0,0

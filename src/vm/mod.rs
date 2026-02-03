@@ -4,9 +4,11 @@ pub mod memory;
 use self::cpu::Cpu;
 use self::memory::Memory;
 use crate::assembler::Assembler;
+use crate::assembler::directives::default_directive_set;
 use crate::input::Input;
 use crate::instructions::InstructionSet;
 use crate::screen::Screen;
+use crate::settings::PALETTE_SIZE;
 use log::error;
 use std::sync::Arc;
 
@@ -15,19 +17,26 @@ pub struct Vm {
     program: Vec<u8>,
     memory: Memory,
     waiting: bool,
+    palette: [[u8; 3]; PALETTE_SIZE],
     instructions: Arc<InstructionSet>,
     assembler: Assembler,
 }
 
 impl Vm {
     pub fn new(instructions: Arc<InstructionSet>) -> Self {
+        let mut palette = [[0; 3]; PALETTE_SIZE];
+        for i in 0..PALETTE_SIZE {
+            palette[i] = [(i as u8), (i as u8), (i as u8)];
+        }
+
         Self {
             cpu: Cpu::new(),
             program: Vec::new(),
             memory: Memory::new(),
             waiting: false,
+            palette,
             instructions: instructions.clone(),
-            assembler: Assembler::new(instructions),
+            assembler: Assembler::new(instructions, Arc::new(default_directive_set())),
         }
     }
 
@@ -67,12 +76,30 @@ impl Vm {
         self.cpu.set_register(index, value);
     }
 
+    pub fn get_palette_color(&self, index: usize) -> [u8; 3] {
+        if index < self.palette.len() {
+            self.palette[index]
+        } else {
+            [0, 0, 0]
+        }
+    }
+
+    pub fn set_palette_color(&mut self, index: usize, r: u8, g: u8, b: u8) {
+        if index < self.palette.len() {
+            self.palette[index] = [r, g, b];
+        }
+    }
+
     pub fn set_pc(&mut self, address: usize) {
         self.cpu.set_pc(address);
     }
 
     pub fn shift_pc(&mut self, offset: isize) {
         self.cpu.shift_pc(offset);
+    }
+
+    pub fn get_memory_length(&self) -> usize {
+        self.memory.get_length()
     }
 
     pub fn pause(&mut self) {
