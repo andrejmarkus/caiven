@@ -5,9 +5,9 @@ mod screen;
 mod settings;
 mod vm;
 
-use crate::instructions::instruction_set::InstructionSet;
+use crate::instructions::default_instruction_set;
 use crate::vm::Vm;
-use input::input::Input;
+use input::Input;
 use pixels::{Pixels, SurfaceTexture};
 use screen::Screen;
 use settings::{HEIGHT, NAME, SCREEN_HEIGHT, SCREEN_WIDTH, WIDTH};
@@ -31,9 +31,9 @@ struct App {
 
 impl App {
     fn new() -> Self {
-        let instruction_set = InstructionSet::default();
+        let instruction_set = Arc::new(default_instruction_set());
         let mut vm = Vm::new(instruction_set);
-        vm.load_program(&std::fs::read_to_string("test.asm").unwrap());
+        vm.load_program(&std::fs::read_to_string("games/sprite.asm").unwrap());
 
         Self {
             window: None,
@@ -49,7 +49,8 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         let window_attrs = WindowAttributes::default()
             .with_title(NAME)
-            .with_inner_size(LogicalSize::new(SCREEN_WIDTH, SCREEN_HEIGHT));
+            .with_inner_size(LogicalSize::new(SCREEN_WIDTH as f64, SCREEN_HEIGHT as f64))
+            .with_resizable(false);
         let window = Arc::new(event_loop.create_window(window_attrs).unwrap());
 
         let size = window.inner_size();
@@ -69,6 +70,11 @@ impl ApplicationHandler for App {
         match event {
             WindowEvent::CloseRequested => {
                 event_loop.exit();
+            }
+            WindowEvent::Resized(new_size) => {
+                if let Some(pixels) = self.pixels.as_mut() {
+                    let _ = pixels.resize_surface(new_size.width, new_size.height);
+                }
             }
             WindowEvent::RedrawRequested => {
                 self.vm.run_frame(&self.input, &mut self.screen);

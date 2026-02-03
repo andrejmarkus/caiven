@@ -1,35 +1,42 @@
-use crate::assembler::assembler::assemble;
-use crate::input::input::Input;
-use crate::instructions::instruction_set::InstructionSet;
+pub mod cpu;
+pub mod memory;
+
+use self::cpu::Cpu;
+use self::memory::Memory;
+use crate::assembler::Assembler;
+use crate::input::Input;
+use crate::instructions::InstructionSet;
 use crate::screen::Screen;
 use log::error;
+use std::sync::Arc;
 
 pub struct Vm {
-    pc: usize,
+    cpu: Cpu,
     program: Vec<u8>,
-    registers: [u8; 4],
-    ram: [u8; 256],
+    memory: Memory,
     waiting: bool,
-    instructions: InstructionSet,
+    instructions: Arc<InstructionSet>,
+    assembler: Assembler,
 }
 
 impl Vm {
-    pub fn new(instructions: InstructionSet) -> Self {
+    pub fn new(instructions: Arc<InstructionSet>) -> Self {
         Self {
-            pc: 0,
+            cpu: Cpu::new(),
             program: Vec::new(),
-            registers: [0; 4],
-            ram: [0; 256],
+            memory: Memory::new(),
             waiting: false,
-            instructions,
+            instructions: instructions.clone(),
+            assembler: Assembler::new(instructions),
         }
     }
 
     pub fn load_program(&mut self, source: &str) {
-        self.program = assemble(source, &self.instructions).unwrap_or_else(|e| {
+        self.program = self.assembler.assemble(source).unwrap_or_else(|e| {
             error!("{}", e.to_string());
             std::process::exit(1);
         });
+        self.cpu.pc = 0;
     }
 
     pub fn get_program(&self) -> &Vec<u8> {
@@ -37,45 +44,35 @@ impl Vm {
     }
 
     pub fn get_pc(&self) -> usize {
-        self.pc
+        self.cpu.pc
     }
 
     pub fn get_registers_len(&self) -> usize {
-        self.registers.len()
+        self.cpu.get_registers_len()
     }
 
     pub fn get_register_value(&self, index: usize) -> u8 {
-        self.registers[index]
+        self.cpu.get_register_value(index)
     }
 
     pub fn decrement_register_value(&mut self, index: usize, value: u8) {
-        if index < self.registers.len() {
-            self.registers[index] = self.registers[index].wrapping_sub(value);
-        }
+        self.cpu.decrement_register_value(index, value);
     }
 
     pub fn increment_register_value(&mut self, index: usize, value: u8) {
-        if index < self.registers.len() {
-            self.registers[index] = self.registers[index].wrapping_add(value);
-        }
+        self.cpu.increment_register_value(index, value);
     }
 
     pub fn set_register(&mut self, index: usize, value: u8) {
-        if index < self.registers.len() {
-            self.registers[index] = value;
-        }
+        self.cpu.set_register(index, value);
     }
 
     pub fn set_pc(&mut self, address: usize) {
-        self.pc = address;
+        self.cpu.set_pc(address);
     }
 
     pub fn shift_pc(&mut self, offset: isize) {
-        if offset.is_negative() {
-            self.pc = self.pc.saturating_sub(offset.wrapping_abs() as usize);
-        } else {
-            self.pc = self.pc.saturating_add(offset as usize);
-        }
+        self.cpu.shift_pc(offset);
     }
 
     pub fn pause(&mut self) {
@@ -83,11 +80,11 @@ impl Vm {
     }
 
     pub fn read_memory(&self, address: usize) -> u8 {
-        self.ram[address]
+        self.memory.read(address)
     }
 
     pub fn write_memory(&mut self, address: usize, value: u8) {
-        self.ram[address] = value;
+        self.memory.write(address, value)
     }
 
     pub fn run_frame(&mut self, input: &Input, screen: &mut Screen) {
@@ -99,14 +96,14 @@ impl Vm {
     }
 
     pub fn step(&mut self, input: &Input, screen: &mut Screen) {
-        let opcode = self.program[self.pc];
+        let opcode = self.program[self.cpu.pc];
 
         let instruction = self
             .instructions
             .get_by_opcode(opcode)
             .unwrap_or_else(|| panic!("Unknown opcode: 0x{:02X}", opcode));
 
-        self.pc += 1;
+        self.cpu.pc += 1;
         (instruction.execute)(self, input, screen);
     }
 }
