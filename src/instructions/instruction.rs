@@ -1,4 +1,4 @@
-use crate::{input::Input, screen::Screen, vm::Vm};
+use crate::{input::input::Input, screen::Screen, vm::Vm};
 
 pub enum ArgType {
     Register,

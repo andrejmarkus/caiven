@@ -1,7 +1,8 @@
-use crate::assembler::assemble;
-use crate::input::Input;
-use crate::instruction_set::InstructionSet;
+use crate::assembler::assembler::assemble;
+use crate::input::input::Input;
+use crate::instructions::instruction_set::InstructionSet;
 use crate::screen::Screen;
+use log::error;
 
 pub struct Vm {
     pc: usize,
@@ -25,7 +26,10 @@ impl Vm {
     }
 
     pub fn load_program(&mut self, source: &str) {
-        self.program = assemble(source, &self.instructions);
+        self.program = assemble(source, &self.instructions).unwrap_or_else(|e| {
+            error!("{}", e.to_string());
+            std::process::exit(1);
+        });
     }
 
     pub fn get_program(&self) -> &Vec<u8> {

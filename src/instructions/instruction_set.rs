@@ -1,8 +1,8 @@
 use log::info;
 
 use crate::{
-    buttons::Button,
-    instruction::{ArgType, Instruction},
+    input::button::Button,
+    instructions::instruction::{ArgType, Instruction},
 };
 
 pub struct InstructionSet {
@@ -264,6 +264,28 @@ impl InstructionSet {
                 );
                 _vm.write_memory(address, value);
                 _vm.shift_pc(2);
+            },
+        });
+
+        set.register(Instruction {
+            name: "LDMI",
+            size: 3,
+            opcode: 0x32,
+            args: vec![ArgType::Register, ArgType::Address],
+            execute: |_vm, _input, _screen| {
+                let reg_index = _vm.get_program()[_vm.get_pc()] as usize;
+                let low = _vm.get_program()[_vm.get_pc() + 1] as u16;
+                let high = _vm.get_program()[_vm.get_pc() + 2] as u16;
+                let address = Self::read_address(low, high) as usize;
+
+                let value = _vm.read_memory(address);
+
+                info!(
+                    "Loaded value {} from memory address {} into register {}",
+                    value, address, reg_index
+                );
+                _vm.set_register(reg_index, value);
+                _vm.shift_pc(3);
             },
         });
 

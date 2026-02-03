@@ -1,15 +1,13 @@
 mod assembler;
-mod buttons;
 mod input;
-mod instruction;
-mod instruction_set;
+mod instructions;
 mod screen;
 mod settings;
 mod vm;
 
-use crate::instruction_set::InstructionSet;
+use crate::instructions::instruction_set::InstructionSet;
 use crate::vm::Vm;
-use input::Input;
+use input::input::Input;
 use pixels::{Pixels, SurfaceTexture};
 use screen::Screen;
 use settings::{HEIGHT, NAME, SCREEN_HEIGHT, SCREEN_WIDTH, WIDTH};
@@ -35,7 +33,7 @@ impl App {
     fn new() -> Self {
         let instruction_set = InstructionSet::default();
         let mut vm = Vm::new(instruction_set);
-        vm.load_program(&std::fs::read_to_string("test.asm").expect("Failed to read test.asm"));
+        vm.load_program(&std::fs::read_to_string("test.asm").unwrap());
 
         Self {
             window: None,

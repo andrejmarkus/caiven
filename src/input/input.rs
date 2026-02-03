@@ -1,4 +1,4 @@
-use crate::buttons::Button;
+use crate::input::button::Button;
 
 #[derive(Default, Clone, Copy)]
 pub struct Input {
