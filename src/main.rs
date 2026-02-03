@@ -1,12 +1,13 @@
-mod assember;
+mod assembler;
 mod buttons;
 mod input;
-mod roms;
+mod instruction;
+mod instruction_set;
 mod screen;
 mod settings;
 mod vm;
 
-use crate::assember::assemble;
+use crate::instruction_set::InstructionSet;
 use crate::vm::Vm;
 use input::Input;
 use pixels::{Pixels, SurfaceTexture};
@@ -32,55 +33,16 @@ struct App {
 
 impl App {
     fn new() -> Self {
+        let instruction_set = InstructionSet::default();
+        let mut vm = Vm::new(instruction_set);
+        vm.load_program(&std::fs::read_to_string("test.asm").expect("Failed to read test.asm"));
+
         Self {
             window: None,
             pixels: None,
             screen: Screen::new(),
             input: Input::new(),
-            vm: Vm::new(assemble(
-                r#"
-                    ; R0 = x, R1 = y, R2 = left input, R3 = right input
-                    ; Init state in RAM
-                    MOV r0 10
-                    STM 100 r0
-                    MOV r1 10
-                    STM 101 r1
-
-                    loop:
-                        CLS
-                        ; Load state from RAM
-                        LDM r0 100
-                        LDM r1 101
-                        
-                        ; Read left and right input
-                        IN r2 2
-                        IN r3 3
-                        
-                        ; Check if left button is pressed
-                        JNZ r2 move_left
-                        
-                        ; Check if right button is pressed
-                        JNZ r3 move_right
-                        
-                        JMP draw
-
-                    move_left:
-                        DEC r0
-                        STM 100 r0
-                        JMP draw
-
-                    move_right:
-                        ADD r0 1
-                        STM 100 r0
-
-                    draw:
-                        ; draw pixel at (R0, R1) with color red (255, 0, 0)
-                        DPXR r0 r1 255,0,0
-                        
-                        WAIT
-                        JMP loop
-                "#,
-            )),
+            vm,
         }
     }
 }
