@@ -1,4 +1,4 @@
-use crate::{input::input::Input, screen::Screen, vm::Vm};
+use crate::{input::input::Input, rendering::screen::ScreenLayer, vm::Vm};
 
 pub enum ArgType {
     Register,
@@ -12,5 +12,5 @@ pub struct Instruction {
     pub opcode: u8,
     pub args: Vec<ArgType>,
 
-    pub execute: fn(vm: &mut Vm, input: &Input, screen: &mut Screen),
+    pub execute: fn(vm: &mut Vm, input: &Input, world: &mut ScreenLayer),
 }

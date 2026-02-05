@@ -1,5 +1,5 @@
 use crate::input::Input;
-use crate::screen::Screen;
+use crate::rendering::screen::ScreenLayer;
 use crate::vm::Vm;
 use log::info;
 
@@ -7,7 +7,7 @@ fn read_address(low: u16, high: u16) -> u16 {
     low | (high << 8)
 }
 
-pub fn jump(vm: &mut Vm, _input: &Input, _screen: &mut Screen) {
+pub fn jump(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer) {
     let low = vm.get_program()[vm.get_pc()] as u16;
     let high = vm.get_program()[vm.get_pc() + 1] as u16;
     let address = read_address(low, high);
@@ -16,7 +16,7 @@ pub fn jump(vm: &mut Vm, _input: &Input, _screen: &mut Screen) {
     vm.set_pc(address as usize);
 }
 
-pub fn jump_if_not_zero(vm: &mut Vm, _input: &Input, _screen: &mut Screen) {
+pub fn jump_if_not_zero(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer) {
     let reg_index = vm.get_program()[vm.get_pc()] as usize;
     let low = vm.get_program()[vm.get_pc() + 1] as u16;
     let high = vm.get_program()[vm.get_pc() + 2] as u16;
@@ -34,7 +34,7 @@ pub fn jump_if_not_zero(vm: &mut Vm, _input: &Input, _screen: &mut Screen) {
     }
 }
 
-pub fn jump_if_zero(vm: &mut Vm, _input: &Input, _screen: &mut Screen) {
+pub fn jump_if_zero(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer) {
     let reg_index = vm.get_program()[vm.get_pc()] as usize;
     let low = vm.get_program()[vm.get_pc() + 1] as u16;
     let high = vm.get_program()[vm.get_pc() + 2] as u16;
@@ -52,7 +52,7 @@ pub fn jump_if_zero(vm: &mut Vm, _input: &Input, _screen: &mut Screen) {
     }
 }
 
-pub fn wait(vm: &mut Vm, _input: &Input, _screen: &mut Screen) {
+pub fn wait(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer) {
     info!("Waiting for next frame");
     vm.pause();
 }

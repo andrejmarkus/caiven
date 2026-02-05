@@ -2,7 +2,7 @@ mod assembler;
 mod debugger;
 mod input;
 mod instructions;
-mod screen;
+mod rendering;
 mod settings;
 mod vm;
 
@@ -11,7 +11,7 @@ use crate::instructions::default_instruction_set;
 use crate::vm::Vm;
 use input::Input;
 use pixels::{Pixels, SurfaceTexture};
-use screen::Screen;
+use rendering::screen::Screen;
 use settings::{HEIGHT, NAME, SCREEN_HEIGHT, SCREEN_WIDTH, WIDTH};
 use std::sync::Arc;
 use winit::event::WindowEvent;
@@ -36,7 +36,7 @@ impl App {
     fn new() -> Self {
         let instruction_set = Arc::new(default_instruction_set());
         let mut vm = Vm::new(instruction_set);
-        vm.load_program(&std::fs::read_to_string("games/tiles.asm").unwrap());
+        vm.load_program(&std::fs::read_to_string("games/movement.asm").unwrap());
 
         Self {
             window: None,
@@ -83,13 +83,15 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => {
                 match self.debugger.get_mode() {
                     debugger::DebugMode::Running => {
-                        self.vm.run_frame(&self.input, &mut self.screen);
+                        self.vm
+                            .run_frame(&self.input, &mut self.screen.get_world_layer());
                     }
                     debugger::DebugMode::Paused => {
                         // Do nothing
                     }
                     debugger::DebugMode::Step => {
-                        self.vm.step(&self.input, &mut self.screen);
+                        self.vm
+                            .step(&self.input, &mut self.screen.get_world_layer());
                         self.debugger.check_breakpoint(self.vm.get_pc());
                         self.debugger.dump_state(&self.vm);
                         self.debugger.pause();
@@ -97,7 +99,7 @@ impl ApplicationHandler for App {
                 }
 
                 if let Some(pixels) = self.pixels.as_mut() {
-                    pixels.frame_mut().copy_from_slice(&self.screen.pixels);
+                    self.screen.construct(pixels.frame_mut());
                     let _ = pixels.render();
                 }
             }

@@ -1,9 +1,9 @@
 use crate::input::{Button, Input};
-use crate::screen::Screen;
+use crate::rendering::screen::ScreenLayer;
 use crate::vm::Vm;
 use log::info;
 
-pub fn input(vm: &mut Vm, input: &Input, _screen: &mut Screen) {
+pub fn input(vm: &mut Vm, input: &Input, _world: &mut ScreenLayer) {
     let reg_index = vm.get_program()[vm.get_pc()] as usize;
     let button_code = vm.get_program()[vm.get_pc() + 1];
 

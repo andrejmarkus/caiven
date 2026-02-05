@@ -3,15 +3,18 @@ pub mod cpu;
 pub mod memory;
 pub mod palette;
 
+pub use camera::*;
+pub use palette::*;
+
 use self::cpu::Cpu;
 use self::memory::Memory;
 use crate::assembler::Assembler;
 use crate::assembler::directives::default_directive_set;
 use crate::input::Input;
 use crate::instructions::InstructionSet;
-use crate::screen::Screen;
-use crate::vm::camera::Camera;
-use crate::vm::palette::Palette;
+use crate::rendering::screen::ScreenLayer;
+use crate::vm::Camera;
+use crate::vm::Palette;
 use log::error;
 use std::sync::Arc;
 
@@ -132,15 +135,15 @@ impl Vm {
         self.memory.write(address, value)
     }
 
-    pub fn run_frame(&mut self, input: &Input, screen: &mut Screen) {
+    pub fn run_frame(&mut self, input: &Input, world: &mut ScreenLayer) {
         self.waiting = false;
 
         while !self.waiting {
-            self.step(input, screen);
+            self.step(input, world);
         }
     }
 
-    pub fn step(&mut self, input: &Input, screen: &mut Screen) {
+    pub fn step(&mut self, input: &Input, world: &mut ScreenLayer) {
         let opcode = self.program[self.cpu.pc];
 
         let instruction = self
@@ -149,6 +152,6 @@ impl Vm {
             .unwrap_or_else(|| panic!("Unknown opcode: 0x{:02X}", opcode));
 
         self.cpu.pc += 1;
-        (instruction.execute)(self, input, screen);
+        (instruction.execute)(self, input, world);
     }
 }
