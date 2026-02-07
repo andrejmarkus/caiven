@@ -100,6 +100,19 @@ pub fn default_instruction_set() -> InstructionSet {
     });
 
     set.register(Instruction {
+        name: "PRN",
+        size: 5,
+        opcode: 0x09,
+        args: vec![
+            ArgType::Register,
+            ArgType::Register,
+            ArgType::Register,
+            ArgType::Register,
+        ],
+        execute: operations::print,
+    });
+
+    set.register(Instruction {
         name: "JMP",
         size: 3,
         opcode: 0x10,

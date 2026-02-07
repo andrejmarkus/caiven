@@ -8,6 +8,7 @@ mod vm;
 
 use crate::debugger::Debugger;
 use crate::instructions::default_instruction_set;
+use crate::rendering::font::Font;
 use crate::vm::Vm;
 use input::Input;
 use pixels::{Pixels, SurfaceTexture};
@@ -34,6 +35,12 @@ struct App {
 
 impl App {
     fn new() -> Self {
+        Font::init_global(
+            "assets/font.png",
+            " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+            3,
+            5,
+        );
         let instruction_set = Arc::new(default_instruction_set());
         let mut vm = Vm::new(instruction_set);
         vm.load_program(&std::fs::read_to_string("games/movement.asm").unwrap());
@@ -81,6 +88,8 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => {
+                self.screen.get_debug_layer().clear();
+
                 match self.debugger.get_mode() {
                     debugger::DebugMode::Running => {
                         self.vm
@@ -88,6 +97,10 @@ impl ApplicationHandler for App {
                     }
                     debugger::DebugMode::Paused => {
                         // Do nothing
+                        self.debugger.draw_overlay(
+                            self.screen.get_debug_layer(),
+                            &self.vm,
+                        );
                     }
                     debugger::DebugMode::Step => {
                         self.vm

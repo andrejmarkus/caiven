@@ -12,7 +12,8 @@ use crate::assembler::Assembler;
 use crate::assembler::directives::default_directive_set;
 use crate::input::Input;
 use crate::instructions::InstructionSet;
-use crate::rendering::screen::ScreenLayer;
+use crate::rendering::screen::{PixelLayer, ScreenLayer};
+use crate::rendering::text::draw_text;
 use crate::vm::Camera;
 use crate::vm::Palette;
 use log::error;
@@ -125,6 +126,18 @@ impl Vm {
 
     pub fn pause(&mut self) {
         self.waiting = true;
+    }
+
+    pub fn draw_text(
+        &self,
+        layer: &mut dyn PixelLayer,
+        text: &str,
+        x: u32,
+        y: u32,
+        color_index: usize,
+    ) {
+        let color = self.palette.get_color(color_index);
+        draw_text(layer, text, x, y, color);
     }
 
     pub fn read_memory(&self, address: usize) -> u8 {

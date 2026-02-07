@@ -92,6 +92,37 @@ pub fn sprite(vm: &mut Vm, _input: &Input, world: &mut ScreenLayer) {
     vm.shift_pc(3);
 }
 
+pub fn print(vm: &mut Vm, _input: &Input, world: &mut ScreenLayer) {
+    let rx = vm.get_program()[vm.get_pc()] as usize;
+    let ry = vm.get_program()[vm.get_pc() + 1] as usize;
+    let rcolor = vm.get_program()[vm.get_pc() + 2] as usize;
+    let raddr = vm.get_program()[vm.get_pc() + 3] as usize;
+
+    let x = vm.get_register_value(rx) as u32;
+    let y = vm.get_register_value(ry) as u32;
+    let color_idx = vm.get_register_value(rcolor) as usize;
+    let addr = vm.get_register_value(raddr) as usize;
+
+    let mut text = String::new();
+    let mut current_addr = addr;
+    loop {
+        let ch = vm.read_memory(current_addr);
+        if ch == 0 || text.len() > 64 {
+            break;
+        }
+        text.push(ch as char);
+        current_addr += 1;
+    }
+
+    info!(
+        "Printing text \"{}\" at ({}, {}) with color index {}",
+        text, x, y, color_idx
+    );
+
+    vm.draw_text(world, &text, x, y, color_idx);
+    vm.shift_pc(4);
+}
+
 pub fn tilemap(vm: &mut Vm, _input: &Input, world: &mut ScreenLayer) {
     let rx = vm.get_program()[vm.get_pc()] as usize;
     let ry = vm.get_program()[vm.get_pc() + 1] as usize;

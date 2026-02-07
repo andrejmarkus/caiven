@@ -1,4 +1,7 @@
-use crate::vm::Vm;
+use crate::{
+    rendering::{screen::ScreenLayer, text::draw_text},
+    vm::Vm,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DebugMode {
@@ -62,5 +65,57 @@ impl Debugger {
         println!("Camera: x={}, y={}", vm.get_camera_x(), vm.get_camera_y());
         println!("waiting: {}", vm.is_waiting());
         println!("----------------");
+    }
+
+    pub fn draw_overlay(&self, screen: &mut ScreenLayer, vm: &Vm) {
+        draw_text(
+            screen,
+            &format!("PC:{}", vm.get_pc()),
+            2,
+            2,
+            [255, 255, 255],
+        );
+        draw_text(
+            screen,
+            &format!("R0:{}", vm.get_registers()[0]),
+            2,
+            10,
+            [255, 255, 255],
+        );
+        draw_text(
+            screen,
+            &format!("R1:{}", vm.get_registers()[1]),
+            2,
+            18,
+            [255, 255, 255],
+        );
+        draw_text(
+            screen,
+            &format!("R2:{}", vm.get_registers()[2]),
+            2,
+            26,
+            [255, 255, 255],
+        );
+        draw_text(
+            screen,
+            &format!("R3:{}", vm.get_registers()[3]),
+            2,
+            34,
+            [255, 255, 255],
+        );
+        draw_text(
+            screen,
+            &format!("CAMERA X {} Y{}", vm.get_camera_x(), vm.get_camera_y()),
+            2,
+            50,
+            [255, 255, 255],
+        );
+        draw_text(
+            screen,
+            &format!("WAITING {}", vm.is_waiting()),
+            2,
+            58,
+            [255, 255, 255],
+        );
     }
 }
