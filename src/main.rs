@@ -130,9 +130,19 @@ impl ApplicationHandler for App {
                                 self.debugger.toggle_pause();
                             }
                         }
-                        KeyCode::KeyN => {
+                        KeyCode::KeyC => {
                             if pressed && !event.repeat {
                                 self.debugger.step();
+                            }
+                        }
+                        KeyCode::KeyN => {
+                            if pressed && !event.repeat {
+                                self.debugger.prev_ram_page();
+                            }
+                        }
+                        KeyCode::KeyM => {
+                            if pressed && !event.repeat {
+                                self.debugger.next_ram_page();
                             }
                         }
                         _ => {}

@@ -1,5 +1,6 @@
 use crate::{
     rendering::{screen::ScreenLayer, text::draw_text},
+    settings::{MEMORY_BYTES_PER_PAGE, MEMORY_PAGE_SIZE, MEMORY_ROW_BYTES},
     utils::{Color, Vec2},
     vm::Vm,
 };
@@ -15,6 +16,7 @@ pub struct Debugger {
     enabled: bool,
     mode: DebugMode,
     breakpoints: Vec<usize>,
+    ram_page: usize,
 }
 
 impl Debugger {
@@ -23,6 +25,25 @@ impl Debugger {
             enabled,
             mode: DebugMode::Running,
             breakpoints: Vec::new(),
+            ram_page: 0,
+        }
+    }
+
+    pub fn next_ram_page(&mut self) {
+        if !self.enabled {
+            return;
+        }
+        self.ram_page = (self.ram_page + 1) % crate::settings::MEMORY_PAGE_COUNT;
+    }
+
+    pub fn prev_ram_page(&mut self) {
+        if !self.enabled {
+            return;
+        }
+        if self.ram_page == 0 {
+            self.ram_page = crate::settings::MEMORY_PAGE_COUNT - 1;
+        } else {
+            self.ram_page -= 1;
         }
     }
 
@@ -139,5 +160,40 @@ impl Debugger {
             Vec2::new(2, 58),
             color,
         );
+        self.render_memory_page(screen, vm, Vec2::new(2, 66), color);
+    }
+
+    fn render_memory_page(&self, screen: &mut ScreenLayer, vm: &Vm, position: Vec2, color: Color) {
+        if !self.enabled {
+            return;
+        }
+        let start_address = self.ram_page * MEMORY_BYTES_PER_PAGE;
+        draw_text(
+            screen,
+            &format!("RAM PAGE: {} (0X{:04X})", self.ram_page, start_address),
+            Vec2::new(position.get_x(), position.get_y() + 4),
+            color,
+        );
+        for row in 0..MEMORY_PAGE_SIZE {
+            let addr = start_address + row * MEMORY_ROW_BYTES;
+            if addr >= vm.get_memory_length() {
+                break;
+            }
+            let mut line = format!("0X{:04X}:", addr);
+            for col in 0..MEMORY_ROW_BYTES {
+                let i = addr + col;
+                if i < vm.get_memory_length() {
+                    line.push_str(&format!(" {:02X}", vm.read_memory(i)));
+                } else {
+                    line.push_str(" --");
+                }
+            }
+            draw_text(
+                screen,
+                &line,
+                Vec2::new(position.get_x(), position.get_y() + 12 + row as u32 * 8),
+                color,
+            );
+        }
     }
 }

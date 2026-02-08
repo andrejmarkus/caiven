@@ -1,3 +1,4 @@
+#[derive(Clone, Copy)]
 pub struct Vec2 {
     x: u32,
     y: u32,
