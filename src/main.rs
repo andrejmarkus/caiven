@@ -3,6 +3,7 @@ mod debugger;
 mod input;
 mod rendering;
 mod settings;
+mod utils;
 mod vm;
 
 use crate::debugger::Debugger;
@@ -33,10 +34,10 @@ struct App {
 }
 
 impl App {
-    fn new() -> Self {
+    fn new(debug_enabled: bool) -> Self {
         Font::init_global(
             "assets/font.png",
-            " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+            " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!?\"'()+-=.:,[]<>",
             3,
             5,
         );
@@ -50,7 +51,7 @@ impl App {
             screen: Screen::new(),
             input: Input::new(),
             vm,
-            debugger: Debugger::new(),
+            debugger: Debugger::new(debug_enabled),
         }
     }
 }
@@ -152,9 +153,12 @@ impl ApplicationHandler for App {
 fn main() {
     env_logger::init();
 
+    let args: Vec<String> = std::env::args().collect();
+    let debug_enabled = args.iter().any(|arg| arg == "--debug" || arg == "-d");
+
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut app = App::new();
+    let mut app = App::new(debug_enabled);
     event_loop.run_app(&mut app).unwrap();
 }

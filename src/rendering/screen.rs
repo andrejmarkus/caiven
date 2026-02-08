@@ -1,4 +1,7 @@
-use crate::settings::{HEIGHT, WIDTH};
+use crate::{
+    settings::{HEIGHT, WIDTH},
+    utils::{Color, Vec2},
+};
 
 pub struct ScreenLayer {
     pixels: Vec<u8>,
@@ -15,12 +18,17 @@ impl ScreenLayer {
         &self.pixels
     }
 
-    pub fn set_pixel(&mut self, x: u32, y: u32, r: u8, g: u8, b: u8, a: u8) {
-        if x >= WIDTH || y >= HEIGHT {
+    pub fn set_pixel(&mut self, position: Vec2, color: Color) {
+        if position.get_x() >= WIDTH || position.get_y() >= HEIGHT {
             return;
         }
-        let i = (y * WIDTH + x) * 4;
-        self.pixels[i as usize..i as usize + 4].copy_from_slice(&[r, g, b, a]);
+        let i = (position.get_y() * WIDTH + position.get_x()) * 4;
+        self.pixels[i as usize..i as usize + 4].copy_from_slice(&[
+            color.get_r(),
+            color.get_g(),
+            color.get_b(),
+            color.get_a(),
+        ]);
     }
 
     pub fn clear(&mut self) {

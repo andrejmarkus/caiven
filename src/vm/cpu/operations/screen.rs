@@ -1,6 +1,7 @@
 use crate::input::Input;
 use crate::rendering::screen::ScreenLayer;
 use crate::settings::SPRITE_SIZE;
+use crate::utils::{Color, Vec2};
 use crate::vm::Vm;
 use log::info;
 
@@ -19,7 +20,7 @@ pub fn draw_pixel(vm: &mut Vm, _input: &Input, layer: &mut ScreenLayer) {
         "Drawing pixel at ({}, {}) with color ({}, {}, {})",
         x, y, r, g, b
     );
-    layer.set_pixel(x, y, r, g, b, 255);
+    layer.set_pixel(Vec2::new(x, y), Color::new_rgb(r, g, b));
     vm.shift_pc(5);
 }
 
@@ -37,7 +38,7 @@ pub fn draw_pixel_from_register(vm: &mut Vm, _input: &Input, layer: &mut ScreenL
         "Drawing pixel at ({}, {}) with color ({}, {}, {}) from registers r{} and r{}",
         x, y, r, g, b, rx, ry
     );
-    layer.set_pixel(x, y, r, g, b, 255);
+    layer.set_pixel(Vec2::new(x, y), Color::new_rgb(r, g, b));
     vm.shift_pc(5);
 }
 
@@ -52,7 +53,7 @@ pub fn palette(vm: &mut Vm, _input: &Input, _layer: &mut ScreenLayer) {
         index, r, g, b
     );
 
-    vm.set_palette_color(index, r, g, b);
+    vm.set_palette_color(index, Color::new_rgb(r, g, b));
     vm.shift_pc(4);
 }
 
@@ -77,14 +78,13 @@ pub fn sprite(vm: &mut Vm, _input: &Input, layer: &mut ScreenLayer) {
                 continue;
             }
 
-            let [r, g, b] = vm.get_palette_color(pixel as usize);
+            let color = vm.get_palette_color(pixel as usize);
             layer.set_pixel(
-                (x0 + sx).wrapping_sub(vm.get_camera_x()),
-                (y0 + sy).wrapping_sub(vm.get_camera_y()),
-                r,
-                g,
-                b,
-                255,
+                Vec2::new(
+                    (x0 + sx).wrapping_sub(vm.get_camera_x()),
+                    (y0 + sy).wrapping_sub(vm.get_camera_y()),
+                ),
+                color,
             );
         }
     }
@@ -153,14 +153,13 @@ pub fn tilemap(vm: &mut Vm, _input: &Input, layer: &mut ScreenLayer) {
                         continue;
                     }
 
-                    let [r, g, b] = vm.get_palette_color(pixel as usize);
+                    let color = vm.get_palette_color(pixel as usize);
                     layer.set_pixel(
-                        (x0 + tx * SPRITE_SIZE + sx).wrapping_sub(vm.get_camera_x()),
-                        (y0 + ty * SPRITE_SIZE + sy).wrapping_sub(vm.get_camera_y()),
-                        r,
-                        g,
-                        b,
-                        255,
+                        Vec2::new(
+                            (x0 + tx * SPRITE_SIZE + sx).wrapping_sub(vm.get_camera_x()),
+                            (y0 + ty * SPRITE_SIZE + sy).wrapping_sub(vm.get_camera_y()),
+                        ),
+                        color,
                     );
                 }
             }

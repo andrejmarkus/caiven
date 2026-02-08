@@ -13,6 +13,8 @@ use crate::assembler::directives::default_directive_set;
 use crate::input::Input;
 use crate::rendering::screen::ScreenLayer;
 use crate::rendering::text::draw_text;
+use crate::utils::Color;
+use crate::utils::Vec2;
 use crate::vm::Camera;
 use crate::vm::Palette;
 use crate::vm::cpu::InstructionSet;
@@ -36,7 +38,7 @@ impl Vm {
             cpu: Cpu::new(),
             program: Vec::new(),
             memory: Memory::new(),
-            camera: Camera::new(),
+            camera: Camera::new(Vec2::new(0, 0)),
             palette: Palette::new(),
             instructions: instructions.clone(),
             assembler: Assembler::new(instructions, Arc::new(default_directive_set())),
@@ -84,12 +86,12 @@ impl Vm {
         self.cpu.set_register(index, value);
     }
 
-    pub fn get_palette_color(&self, index: usize) -> [u8; 3] {
+    pub fn get_palette_color(&self, index: usize) -> Color {
         self.palette.get_color(index)
     }
 
-    pub fn set_palette_color(&mut self, index: usize, r: u8, g: u8, b: u8) {
-        self.palette.set_color(index, [r, g, b]);
+    pub fn set_palette_color(&mut self, index: usize, color: Color) {
+        self.palette.set_color(index, color);
     }
 
     pub fn set_pc(&mut self, address: usize) {
@@ -137,7 +139,7 @@ impl Vm {
         color_index: usize,
     ) {
         let color = self.palette.get_color(color_index);
-        draw_text(layer, text, x, y, color);
+        draw_text(layer, text, Vec2::new(x, y), color);
     }
 
     pub fn read_memory(&self, address: usize) -> u8 {
