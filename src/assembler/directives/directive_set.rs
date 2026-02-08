@@ -1,4 +1,4 @@
-use crate::assembler::directive::Directive;
+use crate::assembler::Directive;
 
 pub struct DirectiveSet {
     pub directives: Vec<Directive>,

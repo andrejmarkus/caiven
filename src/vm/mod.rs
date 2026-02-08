@@ -8,8 +8,7 @@ pub use palette::*;
 
 use self::cpu::Cpu;
 use self::memory::Memory;
-use crate::assembler::Assembler;
-use crate::assembler::directives::default_directive_set;
+use crate::assembler::{Assembler, AssemblyItem, InstructionSet, SourceMap, default_directive_set};
 use crate::input::Input;
 use crate::rendering::screen::ScreenLayer;
 use crate::rendering::text::draw_text;
@@ -17,7 +16,6 @@ use crate::utils::Color;
 use crate::utils::Vec2;
 use crate::vm::Camera;
 use crate::vm::Palette;
-use crate::vm::cpu::InstructionSet;
 use log::error;
 use std::sync::Arc;
 
@@ -29,6 +27,7 @@ pub struct Vm {
     palette: Palette,
     instructions: Arc<InstructionSet>,
     assembler: Assembler,
+    source_map: SourceMap,
     waiting: bool,
 }
 
@@ -42,16 +41,26 @@ impl Vm {
             palette: Palette::new(),
             instructions: instructions.clone(),
             assembler: Assembler::new(instructions, Arc::new(default_directive_set())),
+            source_map: SourceMap::new(),
             waiting: false,
         }
     }
 
     pub fn load_program(&mut self, source: &str) {
-        self.program = self.assembler.assemble(source).unwrap_or_else(|e| {
-            error!("{}", e.to_string());
-            std::process::exit(1);
-        });
+        let (program, source_map) = self
+            .assembler
+            .assemble_with_source_map(source)
+            .unwrap_or_else(|e| {
+                error!("{}", e.to_string());
+                std::process::exit(1);
+            });
+        self.program = program;
+        self.source_map = source_map;
         self.cpu.pc = 0;
+    }
+
+    pub fn get_instruction_by_opcode(&self, opcode: u8) -> Option<&crate::assembler::Instruction> {
+        self.instructions.get_by_opcode(opcode)
     }
 
     pub fn get_program(&self) -> &Vec<u8> {
@@ -72,6 +81,10 @@ impl Vm {
 
     pub fn get_register_value(&self, index: usize) -> u8 {
         self.cpu.get_register_value(index)
+    }
+
+    pub fn get_source_map(&self) -> &SourceMap {
+        &self.source_map
     }
 
     pub fn decrement_register_value(&mut self, index: usize, value: u8) {
@@ -148,6 +161,59 @@ impl Vm {
 
     pub fn write_memory(&mut self, address: usize, value: u8) {
         self.memory.write(address, value)
+    }
+
+    pub fn disassemble(&self, pc: usize) -> String {
+        let program = self.get_program();
+        let source_map = self.get_source_map();
+
+        if pc >= program.len() {
+            return "OUT OF BOUNDS".to_string();
+        }
+
+        let mut info_parts = Vec::new();
+        if let Some(address_info) = source_map.get(pc) {
+            for label in &address_info.labels {
+                info_parts.push(format!("[{}]", label.to_uppercase()));
+            }
+
+            if let Some(item) = &address_info.item {
+                match item {
+                    AssemblyItem::Instruction {
+                        name: _,
+                        opcode: _,
+                        size,
+                    } => {
+                        let opcode = program[pc];
+                        let instruction = self.get_instruction_by_opcode(opcode);
+                        if let Some(instr) = instruction {
+                            let end = (pc + size).min(program.len());
+                            let bytes = &program[pc..end];
+                            if bytes.len() < *size {
+                                info_parts.push(format!("{} (INCOMPLETE)", instr.name));
+                            } else {
+                                info_parts.push((instr.debug_info)(bytes));
+                            }
+                        } else {
+                            info_parts.push(format!("UNKNOWN OPCODE: 0X{:02X}", opcode));
+                        }
+                    }
+                    AssemblyItem::Directive { name, size } => {
+                        let end = (pc + size).min(program.len());
+                        let bytes = &program[pc..end];
+                        let hex_string: Vec<String> =
+                            bytes.iter().map(|b| format!("{:02X}", b)).collect();
+                        info_parts.push(format!("{} {}", name, hex_string.join(" ")));
+                    }
+                }
+            }
+        }
+
+        if info_parts.is_empty() {
+            format!(".DB 0X{:02X}", program[pc])
+        } else {
+            info_parts.join(" ")
+        }
     }
 
     pub fn run_frame(&mut self, input: &Input, world: &mut ScreenLayer) {

@@ -1,4 +1,4 @@
-use crate::assembler::directives::{Directive, DirectiveSet};
+use crate::assembler::{Directive, DirectiveSet};
 
 pub fn default_directive_set() -> DirectiveSet {
     let mut set = DirectiveSet::new();

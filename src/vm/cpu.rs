@@ -1,12 +1,3 @@
-pub mod default_set;
-pub mod instruction;
-pub mod instruction_set;
-pub mod operations;
-
-pub use default_set::*;
-pub use instruction::*;
-pub use instruction_set::*;
-
 use crate::settings::REGISTER_COUNT;
 
 pub struct Cpu {

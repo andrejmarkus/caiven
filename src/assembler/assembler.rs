@@ -1,7 +1,7 @@
-use crate::assembler::AssemblerError;
-use crate::assembler::directives::DirectiveSet;
-use crate::vm::cpu::ArgType;
-use crate::vm::cpu::InstructionSet;
+use crate::assembler::{
+    AssemblerError, DirectiveSet, InstructionSet, SourceMap,
+    item::{ArgType, AssemblyItem},
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -19,8 +19,16 @@ impl Assembler {
     }
 
     pub fn assemble(&self, source: &str) -> Result<Vec<u8>, AssemblerError> {
+        let (bytecode, _) = self.assemble_with_source_map(source)?;
+        Ok(bytecode)
+    }
+
+    pub fn assemble_with_source_map(
+        &self,
+        source: &str,
+    ) -> Result<(Vec<u8>, SourceMap), AssemblerError> {
         let labels = self.collect_labels(source)?;
-        self.emit_bytecode(source, &labels)
+        self.emit_bytecode_with_source_map(source, &labels)
     }
 
     fn collect_labels(&self, source: &str) -> Result<HashMap<String, u16>, AssemblerError> {
@@ -61,30 +69,56 @@ impl Assembler {
         Ok(labels)
     }
 
-    fn emit_bytecode(
+    fn emit_bytecode_with_source_map(
         &self,
         source: &str,
         labels: &HashMap<String, u16>,
-    ) -> Result<Vec<u8>, AssemblerError> {
+    ) -> Result<(Vec<u8>, SourceMap), AssemblerError> {
         let mut bytecode = Vec::new();
+        let mut source_map = SourceMap::new();
 
         for (i, line) in source.lines().enumerate() {
             let line_number = i + 1;
             let cleaned = self.clean(line);
-            if cleaned.is_empty() || cleaned.ends_with(':') {
+            if cleaned.is_empty() {
+                continue;
+            }
+
+            if cleaned.ends_with(':') {
+                let name = cleaned.trim_end_matches(':').trim().to_string();
+                source_map.insert_label(bytecode.len(), name);
                 continue;
             }
 
             let tokens = self.tokenize(&cleaned);
             let name = tokens[0];
+            let current_pc = bytecode.len();
 
             if name.starts_with('.') {
                 let directive = self.directive_set.get_by_name(name).unwrap();
-                let current_pc = bytecode.len() as u16;
-                let data = (directive.emit)(&tokens[1..], labels, current_pc)
+                let data = (directive.emit)(&tokens[1..], labels, current_pc as u16)
                     .map_err(|e| self.error(line_number, &cleaned, e))?;
+
+                source_map.insert_item(
+                    current_pc,
+                    AssemblyItem::Directive {
+                        name: name.to_string(),
+                        size: data.len(),
+                    },
+                );
+
                 bytecode.extend(data);
             } else {
+                let instruction = self.instruction_set.get_by_name(name).unwrap();
+                source_map.insert_item(
+                    current_pc,
+                    AssemblyItem::Instruction {
+                        name: name.to_string(),
+                        opcode: instruction.opcode,
+                        size: instruction.size,
+                    },
+                );
+
                 self.emit_instruction_tokens(
                     &tokens,
                     line_number,
@@ -95,6 +129,15 @@ impl Assembler {
             }
         }
 
+        Ok((bytecode, source_map))
+    }
+
+    fn emit_bytecode(
+        &self,
+        source: &str,
+        labels: &HashMap<String, u16>,
+    ) -> Result<Vec<u8>, AssemblerError> {
+        let (bytecode, _) = self.emit_bytecode_with_source_map(source, labels)?;
         Ok(bytecode)
     }
 

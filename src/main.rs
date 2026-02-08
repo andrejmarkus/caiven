@@ -6,10 +6,10 @@ mod settings;
 mod utils;
 mod vm;
 
+use crate::assembler::default_instruction_set;
 use crate::debugger::Debugger;
 use crate::rendering::font::Font;
 use crate::vm::Vm;
-use crate::vm::cpu::default_instruction_set;
 use input::Input;
 use pixels::{Pixels, SurfaceTexture};
 use rendering::screen::Screen;
@@ -96,7 +96,6 @@ impl ApplicationHandler for App {
                             .run_frame(&self.input, &mut self.screen.get_world_layer());
                     }
                     debugger::DebugMode::Paused => {
-                        // Do nothing
                         self.debugger
                             .draw_overlay(self.screen.get_debug_layer(), &self.vm);
                     }

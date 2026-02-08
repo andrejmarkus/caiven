@@ -102,7 +102,7 @@ impl Debugger {
             return;
         }
         println!("--- VM state ---");
-        println!("PC: {}", vm.get_pc());
+        println!("PC: {} ({})", vm.get_pc(), vm.disassemble(vm.get_pc()));
         println!("Registers:");
         for (i, val) in vm.get_registers().iter().enumerate() {
             println!("R{}: {}", i, val);
@@ -117,49 +117,49 @@ impl Debugger {
             return;
         }
         let color = Color::new_rgb(255, 255, 255);
-        draw_text(screen, "DEBUG:", Vec2::new(2, 2), color);
         draw_text(
             screen,
             &format!("PC:{}", vm.get_pc()),
-            Vec2::new(2, 10),
+            Vec2::new(2, 2),
             color,
         );
         draw_text(
             screen,
             &format!("R0:{}", vm.get_registers()[0]),
-            Vec2::new(2, 18),
+            Vec2::new(2, 10),
             color,
         );
         draw_text(
             screen,
             &format!("R1:{}", vm.get_registers()[1]),
-            Vec2::new(2, 26),
+            Vec2::new(2, 18),
             color,
         );
         draw_text(
             screen,
             &format!("R2:{}", vm.get_registers()[2]),
-            Vec2::new(2, 34),
+            Vec2::new(2, 26),
             color,
         );
         draw_text(
             screen,
             &format!("R3:{}", vm.get_registers()[3]),
-            Vec2::new(2, 42),
+            Vec2::new(2, 34),
             color,
         );
         draw_text(
             screen,
             &format!("CAMERA:({},{})", vm.get_camera_x(), vm.get_camera_y()),
-            Vec2::new(2, 50),
+            Vec2::new(2, 42),
             color,
         );
         draw_text(
             screen,
             &format!("WAITING:{}", if vm.is_waiting() { "YES" } else { "NO" }),
-            Vec2::new(2, 58),
+            Vec2::new(2, 50),
             color,
         );
+        self.render_instruction_info(screen, vm, Vec2::new(2, 58), color);
         self.render_memory_page(screen, vm, Vec2::new(2, 66), color);
     }
 
@@ -195,5 +195,21 @@ impl Debugger {
                 color,
             );
         }
+    }
+
+    fn render_instruction_info(
+        &self,
+        screen: &mut ScreenLayer,
+        vm: &Vm,
+        position: Vec2,
+        color: Color,
+    ) {
+        if !self.enabled {
+            return;
+        }
+
+        let info = vm.disassemble(vm.get_pc());
+
+        draw_text(screen, &format!("INSTR:{}", info), position, color);
     }
 }
