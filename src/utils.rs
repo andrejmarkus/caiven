@@ -31,7 +31,7 @@ impl Vec2 {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Color {
     r: u8,
     g: u8,

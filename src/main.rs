@@ -94,6 +94,7 @@ impl ApplicationHandler for App {
                     debugger::DebugMode::Running => {
                         self.vm
                             .run_frame(&self.input, &mut self.screen.get_world_layer());
+                        self.debugger.push_state(self.vm.snapshot());
                     }
                     debugger::DebugMode::Paused => {
                         self.debugger
@@ -132,6 +133,14 @@ impl ApplicationHandler for App {
                         KeyCode::KeyC => {
                             if pressed && !event.repeat {
                                 self.debugger.step();
+                            }
+                        }
+                        KeyCode::KeyB => {
+                            if pressed && !event.repeat {
+                                if let Some(state) = self.debugger.pop_state() {
+                                    self.vm.restore(&state);
+                                    self.debugger.pause();
+                                }
                             }
                         }
                         KeyCode::KeyN => {

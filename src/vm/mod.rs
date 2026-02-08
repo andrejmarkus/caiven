@@ -235,4 +235,41 @@ impl Vm {
         self.cpu.pc += 1;
         (instruction.execute)(self, input, world);
     }
+
+    pub fn snapshot(&self) -> VmSnapshot {
+        VmSnapshot {
+            pc: self.cpu.pc,
+            registers: self.cpu.get_registers().to_vec(),
+            memory: self.memory.get_ram().to_vec(),
+            camera_x: self.camera.get_x(),
+            camera_y: self.camera.get_y(),
+            palette: self.palette.get_colors().to_vec(),
+            waiting: self.waiting,
+        }
+    }
+
+    pub fn restore(&mut self, snapshot: &VmSnapshot) {
+        self.cpu.pc = snapshot.pc;
+        for (i, val) in snapshot.registers.iter().enumerate() {
+            self.cpu.set_register(i, *val);
+        }
+        self.memory
+            .set_ram(snapshot.memory.clone().try_into().unwrap());
+        self.camera
+            .set_position(snapshot.camera_x, snapshot.camera_y);
+        self.palette
+            .set_colors(snapshot.palette.clone().try_into().unwrap());
+        self.waiting = snapshot.waiting;
+    }
+}
+
+#[derive(Clone)]
+pub struct VmSnapshot {
+    pub pc: usize,
+    pub registers: Vec<u8>,
+    pub memory: Vec<u8>,
+    pub camera_x: u32,
+    pub camera_y: u32,
+    pub palette: Vec<Color>,
+    pub waiting: bool,
 }

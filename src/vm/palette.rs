@@ -14,6 +14,14 @@ impl Palette {
         Self { colors }
     }
 
+    pub fn get_colors(&self) -> &[Color] {
+        &self.colors
+    }
+
+    pub fn set_colors(&mut self, colors: [Color; PALETTE_SIZE]) {
+        self.colors = colors;
+    }
+
     pub fn get_color(&self, index: usize) -> Color {
         if index < self.colors.len() {
             self.colors[index]

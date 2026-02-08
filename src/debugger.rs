@@ -2,7 +2,7 @@ use crate::{
     rendering::{screen::ScreenLayer, text::draw_text},
     settings::{MEMORY_BYTES_PER_PAGE, MEMORY_PAGE_SIZE, MEMORY_ROW_BYTES},
     utils::{Color, Vec2},
-    vm::Vm,
+    vm::{Vm, VmSnapshot},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,6 +17,8 @@ pub struct Debugger {
     mode: DebugMode,
     breakpoints: Vec<usize>,
     ram_page: usize,
+    states: Vec<VmSnapshot>,
+    max_states: usize,
 }
 
 impl Debugger {
@@ -26,7 +28,26 @@ impl Debugger {
             mode: DebugMode::Running,
             breakpoints: Vec::new(),
             ram_page: 0,
+            states: Vec::new(),
+            max_states: 100,
         }
+    }
+
+    pub fn push_state(&mut self, snapshot: VmSnapshot) {
+        if !self.enabled {
+            return;
+        }
+        self.states.push(snapshot);
+        if self.states.len() > self.max_states {
+            self.states.remove(0);
+        }
+    }
+
+    pub fn pop_state(&mut self) -> Option<VmSnapshot> {
+        if !self.enabled {
+            return None;
+        }
+        self.states.pop()
     }
 
     pub fn next_ram_page(&mut self) {
@@ -157,6 +178,12 @@ impl Debugger {
             screen,
             &format!("WAITING:{}", if vm.is_waiting() { "YES" } else { "NO" }),
             Vec2::new(2, 50),
+            color,
+        );
+        draw_text(
+            screen,
+            &format!("STATES:{}", self.states.len()),
+            Vec2::new(86, 2),
             color,
         );
         self.render_instruction_info(screen, vm, Vec2::new(2, 58), color);
