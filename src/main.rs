@@ -1,15 +1,14 @@
 mod assembler;
 mod debugger;
 mod input;
-mod instructions;
 mod rendering;
 mod settings;
 mod vm;
 
 use crate::debugger::Debugger;
-use crate::instructions::default_instruction_set;
 use crate::rendering::font::Font;
 use crate::vm::Vm;
+use crate::vm::cpu::default_instruction_set;
 use input::Input;
 use pixels::{Pixels, SurfaceTexture};
 use rendering::screen::Screen;
@@ -97,10 +96,8 @@ impl ApplicationHandler for App {
                     }
                     debugger::DebugMode::Paused => {
                         // Do nothing
-                        self.debugger.draw_overlay(
-                            self.screen.get_debug_layer(),
-                            &self.vm,
-                        );
+                        self.debugger
+                            .draw_overlay(self.screen.get_debug_layer(), &self.vm);
                     }
                     debugger::DebugMode::Step => {
                         self.vm

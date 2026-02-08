@@ -4,11 +4,11 @@ use crate::settings::SPRITE_SIZE;
 use crate::vm::Vm;
 use log::info;
 
-pub fn clear_screen(_vm: &mut Vm, _input: &Input, world: &mut ScreenLayer) {
-    world.clear();
+pub fn clear_screen(_vm: &mut Vm, _input: &Input, layer: &mut ScreenLayer) {
+    layer.clear();
 }
 
-pub fn draw_pixel(vm: &mut Vm, _input: &Input, world: &mut ScreenLayer) {
+pub fn draw_pixel(vm: &mut Vm, _input: &Input, layer: &mut ScreenLayer) {
     let x = vm.get_program()[vm.get_pc()] as u32;
     let y = vm.get_program()[vm.get_pc() + 1] as u32;
     let r = vm.get_program()[vm.get_pc() + 2];
@@ -19,11 +19,11 @@ pub fn draw_pixel(vm: &mut Vm, _input: &Input, world: &mut ScreenLayer) {
         "Drawing pixel at ({}, {}) with color ({}, {}, {})",
         x, y, r, g, b
     );
-    world.set_pixel(x, y, r, g, b, 255);
+    layer.set_pixel(x, y, r, g, b, 255);
     vm.shift_pc(5);
 }
 
-pub fn draw_pixel_from_register(vm: &mut Vm, _input: &Input, world: &mut ScreenLayer) {
+pub fn draw_pixel_from_register(vm: &mut Vm, _input: &Input, layer: &mut ScreenLayer) {
     let rx = vm.get_program()[vm.get_pc()] as usize;
     let ry = vm.get_program()[vm.get_pc() + 1] as usize;
     let r = vm.get_program()[vm.get_pc() + 2];
@@ -37,11 +37,11 @@ pub fn draw_pixel_from_register(vm: &mut Vm, _input: &Input, world: &mut ScreenL
         "Drawing pixel at ({}, {}) with color ({}, {}, {}) from registers r{} and r{}",
         x, y, r, g, b, rx, ry
     );
-    world.set_pixel(x, y, r, g, b, 255);
+    layer.set_pixel(x, y, r, g, b, 255);
     vm.shift_pc(5);
 }
 
-pub fn palette(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer) {
+pub fn palette(vm: &mut Vm, _input: &Input, _layer: &mut ScreenLayer) {
     let index = vm.get_program()[vm.get_pc()] as usize;
     let r = vm.get_program()[vm.get_pc() + 1];
     let g = vm.get_program()[vm.get_pc() + 2];
@@ -56,7 +56,7 @@ pub fn palette(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer) {
     vm.shift_pc(4);
 }
 
-pub fn sprite(vm: &mut Vm, _input: &Input, world: &mut ScreenLayer) {
+pub fn sprite(vm: &mut Vm, _input: &Input, layer: &mut ScreenLayer) {
     let rx = vm.get_program()[vm.get_pc()] as usize;
     let ry = vm.get_program()[vm.get_pc() + 1] as usize;
     let raddr = vm.get_program()[vm.get_pc() + 2] as usize;
@@ -78,7 +78,7 @@ pub fn sprite(vm: &mut Vm, _input: &Input, world: &mut ScreenLayer) {
             }
 
             let [r, g, b] = vm.get_palette_color(pixel as usize);
-            world.set_pixel(
+            layer.set_pixel(
                 (x0 + sx).wrapping_sub(vm.get_camera_x()),
                 (y0 + sy).wrapping_sub(vm.get_camera_y()),
                 r,
@@ -92,7 +92,7 @@ pub fn sprite(vm: &mut Vm, _input: &Input, world: &mut ScreenLayer) {
     vm.shift_pc(3);
 }
 
-pub fn print(vm: &mut Vm, _input: &Input, world: &mut ScreenLayer) {
+pub fn print(vm: &mut Vm, _input: &Input, layer: &mut ScreenLayer) {
     let rx = vm.get_program()[vm.get_pc()] as usize;
     let ry = vm.get_program()[vm.get_pc() + 1] as usize;
     let rcolor = vm.get_program()[vm.get_pc() + 2] as usize;
@@ -119,11 +119,11 @@ pub fn print(vm: &mut Vm, _input: &Input, world: &mut ScreenLayer) {
         text, x, y, color_idx
     );
 
-    vm.draw_text(world, &text, x, y, color_idx);
+    vm.draw_text(layer, &text, x, y, color_idx);
     vm.shift_pc(4);
 }
 
-pub fn tilemap(vm: &mut Vm, _input: &Input, world: &mut ScreenLayer) {
+pub fn tilemap(vm: &mut Vm, _input: &Input, layer: &mut ScreenLayer) {
     let rx = vm.get_program()[vm.get_pc()] as usize;
     let ry = vm.get_program()[vm.get_pc() + 1] as usize;
     let rtiles = vm.get_program()[vm.get_pc() + 2] as usize;
@@ -154,7 +154,7 @@ pub fn tilemap(vm: &mut Vm, _input: &Input, world: &mut ScreenLayer) {
                     }
 
                     let [r, g, b] = vm.get_palette_color(pixel as usize);
-                    world.set_pixel(
+                    layer.set_pixel(
                         (x0 + tx * SPRITE_SIZE + sx).wrapping_sub(vm.get_camera_x()),
                         (y0 + ty * SPRITE_SIZE + sy).wrapping_sub(vm.get_camera_y()),
                         r,

@@ -2,7 +2,7 @@ use crate::input::Input;
 use crate::rendering::screen::ScreenLayer;
 use crate::vm::Vm;
 
-pub fn set_camera_position(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer) {
+pub fn set_camera_position(vm: &mut Vm, _input: &Input, _layer: &mut ScreenLayer) {
     let rx = vm.get_program()[vm.get_pc()] as usize;
     let ry = vm.get_program()[vm.get_pc() + 1] as usize;
 
@@ -12,7 +12,7 @@ pub fn set_camera_position(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer
     vm.set_camera_position(x, y);
 }
 
-pub fn move_camera(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer) {
+pub fn move_camera(vm: &mut Vm, _input: &Input, _layer: &mut ScreenLayer) {
     let rx = vm.get_program()[vm.get_pc()] as usize;
     let ry = vm.get_program()[vm.get_pc() + 1] as usize;
 

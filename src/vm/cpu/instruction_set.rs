@@ -1,4 +1,4 @@
-use crate::instructions::Instruction;
+use crate::vm::cpu::Instruction;
 
 pub struct InstructionSet {
     pub instructions: Vec<Instruction>,

@@ -3,7 +3,7 @@ use crate::rendering::screen::ScreenLayer;
 use crate::vm::Vm;
 use log::info;
 
-pub fn move_value(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer) {
+pub fn move_value(vm: &mut Vm, _input: &Input, _layer: &mut ScreenLayer) {
     let reg_index = vm.get_program()[vm.get_pc()] as usize;
     let value = vm.get_program()[vm.get_pc() + 1];
 
@@ -16,7 +16,7 @@ pub fn move_value(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer) {
     vm.shift_pc(2);
 }
 
-pub fn add_value(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer) {
+pub fn add_value(vm: &mut Vm, _input: &Input, _layer: &mut ScreenLayer) {
     let reg_index = vm.get_program()[vm.get_pc()] as usize;
     let value = vm.get_program()[vm.get_pc() + 1];
 
@@ -29,7 +29,7 @@ pub fn add_value(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer) {
     vm.shift_pc(2);
 }
 
-pub fn decrement_value(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer) {
+pub fn decrement_value(vm: &mut Vm, _input: &Input, _layer: &mut ScreenLayer) {
     let reg_index = vm.get_program()[vm.get_pc()] as usize;
 
     if reg_index < vm.get_registers_len() {

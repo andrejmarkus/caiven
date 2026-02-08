@@ -11,11 +11,11 @@ use self::memory::Memory;
 use crate::assembler::Assembler;
 use crate::assembler::directives::default_directive_set;
 use crate::input::Input;
-use crate::instructions::InstructionSet;
-use crate::rendering::screen::{PixelLayer, ScreenLayer};
+use crate::rendering::screen::ScreenLayer;
 use crate::rendering::text::draw_text;
 use crate::vm::Camera;
 use crate::vm::Palette;
+use crate::vm::cpu::InstructionSet;
 use log::error;
 use std::sync::Arc;
 
@@ -130,7 +130,7 @@ impl Vm {
 
     pub fn draw_text(
         &self,
-        layer: &mut dyn PixelLayer,
+        layer: &mut ScreenLayer,
         text: &str,
         x: u32,
         y: u32,

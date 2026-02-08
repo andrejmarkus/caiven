@@ -1,4 +1,4 @@
-use crate::instructions::{ArgType, Instruction, InstructionSet, operations};
+use crate::vm::cpu::{ArgType, Instruction, InstructionSet, operations};
 
 pub fn default_instruction_set() -> InstructionSet {
     let mut set = InstructionSet::new();

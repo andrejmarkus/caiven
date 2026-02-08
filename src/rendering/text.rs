@@ -1,7 +1,6 @@
-use crate::rendering::font::Font;
-use crate::rendering::screen::PixelLayer;
+use crate::rendering::{font::Font, screen::ScreenLayer};
 
-pub fn draw_character(layer: &mut dyn PixelLayer, ch: char, x: u32, y: u32, color: [u8; 3]) {
+pub fn draw_character(layer: &mut ScreenLayer, ch: char, x: u32, y: u32, color: [u8; 3]) {
     let font = Font::get_global();
     if let Some(glyph) = font.glyphs.get(&ch) {
         for j in 0..font.height {
@@ -21,7 +20,7 @@ pub fn draw_character(layer: &mut dyn PixelLayer, ch: char, x: u32, y: u32, colo
     }
 }
 
-pub fn draw_text(layer: &mut dyn PixelLayer, text: &str, x: u32, y: u32, color: [u8; 3]) {
+pub fn draw_text(layer: &mut ScreenLayer, text: &str, x: u32, y: u32, color: [u8; 3]) {
     let font = Font::get_global();
     for (i, ch) in text.chars().enumerate() {
         draw_character(layer, ch, x + i as u32 * (font.width as u32 + 1), y, color);

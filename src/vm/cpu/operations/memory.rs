@@ -3,7 +3,7 @@ use crate::rendering::screen::ScreenLayer;
 use crate::vm::Vm;
 use log::info;
 
-pub fn load_from_memory(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer) {
+pub fn load_from_memory(vm: &mut Vm, _input: &Input, _layer: &mut ScreenLayer) {
     let reg_index = vm.get_program()[vm.get_pc()] as usize;
     let address = vm.get_program()[vm.get_pc() + 1] as usize;
 
@@ -17,7 +17,7 @@ pub fn load_from_memory(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer) {
     vm.shift_pc(2);
 }
 
-pub fn store_to_memory(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer) {
+pub fn store_to_memory(vm: &mut Vm, _input: &Input, _layer: &mut ScreenLayer) {
     let address = vm.get_program()[vm.get_pc()] as usize;
     let reg_index = vm.get_program()[vm.get_pc() + 1] as usize;
 
@@ -31,7 +31,7 @@ pub fn store_to_memory(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer) {
     vm.shift_pc(2);
 }
 
-pub fn load_from_memory_indirect(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer) {
+pub fn load_from_memory_indirect(vm: &mut Vm, _input: &Input, _layer: &mut ScreenLayer) {
     let reg_to_index = vm.get_program()[vm.get_pc()] as usize;
     let reg_from_index = vm.get_program()[vm.get_pc() + 1] as usize;
 
@@ -46,7 +46,7 @@ pub fn load_from_memory_indirect(vm: &mut Vm, _input: &Input, _world: &mut Scree
     vm.shift_pc(2);
 }
 
-pub fn store_to_memory_indirect(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer) {
+pub fn store_to_memory_indirect(vm: &mut Vm, _input: &Input, _layer: &mut ScreenLayer) {
     let reg_addr_index = vm.get_program()[vm.get_pc()] as usize;
     let reg_val_index = vm.get_program()[vm.get_pc() + 1] as usize;
 
@@ -61,7 +61,7 @@ pub fn store_to_memory_indirect(vm: &mut Vm, _input: &Input, _world: &mut Screen
     vm.shift_pc(2);
 }
 
-pub fn copy(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer) {
+pub fn copy(vm: &mut Vm, _input: &Input, _layer: &mut ScreenLayer) {
     let dst_lo = vm.get_program()[vm.get_pc()] as usize;
     let dst_hi = vm.get_program()[vm.get_pc() + 1] as usize;
     let src_lo = vm.get_program()[vm.get_pc() + 2] as usize;

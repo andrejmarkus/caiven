@@ -1,7 +1,7 @@
 use crate::assembler::AssemblerError;
 use crate::assembler::directives::DirectiveSet;
-use crate::instructions::ArgType;
-use crate::instructions::InstructionSet;
+use crate::vm::cpu::ArgType;
+use crate::vm::cpu::InstructionSet;
 use std::collections::HashMap;
 use std::sync::Arc;
 
