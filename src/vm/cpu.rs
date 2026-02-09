@@ -25,6 +25,10 @@ impl Cpu {
         self.registers[index]
     }
 
+    pub fn set_register_value(&mut self, index: usize, value: u8) {
+        self.registers[index] = value;
+    }
+
     pub fn decrement_register_value(&mut self, index: usize, value: u8) {
         if index < self.registers.len() {
             self.registers[index] = self.registers[index].wrapping_sub(value);

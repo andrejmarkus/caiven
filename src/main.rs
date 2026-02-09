@@ -43,7 +43,7 @@ impl App {
         );
         let instruction_set = Arc::new(default_instruction_set());
         let mut vm = Vm::new(instruction_set);
-        vm.load_program(&std::fs::read_to_string("games/movement.asm").unwrap());
+        vm.load_program(&std::fs::read_to_string("games/tiles.asm").unwrap());
 
         Self {
             window: None,

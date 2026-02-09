@@ -136,6 +136,11 @@ pub fn tilemap(vm: &mut Vm, _input: &Input, layer: &mut ScreenLayer) {
     let tiles_base = vm.get_register_value(rtiles) as usize;
     let map_base = vm.get_register_value(rmap) as usize;
 
+    info!(
+        "Drawing tilemap at ({}, {}) with size {}x{} from registers r{}, r{}, r{}, r{}",
+        x0, y0, w, h, rx, ry, rtiles, rmap
+    );
+
     for ty in 0..h {
         for tx in 0..w {
             let map_index = (ty * w + tx) as usize;
@@ -167,4 +172,48 @@ pub fn tilemap(vm: &mut Vm, _input: &Input, layer: &mut ScreenLayer) {
     }
 
     vm.shift_pc(6);
+}
+
+pub fn tile_at(vm: &mut Vm, _input: &Input, _layer: &mut ScreenLayer) {
+    let rdest = vm.get_program()[vm.get_pc()] as usize;
+    let rx = vm.get_program()[vm.get_pc() + 1] as usize;
+    let ry = vm.get_program()[vm.get_pc() + 2] as usize;
+    let rmap = vm.get_program()[vm.get_pc() + 3] as usize;
+    let w = vm.get_program()[vm.get_pc() + 4] as u32;
+
+    let x = vm.get_register_value(rx) as u32;
+    let y = vm.get_register_value(ry) as u32;
+    let map_base = vm.get_register_value(rmap) as usize;
+
+    let tx = x / SPRITE_SIZE;
+    let ty = y / SPRITE_SIZE;
+    let map_index = (ty * w + tx) as usize;
+    let tile_index = vm.read_memory(map_base + map_index);
+
+    info!(
+        "Getting tile index at ({}, {}) -> tile ({}, {}) with index {}",
+        x, y, tx, ty, tile_index
+    );
+
+    vm.set_register_value(rdest, tile_index);
+    vm.shift_pc(5);
+}
+
+pub fn tile_solid(vm: &mut Vm, _input: &Input, _layer: &mut ScreenLayer) {
+    let rdest = vm.get_program()[vm.get_pc()] as usize;
+    let rtile = vm.get_program()[vm.get_pc() + 1] as usize;
+    let rflags = vm.get_program()[vm.get_pc() + 2] as usize;
+
+    let tile_index = vm.get_register_value(rtile) as usize;
+    let flags_base = vm.get_register_value(rflags) as usize;
+
+    let flags = vm.read_memory(flags_base + tile_index);
+
+    info!(
+        "Getting solidity of tile {} with flags at {} -> flags {}",
+        tile_index, flags_base, flags
+    );
+
+    vm.set_register_value(rdest, if flags & 1 != 0 { 1 } else { 0 });
+    vm.shift_pc(3);
 }

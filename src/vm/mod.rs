@@ -83,6 +83,10 @@ impl Vm {
         self.cpu.get_register_value(index)
     }
 
+    pub fn set_register_value(&mut self, index: usize, value: u8) {
+        self.cpu.set_register_value(index, value);
+    }
+
     pub fn get_source_map(&self) -> &SourceMap {
         &self.source_map
     }

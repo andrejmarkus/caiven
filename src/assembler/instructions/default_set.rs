@@ -1,6 +1,7 @@
 use crate::assembler::instructions::InstructionSet;
 use crate::assembler::instructions::operations;
 use crate::assembler::item::{ArgType, Instruction};
+use crate::assembler::operations::tile_at;
 
 pub fn default_instruction_set() -> InstructionSet {
     let mut set = InstructionSet::new();
@@ -291,6 +292,42 @@ pub fn default_instruction_set() -> InstructionSet {
             let src = ((bytes[3] as u16) << 8) | bytes[4] as u16;
             let length = ((bytes[5] as u16) << 8) | bytes[6] as u16;
             format!("CPY 0x{:04X}, 0x{:04X}, {}", dest, src, length)
+        },
+    });
+
+    set.register(Instruction {
+        name: "TAT",
+        size: 6,
+        opcode: 0x40,
+        args: vec![
+            ArgType::Register,
+            ArgType::Register,
+            ArgType::Register,
+            ArgType::Register,
+            ArgType::Value,
+        ],
+        execute: operations::tile_at,
+        debug_info: |bytes| {
+            let rdest = bytes[1];
+            let rx = bytes[2];
+            let ry = bytes[3];
+            let rmap = bytes[4];
+            let w = bytes[5];
+            format!("TAT R{}, R{}, R{}, R{}, {}", rdest, rx, ry, rmap, w)
+        },
+    });
+
+    set.register(Instruction {
+        name: "TSD",
+        size: 4,
+        opcode: 0x41,
+        args: vec![ArgType::Register, ArgType::Register, ArgType::Register],
+        execute: operations::tile_solid,
+        debug_info: |bytes| {
+            let rdest = bytes[1];
+            let rtile = bytes[2];
+            let rflags = bytes[3];
+            format!("TSD R{}, R{}, R{}", rdest, rtile, rflags)
         },
     });
 
