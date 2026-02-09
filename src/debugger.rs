@@ -33,6 +33,10 @@ impl Debugger {
         }
     }
 
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+
     pub fn push_state(&mut self, snapshot: VmSnapshot) {
         if !self.enabled {
             return;

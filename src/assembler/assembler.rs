@@ -31,6 +31,30 @@ impl Assembler {
         self.emit_bytecode_with_source_map(source, &labels)
     }
 
+    pub fn generate_source_map(&self, bytecode: &[u8]) -> SourceMap {
+        let mut source_map = SourceMap::new();
+        let mut pc = 0;
+
+        while pc < bytecode.len() {
+            let opcode = bytecode[pc];
+            if let Some(instruction) = self.instruction_set.get_by_opcode(opcode) {
+                source_map.insert_item(
+                    pc,
+                    AssemblyItem::Instruction {
+                        name: instruction.name.to_string(),
+                        opcode: instruction.opcode,
+                        size: instruction.size,
+                    },
+                );
+                pc += instruction.size;
+            } else {
+                pc += 1;
+            }
+        }
+
+        source_map
+    }
+
     fn collect_labels(&self, source: &str) -> Result<HashMap<String, u16>, AssemblerError> {
         let mut labels = HashMap::new();
         let mut pc: u16 = 0;

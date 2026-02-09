@@ -2,6 +2,7 @@ mod assembler;
 mod debugger;
 mod input;
 mod rendering;
+mod rom;
 mod settings;
 mod utils;
 mod vm;
@@ -9,11 +10,15 @@ mod vm;
 use crate::assembler::default_instruction_set;
 use crate::debugger::Debugger;
 use crate::rendering::font::Font;
+use crate::rom::rom_loader::load_rom;
+use crate::rom::rom_writer::write_rom;
 use crate::vm::Vm;
 use input::Input;
+use log::info;
 use pixels::{Pixels, SurfaceTexture};
 use rendering::screen::Screen;
 use settings::{HEIGHT, NAME, SCREEN_HEIGHT, SCREEN_WIDTH, WIDTH};
+use std::path::PathBuf;
 use std::sync::Arc;
 use winit::event::WindowEvent;
 use winit::keyboard::{KeyCode, PhysicalKey};
@@ -23,6 +28,13 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowAttributes},
 };
+
+enum AppMode {
+    Dev,
+    Debug(PathBuf),
+    Run(PathBuf),
+    Build(PathBuf, PathBuf),
+}
 
 struct App {
     window: Option<Arc<Window>>,
@@ -34,7 +46,7 @@ struct App {
 }
 
 impl App {
-    fn new(debug_enabled: bool) -> Self {
+    fn new() -> Self {
         Font::init_global(
             "assets/font.png",
             " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!?\"'()+-=.:,[]<>",
@@ -42,8 +54,8 @@ impl App {
             5,
         );
         let instruction_set = Arc::new(default_instruction_set());
-        let mut vm = Vm::new(instruction_set);
-        vm.load_program(&std::fs::read_to_string("games/tiles.asm").unwrap());
+        let vm = Vm::new(instruction_set);
+        // vm.load_program(&std::fs::read_to_string("games/tiles.asm").unwrap());
 
         Self {
             window: None,
@@ -51,8 +63,27 @@ impl App {
             screen: Screen::new(),
             input: Input::new(),
             vm,
-            debugger: Debugger::new(debug_enabled),
+            debugger: Debugger::new(false),
         }
+    }
+
+    pub fn set_debug_enabled(&mut self, enabled: bool) {
+        self.debugger.set_enabled(enabled);
+    }
+
+    pub fn load_rom(&mut self, path: &PathBuf) {
+        let program = load_rom(path).expect("Failed to load ROM file");
+        self.vm.load_rom(program);
+        info!("ROM loaded successfully from {}", path.display());
+    }
+
+    pub fn load_source(&mut self, path: &PathBuf) {
+        let source = std::fs::read_to_string(path).expect("Failed to read source file");
+        self.vm.load_program(&source);
+        info!(
+            "Source loaded and assembled successfully from {}",
+            path.display()
+        );
     }
 }
 
@@ -168,15 +199,87 @@ impl ApplicationHandler for App {
     }
 }
 
+fn parse_args() -> AppMode {
+    let mut args = std::env::args().skip(1);
+
+    match args.next() {
+        Some(arg) if arg == "--dev" => AppMode::Dev,
+        Some(arg) if arg == "--debug" => {
+            let path = args.next().expect("Expected path after --debug");
+            AppMode::Debug(PathBuf::from(path))
+        }
+        Some(arg) if arg == "--run" => {
+            let path = args.next().expect("Expected path after --run");
+            AppMode::Run(PathBuf::from(path))
+        }
+        Some(arg) if arg == "--build" => {
+            let input_path = args.next().expect("Expected input path after --build");
+            let output_path = args.next().expect("Expected output path after input path");
+            AppMode::Build(PathBuf::from(input_path), PathBuf::from(output_path))
+        }
+        Some(arg) => panic!("Unknown argument: {}", arg),
+        None => AppMode::Dev,
+    }
+}
+
 fn main() {
     env_logger::init();
 
-    let args: Vec<String> = std::env::args().collect();
-    let debug_enabled = args.iter().any(|arg| arg == "--debug" || arg == "-d");
+    let mode = parse_args();
+
+    if let AppMode::Build(input_path, output_path) = mode {
+        info!(
+            "Building ROM from {} to {}",
+            input_path.display(),
+            output_path.display()
+        );
+
+        let instruction_set = Arc::new(default_instruction_set());
+        let vm = Vm::new(instruction_set);
+
+        let source = std::fs::read_to_string(&input_path).unwrap_or_else(|e| {
+            log::error!("Failed to read input file {}: {}", input_path.display(), e);
+            std::process::exit(1);
+        });
+
+        let program = vm.assemble(&source).unwrap_or_else(|e| {
+            log::error!("Assembly failed: {}", e);
+            std::process::exit(1);
+        });
+
+        write_rom(&output_path, &program).unwrap_or_else(|e| {
+            log::error!("Failed to write ROM file {}: {}", output_path.display(), e);
+            std::process::exit(1);
+        });
+
+        info!("ROM built successfully to {}", output_path.display());
+        return;
+    }
+
+    let mut app = App::new();
+
+    match mode {
+        AppMode::Dev => {
+            info!("Starting in development mode...");
+            let default_source = PathBuf::from("games/asm/movement.asm");
+            if default_source.exists() {
+                app.load_source(&default_source);
+            }
+        }
+        AppMode::Debug(path) => {
+            info!("Starting in debug mode with ROM: {}", path.display());
+            app.set_debug_enabled(true);
+            app.load_rom(&path);
+        }
+        AppMode::Run(path) => {
+            info!("Starting with ROM: {}", path.display());
+            app.load_rom(&path);
+        }
+        AppMode::Build(_, _) => unreachable!(),
+    }
 
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut app = App::new(debug_enabled);
     event_loop.run_app(&mut app).unwrap();
 }

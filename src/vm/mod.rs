@@ -59,6 +59,16 @@ impl Vm {
         self.cpu.pc = 0;
     }
 
+    pub fn load_rom(&mut self, program: Vec<u8>) {
+        self.source_map = self.assembler.generate_source_map(&program);
+        self.program = program;
+        self.cpu.pc = 0;
+    }
+
+    pub fn assemble(&self, source: &str) -> Result<Vec<u8>, crate::assembler::AssemblerError> {
+        self.assembler.assemble(source)
+    }
+
     pub fn get_instruction_by_opcode(&self, opcode: u8) -> Option<&crate::assembler::Instruction> {
         self.instructions.get_by_opcode(opcode)
     }
@@ -225,12 +235,24 @@ impl Vm {
     }
 
     pub fn step(&mut self, input: &Input, world: &mut ScreenLayer, ui: &mut ScreenLayer) {
+        if self.program.is_empty() {
+            self.waiting = true;
+            return;
+        }
+
+        if self.cpu.pc >= self.program.len() {
+            self.waiting = true;
+            return;
+        }
+
         let opcode = self.program[self.cpu.pc];
 
-        let instruction = self
-            .instructions
-            .get_by_opcode(opcode)
-            .unwrap_or_else(|| panic!("Unknown opcode: 0x{:02X}", opcode));
+        let instruction = self.instructions.get_by_opcode(opcode).unwrap_or_else(|| {
+            panic!(
+                "Unknown opcode: 0x{:02X} at PC: 0x{:04X}",
+                opcode, self.cpu.pc
+            )
+        });
 
         self.cpu.pc += 1;
         (instruction.execute)(self, input, world, ui);
