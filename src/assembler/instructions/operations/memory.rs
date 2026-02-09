@@ -3,9 +3,16 @@ use crate::rendering::screen::ScreenLayer;
 use crate::vm::Vm;
 use log::info;
 
-pub fn load_from_memory(vm: &mut Vm, _input: &Input, _layer: &mut ScreenLayer) {
+pub fn load_from_memory(
+    vm: &mut Vm,
+    _input: &Input,
+    _world: &mut ScreenLayer,
+    _ui: &mut ScreenLayer,
+) {
     let reg_index = vm.get_program()[vm.get_pc()] as usize;
-    let address = vm.get_program()[vm.get_pc() + 1] as usize;
+    let low = vm.get_program()[vm.get_pc() + 1] as u16;
+    let high = vm.get_program()[vm.get_pc() + 2] as u16;
+    let address = (low | (high << 8)) as usize;
 
     let value = vm.read_memory(address);
 
@@ -13,25 +20,37 @@ pub fn load_from_memory(vm: &mut Vm, _input: &Input, _layer: &mut ScreenLayer) {
         "Loaded value {} from memory address {} into register {}",
         value, address, reg_index
     );
-    vm.set_register(reg_index, value);
-    vm.shift_pc(2);
+    vm.set_register(reg_index, value as u16);
+    vm.shift_pc(3);
 }
 
-pub fn store_to_memory(vm: &mut Vm, _input: &Input, _layer: &mut ScreenLayer) {
-    let address = vm.get_program()[vm.get_pc()] as usize;
-    let reg_index = vm.get_program()[vm.get_pc() + 1] as usize;
+pub fn store_to_memory(
+    vm: &mut Vm,
+    _input: &Input,
+    _world: &mut ScreenLayer,
+    _ui: &mut ScreenLayer,
+) {
+    let low = vm.get_program()[vm.get_pc()] as u16;
+    let high = vm.get_program()[vm.get_pc() + 1] as u16;
+    let address = (low | (high << 8)) as usize;
+    let reg_index = vm.get_program()[vm.get_pc() + 2] as usize;
 
-    let value = vm.get_register_value(reg_index);
+    let value = vm.get_register_value(reg_index) as u8;
 
     info!(
         "Stored value {} from register {} into memory address {}",
         value, reg_index, address
     );
     vm.write_memory(address, value);
-    vm.shift_pc(2);
+    vm.shift_pc(3);
 }
 
-pub fn load_from_memory_indirect(vm: &mut Vm, _input: &Input, _layer: &mut ScreenLayer) {
+pub fn load_from_memory_indirect(
+    vm: &mut Vm,
+    _input: &Input,
+    _world: &mut ScreenLayer,
+    _ui: &mut ScreenLayer,
+) {
     let reg_to_index = vm.get_program()[vm.get_pc()] as usize;
     let reg_from_index = vm.get_program()[vm.get_pc() + 1] as usize;
 
@@ -42,15 +61,20 @@ pub fn load_from_memory_indirect(vm: &mut Vm, _input: &Input, _layer: &mut Scree
         "Loaded value {} from memory address in register {} into register {}",
         value, reg_from_index, reg_to_index
     );
-    vm.set_register(reg_to_index, value);
+    vm.set_register(reg_to_index, value as u16);
     vm.shift_pc(2);
 }
 
-pub fn store_to_memory_indirect(vm: &mut Vm, _input: &Input, _layer: &mut ScreenLayer) {
+pub fn store_to_memory_indirect(
+    vm: &mut Vm,
+    _input: &Input,
+    _world: &mut ScreenLayer,
+    _ui: &mut ScreenLayer,
+) {
     let reg_addr_index = vm.get_program()[vm.get_pc()] as usize;
     let reg_val_index = vm.get_program()[vm.get_pc() + 1] as usize;
 
-    let value = vm.get_register_value(reg_val_index);
+    let value = vm.get_register_value(reg_val_index) as u8;
     let address = vm.get_register_value(reg_addr_index) as usize;
 
     info!(
@@ -61,7 +85,7 @@ pub fn store_to_memory_indirect(vm: &mut Vm, _input: &Input, _layer: &mut Screen
     vm.shift_pc(2);
 }
 
-pub fn copy(vm: &mut Vm, _input: &Input, _layer: &mut ScreenLayer) {
+pub fn copy(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer, _ui: &mut ScreenLayer) {
     let dst_lo = vm.get_program()[vm.get_pc()] as usize;
     let dst_hi = vm.get_program()[vm.get_pc() + 1] as usize;
     let src_lo = vm.get_program()[vm.get_pc() + 2] as usize;

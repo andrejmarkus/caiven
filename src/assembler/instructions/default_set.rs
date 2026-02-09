@@ -1,7 +1,6 @@
 use crate::assembler::instructions::InstructionSet;
 use crate::assembler::instructions::operations;
 use crate::assembler::item::{ArgType, Instruction};
-use crate::assembler::operations::tile_at;
 
 pub fn default_instruction_set() -> InstructionSet {
     let mut set = InstructionSet::new();
@@ -17,26 +16,26 @@ pub fn default_instruction_set() -> InstructionSet {
 
     set.register(Instruction {
         name: "MOV",
-        size: 3,
+        size: 4,
         opcode: 0x01,
-        args: vec![ArgType::Register, ArgType::Value],
+        args: vec![ArgType::Register, ArgType::Address],
         execute: operations::move_value,
         debug_info: |bytes| {
             let reg = bytes[1];
-            let value = bytes[2];
+            let value = (bytes[2] as u16) | ((bytes[3] as u16) << 8);
             format!("MOV R{}, {}", reg, value)
         },
     });
 
     set.register(Instruction {
         name: "ADD",
-        size: 3,
+        size: 4,
         opcode: 0x02,
-        args: vec![ArgType::Register, ArgType::Value],
+        args: vec![ArgType::Register, ArgType::Address],
         execute: operations::add_value,
         debug_info: |bytes| {
             let reg = bytes[1];
-            let value = bytes[2];
+            let value = (bytes[2] as u16) | ((bytes[3] as u16) << 8);
             format!("ADD R{}, {}", reg, value)
         },
     });
@@ -185,7 +184,7 @@ pub fn default_instruction_set() -> InstructionSet {
         args: vec![ArgType::Address],
         execute: operations::jump,
         debug_info: |bytes| {
-            let addr = ((bytes[1] as u16) << 8) | bytes[2] as u16;
+            let addr = (bytes[1] as u16) | ((bytes[2] as u16) << 8);
             format!("JMP 0x{:04X}", addr)
         },
     });
@@ -198,7 +197,7 @@ pub fn default_instruction_set() -> InstructionSet {
         execute: operations::jump_if_not_zero,
         debug_info: |bytes| {
             let reg = bytes[1];
-            let addr = ((bytes[2] as u16) << 8) | bytes[3] as u16;
+            let addr = (bytes[2] as u16) | ((bytes[3] as u16) << 8);
             format!("JNZ R{}, 0x{:04X}", reg, addr)
         },
     });
@@ -211,7 +210,7 @@ pub fn default_instruction_set() -> InstructionSet {
         execute: operations::jump_if_zero,
         debug_info: |bytes| {
             let reg = bytes[1];
-            let addr = ((bytes[2] as u16) << 8) | bytes[3] as u16;
+            let addr = (bytes[2] as u16) | ((bytes[3] as u16) << 8);
             format!("JZ R{}, 0x{:04X}", reg, addr)
         },
     });
@@ -231,27 +230,27 @@ pub fn default_instruction_set() -> InstructionSet {
 
     set.register(Instruction {
         name: "LDM",
-        size: 3,
+        size: 4,
         opcode: 0x30,
-        args: vec![ArgType::Register, ArgType::Value],
+        args: vec![ArgType::Register, ArgType::Address],
         execute: operations::load_from_memory,
         debug_info: |bytes| {
             let reg = bytes[1];
-            let addr = bytes[2];
-            format!("LDM R{}, {}", reg, addr)
+            let addr = (bytes[2] as u16) | ((bytes[3] as u16) << 8);
+            format!("LDM R{}, 0x{:04X}", reg, addr)
         },
     });
 
     set.register(Instruction {
         name: "STM",
-        size: 3,
+        size: 4,
         opcode: 0x31,
-        args: vec![ArgType::Value, ArgType::Register],
+        args: vec![ArgType::Address, ArgType::Register],
         execute: operations::store_to_memory,
         debug_info: |bytes| {
-            let addr = bytes[1];
-            let reg = bytes[2];
-            format!("STM {}, R{}", addr, reg)
+            let addr = (bytes[1] as u16) | ((bytes[2] as u16) << 8);
+            let reg = bytes[3];
+            format!("STM 0x{:04X}, R{}", addr, reg)
         },
     });
 
@@ -288,9 +287,9 @@ pub fn default_instruction_set() -> InstructionSet {
         args: vec![ArgType::Address, ArgType::Address, ArgType::Address],
         execute: operations::copy,
         debug_info: |bytes| {
-            let dest = ((bytes[1] as u16) << 8) | bytes[2] as u16;
-            let src = ((bytes[3] as u16) << 8) | bytes[4] as u16;
-            let length = ((bytes[5] as u16) << 8) | bytes[6] as u16;
+            let dest = (bytes[1] as u16) | ((bytes[2] as u16) << 8);
+            let src = (bytes[3] as u16) | ((bytes[4] as u16) << 8);
+            let length = (bytes[5] as u16) | ((bytes[6] as u16) << 8);
             format!("CPY 0x{:04X}, 0x{:04X}, {}", dest, src, length)
         },
     });
@@ -328,6 +327,28 @@ pub fn default_instruction_set() -> InstructionSet {
             let rtile = bytes[2];
             let rflags = bytes[3];
             format!("TSD R{}, R{}, R{}", rdest, rtile, rflags)
+        },
+    });
+
+    set.register(Instruction {
+        name: "TXT",
+        size: 6,
+        opcode: 0x42,
+        args: vec![
+            ArgType::Register,
+            ArgType::Register,
+            ArgType::Register,
+            ArgType::Register,
+            ArgType::Value,
+        ],
+        execute: operations::text,
+        debug_info: |bytes| {
+            let rx = bytes[1];
+            let ry = bytes[2];
+            let rcolor = bytes[3];
+            let rstr = bytes[4];
+            let len = bytes[5];
+            format!("TXT R{}, R{}, R{}, R{}, {}", rx, ry, rcolor, rstr, len)
         },
     });
 

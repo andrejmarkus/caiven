@@ -8,9 +8,9 @@ pub struct Glyph {
 }
 
 pub struct Font {
-    pub glyphs: HashMap<char, Glyph>,
-    pub width: usize,
-    pub height: usize,
+    glyphs: HashMap<char, Glyph>,
+    width: usize,
+    height: usize,
 }
 
 impl Font {
@@ -23,6 +23,18 @@ impl Font {
         GLOBAL_FONT
             .get()
             .expect("Font must be initialized before use. Call Font::init_global first.")
+    }
+
+    pub fn get_glyph(&self, ch: char) -> Option<&Glyph> {
+        self.glyphs.get(&ch)
+    }
+
+    pub fn get_width(&self) -> usize {
+        self.width
+    }
+
+    pub fn get_height(&self) -> usize {
+        self.height
     }
 
     pub fn from_image(path: &str, chars: &str, glyph_width: usize, glyph_height: usize) -> Self {

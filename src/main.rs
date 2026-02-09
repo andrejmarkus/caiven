@@ -92,8 +92,8 @@ impl ApplicationHandler for App {
 
                 match self.debugger.get_mode() {
                     debugger::DebugMode::Running => {
-                        self.vm
-                            .run_frame(&self.input, &mut self.screen.get_world_layer());
+                        let (world, ui) = self.screen.get_layers_mut();
+                        self.vm.run_frame(&self.input, world, ui);
                         self.debugger.push_state(self.vm.snapshot());
                     }
                     debugger::DebugMode::Paused => {
@@ -101,8 +101,8 @@ impl ApplicationHandler for App {
                             .draw_overlay(self.screen.get_debug_layer(), &self.vm);
                     }
                     debugger::DebugMode::Step => {
-                        self.vm
-                            .step(&self.input, &mut self.screen.get_world_layer());
+                        let (world, ui) = self.screen.get_layers_mut();
+                        self.vm.step(&self.input, world, ui);
                         self.debugger.check_breakpoint(self.vm.get_pc());
                         self.debugger.dump_state(&self.vm);
                         self.debugger.pause();

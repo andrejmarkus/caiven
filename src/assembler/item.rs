@@ -10,7 +10,8 @@ pub enum ArgType {
     Address,
 }
 
-pub type InstructionHandler = fn(vm: &mut Vm, input: &Input, layer: &mut ScreenLayer);
+pub type InstructionHandler =
+    fn(vm: &mut Vm, input: &Input, world: &mut ScreenLayer, ui: &mut ScreenLayer);
 pub type InstructionDebugHandler = fn(bytes: &[u8]) -> String;
 
 pub struct Instruction {

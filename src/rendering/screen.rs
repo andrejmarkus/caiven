@@ -59,6 +59,10 @@ impl Screen {
         &mut self.ui
     }
 
+    pub fn get_layers_mut(&mut self) -> (&mut ScreenLayer, &mut ScreenLayer) {
+        (&mut self.world, &mut self.ui)
+    }
+
     pub fn get_debug_layer(&mut self) -> &mut ScreenLayer {
         &mut self.debug
     }

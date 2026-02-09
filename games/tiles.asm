@@ -14,6 +14,7 @@ init:
     CPY 10, player_sprite, 64
     CPY 80, tileset, 128
     CPY 210, map_start, 256
+    CPY 500, score_text, 5
 
     ; Initial position
     MOV R0, 16
@@ -23,6 +24,13 @@ init:
 
 loop:
     CLS
+    
+    ; Draw text
+    MOV R0, 2
+    MOV R1, 2
+    MOV R2, 0
+    MOV R3, 500
+    TXT R0 R1 R2 R3 5
 
     ; Draw Map
     MOV R0, 0   ; X=0
@@ -180,3 +188,6 @@ map_start:
     .DB 1,0,1,1,1,1,1,1,1,1,1,1,1,1,0,1
     .DB 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
     .DB 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
+
+score_text:
+    .DB 'S', 'C', 'O', 'R', 'E'

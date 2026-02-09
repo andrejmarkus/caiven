@@ -5,12 +5,27 @@ pub fn default_directive_set() -> DirectiveSet {
 
     set.register(Directive {
         name: ".DB",
-        size: |args, _| args.len(),
+        size: |args, _| {
+            let mut size = 0;
+            for arg in args {
+                if arg.starts_with('"') && arg.ends_with('"') {
+                    size += arg.len() - 2;
+                } else {
+                    size += 1;
+                }
+            }
+            size
+        },
         emit: |args, _, _| {
             let mut bytes = Vec::new();
             for arg in args {
-                let val = parse_u8(arg)?;
-                bytes.push(val);
+                if arg.starts_with('"') && arg.ends_with('"') {
+                    let s = &arg[1..arg.len() - 1];
+                    bytes.extend_from_slice(s.as_bytes());
+                } else {
+                    let val = parse_u8(arg)?;
+                    bytes.push(val);
+                }
             }
             Ok(bytes)
         },
@@ -100,6 +115,9 @@ pub fn default_directive_set() -> DirectiveSet {
 }
 
 fn parse_u8(s: &str) -> Result<u8, String> {
+    if s.starts_with('\'') && s.ends_with('\'') && s.len() == 3 {
+        return Ok(s.as_bytes()[1]);
+    }
     if s.starts_with("0x") {
         u8::from_str_radix(&s[2..], 16).map_err(|e| e.to_string())
     } else if s.starts_with("0b") {
@@ -110,6 +128,9 @@ fn parse_u8(s: &str) -> Result<u8, String> {
 }
 
 fn parse_u16(s: &str) -> Result<u16, String> {
+    if s.starts_with('\'') && s.ends_with('\'') && s.len() == 3 {
+        return Ok(s.as_bytes()[1] as u16);
+    }
     if s.starts_with("0x") {
         u16::from_str_radix(&s[2..], 16).map_err(|e| e.to_string())
     } else if s.starts_with("0b") {

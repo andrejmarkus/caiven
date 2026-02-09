@@ -228,9 +228,9 @@ impl Assembler {
         let addr = if let Some(&a) = labels.get(s) {
             a
         } else {
-            s.parse::<u16>().map_err(|_| AssemblerError {
+            self.parse_u16(s).map_err(|e| AssemblerError {
                 line: 0,
-                message: format!("Unknown label or invalid address: {}", s),
+                message: format!("Unknown label or invalid address: {} ({})", s, e),
                 source: s.to_string(),
             })?
         };
@@ -249,10 +249,36 @@ impl Assembler {
     }
 
     fn num(&self, s: &str) -> Result<u8, AssemblerError> {
-        s.parse::<u8>().map_err(|_| AssemblerError {
+        self.parse_u8(s).map_err(|e| AssemblerError {
             line: 0,
-            message: format!("Invalid number: {}", s),
+            message: format!("Invalid number: {} ({})", s, e),
             source: s.to_string(),
         })
+    }
+
+    fn parse_u8(&self, s: &str) -> Result<u8, String> {
+        if s.starts_with('\'') && s.ends_with('\'') && s.len() == 3 {
+            return Ok(s.as_bytes()[1]);
+        }
+        if s.starts_with("0x") {
+            u8::from_str_radix(&s[2..], 16).map_err(|e| e.to_string())
+        } else if s.starts_with("0b") {
+            u8::from_str_radix(&s[2..], 2).map_err(|e| e.to_string())
+        } else {
+            s.parse::<u8>().map_err(|e| e.to_string())
+        }
+    }
+
+    fn parse_u16(&self, s: &str) -> Result<u16, String> {
+        if s.starts_with('\'') && s.ends_with('\'') && s.len() == 3 {
+            return Ok(s.as_bytes()[1] as u16);
+        }
+        if s.starts_with("0x") {
+            u16::from_str_radix(&s[2..], 16).map_err(|e| e.to_string())
+        } else if s.starts_with("0b") {
+            u16::from_str_radix(&s[2..], 2).map_err(|e| e.to_string())
+        } else {
+            s.parse::<u16>().map_err(|e| e.to_string())
+        }
     }
 }

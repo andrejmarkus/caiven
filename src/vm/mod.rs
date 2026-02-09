@@ -71,7 +71,7 @@ impl Vm {
         self.cpu.pc
     }
 
-    pub fn get_registers(&self) -> &[u8] {
+    pub fn get_registers(&self) -> &[u16] {
         self.cpu.get_registers()
     }
 
@@ -79,27 +79,23 @@ impl Vm {
         self.cpu.get_registers_len()
     }
 
-    pub fn get_register_value(&self, index: usize) -> u8 {
+    pub fn get_register_value(&self, index: usize) -> u16 {
         self.cpu.get_register_value(index)
-    }
-
-    pub fn set_register_value(&mut self, index: usize, value: u8) {
-        self.cpu.set_register_value(index, value);
     }
 
     pub fn get_source_map(&self) -> &SourceMap {
         &self.source_map
     }
 
-    pub fn decrement_register_value(&mut self, index: usize, value: u8) {
+    pub fn decrement_register_value(&mut self, index: usize, value: u16) {
         self.cpu.decrement_register_value(index, value);
     }
 
-    pub fn increment_register_value(&mut self, index: usize, value: u8) {
+    pub fn increment_register_value(&mut self, index: usize, value: u16) {
         self.cpu.increment_register_value(index, value);
     }
 
-    pub fn set_register(&mut self, index: usize, value: u8) {
+    pub fn set_register(&mut self, index: usize, value: u16) {
         self.cpu.set_register(index, value);
     }
 
@@ -220,15 +216,15 @@ impl Vm {
         }
     }
 
-    pub fn run_frame(&mut self, input: &Input, world: &mut ScreenLayer) {
+    pub fn run_frame(&mut self, input: &Input, world: &mut ScreenLayer, ui: &mut ScreenLayer) {
         self.waiting = false;
 
         while !self.waiting {
-            self.step(input, world);
+            self.step(input, world, ui);
         }
     }
 
-    pub fn step(&mut self, input: &Input, world: &mut ScreenLayer) {
+    pub fn step(&mut self, input: &Input, world: &mut ScreenLayer, ui: &mut ScreenLayer) {
         let opcode = self.program[self.cpu.pc];
 
         let instruction = self
@@ -237,7 +233,7 @@ impl Vm {
             .unwrap_or_else(|| panic!("Unknown opcode: 0x{:02X}", opcode));
 
         self.cpu.pc += 1;
-        (instruction.execute)(self, input, world);
+        (instruction.execute)(self, input, world, ui);
     }
 
     pub fn snapshot(&self) -> VmSnapshot {
@@ -270,7 +266,7 @@ impl Vm {
 #[derive(Clone)]
 pub struct VmSnapshot {
     pub pc: usize,
-    pub registers: Vec<u8>,
+    pub registers: Vec<u16>,
     pub memory: Vec<u8>,
     pub camera_x: u32,
     pub camera_y: u32,
