@@ -1,51 +1,25 @@
-use crate::input::Input;
-use crate::rendering::screen::ScreenLayer;
-use crate::vm::Vm;
+use crate::vm::ExecutionContext;
 use log::debug;
 
-pub fn move_value(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer, _ui: &mut ScreenLayer) {
-    let reg_index = vm.get_program()[vm.get_pc()] as usize;
-    let low = vm.get_program()[vm.get_pc() + 1] as u16;
-    let high = vm.get_program()[vm.get_pc() + 2] as u16;
-    let value = low | (high << 8);
+pub fn move_value(ctx: &mut ExecutionContext) {
+    let reg_index = ctx.vm.read_register_index();
+    let value = ctx.vm.read_word();
 
-    if reg_index < vm.get_registers_len() {
-        debug!("Moved value {} into register {}", value, reg_index);
-        vm.set_register(reg_index, value);
-    } else {
-        panic!("Invalid register index: {}", reg_index);
-    }
-    vm.shift_pc(3);
+    debug!("Moved value {} into register {}", value, reg_index);
+    ctx.vm.set_register(reg_index, value);
 }
 
-pub fn add_value(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer, _ui: &mut ScreenLayer) {
-    let reg_index = vm.get_program()[vm.get_pc()] as usize;
-    let low = vm.get_program()[vm.get_pc() + 1] as u16;
-    let high = vm.get_program()[vm.get_pc() + 2] as u16;
-    let value = low | (high << 8);
+pub fn add_value(ctx: &mut ExecutionContext) {
+    let reg_index = ctx.vm.read_register_index();
+    let value = ctx.vm.read_word();
 
-    if reg_index < vm.get_registers_len() {
-        debug!("Added value {} to register {}", value, reg_index);
-        vm.increment_register_value(reg_index, value);
-    } else {
-        panic!("Invalid register index: {}", reg_index);
-    }
-    vm.shift_pc(3);
+    debug!("Added value {} to register {}", value, reg_index);
+    ctx.vm.increment_register_value(reg_index, value);
 }
 
-pub fn decrement_value(
-    vm: &mut Vm,
-    _input: &Input,
-    _world: &mut ScreenLayer,
-    _ui: &mut ScreenLayer,
-) {
-    let reg_index = vm.get_program()[vm.get_pc()] as usize;
+pub fn decrement_value(ctx: &mut ExecutionContext) {
+    let reg_index = ctx.vm.read_register_index();
 
-    if reg_index < vm.get_registers_len() {
-        debug!("Decremented register {}", reg_index);
-        vm.decrement_register_value(reg_index, 1);
-    } else {
-        panic!("Invalid register index: {}", reg_index);
-    }
-    vm.shift_pc(1);
+    debug!("Decremented register {}", reg_index);
+    ctx.vm.decrement_register_value(reg_index, 1);
 }

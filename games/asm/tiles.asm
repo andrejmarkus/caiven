@@ -24,6 +24,7 @@ init:
 
 loop:
     CLS
+    NOSND
     
     ; Draw text
     MOV R0, 2
@@ -55,7 +56,7 @@ loop:
     TAT R0 R1 R2 R3 16 ; R0 = Tile Index
     MOV R2, 0 ; Flags Addr
     TSD R3 R0 R2 ; R3 = Solid? (0/1)
-    JNZ R3, move_right ; Collision
+    JNZ R3, move_right_bump ; Collision
     ; Check bottom-left
     LDM R2, 6
     ADD R2, 7 ; Y + 7
@@ -63,9 +64,14 @@ loop:
     TAT R0 R1 R2 R3 16 ; R0 = Tile
     MOV R2, 0
     TSD R3 R0 R2
-    JNZ R3, move_right
+    JNZ R3, move_right_bump
     ; Success - Update X
     STM 5, R1
+    SNDV 220 5
+    JMP move_right
+
+move_right_bump:
+    SNDV 880 10
 
 move_right:
     IN R0, 3
@@ -77,18 +83,23 @@ move_right:
     TAT R0 R1 R2 R3 16
     MOV R2, 0
     TSD R3 R0 R2
-    JNZ R3, move_up
+    JNZ R3, move_up_bump
     LDM R2, 6
     ADD R2, 7
     MOV R3, 210
     TAT R0 R1 R2 R3 16
     MOV R2, 0
     TSD R3 R0 R2
-    JNZ R3, move_up
+    JNZ R3, move_up_bump
     ; Update X
     LDM R1, 5
     ADD R1, 1
     STM 5, R1
+    SNDV 220 5
+    JMP move_up
+
+move_up_bump:
+    SNDV 880 10
 
 move_up:
     IN R0, 0
@@ -100,16 +111,21 @@ move_up:
     TAT R0 R1 R2 R3 16
     MOV R1, 0
     TSD R3 R0 R1
-    JNZ R3, move_down
+    JNZ R3, move_down_bump
     LDM R1, 5
     ADD R1, 7 ; X + 7
     MOV R3, 210
     TAT R0 R1 R2 R3 16
     MOV R1, 0
     TSD R3 R0 R1
-    JNZ R3, move_down
+    JNZ R3, move_down_bump
     ; Update Y
     STM 6, R2
+    SNDV 220 5
+    JMP move_down
+
+move_down_bump:
+    SNDV 880 10
 
 move_down:
     IN R0, 1
@@ -121,18 +137,23 @@ move_down:
     TAT R0 R1 R2 R3 16
     MOV R1, 0
     TSD R3 R0 R1
-    JNZ R3, end_loop
+    JNZ R3, end_loop_bump
     LDM R1, 5
     ADD R1, 7 ; X + 7
     MOV R3, 210
     TAT R0 R1 R2 R3 16
     MOV R1, 0
     TSD R3 R0 R1
-    JNZ R3, end_loop
+    JNZ R3, end_loop_bump
     ; Update Y
     LDM R2, 6
     ADD R2, 1
     STM 6, R2
+    SNDV 220 5
+    JMP end_loop
+
+end_loop_bump:
+    SNDV 880 10
 
 end_loop:
     WAIT

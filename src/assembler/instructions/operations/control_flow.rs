@@ -1,58 +1,42 @@
-use crate::input::Input;
-use crate::rendering::screen::ScreenLayer;
-use crate::vm::Vm;
+use crate::vm::ExecutionContext;
 use log::debug;
 
-fn read_address(low: u16, high: u16) -> u16 {
-    low | (high << 8)
-}
-
-pub fn jump(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer, _ui: &mut ScreenLayer) {
-    let low = vm.get_program()[vm.get_pc()] as u16;
-    let high = vm.get_program()[vm.get_pc() + 1] as u16;
-    let address = read_address(low, high);
+pub fn jump(ctx: &mut ExecutionContext) {
+    let address = ctx.vm.read_word();
 
     debug!("Jumping to address {}", address);
-    vm.set_pc(address as usize);
+    ctx.vm.set_pc(address as usize);
 }
 
-pub fn jump_if_not_zero(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer, _ui: &mut ScreenLayer) {
-    let reg_index = vm.get_program()[vm.get_pc()] as usize;
-    let low = vm.get_program()[vm.get_pc() + 1] as u16;
-    let high = vm.get_program()[vm.get_pc() + 2] as u16;
-    let address = read_address(low, high);
+pub fn jump_if_not_zero(ctx: &mut ExecutionContext) {
+    let reg_index = ctx.vm.read_register_index();
+    let address = ctx.vm.read_word();
 
-    let reg_value = vm.get_register_value(reg_index);
+    let reg_value = ctx.vm.get_register_value(reg_index);
     debug!(
         "JNZ check: register {} value is {}, jumping to {} if not zero",
         reg_index, reg_value, address
     );
     if reg_value != 0 {
-        vm.set_pc(address as usize);
-    } else {
-        vm.shift_pc(3);
+        ctx.vm.set_pc(address as usize);
     }
 }
 
-pub fn jump_if_zero(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer, _ui: &mut ScreenLayer) {
-    let reg_index = vm.get_program()[vm.get_pc()] as usize;
-    let low = vm.get_program()[vm.get_pc() + 1] as u16;
-    let high = vm.get_program()[vm.get_pc() + 2] as u16;
-    let address = read_address(low, high);
+pub fn jump_if_zero(ctx: &mut ExecutionContext) {
+    let reg_index = ctx.vm.read_register_index();
+    let address = ctx.vm.read_word();
 
-    let reg_value = vm.get_register_value(reg_index);
+    let reg_value = ctx.vm.get_register_value(reg_index);
     debug!(
         "JZ check: register {} value is {}, jumping to {} if zero",
         reg_index, reg_value, address
     );
     if reg_value == 0 {
-        vm.set_pc(address as usize);
-    } else {
-        vm.shift_pc(3);
+        ctx.vm.set_pc(address as usize);
     }
 }
 
-pub fn wait(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer, _ui: &mut ScreenLayer) {
+pub fn wait(ctx: &mut ExecutionContext) {
     debug!("Waiting for next frame");
-    vm.pause();
+    ctx.vm.pause();
 }

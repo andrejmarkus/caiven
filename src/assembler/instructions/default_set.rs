@@ -97,6 +97,41 @@ pub fn default_instruction_set() -> InstructionSet {
     });
 
     set.register(Instruction {
+        name: "SND",
+        size: 3,
+        opcode: 0x80,
+        args: vec![ArgType::Register, ArgType::Register],
+        execute: operations::play_sound,
+        debug_info: |bytes| {
+            let rf = bytes[1];
+            let rv = bytes[2];
+            format!("SND R{}, R{}", rf, rv)
+        },
+    });
+
+    set.register(Instruction {
+        name: "SNDV",
+        size: 4,
+        opcode: 0x81,
+        args: vec![ArgType::Address, ArgType::Value],
+        execute: operations::play_sound_value,
+        debug_info: |bytes| {
+            let freq = (bytes[1] as u16) | ((bytes[2] as u16) << 8);
+            let vol = bytes[3];
+            format!("SNDV {}, {}", freq, vol)
+        },
+    });
+
+    set.register(Instruction {
+        name: "NOSND",
+        size: 1,
+        opcode: 0x82,
+        args: vec![],
+        execute: operations::stop_sound,
+        debug_info: |_| "NOSND".to_string(),
+    });
+
+    set.register(Instruction {
         name: "SPT",
         size: 4,
         opcode: 0x06,

@@ -214,7 +214,7 @@ impl Debugger {
             for col in 0..MEMORY_ROW_BYTES {
                 let i = addr + col;
                 if i < vm.get_memory_length() {
-                    line.push_str(&format!(" {:02X}", vm.read_memory(i)));
+                    line.push_str(&format!(" {:02X}", vm.peek_memory(i)));
                 } else {
                     line.push_str(" --");
                 }

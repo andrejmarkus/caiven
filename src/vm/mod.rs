@@ -1,9 +1,12 @@
+pub mod audio;
 pub mod camera;
+pub mod context;
 pub mod cpu;
 pub mod memory;
 pub mod palette;
 
 pub use camera::*;
+pub use context::*;
 pub use palette::*;
 
 use self::cpu::Cpu;
@@ -16,8 +19,16 @@ use crate::utils::Color;
 use crate::utils::Vec2;
 use crate::vm::Camera;
 use crate::vm::Palette;
+use crate::vm::audio::Sound;
 use log::error;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VmFault {
+    InvalidOpcode(u8),
+    InvalidRegister(usize),
+    MemoryOutOfBounds(usize),
+}
 
 pub struct Vm {
     cpu: Cpu,
@@ -28,7 +39,9 @@ pub struct Vm {
     instructions: Arc<InstructionSet>,
     assembler: Assembler,
     source_map: SourceMap,
+    sound: Arc<Mutex<Sound>>,
     waiting: bool,
+    fault: Option<VmFault>,
 }
 
 impl Vm {
@@ -41,9 +54,67 @@ impl Vm {
             palette: Palette::new(),
             instructions: instructions.clone(),
             assembler: Assembler::new(instructions, Arc::new(default_directive_set())),
+            sound: Arc::new(Mutex::new(Sound {
+                enabled: false,
+                frequency: 440.0,
+                volume: 0.0,
+            })),
             source_map: SourceMap::new(),
             waiting: false,
+            fault: None,
         }
+    }
+
+    pub fn set_fault(&mut self, fault: VmFault) {
+        error!("VM FAULT: {:?}", fault);
+        self.fault = Some(fault);
+        self.waiting = true;
+    }
+
+    pub fn get_fault(&self) -> Option<VmFault> {
+        self.fault
+    }
+
+    pub fn get_sound(&self) -> Sound {
+        self.sound.lock().unwrap().clone()
+    }
+
+    pub fn set_sound(&mut self, sound: Sound) {
+        *self.sound.lock().unwrap() = sound;
+    }
+
+    pub fn get_sound_shared(&self) -> Arc<Mutex<Sound>> {
+        self.sound.clone()
+    }
+
+    pub fn read_byte(&mut self) -> u8 {
+        if self.cpu.pc >= self.program.len() {
+            self.set_fault(VmFault::MemoryOutOfBounds(self.cpu.pc));
+            return 0;
+        }
+        let byte = self.program[self.cpu.pc];
+        self.cpu.pc += 1;
+        byte
+    }
+
+    pub fn read_word(&mut self) -> u16 {
+        let low = self.read_byte() as u16;
+        let high = self.read_byte() as u16;
+        low | (high << 8)
+    }
+
+    pub fn read_register_index(&mut self) -> usize {
+        let index = self.read_byte() as usize;
+        if index >= self.get_registers_len() {
+            self.set_fault(VmFault::InvalidRegister(index));
+            return 0;
+        }
+        index
+    }
+
+    pub fn read_register_value(&mut self) -> u16 {
+        let index = self.read_register_index();
+        self.get_register_value(index)
     }
 
     pub fn load_program(&mut self, source: &str) {
@@ -165,11 +236,26 @@ impl Vm {
         draw_text(layer, text, Vec2::new(x, y), color);
     }
 
-    pub fn read_memory(&self, address: usize) -> u8 {
+    pub fn read_memory(&mut self, address: usize) -> u8 {
+        if address >= self.get_memory_length() {
+            self.set_fault(VmFault::MemoryOutOfBounds(address));
+            return 0;
+        }
+        self.memory.read(address)
+    }
+
+    pub fn peek_memory(&self, address: usize) -> u8 {
+        if address >= self.get_memory_length() {
+            return 0;
+        }
         self.memory.read(address)
     }
 
     pub fn write_memory(&mut self, address: usize, value: u8) {
+        if address >= self.get_memory_length() {
+            self.set_fault(VmFault::MemoryOutOfBounds(address));
+            return;
+        }
         self.memory.write(address, value)
     }
 
@@ -235,6 +321,10 @@ impl Vm {
     }
 
     pub fn step(&mut self, input: &Input, world: &mut ScreenLayer, ui: &mut ScreenLayer) {
+        if self.fault.is_some() {
+            return;
+        }
+
         if self.program.is_empty() {
             self.waiting = true;
             return;
@@ -247,15 +337,19 @@ impl Vm {
 
         let opcode = self.program[self.cpu.pc];
 
-        let instruction = self.instructions.get_by_opcode(opcode).unwrap_or_else(|| {
-            panic!(
-                "Unknown opcode: 0x{:02X} at PC: 0x{:04X}",
-                opcode, self.cpu.pc
-            )
-        });
+        let handler = {
+            let instruction = self.instructions.get_by_opcode(opcode);
+            if let Some(instr) = instruction {
+                instr.execute
+            } else {
+                self.set_fault(VmFault::InvalidOpcode(opcode));
+                return;
+            }
+        };
 
         self.cpu.pc += 1;
-        (instruction.execute)(self, input, world, ui);
+        let mut ctx = ExecutionContext::new(self, input, world, ui);
+        (handler)(&mut ctx);
     }
 
     pub fn snapshot(&self) -> VmSnapshot {
@@ -267,6 +361,7 @@ impl Vm {
             camera_y: self.camera.get_y(),
             palette: self.palette.get_colors().to_vec(),
             waiting: self.waiting,
+            fault: self.fault,
         }
     }
 
@@ -282,6 +377,7 @@ impl Vm {
         self.palette
             .set_colors(snapshot.palette.clone().try_into().unwrap());
         self.waiting = snapshot.waiting;
+        self.fault = snapshot.fault;
     }
 }
 
@@ -294,4 +390,5 @@ pub struct VmSnapshot {
     pub camera_y: u32,
     pub palette: Vec<Color>,
     pub waiting: bool,
+    pub fault: Option<VmFault>,
 }
