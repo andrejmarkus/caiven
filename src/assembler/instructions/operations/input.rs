@@ -1,7 +1,7 @@
 use crate::input::{Button, Input};
 use crate::rendering::screen::ScreenLayer;
 use crate::vm::Vm;
-use log::info;
+use log::debug;
 
 pub fn input(vm: &mut Vm, input: &Input, _world: &mut ScreenLayer, _ui: &mut ScreenLayer) {
     let reg_index = vm.get_program()[vm.get_pc()] as usize;
@@ -11,7 +11,7 @@ pub fn input(vm: &mut Vm, input: &Input, _world: &mut ScreenLayer, _ui: &mut Scr
         .map(|btn| input.is_pressed(btn))
         .unwrap_or(false);
 
-    info!(
+    debug!(
         "Reading input for button code {} into register {}: {}",
         button_code, reg_index, pressed
     );

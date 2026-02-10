@@ -4,7 +4,7 @@ use crate::rendering::screen::ScreenLayer;
 use crate::settings::SPRITE_SIZE;
 use crate::utils::{Color, Vec2};
 use crate::vm::Vm;
-use log::info;
+use log::debug;
 
 pub fn clear_screen(_vm: &mut Vm, _input: &Input, world: &mut ScreenLayer, ui: &mut ScreenLayer) {
     world.clear();
@@ -18,7 +18,7 @@ pub fn draw_pixel(vm: &mut Vm, _input: &Input, world: &mut ScreenLayer, _ui: &mu
     let g = vm.get_program()[vm.get_pc() + 3];
     let b = vm.get_program()[vm.get_pc() + 4];
 
-    info!(
+    debug!(
         "Drawing pixel at ({}, {}) with color ({}, {}, {})",
         x, y, r, g, b
     );
@@ -41,7 +41,7 @@ pub fn draw_pixel_from_register(
     let x = vm.get_register_value(rx) as u32;
     let y = vm.get_register_value(ry) as u32;
 
-    info!(
+    debug!(
         "Drawing pixel at ({}, {}) with color ({}, {}, {}) from registers r{} and r{}",
         x, y, r, g, b, rx, ry
     );
@@ -55,7 +55,7 @@ pub fn palette(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer, _ui: &mut 
     let g = vm.get_program()[vm.get_pc() + 2];
     let b = vm.get_program()[vm.get_pc() + 3];
 
-    info!(
+    debug!(
         "Setting palette index {} to color ({}, {}, {})",
         index, r, g, b
     );
@@ -73,7 +73,7 @@ pub fn sprite(vm: &mut Vm, _input: &Input, world: &mut ScreenLayer, _ui: &mut Sc
     let y0 = vm.get_register_value(ry) as u32;
     let base = vm.get_register_value(raddr) as usize;
 
-    info!(
+    debug!(
         "Drawing sprite {} at ({}, {}) from registers r{} and r{}",
         raddr, x0, y0, rx, ry
     );
@@ -121,7 +121,7 @@ pub fn print(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer, ui: &mut Scr
         current_addr += 1;
     }
 
-    info!(
+    debug!(
         "Printing text \"{}\" at ({}, {}) with color index {}",
         text, x, y, color_idx
     );
@@ -143,7 +143,7 @@ pub fn tilemap(vm: &mut Vm, _input: &Input, world: &mut ScreenLayer, _ui: &mut S
     let tiles_base = vm.get_register_value(rtiles) as usize;
     let map_base = vm.get_register_value(rmap) as usize;
 
-    info!(
+    debug!(
         "Drawing tilemap at ({}, {}) with size {}x{} from registers r{}, r{}, r{}, r{}",
         x0, y0, w, h, rx, ry, rtiles, rmap
     );
@@ -197,7 +197,7 @@ pub fn tile_at(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer, _ui: &mut 
     let map_index = (ty * w + tx) as usize;
     let tile_index = vm.read_memory(map_base + map_index);
 
-    info!(
+    debug!(
         "Getting tile index at ({}, {}) -> tile ({}, {}) with index {}",
         x, y, tx, ty, tile_index
     );
@@ -216,7 +216,7 @@ pub fn tile_solid(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer, _ui: &m
 
     let flags = vm.read_memory(flags_base + tile_index);
 
-    info!(
+    debug!(
         "Getting solidity of tile {} with flags at {} -> flags {}",
         tile_index, flags_base, flags
     );
@@ -259,7 +259,7 @@ pub fn text(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer, ui: &mut Scre
         current_x += font.get_width() as u32 + 1;
     }
 
-    info!(
+    debug!(
         "Printing text \"{}\" at ({}, {}) with color index {}",
         text, x0, y, color_idx
     );

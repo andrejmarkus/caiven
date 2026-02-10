@@ -379,6 +379,27 @@ pub fn default_instruction_set() -> InstructionSet {
     });
 
     set.register(Instruction {
+        name: "LOGR",
+        size: 2,
+        opcode: 0x70,
+        args: vec![ArgType::Register],
+        execute: operations::log_register,
+        debug_info: |bytes| format!("LOGR R{}", bytes[1]),
+    });
+
+    set.register(Instruction {
+        name: "LOGV",
+        size: 3,
+        opcode: 0x71,
+        args: vec![ArgType::Value],
+        execute: operations::log_value,
+        debug_info: |bytes| {
+            let value = (bytes[1] as u16) | ((bytes[2] as u16) << 8);
+            format!("LOGV {}", value)
+        },
+    });
+
+    set.register(Instruction {
         name: "WAIT",
         size: 1,
         opcode: 0xFF,

@@ -1,7 +1,7 @@
 use crate::input::Input;
 use crate::rendering::screen::ScreenLayer;
 use crate::vm::Vm;
-use log::info;
+use log::debug;
 
 pub fn load_from_memory(
     vm: &mut Vm,
@@ -16,7 +16,7 @@ pub fn load_from_memory(
 
     let value = vm.read_memory(address);
 
-    info!(
+    debug!(
         "Loaded value {} from memory address {} into register {}",
         value, address, reg_index
     );
@@ -37,7 +37,7 @@ pub fn store_to_memory(
 
     let value = vm.get_register_value(reg_index) as u8;
 
-    info!(
+    debug!(
         "Stored value {} from register {} into memory address {}",
         value, reg_index, address
     );
@@ -57,7 +57,7 @@ pub fn load_from_memory_indirect(
     let address = vm.get_register_value(reg_from_index) as usize;
     let value = vm.read_memory(address);
 
-    info!(
+    debug!(
         "Loaded value {} from memory address in register {} into register {}",
         value, reg_from_index, reg_to_index
     );
@@ -77,7 +77,7 @@ pub fn store_to_memory_indirect(
     let value = vm.get_register_value(reg_val_index) as u8;
     let address = vm.get_register_value(reg_addr_index) as usize;
 
-    info!(
+    debug!(
         "Stored value {} from register {} into memory address in register {}",
         value, reg_val_index, reg_addr_index
     );
@@ -97,7 +97,7 @@ pub fn copy(vm: &mut Vm, _input: &Input, _world: &mut ScreenLayer, _ui: &mut Scr
     let src = src_lo | (src_hi << 8);
     let length = len_lo | (len_hi << 8);
 
-    info!(
+    debug!(
         "Copying {} bytes from program address {} to memory address {}",
         length, src, dst
     );

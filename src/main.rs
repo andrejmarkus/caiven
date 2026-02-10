@@ -57,6 +57,8 @@ impl App {
         let vm = Vm::new(instruction_set);
         // vm.load_program(&std::fs::read_to_string("games/tiles.asm").unwrap());
 
+        info!("Fantasy Console initialized");
+
         Self {
             window: None,
             pixels: None,
@@ -223,9 +225,14 @@ fn parse_args() -> AppMode {
 }
 
 fn main() {
-    env_logger::init();
-
     let mode = parse_args();
+
+    let log_level = match mode {
+        AppMode::Debug(_) => "debug",
+        _ => "info",
+    };
+
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level)).init();
 
     if let AppMode::Build(input_path, output_path) = mode {
         info!(
