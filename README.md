@@ -173,4 +173,4 @@ This project is licensed under the MIT License.
 
 ---
 
-<p align="center">Made with ❤️ and 🦀 by the Fantasy Console Team</p>
+<p align="center">Made with ❤️ and 🦀 by Andrej Markuš</p>
