@@ -1,14 +1,20 @@
 ; Audio Test
 ; Frequency: 440Hz (A4)
 ; Volume: 10 (10%)
+; Duration: 60 (1 second at 60fps)
 
 MOV R0, 440
 MOV R1, 10
-SND R0, R1
+MOV R2, 60
+SND R0, R1, R2
 
-; Wait for a bit?
-; We don't have a sleep instruction, but we can use a loop or just let it run.
-; Since the VM runs in a loop in run_frame, and we are not using WAIT, it will keep running.
+; Test noise
+MOV R2, 1000 ; Rate
+MOV R3, 5    ; Volume
+MOV R0, 30   ; Duration (0.5s)
+NSND R2, R3, R0
+
+; Test SSTOP / NSTOP (optional, but let's just keep them playing)
 
 LOOP:
     JMP LOOP

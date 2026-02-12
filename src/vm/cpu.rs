@@ -2,6 +2,7 @@ use crate::settings::REGISTER_COUNT;
 
 pub struct Cpu {
     pub pc: usize,
+    pub sp: usize,
     pub registers: [u16; REGISTER_COUNT],
 }
 
@@ -9,6 +10,7 @@ impl Cpu {
     pub fn new() -> Self {
         Self {
             pc: 0,
+            sp: 0,
             registers: [0; REGISTER_COUNT],
         }
     }
@@ -45,6 +47,18 @@ impl Cpu {
 
     pub fn set_pc(&mut self, address: usize) {
         self.pc = address;
+    }
+
+    pub fn get_pc(&self) -> usize {
+        self.pc
+    }
+
+    pub fn set_sp(&mut self, address: usize) {
+        self.sp = address;
+    }
+
+    pub fn get_sp(&self) -> usize {
+        self.sp
     }
 
     pub fn shift_pc(&mut self, offset: isize) {

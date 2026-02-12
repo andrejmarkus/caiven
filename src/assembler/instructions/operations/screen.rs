@@ -9,6 +9,19 @@ pub fn clear_screen(ctx: &mut ExecutionContext) {
     ctx.ui.clear();
 }
 
+pub fn fill_screen(ctx: &mut ExecutionContext) {
+    let color_idx = ctx.vm.read_byte() as usize;
+    let color = ctx.vm.get_palette_color(color_idx);
+
+    debug!("Filling screen with palette index {}", color_idx);
+
+    for y in 0..crate::settings::HEIGHT {
+        for x in 0..crate::settings::WIDTH {
+            ctx.world.set_pixel(Vec2::new(x, y), color);
+        }
+    }
+}
+
 pub fn draw_pixel(ctx: &mut ExecutionContext) {
     let x = ctx.vm.read_byte() as u32;
     let y = ctx.vm.read_byte() as u32;
@@ -222,6 +235,32 @@ pub fn text(ctx: &mut ExecutionContext) {
     for i in 0..len {
         let ch = ctx.vm.read_memory(base + i) as char;
 
+        if let Some(glyph) = font.get_glyph(ch) {
+            for gy in 0..font.get_height() {
+                for gx in 0..font.get_width() {
+                    if glyph.pixels[gy * font.get_width() + gx] {
+                        ctx.ui
+                            .set_pixel(Vec2::new(current_x + gx as u32, y + gy as u32), color);
+                    }
+                }
+            }
+        }
+        current_x += font.get_width() as u32 + 1;
+    }
+}
+
+pub fn draw_number(ctx: &mut ExecutionContext) {
+    let x0 = ctx.vm.read_register_value() as u32;
+    let y = ctx.vm.read_register_value() as u32;
+    let color_idx = ctx.vm.read_register_value() as usize;
+    let value = ctx.vm.read_register_value();
+
+    let font = Font::get_global();
+    let color = ctx.vm.get_palette_color(color_idx);
+    let mut current_x = x0;
+
+    let s = value.to_string();
+    for ch in s.chars() {
         if let Some(glyph) = font.get_glyph(ch) {
             for gy in 0..font.get_height() {
                 for gx in 0..font.get_width() {

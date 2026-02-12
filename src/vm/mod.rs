@@ -19,7 +19,7 @@ use crate::utils::Color;
 use crate::utils::Vec2;
 use crate::vm::Camera;
 use crate::vm::Palette;
-use crate::vm::audio::Sound;
+use crate::vm::audio::{NoiseChannel, Sound, SquareChannel};
 use log::error;
 use std::sync::{Arc, Mutex};
 
@@ -46,8 +46,10 @@ pub struct Vm {
 
 impl Vm {
     pub fn new(instructions: Arc<InstructionSet>) -> Self {
+        let mut cpu = Cpu::new();
+        cpu.sp = crate::settings::MEMORY_SIZE;
         Self {
-            cpu: Cpu::new(),
+            cpu,
             program: Vec::new(),
             memory: Memory::new(),
             camera: Camera::new(Vec2::new(0, 0)),
@@ -55,9 +57,18 @@ impl Vm {
             instructions: instructions.clone(),
             assembler: Assembler::new(instructions, Arc::new(default_directive_set())),
             sound: Arc::new(Mutex::new(Sound {
-                enabled: false,
-                frequency: 440.0,
-                volume: 0.0,
+                square: SquareChannel {
+                    enabled: false,
+                    frequency: 440.0,
+                    volume: 0.0,
+                    duration: 0,
+                },
+                noise: NoiseChannel {
+                    enabled: false,
+                    volume: 0.0,
+                    rate: 2000.0,
+                    duration: 0,
+                },
             })),
             source_map: SourceMap::new(),
             waiting: false,
@@ -148,10 +159,6 @@ impl Vm {
         &self.program
     }
 
-    pub fn get_pc(&self) -> usize {
-        self.cpu.pc
-    }
-
     pub fn get_registers(&self) -> &[u16] {
         self.cpu.get_registers()
     }
@@ -192,12 +199,32 @@ impl Vm {
         self.cpu.set_pc(address);
     }
 
+    pub fn get_pc(&self) -> usize {
+        self.cpu.get_pc()
+    }
+
+    pub fn set_sp(&mut self, address: usize) {
+        self.cpu.set_sp(address);
+    }
+
+    pub fn get_sp(&self) -> usize {
+        self.cpu.get_sp()
+    }
+
     pub fn shift_pc(&mut self, offset: isize) {
         self.cpu.shift_pc(offset);
     }
 
     pub fn get_memory_length(&self) -> usize {
         self.memory.get_length()
+    }
+
+    pub fn read_memory(&mut self, address: usize) -> u8 {
+        if address >= self.get_memory_length() {
+            self.set_fault(VmFault::MemoryOutOfBounds(address));
+            return 0;
+        }
+        self.memory.read(address)
     }
 
     pub fn get_camera_x(&self) -> u32 {
@@ -234,14 +261,6 @@ impl Vm {
     ) {
         let color = self.palette.get_color(color_index);
         draw_text(layer, text, Vec2::new(x, y), color);
-    }
-
-    pub fn read_memory(&mut self, address: usize) -> u8 {
-        if address >= self.get_memory_length() {
-            self.set_fault(VmFault::MemoryOutOfBounds(address));
-            return 0;
-        }
-        self.memory.read(address)
     }
 
     pub fn peek_memory(&self, address: usize) -> u8 {
@@ -314,6 +333,23 @@ impl Vm {
 
     pub fn run_frame(&mut self, input: &Input, world: &mut ScreenLayer, ui: &mut ScreenLayer) {
         self.waiting = false;
+
+        // Update sound durations
+        {
+            let mut s = self.sound.lock().unwrap();
+            if s.square.enabled && s.square.duration > 0 {
+                s.square.duration -= 1;
+                if s.square.duration == 0 {
+                    s.square.enabled = false;
+                }
+            }
+            if s.noise.enabled && s.noise.duration > 0 {
+                s.noise.duration -= 1;
+                if s.noise.duration == 0 {
+                    s.noise.enabled = false;
+                }
+            }
+        }
 
         while !self.waiting {
             self.step(input, world, ui);

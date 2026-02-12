@@ -22,6 +22,10 @@ init:
     MOV R0, 16
     STM 6, R0
 
+    ; Startup sound (Square + Noise)
+    SNDV 440 10 30 ; 0.5s dur
+    NSNDV 1000 5 15 ; 0.25s dur
+
 loop:
     CLS
     NOSND
@@ -67,11 +71,12 @@ loop:
     JNZ R3, move_right_bump
     ; Success - Update X
     STM 5, R1
-    SNDV 220 5
+    NSNDV 400 3 2 ; Step sound
     JMP move_right
 
 move_right_bump:
-    SNDV 880 10
+    SNDV 110 15 5 ; Bump thud
+    NSNDV 2000 10 3 ; Bump crunch
 
 move_right:
     IN R0, 3
@@ -95,11 +100,12 @@ move_right:
     LDM R1, 5
     ADD R1, 1
     STM 5, R1
-    SNDV 220 5
+    NSNDV 400 3 2
     JMP move_up
 
 move_up_bump:
-    SNDV 880 10
+    SNDV 110 15 5
+    NSNDV 2000 10 3
 
 move_up:
     IN R0, 0
@@ -121,11 +127,12 @@ move_up:
     JNZ R3, move_down_bump
     ; Update Y
     STM 6, R2
-    SNDV 220 5
+    NSNDV 400 3 2
     JMP move_down
 
 move_down_bump:
-    SNDV 880 10
+    SNDV 110 15 5
+    NSNDV 2000 10 3
 
 move_down:
     IN R0, 1
@@ -149,11 +156,12 @@ move_down:
     LDM R2, 6
     ADD R2, 1
     STM 6, R2
-    SNDV 220 5
+    NSNDV 400 3 2
     JMP end_loop
 
 end_loop_bump:
-    SNDV 880 10
+    SNDV 110 15 5
+    NSNDV 2000 10 3
 
 end_loop:
     WAIT
