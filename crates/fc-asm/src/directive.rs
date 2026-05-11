@@ -1,6 +1,34 @@
-use crate::assembler::{Directive, DirectiveSet};
+use std::collections::HashMap;
 
-pub fn default_directive_set() -> DirectiveSet {
+pub type DirectiveSizeFn = fn(args: &[&str], pc: u16) -> usize;
+pub type DirectiveEmitFn =
+    fn(args: &[&str], labels: &HashMap<String, u16>, pc: u16) -> Result<Vec<u8>, String>;
+
+pub struct Directive {
+    pub name: &'static str,
+    pub size: DirectiveSizeFn,
+    pub emit: DirectiveEmitFn,
+}
+
+pub struct DirectiveSet {
+    directives: Vec<Directive>,
+}
+
+impl DirectiveSet {
+    pub fn new() -> Self {
+        Self { directives: Vec::new() }
+    }
+
+    pub fn register(&mut self, directive: Directive) {
+        self.directives.push(directive);
+    }
+
+    pub fn get_by_name(&self, name: &str) -> Option<&Directive> {
+        self.directives.iter().find(|d| d.name == name)
+    }
+}
+
+pub fn default_directives() -> DirectiveSet {
     let mut set = DirectiveSet::new();
 
     set.register(Directive {
@@ -73,22 +101,14 @@ pub fn default_directive_set() -> DirectiveSet {
                 return 0;
             }
             let target = parse_u16(args[0]).unwrap_or(pc);
-            if target > pc {
-                (target - pc) as usize
-            } else {
-                0
-            }
+            if target > pc { (target - pc) as usize } else { 0 }
         },
         emit: |args, _, pc| {
             if args.is_empty() {
                 return Ok(vec![]);
             }
             let target = parse_u16(args[0])?;
-            if target > pc {
-                Ok(vec![0; (target - pc) as usize])
-            } else {
-                Ok(vec![])
-            }
+            if target > pc { Ok(vec![0; (target - pc) as usize]) } else { Ok(vec![]) }
         },
     });
 
@@ -117,9 +137,9 @@ fn parse_u8(s: &str) -> Result<u8, String> {
     if s.starts_with('\'') && s.ends_with('\'') && s.len() == 3 {
         return Ok(s.as_bytes()[1]);
     }
-    if s.starts_with("0x") {
+    if s.starts_with("0x") || s.starts_with("0X") {
         u8::from_str_radix(&s[2..], 16).map_err(|e| e.to_string())
-    } else if s.starts_with("0b") {
+    } else if s.starts_with("0b") || s.starts_with("0B") {
         u8::from_str_radix(&s[2..], 2).map_err(|e| e.to_string())
     } else {
         s.parse::<u8>().map_err(|e| e.to_string())
@@ -130,9 +150,9 @@ fn parse_u16(s: &str) -> Result<u16, String> {
     if s.starts_with('\'') && s.ends_with('\'') && s.len() == 3 {
         return Ok(s.as_bytes()[1] as u16);
     }
-    if s.starts_with("0x") {
+    if s.starts_with("0x") || s.starts_with("0X") {
         u16::from_str_radix(&s[2..], 16).map_err(|e| e.to_string())
-    } else if s.starts_with("0b") {
+    } else if s.starts_with("0b") || s.starts_with("0B") {
         u16::from_str_radix(&s[2..], 2).map_err(|e| e.to_string())
     } else {
         s.parse::<u16>().map_err(|e| e.to_string())

@@ -1,4 +1,4 @@
-use crate::assembler::default_instruction_set;
+use crate::isa::default_instruction_set;
 use crate::debugger::{DebugMode, Debugger};
 use crate::input::Input;
 use crate::rendering::font::Font;

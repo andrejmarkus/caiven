@@ -1,6 +1,6 @@
-use crate::assembler::instructions::InstructionSet;
-use crate::assembler::instructions::operations;
-use crate::assembler::item::{ArgType, Instruction};
+use crate::isa::operations;
+use crate::isa::{Instruction, InstructionSet};
+use fc_asm::ArgType;
 
 pub fn default_instruction_set() -> InstructionSet {
     let mut set = InstructionSet::new();

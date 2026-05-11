@@ -11,7 +11,7 @@ pub use palette::*;
 
 use self::cpu::Cpu;
 use self::memory::Memory;
-use crate::assembler::{Assembler, AssemblerError, AssemblyItem, InstructionSet, SourceMap, default_directive_set};
+use crate::isa::InstructionSet;
 use crate::input::Input;
 use crate::rendering::screen::ScreenLayer;
 use crate::rendering::text::draw_text;
@@ -36,8 +36,7 @@ pub struct Vm {
     camera: Camera,
     palette: Palette,
     instructions: Arc<InstructionSet>,
-    assembler: Assembler,
-    source_map: SourceMap,
+    source_map: fc_asm::SourceMap,
     sound: Arc<Mutex<Sound>>,
     waiting: bool,
     fault: Option<VmFault>,
@@ -54,7 +53,6 @@ impl Vm {
             camera: Camera::new(Vec2::new(0, 0)),
             palette: Palette::new(),
             instructions: instructions.clone(),
-            assembler: Assembler::new(instructions, Arc::new(default_directive_set())),
             sound: Arc::new(Mutex::new(Sound {
                 square: SquareChannel {
                     enabled: false,
@@ -69,7 +67,7 @@ impl Vm {
                     duration: 0,
                 },
             })),
-            source_map: SourceMap::new(),
+            source_map: fc_asm::SourceMap::new(),
             waiting: false,
             fault: None,
         }
@@ -127,8 +125,8 @@ impl Vm {
         self.get_register_value(index)
     }
 
-    pub fn load_program(&mut self, source: &str) -> Result<(), AssemblerError> {
-        let (program, source_map) = self.assembler.assemble_with_source_map(source)?;
+    pub fn load_program(&mut self, source: &str) -> Result<(), fc_asm::AsmError> {
+        let (program, source_map) = fc_asm::assemble_with_source_map(source)?;
         self.program = program;
         self.source_map = source_map;
         self.cpu.pc = 0;
@@ -136,16 +134,16 @@ impl Vm {
     }
 
     pub fn load_rom(&mut self, program: Vec<u8>) {
-        self.source_map = self.assembler.generate_source_map(&program);
+        self.source_map = fc_asm::generate_source_map(&program);
         self.program = program;
         self.cpu.pc = 0;
     }
 
-    pub fn assemble(&self, source: &str) -> Result<Vec<u8>, AssemblerError> {
-        self.assembler.assemble(source)
+    pub fn assemble(&self, source: &str) -> Result<Vec<u8>, fc_asm::AsmError> {
+        fc_asm::assemble(source)
     }
 
-    pub fn get_instruction_by_opcode(&self, opcode: u8) -> Option<&crate::assembler::Instruction> {
+    pub fn get_instruction_by_opcode(&self, opcode: u8) -> Option<&crate::isa::Instruction> {
         self.instructions.get_by_opcode(opcode)
     }
 
@@ -165,7 +163,7 @@ impl Vm {
         self.cpu.get_register_value(index)
     }
 
-    pub fn get_source_map(&self) -> &SourceMap {
+    pub fn get_source_map(&self) -> &fc_asm::SourceMap {
         &self.source_map
     }
 
@@ -288,7 +286,7 @@ impl Vm {
 
             if let Some(item) = &address_info.item {
                 match item {
-                    AssemblyItem::Instruction {
+                    fc_asm::ItemInfo::Instruction {
                         name: _,
                         opcode: _,
                         size,
@@ -307,7 +305,7 @@ impl Vm {
                             info_parts.push(format!("UNKNOWN OPCODE: 0X{:02X}", opcode));
                         }
                     }
-                    AssemblyItem::Directive { name, size } => {
+                    fc_asm::ItemInfo::Directive { name, size } => {
                         let end = (pc + size).min(program.len());
                         let bytes = &program[pc..end];
                         let hex_string: Vec<String> =

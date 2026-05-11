@@ -1,7 +1,7 @@
 mod app;
-mod assembler;
 mod debugger;
 mod input;
+mod isa;
 mod rendering;
 mod settings;
 mod vm;

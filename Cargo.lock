@@ -856,6 +856,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "fc-asm"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "fc-core"
 version = "0.1.0"
 
@@ -867,6 +874,7 @@ dependencies = [
  "clap",
  "cpal",
  "env_logger",
+ "fc-asm",
  "fc-core",
  "fc-rom",
  "image",

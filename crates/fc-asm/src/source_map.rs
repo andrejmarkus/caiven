@@ -1,24 +1,27 @@
-use crate::assembler::item::AssemblyItem;
 use std::collections::HashMap;
+
+#[derive(Debug, Clone)]
+pub enum ItemInfo {
+    Instruction { name: String, opcode: u8, size: usize },
+    Directive { name: String, size: usize },
+}
 
 #[derive(Debug, Clone)]
 pub struct AddressInfo {
     pub labels: Vec<String>,
-    pub item: Option<AssemblyItem>,
+    pub item: Option<ItemInfo>,
 }
 
 pub struct SourceMap {
-    pub map: HashMap<usize, AddressInfo>,
+    map: HashMap<usize, AddressInfo>,
 }
 
 impl SourceMap {
     pub fn new() -> Self {
-        Self {
-            map: HashMap::new(),
-        }
+        Self { map: HashMap::new() }
     }
 
-    pub fn insert_item(&mut self, address: usize, item: AssemblyItem) {
+    pub fn insert_item(&mut self, address: usize, item: ItemInfo) {
         let entry = self.map.entry(address).or_insert(AddressInfo {
             labels: Vec::new(),
             item: None,

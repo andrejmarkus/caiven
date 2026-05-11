@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/fc-core", "crates/fc-rom", "crates/fc-host"]
+members = ["crates/fc-core", "crates/fc-rom", "crates/fc-asm", "crates/fc-host"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -8,6 +8,7 @@ clap = { version = "4", features = ["derive"] }
 cpal = "0.17.1"
 crc32fast = "1"
 env_logger = "0.11"
+fc-asm = { path = "crates/fc-asm" }
 fc-core = { path = "crates/fc-core" }
 fc-rom = { path = "crates/fc-rom" }
 image = "0.25"
