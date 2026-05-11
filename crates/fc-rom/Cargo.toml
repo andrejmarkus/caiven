@@ -1,0 +1,8 @@
+[package]
+name = "fc-rom"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+crc32fast = { workspace = true }
+thiserror = { workspace = true }

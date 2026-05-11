@@ -1,12 +1,17 @@
-[package]
-name = "fantasy-console"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = ["crates/fc-core", "crates/fc-rom", "crates/fc-host"]
+resolver = "2"
 
-[dependencies]
+[workspace.dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
 cpal = "0.17.1"
-env_logger = "0.11.0"
-image = "0.25.9"
-log = "0.4.29"
-pixels = "0.15.0"
-winit = "0.30.12"
+crc32fast = "1"
+env_logger = "0.11"
+fc-core = { path = "crates/fc-core" }
+fc-rom = { path = "crates/fc-rom" }
+image = "0.25"
+log = "0.4"
+pixels = "0.15"
+thiserror = "2"
+winit = "0.30"

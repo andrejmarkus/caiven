@@ -1,0 +1,20 @@
+[package]
+name = "fc-host"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "fc-host"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+cpal = { workspace = true }
+env_logger = { workspace = true }
+fc-core = { workspace = true }
+fc-rom = { workspace = true }
+image = { workspace = true }
+log = { workspace = true }
+pixels = { workspace = true }
+winit = { workspace = true }
