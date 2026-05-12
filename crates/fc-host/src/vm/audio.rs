@@ -25,6 +25,7 @@ pub struct Sound {
 }
 
 pub struct Audio {
+    #[allow(dead_code)]
     stream: cpal::Stream,
 }
 
@@ -70,8 +71,7 @@ impl Audio {
                                 if noise_phase >= 1.0 {
                                     noise_phase -= 1.0;
                                     let bit =
-                                        ((lfsr >> 0) ^ (lfsr >> 2) ^ (lfsr >> 3) ^ (lfsr >> 5))
-                                            & 1;
+                                        ((lfsr >> 0) ^ (lfsr >> 2) ^ (lfsr >> 3) ^ (lfsr >> 5)) & 1;
                                     lfsr = (lfsr >> 1) | (bit << 15);
                                 }
                                 let v = if (lfsr & 1) == 0 { 1.0 } else { -1.0 };
@@ -104,7 +104,7 @@ impl Audio {
                 return Err(anyhow::anyhow!(
                     "unsupported audio sample format: {:?}",
                     sample_format
-                ))
+                ));
             }
         }
         .context("failed to build audio output stream")?;

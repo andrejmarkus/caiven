@@ -13,7 +13,3 @@ pub fn log_value(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     info!("Guest LOG: {}", value);
     Ok(())
 }
-
-pub fn breakpoint(_ctx: &mut ExecutionContext) -> Result<(), VmFault> {
-    Ok(())
-}

@@ -1,5 +1,5 @@
-use crate::vm::{ExecutionContext, VmFault};
 use crate::vm::audio::{NoiseChannel, SquareChannel};
+use crate::vm::{ExecutionContext, VmFault};
 use log::debug;
 
 pub fn play_sound(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
@@ -7,7 +7,10 @@ pub fn play_sound(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let vol = ctx.read_register_value()? as f32 / 100.0;
     let dur = ctx.read_register_value()?;
 
-    debug!("Playing square sound: freq={}, vol={}, dur={}", freq, vol, dur);
+    debug!(
+        "Playing square sound: freq={}, vol={}, dur={}",
+        freq, vol, dur
+    );
     ctx.sound.square = SquareChannel {
         enabled: true,
         frequency: freq,
@@ -22,7 +25,10 @@ pub fn play_sound_value(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let vol = ctx.read_byte()? as f32 / 100.0;
     let dur = ctx.read_byte()? as u16;
 
-    debug!("Playing square sound: freq={}, vol={}, dur={}", freq, vol, dur);
+    debug!(
+        "Playing square sound: freq={}, vol={}, dur={}",
+        freq, vol, dur
+    );
     ctx.sound.square = SquareChannel {
         enabled: true,
         frequency: freq,

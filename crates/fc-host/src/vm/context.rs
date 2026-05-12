@@ -1,6 +1,3 @@
-use crate::input::Input;
-use crate::rendering::font::Font;
-use crate::rendering::screen::ScreenLayer;
 use super::audio::Sound;
 use super::camera::Camera;
 use super::config::VmConfig;
@@ -8,6 +5,9 @@ use super::cpu::Cpu;
 use super::fault::VmFault;
 use super::memory::Memory;
 use super::palette::Palette;
+use crate::input::Input;
+use crate::rendering::font::Font;
+use crate::rendering::screen::ScreenLayer;
 
 pub struct ExecutionContext<'a> {
     pub cpu: &'a mut Cpu,

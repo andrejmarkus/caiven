@@ -34,7 +34,9 @@ pub fn load(path: &Path) -> Result<Rom, RomError> {
         return Err(RomError::Truncated);
     }
 
-    let header_buf: &[u8; 80] = data[7..7 + 80].try_into().map_err(|_| RomError::Truncated)?;
+    let header_buf: &[u8; 80] = data[7..7 + 80]
+        .try_into()
+        .map_err(|_| RomError::Truncated)?;
     let (header, program_size, stored_crc) = RomHeader::from_bytes(header_buf);
     let program_size = program_size as usize;
 

@@ -2,8 +2,15 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub enum ItemInfo {
-    Instruction { name: String, opcode: u8, size: usize },
-    Directive { name: String, size: usize },
+    Instruction {
+        name: String,
+        opcode: u8,
+        size: usize,
+    },
+    Directive {
+        name: String,
+        size: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -16,9 +23,17 @@ pub struct SourceMap {
     map: HashMap<usize, AddressInfo>,
 }
 
+impl Default for SourceMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SourceMap {
     pub fn new() -> Self {
-        Self { map: HashMap::new() }
+        Self {
+            map: HashMap::new(),
+        }
     }
 
     pub fn insert_item(&mut self, address: usize, item: ItemInfo) {

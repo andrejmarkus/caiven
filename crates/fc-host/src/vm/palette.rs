@@ -6,10 +6,9 @@ pub struct Palette {
 
 impl Palette {
     pub fn new(palette_size: usize) -> Self {
-        let mut colors = vec![Color::new_rgb(0, 0, 0); palette_size];
-        for i in 0..palette_size {
-            colors[i] = Color::new_rgb(i as u8, i as u8, i as u8);
-        }
+        let colors = (0..palette_size)
+            .map(|i| Color::new_rgb(i as u8, i as u8, i as u8))
+            .collect();
         Self { colors }
     }
 

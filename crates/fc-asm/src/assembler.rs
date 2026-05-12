@@ -9,6 +9,12 @@ pub struct Assembler {
     directives: DirectiveSet,
 }
 
+impl Default for Assembler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Assembler {
     pub fn new() -> Self {
         Self {
@@ -22,10 +28,7 @@ impl Assembler {
         Ok(bytecode)
     }
 
-    pub fn assemble_with_source_map(
-        &self,
-        source: &str,
-    ) -> Result<(Vec<u8>, SourceMap), AsmError> {
+    pub fn assemble_with_source_map(&self, source: &str) -> Result<(Vec<u8>, SourceMap), AsmError> {
         let labels = self.collect_labels(source)?;
         self.emit(&labels, source)
     }
@@ -71,14 +74,13 @@ impl Assembler {
                 let name = tokens[0];
 
                 if name.starts_with('.') {
-                    let directive =
-                        self.directives.get_by_name(name).ok_or_else(|| {
-                            AsmError::syntax(
-                                line_number,
-                                &cleaned,
-                                format!("Unknown directive {}", name),
-                            )
-                        })?;
+                    let directive = self.directives.get_by_name(name).ok_or_else(|| {
+                        AsmError::syntax(
+                            line_number,
+                            &cleaned,
+                            format!("Unknown directive {}", name),
+                        )
+                    })?;
                     pc += (directive.size)(&tokens[1..], pc) as u16;
                 } else {
                     let spec = self.isa.get_by_name(name).ok_or_else(|| {
@@ -122,18 +124,17 @@ impl Assembler {
 
             if name.starts_with('.') {
                 let directive = self.directives.get_by_name(name).ok_or_else(|| {
-                    AsmError::syntax(
-                        line_number,
-                        &cleaned,
-                        format!("Unknown directive {}", name),
-                    )
+                    AsmError::syntax(line_number, &cleaned, format!("Unknown directive {}", name))
                 })?;
                 let data = (directive.emit)(&tokens[1..], labels, current_pc as u16)
                     .map_err(|e| AsmError::syntax(line_number, &cleaned, e))?;
 
                 source_map.insert_item(
                     current_pc,
-                    ItemInfo::Directive { name: name.to_string(), size: data.len() },
+                    ItemInfo::Directive {
+                        name: name.to_string(),
+                        size: data.len(),
+                    },
                 );
                 bytecode.extend(data);
             } else {
@@ -171,7 +172,11 @@ impl Assembler {
     ) -> Result<(), AsmError> {
         let name = tokens[0];
         let spec = self.isa.get_by_name(name).ok_or_else(|| {
-            AsmError::syntax(line_number, source_line, format!("Unknown instruction {}", name))
+            AsmError::syntax(
+                line_number,
+                source_line,
+                format!("Unknown instruction {}", name),
+            )
         })?;
 
         bytecode.push(spec.opcode);
@@ -193,21 +198,23 @@ impl Assembler {
             let token = tokens[idx + 1];
             match arg_type {
                 ArgType::Register => {
-                    let reg = parse_register(token).map_err(|e| {
-                        AsmError::syntax(line_number, source_line, e)
-                    })?;
+                    let reg = parse_register(token)
+                        .map_err(|e| AsmError::syntax(line_number, source_line, e))?;
                     bytecode.push(reg);
                 }
                 ArgType::Value => {
                     let val = parse_u8(token).map_err(|e| {
-                        AsmError::syntax(line_number, source_line, format!("Invalid number: {} ({})", token, e))
+                        AsmError::syntax(
+                            line_number,
+                            source_line,
+                            format!("Invalid number: {} ({})", token, e),
+                        )
                     })?;
                     bytecode.push(val);
                 }
                 ArgType::Address => {
-                    let (low, high) = parse_address(token, labels).map_err(|e| {
-                        AsmError::syntax(line_number, source_line, e)
-                    })?;
+                    let (low, high) = parse_address(token, labels)
+                        .map_err(|e| AsmError::syntax(line_number, source_line, e))?;
                     bytecode.extend([low, high]);
                 }
             }
@@ -228,7 +235,7 @@ fn tokenize(line: &str) -> Vec<&str> {
 }
 
 fn parse_register(s: &str) -> Result<u8, String> {
-    s.trim_start_matches(|c| c == 'r' || c == 'R')
+    s.trim_start_matches(['r', 'R'])
         .parse::<u8>()
         .map_err(|_| format!("Invalid register: {}", s))
 }
@@ -263,8 +270,7 @@ fn parse_address(s: &str, labels: &HashMap<String, u16>) -> Result<(u8, u8), Str
     let addr = if let Some(&a) = labels.get(s) {
         a
     } else {
-        parse_u16(s)
-            .map_err(|e| format!("Unknown label or invalid address: {} ({})", s, e))?
+        parse_u16(s).map_err(|e| format!("Unknown label or invalid address: {} ({})", s, e))?
     };
     Ok(((addr & 0xFF) as u8, (addr >> 8) as u8))
 }

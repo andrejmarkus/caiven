@@ -86,17 +86,16 @@ pub fn sprite(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let ss = ctx.config.sprite_size;
     for sy in 0..ss {
         for sx in 0..ss {
-            let pixel = ctx.mem.read(base + sy as usize * ss as usize + sx as usize)?;
+            let pixel = ctx
+                .mem
+                .read(base + sy as usize * ss as usize + sx as usize)?;
             if pixel == 0 {
                 continue;
             }
 
             let color = ctx.palette.get_color(pixel as usize);
             ctx.world.set_pixel(
-                Vec2::new(
-                    (x0 + sx).wrapping_sub(cam_x),
-                    (y0 + sy).wrapping_sub(cam_y),
-                ),
+                Vec2::new((x0 + sx).wrapping_sub(cam_x), (y0 + sy).wrapping_sub(cam_y)),
                 color,
             );
         }
@@ -124,35 +123,6 @@ pub fn print(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     debug!("Printing text \"{}\" at ({}, {})", text, x, y);
     let color = ctx.palette.get_color(color_idx);
     draw_text(ctx.font, ctx.ui, &text, Vec2::new(x, y), color);
-    Ok(())
-}
-
-pub fn draw_tile(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
-    let x0 = ctx.read_register_value()? as u32;
-    let y0 = ctx.read_register_value()? as u32;
-    let base = ctx.read_register_value()? as usize;
-
-    let cam_x = ctx.camera.get_x();
-    let cam_y = ctx.camera.get_y();
-
-    let ss = ctx.config.sprite_size;
-    for sy in 0..ss {
-        for sx in 0..ss {
-            let pixel = ctx.mem.read(base + sy as usize * ss as usize + sx as usize)?;
-            if pixel == 0 {
-                continue;
-            }
-
-            let color = ctx.palette.get_color(pixel as usize);
-            ctx.world.set_pixel(
-                Vec2::new(
-                    (x0 * ss + sx).wrapping_sub(cam_x),
-                    (y0 * ss + sy).wrapping_sub(cam_y),
-                ),
-                color,
-            );
-        }
-    }
     Ok(())
 }
 
@@ -236,7 +206,8 @@ pub fn tile_solid(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
         tile_index, flags_base, flags
     );
 
-    ctx.cpu.set_register(rdest, if flags & 1 != 0 { 1 } else { 0 });
+    ctx.cpu
+        .set_register(rdest, if flags & 1 != 0 { 1 } else { 0 });
     Ok(())
 }
 

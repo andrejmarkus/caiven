@@ -6,9 +6,7 @@ pub struct Memory {
 
 impl Memory {
     pub fn new(size: usize) -> Self {
-        Self {
-            ram: vec![0; size],
-        }
+        Self { ram: vec![0; size] }
     }
 
     pub fn get_length(&self) -> usize {

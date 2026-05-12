@@ -16,7 +16,9 @@ pub struct DirectiveSet {
 
 impl DirectiveSet {
     pub fn new() -> Self {
-        Self { directives: Vec::new() }
+        Self {
+            directives: Vec::new(),
+        }
     }
 
     pub fn register(&mut self, directive: Directive) {
@@ -101,14 +103,22 @@ pub fn default_directives() -> DirectiveSet {
                 return 0;
             }
             let target = parse_u16(args[0]).unwrap_or(pc);
-            if target > pc { (target - pc) as usize } else { 0 }
+            if target > pc {
+                (target - pc) as usize
+            } else {
+                0
+            }
         },
         emit: |args, _, pc| {
             if args.is_empty() {
                 return Ok(vec![]);
             }
             let target = parse_u16(args[0])?;
-            if target > pc { Ok(vec![0; (target - pc) as usize]) } else { Ok(vec![]) }
+            if target > pc {
+                Ok(vec![0; (target - pc) as usize])
+            } else {
+                Ok(vec![])
+            }
         },
     });
 

@@ -28,12 +28,24 @@ struct ControlsSection {
     b: Vec<String>,
 }
 
-fn default_up() -> Vec<String> { vec!["ArrowUp".into(), "KeyW".into()] }
-fn default_down() -> Vec<String> { vec!["ArrowDown".into(), "KeyS".into()] }
-fn default_left() -> Vec<String> { vec!["ArrowLeft".into(), "KeyA".into()] }
-fn default_right() -> Vec<String> { vec!["ArrowRight".into(), "KeyD".into()] }
-fn default_a() -> Vec<String> { vec!["KeyJ".into()] }
-fn default_b() -> Vec<String> { vec!["KeyK".into()] }
+fn default_up() -> Vec<String> {
+    vec!["ArrowUp".into(), "KeyW".into()]
+}
+fn default_down() -> Vec<String> {
+    vec!["ArrowDown".into(), "KeyS".into()]
+}
+fn default_left() -> Vec<String> {
+    vec!["ArrowLeft".into(), "KeyA".into()]
+}
+fn default_right() -> Vec<String> {
+    vec!["ArrowRight".into(), "KeyD".into()]
+}
+fn default_a() -> Vec<String> {
+    vec!["KeyJ".into()]
+}
+fn default_b() -> Vec<String> {
+    vec!["KeyK".into()]
+}
 
 impl Default for ControlsSection {
     fn default() -> Self {

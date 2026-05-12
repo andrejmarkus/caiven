@@ -61,6 +61,15 @@ impl RomHeader {
         let flags = u32::from_le_bytes(buf[68..72].try_into().unwrap());
         let program_size = u32::from_le_bytes(buf[72..76].try_into().unwrap());
         let crc32 = u32::from_le_bytes(buf[76..80].try_into().unwrap());
-        (Self { title, author, entry_point, flags }, program_size, crc32)
+        (
+            Self {
+                title,
+                author,
+                entry_point,
+                flags,
+            },
+            program_size,
+            crc32,
+        )
     }
 }

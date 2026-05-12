@@ -5,14 +5,14 @@ use crate::rendering::font::Font;
 use crate::rendering::screen::Screen;
 use crate::settings::NAME;
 use crate::timing::FixedTimestep;
-use crate::vm::{Vm, VmConfig};
 use crate::vm::audio::Audio;
+use crate::vm::{Vm, VmConfig};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use fc_rom::RomHeader;
 use log::{error, info};
 use pixels::{Pixels, SurfaceTexture};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 use winit::event_loop::{ControlFlow, EventLoop};
@@ -114,7 +114,7 @@ impl App {
         self.debugger.set_enabled(enabled);
     }
 
-    fn load_rom(&mut self, path: &PathBuf) -> Result<()> {
+    fn load_rom(&mut self, path: &Path) -> Result<()> {
         let rom = fc_rom::load(path)
             .with_context(|| format!("failed to load ROM from {}", path.display()))?;
         self.vm.load_rom(rom.program);
@@ -122,7 +122,7 @@ impl App {
         Ok(())
     }
 
-    fn load_source(&mut self, path: &PathBuf) -> Result<()> {
+    fn load_source(&mut self, path: &Path) -> Result<()> {
         let source = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read source {}", path.display()))?;
         self.vm
@@ -215,11 +215,12 @@ impl ApplicationHandler for App {
                             }
                         }
                         KeyCode::KeyB => {
-                            if pressed && !event.repeat {
-                                if let Some(state) = self.debugger.pop_state() {
-                                    self.vm.restore(&state);
-                                    self.debugger.pause();
-                                }
+                            if pressed
+                                && !event.repeat
+                                && let Some(state) = self.debugger.pop_state()
+                            {
+                                self.vm.restore(&state);
+                                self.debugger.pause();
                             }
                         }
                         KeyCode::KeyN => {

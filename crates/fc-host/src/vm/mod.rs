@@ -15,8 +15,8 @@ pub use palette::*;
 
 use self::cpu::Cpu;
 use self::memory::Memory;
-use crate::isa::InstructionSet;
 use crate::input::Input;
+use crate::isa::InstructionSet;
 use crate::rendering::font::Font;
 use crate::rendering::screen::ScreenLayer;
 use crate::vm::Camera;
@@ -266,7 +266,7 @@ impl Vm {
             mem: &mut self.memory,
             palette: &mut self.palette,
             camera: &mut self.camera,
-            sound: &mut *sound_guard,
+            sound: &mut sound_guard,
             program: &self.program,
             input,
             font,
@@ -276,7 +276,6 @@ impl Vm {
             waiting: &mut self.waiting,
         };
         let result = (handler)(&mut ctx);
-        drop(ctx);
         drop(sound_guard);
         if let Err(fault) = result {
             self.set_fault(fault);

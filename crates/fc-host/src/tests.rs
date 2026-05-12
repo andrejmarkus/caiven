@@ -142,7 +142,10 @@ fn stm_and_ldm_round_trip() {
 #[test]
 fn stmw_and_ldmw_round_trip_word() {
     let mut vm = make_vm();
-    run(&mut vm, "MOV R0, 1000\nSTMW 0x1000, R0\nLDMW R1, 0x1000\nWAIT");
+    run(
+        &mut vm,
+        "MOV R0, 1000\nSTMW 0x1000, R0\nLDMW R1, 0x1000\nWAIT",
+    );
     assert_eq!(vm.get_registers()[1], 1000);
 }
 

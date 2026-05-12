@@ -58,12 +58,4 @@ impl Cpu {
     pub fn get_sp(&self) -> usize {
         self.sp
     }
-
-    pub fn shift_pc(&mut self, offset: isize) {
-        if offset.is_negative() {
-            self.pc = self.pc.saturating_sub(offset.wrapping_abs() as usize);
-        } else {
-            self.pc = self.pc.saturating_add(offset as usize);
-        }
-    }
 }
