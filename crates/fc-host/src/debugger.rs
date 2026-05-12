@@ -1,15 +1,31 @@
 use crate::{
     rendering::{font::Font, screen::ScreenLayer, text::draw_text},
-    settings::{MEMORY_BYTES_PER_PAGE, MEMORY_PAGE_SIZE, MEMORY_ROW_BYTES},
+    settings::{MEMORY_BYTES_PER_PAGE, MEMORY_PAGE_COUNT},
     vm::{Vm, VmSnapshot},
 };
 use fc_core::{Color, Vec2};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DebugMode {
     Running,
     Paused,
     Step,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct FcDbgFile {
+    #[serde(default)]
+    breakpoints: Vec<usize>,
+    #[serde(default)]
+    r0: Option<String>,
+    #[serde(default)]
+    r1: Option<String>,
+    #[serde(default)]
+    r2: Option<String>,
+    #[serde(default)]
+    r3: Option<String>,
 }
 
 pub struct Debugger {
@@ -19,6 +35,10 @@ pub struct Debugger {
     ram_page: usize,
     states: Vec<VmSnapshot>,
     max_states: usize,
+    cursor_addr: usize,
+    scrub_offset: usize,
+    reg_aliases: [Option<String>; 4],
+    fcdbg_path: Option<PathBuf>,
 }
 
 impl Debugger {
@@ -30,11 +50,49 @@ impl Debugger {
             ram_page: 0,
             states: Vec::new(),
             max_states: 100,
+            cursor_addr: 0,
+            scrub_offset: 0,
+            reg_aliases: Default::default(),
+            fcdbg_path: None,
         }
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
+    }
+
+    pub fn set_fcdbg_path(&mut self, path: PathBuf) {
+        self.fcdbg_path = Some(path);
+        self.load_fcdbg();
+    }
+
+    fn load_fcdbg(&mut self) {
+        let Some(path) = &self.fcdbg_path else { return };
+        let Ok(text) = std::fs::read_to_string(path) else {
+            return;
+        };
+        let Ok(file) = toml::from_str::<FcDbgFile>(&text) else {
+            return;
+        };
+        self.breakpoints = file.breakpoints;
+        self.reg_aliases[0] = file.r0;
+        self.reg_aliases[1] = file.r1;
+        self.reg_aliases[2] = file.r2;
+        self.reg_aliases[3] = file.r3;
+    }
+
+    fn save_fcdbg(&self) {
+        let Some(path) = &self.fcdbg_path else { return };
+        let file = FcDbgFile {
+            breakpoints: self.breakpoints.clone(),
+            r0: self.reg_aliases[0].clone(),
+            r1: self.reg_aliases[1].clone(),
+            r2: self.reg_aliases[2].clone(),
+            r3: self.reg_aliases[3].clone(),
+        };
+        if let Ok(text) = toml::to_string(&file) {
+            let _ = std::fs::write(path, text);
+        }
     }
 
     pub fn push_state(&mut self, snapshot: VmSnapshot) {
@@ -45,20 +103,14 @@ impl Debugger {
         if self.states.len() > self.max_states {
             self.states.remove(0);
         }
-    }
-
-    pub fn pop_state(&mut self) -> Option<VmSnapshot> {
-        if !self.enabled {
-            return None;
-        }
-        self.states.pop()
+        self.scrub_offset = 0;
     }
 
     pub fn next_ram_page(&mut self) {
         if !self.enabled {
             return;
         }
-        self.ram_page = (self.ram_page + 1) % crate::settings::MEMORY_PAGE_COUNT;
+        self.ram_page = (self.ram_page + 1) % MEMORY_PAGE_COUNT;
     }
 
     pub fn prev_ram_page(&mut self) {
@@ -66,7 +118,7 @@ impl Debugger {
             return;
         }
         if self.ram_page == 0 {
-            self.ram_page = crate::settings::MEMORY_PAGE_COUNT - 1;
+            self.ram_page = MEMORY_PAGE_COUNT - 1;
         } else {
             self.ram_page -= 1;
         }
@@ -85,17 +137,23 @@ impl Debugger {
         }
         if self.breakpoints.contains(&pc) {
             self.mode = DebugMode::Paused;
+            self.cursor_addr = pc;
         }
     }
 
-    pub fn toggle_pause(&mut self) {
+    pub fn toggle_pause(&mut self, vm_pc: usize) {
         if !self.enabled {
             return;
         }
         self.mode = match self.mode {
-            DebugMode::Running => DebugMode::Paused,
-            DebugMode::Paused => DebugMode::Running,
-            DebugMode::Step => DebugMode::Running,
+            DebugMode::Running => {
+                self.cursor_addr = vm_pc;
+                DebugMode::Paused
+            }
+            DebugMode::Paused | DebugMode::Step => {
+                self.scrub_offset = 0;
+                DebugMode::Running
+            }
         };
     }
 
@@ -106,11 +164,78 @@ impl Debugger {
         self.mode = DebugMode::Step;
     }
 
-    pub fn pause(&mut self) {
+    pub fn pause(&mut self, vm_pc: usize) {
         if !self.enabled {
             return;
         }
         self.mode = DebugMode::Paused;
+        self.cursor_addr = vm_pc;
+    }
+
+    pub fn cursor_up(&mut self, vm: &Vm) {
+        if !self.enabled {
+            return;
+        }
+        let addrs = vm.get_source_map().sorted_addresses();
+        if addrs.is_empty() {
+            self.cursor_addr = self.cursor_addr.saturating_sub(1);
+            return;
+        }
+        let pos = addrs.partition_point(|&a| a < self.cursor_addr);
+        if pos > 0 {
+            self.cursor_addr = addrs[pos - 1];
+        }
+    }
+
+    pub fn cursor_down(&mut self, vm: &Vm) {
+        if !self.enabled {
+            return;
+        }
+        let addrs = vm.get_source_map().sorted_addresses();
+        if addrs.is_empty() {
+            self.cursor_addr = self.cursor_addr.saturating_add(1);
+            return;
+        }
+        let pos = addrs.partition_point(|&a| a <= self.cursor_addr);
+        if pos < addrs.len() {
+            self.cursor_addr = addrs[pos];
+        }
+    }
+
+    pub fn toggle_bp_at_cursor(&mut self) {
+        if !self.enabled {
+            return;
+        }
+        if let Some(pos) = self.breakpoints.iter().position(|&a| a == self.cursor_addr) {
+            self.breakpoints.remove(pos);
+        } else {
+            self.breakpoints.push(self.cursor_addr);
+        }
+        self.save_fcdbg();
+    }
+
+    pub fn scrub_back(&mut self) {
+        if !self.enabled || self.states.is_empty() {
+            return;
+        }
+        self.scrub_offset = (self.scrub_offset + 1).min(self.states.len() - 1);
+    }
+
+    pub fn scrub_forward(&mut self) {
+        if !self.enabled {
+            return;
+        }
+        if self.scrub_offset > 0 {
+            self.scrub_offset -= 1;
+        }
+    }
+
+    pub fn current_scrub_snapshot(&self) -> Option<VmSnapshot> {
+        if self.states.is_empty() {
+            return None;
+        }
+        let idx = self.states.len().saturating_sub(1 + self.scrub_offset);
+        self.states.get(idx).cloned()
     }
 
     pub fn dump_state(&self, vm: &Vm) {
@@ -118,13 +243,33 @@ impl Debugger {
             return;
         }
         println!("--- VM state ---");
-        println!("PC: {} ({})", vm.get_pc(), vm.disassemble(vm.get_pc()));
+        println!(
+            "PC: 0x{:04X} ({})",
+            vm.get_pc(),
+            vm.disassemble(vm.get_pc())
+        );
         println!("Registers:");
         for (i, val) in vm.get_registers().iter().enumerate() {
-            println!("R{}: {}", i, val);
+            let label = match &self.reg_aliases[i] {
+                Some(alias) => format!("R{}({})", i, alias),
+                None => format!("R{}", i),
+            };
+            println!("  {}: {}", label, val);
         }
         println!("Camera: ({}, {})", vm.get_camera_x(), vm.get_camera_y());
         println!("Waiting: {}", if vm.is_waiting() { "YES" } else { "NO" });
+        if !self.breakpoints.is_empty() {
+            let bps: Vec<String> = self
+                .breakpoints
+                .iter()
+                .map(|a| format!("0x{:04X}", a))
+                .collect();
+            println!("Breakpoints: {}", bps.join(", "));
+        }
+        println!("States: {}/{}", self.states.len(), self.max_states);
+        if self.scrub_offset > 0 {
+            println!("Scrubbing: {} back from latest", self.scrub_offset);
+        }
         println!("----------------");
     }
 
@@ -132,65 +277,139 @@ impl Debugger {
         if !self.enabled {
             return;
         }
-        let color = Color::new_rgb(255, 255, 255);
-        draw_text(
-            font,
-            screen,
-            &format!("PC:{}", vm.get_pc()),
-            Vec2::new(2, 2),
-            color,
+
+        let white = Color::new_rgb(255, 255, 255);
+        let green = Color::new_rgb(64, 255, 64);
+        let yellow = Color::new_rgb(255, 220, 0);
+        let red = Color::new_rgb(255, 64, 64);
+        let cyan = Color::new_rgb(0, 200, 255);
+        let gray = Color::new_rgb(140, 140, 140);
+
+        let pc = vm.get_pc();
+
+        // Row 0: status bar
+        let mode_str = match self.mode {
+            DebugMode::Running => "RUN",
+            DebugMode::Paused => "PAUSE",
+            DebugMode::Step => "STEP",
+        };
+        let scrub_indicator = if self.scrub_offset > 0 {
+            format!("-{}", self.scrub_offset)
+        } else {
+            String::new()
+        };
+        let status = format!(
+            "{} PC:0X{:04X} S:{}{}",
+            mode_str,
+            pc,
+            self.states.len(),
+            scrub_indicator
         );
-        draw_text(
-            font,
-            screen,
-            &format!("R0:{}", vm.get_registers()[0]),
-            Vec2::new(2, 10),
-            color,
+        draw_text(font, screen, &status, Vec2::new(0, 0), cyan);
+
+        // Rows 1-5: disassembly window
+        let disasm_addrs = build_disasm_window(vm, self.cursor_addr, 5);
+        for (i, &addr) in disasm_addrs.iter().enumerate() {
+            let y = (i as u32 + 1) * 8;
+            let is_bp = self.breakpoints.contains(&addr);
+            let is_cursor = addr == self.cursor_addr;
+            let is_pc = addr == pc;
+
+            // BP marker
+            let bp_char = if is_bp { "*" } else { " " };
+            let bp_color = if is_bp { red } else { gray };
+            draw_text(font, screen, bp_char, Vec2::new(0, y), bp_color);
+
+            // Cursor marker
+            let cursor_char = if is_cursor { ">" } else { " " };
+            let cursor_color = if is_cursor { yellow } else { gray };
+            draw_text(font, screen, cursor_char, Vec2::new(4, y), cursor_color);
+
+            // Address + disasm — green for PC, white otherwise
+            let text_color = if is_pc { green } else { white };
+            let addr_str = format!("0X{:04X}", addr);
+            draw_text(font, screen, &addr_str, Vec2::new(8, y), text_color);
+
+            let disasm = vm.disassemble(addr);
+            let truncated: String = disasm.chars().take(18).collect();
+            draw_text(font, screen, &truncated, Vec2::new(36, y), text_color);
+        }
+
+        // Rows 6-7: registers (2 per row)
+        let regs = vm.get_registers();
+        for row in 0..2usize {
+            let y = (6 + row as u32) * 8;
+            for col in 0..2usize {
+                let ri = row * 2 + col;
+                let rx = col as u32 * 64;
+                let val = regs.get(ri).copied().unwrap_or(0);
+                let label = match &self.reg_aliases[ri] {
+                    Some(alias) => {
+                        let short: String =
+                            alias.chars().take(3).collect::<String>().to_uppercase();
+                        format!("{}:{}", short, val)
+                    }
+                    None => format!("R{}:{}", ri, val),
+                };
+                draw_text(font, screen, &label, Vec2::new(rx, y), white);
+            }
+        }
+
+        // Row 8: camera + waiting
+        let cam_str = format!(
+            "CAM:{},{} WT:{}",
+            vm.get_camera_x(),
+            vm.get_camera_y(),
+            if vm.is_waiting() { "Y" } else { "N" }
         );
-        draw_text(
-            font,
-            screen,
-            &format!("R1:{}", vm.get_registers()[1]),
-            Vec2::new(2, 18),
-            color,
-        );
-        draw_text(
-            font,
-            screen,
-            &format!("R2:{}", vm.get_registers()[2]),
-            Vec2::new(2, 26),
-            color,
-        );
-        draw_text(
-            font,
-            screen,
-            &format!("R3:{}", vm.get_registers()[3]),
-            Vec2::new(2, 34),
-            color,
-        );
-        draw_text(
-            font,
-            screen,
-            &format!("CAMERA:({},{})", vm.get_camera_x(), vm.get_camera_y()),
-            Vec2::new(2, 42),
-            color,
-        );
-        draw_text(
-            font,
-            screen,
-            &format!("WAITING:{}", if vm.is_waiting() { "YES" } else { "NO" }),
-            Vec2::new(2, 50),
-            color,
-        );
-        draw_text(
-            font,
-            screen,
-            &format!("STATES:{}", self.states.len()),
-            Vec2::new(86, 2),
-            color,
-        );
-        self.render_instruction_info(font, screen, vm, Vec2::new(2, 58), color);
-        self.render_memory_page(font, screen, vm, Vec2::new(2, 66), color);
+        draw_text(font, screen, &cam_str, Vec2::new(0, 64), gray);
+
+        // Timeline scrubber (pixel bar at y=70-72)
+        self.render_timeline(screen, 70);
+
+        // Rows 10-13: RAM
+        self.render_memory_page(font, screen, vm, Vec2::new(0, 80), gray);
+    }
+
+    fn render_timeline(&self, screen: &mut ScreenLayer, y_start: u32) {
+        let filled_color = Color::new_rgb(40, 100, 220);
+        let empty_color = Color::new_rgb(20, 30, 60);
+        let scrub_color = Color::new_rgb(255, 220, 0);
+
+        let bar_width = 128u32;
+        let filled = if self.max_states > 0 && !self.states.is_empty() {
+            (self.states.len() as u32 * bar_width) / self.max_states as u32
+        } else {
+            0
+        };
+
+        let scrub_x = if self.scrub_offset > 0 && !self.states.is_empty() {
+            let live_idx = self.states.len().saturating_sub(1 + self.scrub_offset);
+            Some((live_idx as u32 * bar_width) / self.states.len() as u32)
+        } else {
+            None
+        };
+
+        // Draw BP markers above the bar
+        for &bp in &self.breakpoints {
+            // Can't map BP address to timeline position meaningfully without
+            // knowing instruction timing; skip for now.
+            let _ = bp;
+        }
+
+        for y_off in 0..3u32 {
+            let y = y_start + y_off;
+            for x in 0..bar_width {
+                let color = if Some(x) == scrub_x {
+                    scrub_color
+                } else if x < filled {
+                    filled_color
+                } else {
+                    empty_color
+                };
+                screen.set_pixel(Vec2::new(x, y), color);
+            }
+        }
     }
 
     fn render_memory_page(
@@ -201,53 +420,55 @@ impl Debugger {
         position: Vec2,
         color: Color,
     ) {
-        if !self.enabled {
-            return;
-        }
-        let start_address = self.ram_page * MEMORY_BYTES_PER_PAGE;
+        let start = self.ram_page * MEMORY_BYTES_PER_PAGE;
         draw_text(
             font,
             screen,
-            &format!("RAM PAGE: {} (0X{:04X})", self.ram_page, start_address),
-            Vec2::new(position.get_x(), position.get_y() + 4),
+            &format!("RAM 0X{:04X}", start),
+            position,
             color,
         );
-        for row in 0..MEMORY_PAGE_SIZE {
-            let addr = start_address + row * MEMORY_ROW_BYTES;
+        for row in 0..3usize {
+            let addr = start + row * 8;
             if addr >= vm.get_memory_length() {
                 break;
             }
-            let mut line = format!("0X{:04X}:", addr);
-            for col in 0..MEMORY_ROW_BYTES {
+            let mut line = String::new();
+            for col in 0..8usize {
                 let i = addr + col;
                 if i < vm.get_memory_length() {
-                    line.push_str(&format!(" {:02X}", vm.peek_memory(i)));
-                } else {
-                    line.push_str(" --");
+                    if col > 0 {
+                        line.push(' ');
+                    }
+                    line.push_str(&format!("{:02X}", vm.peek_memory(i)));
                 }
             }
             draw_text(
                 font,
                 screen,
                 &line,
-                Vec2::new(position.get_x(), position.get_y() + 12 + row as u32 * 8),
+                Vec2::new(position.get_x(), position.get_y() + 8 + row as u32 * 8),
                 color,
             );
         }
     }
+}
 
-    fn render_instruction_info(
-        &self,
-        font: &Font,
-        screen: &mut ScreenLayer,
-        vm: &Vm,
-        position: Vec2,
-        color: Color,
-    ) {
-        if !self.enabled {
-            return;
-        }
-        let info = vm.disassemble(vm.get_pc());
-        draw_text(font, screen, &format!("INSTR:{}", info), position, color);
+fn build_disasm_window(vm: &Vm, center: usize, count: usize) -> Vec<usize> {
+    let addrs = vm.get_source_map().sorted_addresses();
+    if addrs.is_empty() {
+        let start = center.saturating_sub(count / 2);
+        return (start..start + count)
+            .filter(|&a| a < vm.get_program().len())
+            .collect();
     }
+    let idx = match addrs.binary_search(&center) {
+        Ok(i) => i,
+        Err(i) => i.saturating_sub(1),
+    };
+    let half = count / 2;
+    let start = idx.saturating_sub(half);
+    let end = (start + count).min(addrs.len());
+    let start = if end < count { 0 } else { end - count }.min(start);
+    addrs[start..end].to_vec()
 }

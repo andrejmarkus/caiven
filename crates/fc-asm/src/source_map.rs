@@ -55,4 +55,10 @@ impl SourceMap {
     pub fn get(&self, address: usize) -> Option<&AddressInfo> {
         self.map.get(&address)
     }
+
+    pub fn sorted_addresses(&self) -> Vec<usize> {
+        let mut addrs: Vec<usize> = self.map.keys().cloned().collect();
+        addrs.sort_unstable();
+        addrs
+    }
 }

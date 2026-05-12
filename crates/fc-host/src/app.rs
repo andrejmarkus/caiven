@@ -144,6 +144,7 @@ impl App {
         }
 
         self.vm.load_rom(rom.program);
+        self.debugger.set_fcdbg_path(path.with_extension("fcdbg"));
 
         for section in &rom.sections {
             if section.kind == SectionKind::SpriteSheet {
@@ -167,6 +168,7 @@ impl App {
             .load_program(&source)
             .with_context(|| format!("failed to assemble {}", path.display()))?;
         self.watch_mtime = path.metadata().ok().and_then(|m| m.modified().ok());
+        self.debugger.set_fcdbg_path(path.with_extension("fcdbg"));
         info!("source assembled from {}", path.display());
         Ok(())
     }
@@ -262,20 +264,36 @@ impl ApplicationHandler for App {
                     if let Some(button) = self.input_map.get_button(code) {
                         self.input.set_button(button, pressed);
                     }
+                    let paused = self.debugger.get_mode() == DebugMode::Paused;
                     match code {
                         KeyCode::Space if pressed && !event.repeat => {
-                            self.debugger.toggle_pause();
+                            self.debugger.toggle_pause(self.vm.get_pc());
                         }
                         KeyCode::KeyC if pressed && !event.repeat => {
                             self.debugger.step();
                         }
-                        KeyCode::KeyB => {
-                            if pressed
-                                && !event.repeat
-                                && let Some(state) = self.debugger.pop_state()
-                            {
+                        KeyCode::F10 if pressed && !event.repeat && paused => {
+                            self.debugger.step();
+                        }
+                        KeyCode::KeyB if pressed && !event.repeat && paused => {
+                            self.debugger.toggle_bp_at_cursor();
+                        }
+                        KeyCode::ArrowUp if pressed && paused => {
+                            self.debugger.cursor_up(&self.vm);
+                        }
+                        KeyCode::ArrowDown if pressed && paused => {
+                            self.debugger.cursor_down(&self.vm);
+                        }
+                        KeyCode::ArrowLeft if pressed && paused => {
+                            self.debugger.scrub_back();
+                            if let Some(state) = self.debugger.current_scrub_snapshot() {
                                 self.vm.restore(&state);
-                                self.debugger.pause();
+                            }
+                        }
+                        KeyCode::ArrowRight if pressed && paused => {
+                            self.debugger.scrub_forward();
+                            if let Some(state) = self.debugger.current_scrub_snapshot() {
+                                self.vm.restore(&state);
                             }
                         }
                         KeyCode::KeyN if pressed && !event.repeat => {
@@ -311,7 +329,7 @@ impl ApplicationHandler for App {
                 self.vm.step(&self.input, &self.font);
                 self.debugger.check_breakpoint(self.vm.get_pc());
                 self.debugger.dump_state(&self.vm);
-                self.debugger.pause();
+                self.debugger.pause(self.vm.get_pc());
             }
             DebugMode::Paused => {}
         }
