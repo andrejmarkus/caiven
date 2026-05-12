@@ -1,5 +1,6 @@
-; Catch the Fruit — demonstrates F1 assembler features:
+; Catch the Fruit — demonstrates F1+F2 assembler features:
 ;   .CONST, expressions, local labels (@name), .MACRO/.ENDM
+;   .BEGIN_SPRITE_SHEET / .END_SPRITE_SHEET (F2 asset sections)
 
 ; === RAM layout ===
 .CONST PLAYER_X  = 10
@@ -9,12 +10,9 @@
 .CONST SCORE     = 14   ; 16-bit word
 .CONST TIMER     = 16   ; 16-bit word
 
-; === Sprite / data locations in RAM ===
-.CONST SPR_PLAYER = 100
-.CONST SPR_FRUIT  = 200
+; === String data locations in RAM ===
 .CONST STR_SCORE  = 300
 .CONST STR_TIMER  = 310
-.CONST SPR_SIZE   = 64
 
 ; === UI layout ===
 .CONST UI_Y       = 5
@@ -64,10 +62,8 @@ init:
     MOV R0, 0
     STMW SCORE, R0
 
-    CPY STR_SCORE,  score_label,   7
-    CPY STR_TIMER,  timer_label,   6
-    CPY SPR_PLAYER, player_sprite, SPR_SIZE
-    CPY SPR_FRUIT,  fruit_sprite,  SPR_SIZE
+    CPY STR_SCORE, score_label, 7
+    CPY STR_TIMER, timer_label, 6
 
     JSR spawn_fruit
     JMP loop
@@ -104,16 +100,16 @@ loop:
     LDMW R3, TIMER
     NUM R0 R1 R2 R3
 
-    ; Draw player
+    ; Draw player (player_sprite label resolves to SpriteSheet RAM address)
     LOAD_BYTE R0, PLAYER_X
     LOAD_BYTE R1, PLAYER_Y
-    MOV R2, SPR_PLAYER
+    MOV R2, player_sprite
     SPT R0 R1 R2
 
     ; Draw fruit
     LOAD_BYTE R0, FRUIT_X
     LOAD_BYTE R1, FRUIT_Y
-    MOV R2, SPR_FRUIT
+    MOV R2, fruit_sprite
     SPT R0 R1 R2
 
     ; Input: LEFT
@@ -215,6 +211,8 @@ score_label:
 timer_label:
     .DB 'T', 'I', 'M', 'E', ':', 0
 
+; === Sprite sheet (auto-loaded to 0x4000 by host) ===
+.BEGIN_SPRITE_SHEET
 player_sprite:
     .DB 0,1,1,1,1,1,1,0
     .DB 1,1,1,1,1,1,1,1
@@ -234,3 +232,4 @@ fruit_sprite:
     .DB 0,2,2,2,2,2,2,0
     .DB 0,0,2,2,2,2,0,0
     .DB 0,0,0,0,0,0,0,0
+.END_SPRITE_SHEET

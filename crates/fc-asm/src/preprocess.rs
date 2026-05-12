@@ -3,11 +3,18 @@ use crate::expr::eval_expr;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineSection {
+    Program,
+    SpriteSheet,
+}
+
 #[derive(Debug, Clone)]
 pub struct SourceLine {
     pub text: String,
     pub file: String,
     pub line_number: usize,
+    pub section: LineSection,
 }
 
 #[derive(Debug, Clone)]
@@ -20,6 +27,7 @@ pub struct Preprocessor {
     pub constants: HashMap<String, u16>,
     pub macros: HashMap<String, MacroDef>,
     include_stack: Vec<PathBuf>,
+    current_section: LineSection,
 }
 
 impl Default for Preprocessor {
@@ -34,11 +42,13 @@ impl Preprocessor {
             constants: HashMap::new(),
             macros: HashMap::new(),
             include_stack: Vec::new(),
+            current_section: LineSection::Program,
         }
     }
 
     pub fn process_str(&mut self, source: &str) -> Result<Vec<SourceLine>, AsmError> {
-        self.process_lines(source.lines().enumerate().map(|(i, l)| (i + 1, l.to_string())).collect(), "<input>")
+        let lines = source.lines().enumerate().map(|(i, l)| (i + 1, l.to_string())).collect();
+        self.process_lines(lines, "<input>")
     }
 
     pub fn process_file(&mut self, path: &Path) -> Result<Vec<SourceLine>, AsmError> {
@@ -80,8 +90,19 @@ impl Preprocessor {
 
             let first = tokens[0].to_uppercase();
 
+            // Section markers
+            if first == ".BEGIN_SPRITE_SHEET" {
+                self.current_section = LineSection::SpriteSheet;
+                i += 1;
+                continue;
+            }
+            if first == ".END_SPRITE_SHEET" {
+                self.current_section = LineSection::Program;
+                i += 1;
+                continue;
+            }
+
             if first == ".CONST" || first == "CONST" {
-                // .CONST NAME = VALUE
                 if tokens.len() < 4 || tokens[2] != "=" {
                     return Err(AsmError::syntax(line_number, trimmed, ".CONST requires: .CONST NAME = EXPR"));
                 }
@@ -140,7 +161,7 @@ impl Preprocessor {
                 continue;
             }
 
-            // Check macro invocation
+            // Macro invocation
             if let Some(mac) = self.macros.get(&first).cloned() {
                 let args: Vec<String> = tokens[1..].iter().map(|s| s.to_string()).collect();
                 if args.len() != mac.params.len() {
@@ -149,6 +170,7 @@ impl Preprocessor {
                         format!("macro '{}' expects {} args, got {}", first, mac.params.len(), args.len()),
                     ));
                 }
+                let section = self.current_section;
                 for body_line in &mac.body {
                     let mut expanded = body_line.clone();
                     for (param, arg) in mac.params.iter().zip(args.iter()) {
@@ -159,6 +181,7 @@ impl Preprocessor {
                             text: expanded,
                             file: file.to_string(),
                             line_number,
+                            section,
                         });
                     }
                 }
@@ -171,6 +194,7 @@ impl Preprocessor {
                 text: trimmed.to_string(),
                 file: file.to_string(),
                 line_number,
+                section: self.current_section,
             });
             i += 1;
         }
@@ -197,13 +221,11 @@ pub fn tokenize(line: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut chars = line.chars().peekable();
     loop {
-        // skip whitespace and commas
         while chars.peek().map(|c| c.is_whitespace() || *c == ',').unwrap_or(false) {
             chars.next();
         }
         let Some(&c) = chars.peek() else { break };
         if c == '"' {
-            // quoted string — collect until closing "
             let mut s = String::from('"');
             chars.next();
             for ch in chars.by_ref() {
@@ -228,19 +250,16 @@ pub fn resolve_local_refs(expr: &str, scope: &str) -> String {
     if scope.is_empty() || !expr.contains('@') {
         return expr.to_string();
     }
-    // Replace @label with scope@@label; avoid replacing @@ (already mangled)
     let mut result = String::with_capacity(expr.len() + 16);
     let bytes = expr.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'@' {
             if i + 1 < bytes.len() && bytes[i + 1] == b'@' {
-                // Already mangled — pass through both '@' characters
                 result.push('@');
                 result.push('@');
                 i += 2;
             } else {
-                // Local ref — mangle with scope
                 result.push_str(scope);
                 result.push_str("@@");
                 i += 1;
@@ -300,5 +319,16 @@ mod tests {
         assert_eq!(resolve_local_refs("@loop", "main"), "main@@loop");
         assert_eq!(resolve_local_refs("main@@loop", "main"), "main@@loop");
         assert_eq!(resolve_local_refs("no_at", "main"), "no_at");
+    }
+
+    #[test]
+    fn section_tagging() {
+        let src = "MOV R0 0\n.BEGIN_SPRITE_SHEET\n.DB 1 2\n.END_SPRITE_SHEET\nMOV R1 0";
+        let mut pp = Preprocessor::new();
+        let lines = pp.process_str(src).unwrap();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0].section, LineSection::Program);
+        assert_eq!(lines[1].section, LineSection::SpriteSheet);
+        assert_eq!(lines[2].section, LineSection::Program);
     }
 }

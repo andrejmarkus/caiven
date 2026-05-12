@@ -9,7 +9,7 @@ use crate::vm::audio::Audio;
 use crate::vm::{Vm, VmConfig};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use fc_rom::RomHeader;
+use fc_rom::{RomHeader, SectionKind};
 use log::{error, info, warn};
 use pixels::{Pixels, SurfaceTexture};
 use std::path::{Path, PathBuf};
@@ -23,6 +23,8 @@ use winit::{
     event::WindowEvent,
     window::{Window, WindowAttributes},
 };
+
+const SPRITE_SHEET_RAM_BASE: usize = 0x4000;
 
 #[derive(Parser)]
 #[command(name = "fc-host", about = "Fantasy Console emulator and toolchain")]
@@ -49,6 +51,11 @@ enum Command {
     Debug {
         /// Path to the .asm source file (assembled in memory)
         source: PathBuf,
+    },
+    /// Inspect a ROM file and print its section table
+    Inspect {
+        /// Path to the .rom file
+        rom: PathBuf,
     },
     /// Development mode: load games/asm/movement.asm
     Dev,
@@ -121,6 +128,12 @@ impl App {
     fn load_rom(&mut self, path: &Path) -> Result<()> {
         let rom = fc_rom::load(path)
             .with_context(|| format!("failed to load ROM from {}", path.display()))?;
+        for section in &rom.sections {
+            if section.kind == SectionKind::SpriteSheet {
+                self.vm.load_section_to_ram(SPRITE_SHEET_RAM_BASE, &section.data);
+                info!("SpriteSheet section loaded to RAM at 0x{:04X} ({} bytes)", SPRITE_SHEET_RAM_BASE, section.data.len());
+            }
+        }
         self.vm.load_rom(rom.program);
         info!("ROM loaded from {}", path.display());
         Ok(())
@@ -297,27 +310,43 @@ pub fn run() -> Result<()> {
     };
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level)).init();
 
-    if let Command::Build { source, output } = command {
-        info!("building ROM: {} → {}", source.display(), output.display());
+    match &command {
+        Command::Build { source, output } => {
+            info!("building ROM: {} → {}", source.display(), output.display());
 
-        let instruction_set = Arc::new(default_instruction_set());
-        let vm = Vm::new(instruction_set, VmConfig::default());
+            let out = fc_asm::assemble_file_with_sections(source)
+                .map_err(|e| anyhow::anyhow!("assembly failed: {e}"))?;
 
-        let src = std::fs::read_to_string(&source)
-            .with_context(|| format!("cannot read {}", source.display()))?;
+            let stem = source.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+            let header = RomHeader::default_for(stem);
 
-        let program = vm
-            .assemble(&src)
-            .map_err(|e| anyhow::anyhow!("assembly failed: {e}"))?;
+            let extra: Vec<(SectionKind, Vec<u8>)> = out
+                .extra_sections
+                .into_iter()
+                .map(|(id, data)| (SectionKind::from_u16(id), data))
+                .collect();
 
-        let stem = source.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-        let header = RomHeader::default_for(stem);
+            fc_rom::write(output, &header, &out.program, &extra)
+                .with_context(|| format!("cannot write ROM to {}", output.display()))?;
 
-        fc_rom::write(&output, &header, &program)
-            .with_context(|| format!("cannot write ROM to {}", output.display()))?;
-
-        info!("ROM written to {}", output.display());
-        return Ok(());
+            info!("ROM written to {} ({} extra sections)", output.display(), extra.len());
+            return Ok(());
+        }
+        Command::Inspect { rom } => {
+            let loaded = fc_rom::load(rom)
+                .with_context(|| format!("failed to load ROM from {}", rom.display()))?;
+            println!("ROM: {}", rom.display());
+            println!("  title:  {}", loaded.header.title);
+            println!("  author: {}", loaded.header.author);
+            println!("  program: {} bytes", loaded.program.len());
+            println!("  sections ({}):", loaded.sections.len() + 1);
+            println!("    [0] Program  {} bytes", loaded.program.len());
+            for (i, s) in loaded.sections.iter().enumerate() {
+                println!("    [{}] {:?}  {} bytes", i + 1, s.kind, s.data.len());
+            }
+            return Ok(());
+        }
+        _ => {}
     }
 
     let mut app = App::new()?;
@@ -339,7 +368,7 @@ pub fn run() -> Result<()> {
             info!("running ROM: {}", rom.display());
             app.load_rom(&rom)?;
         }
-        Command::Build { .. } => unreachable!(),
+        Command::Build { .. } | Command::Inspect { .. } => unreachable!(),
     }
 
     let event_loop = EventLoop::new().context("failed to create event loop")?;

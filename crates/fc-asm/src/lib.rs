@@ -6,7 +6,7 @@ mod isa;
 pub mod preprocess;
 mod source_map;
 
-pub use assembler::Assembler;
+pub use assembler::{Assembler, AssemblerOutput};
 pub use error::AsmError;
 pub use isa::{ArgType, IsaTable, OpcodeSpec};
 pub use preprocess::{SourceLine, MacroDef, Preprocessor};
@@ -18,6 +18,14 @@ pub fn assemble(source: &str) -> Result<Vec<u8>, AsmError> {
 
 pub fn assemble_with_source_map(source: &str) -> Result<(Vec<u8>, SourceMap), AsmError> {
     Assembler::new().assemble_with_source_map(source)
+}
+
+pub fn assemble_with_sections(source: &str) -> Result<AssemblerOutput, AsmError> {
+    Assembler::new().assemble_with_sections(source)
+}
+
+pub fn assemble_file_with_sections(path: &std::path::Path) -> Result<AssemblerOutput, AsmError> {
+    Assembler::new().assemble_file_with_sections(path)
 }
 
 pub fn generate_source_map(bytecode: &[u8]) -> SourceMap {

@@ -100,8 +100,13 @@ impl Vm {
         self.cpu.set_pc(0);
     }
 
-    pub fn assemble(&self, source: &str) -> Result<Vec<u8>, fc_asm::AsmError> {
-        fc_asm::assemble(source)
+    pub fn load_section_to_ram(&mut self, base: usize, data: &[u8]) {
+        for (i, &byte) in data.iter().enumerate() {
+            if let Err(e) = self.memory.write(base + i, byte) {
+                log::error!("load_section_to_ram: write fault at {}: {:?}", base + i, e);
+                break;
+            }
+        }
     }
 
     pub fn get_instruction_by_opcode(&self, opcode: u8) -> Option<&crate::isa::Instruction> {

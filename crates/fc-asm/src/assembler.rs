@@ -2,10 +2,23 @@ use crate::directive::{DirectiveSet, default_directives};
 use crate::error::AsmError;
 use crate::expr::eval_expr;
 use crate::isa::{ArgType, IsaTable, default_isa};
-use crate::preprocess::{Preprocessor, SourceLine, resolve_local_refs, tokenize};
+use crate::preprocess::{LineSection, Preprocessor, SourceLine, resolve_local_refs, tokenize};
 use crate::source_map::{ItemInfo, SourceMap};
 use std::collections::HashMap;
 use std::path::Path;
+
+/// SectionKind wire ID for SpriteSheet (matches fc-rom::SectionKind::SpriteSheet).
+const SPRITE_SHEET_KIND: u16 = 0x0002;
+
+/// RAM base address where the SpriteSheet section is auto-loaded by the host.
+pub const SPRITE_SHEET_RAM_BASE: u16 = 0x4000;
+
+pub struct AssemblerOutput {
+    pub program: Vec<u8>,
+    pub source_map: SourceMap,
+    /// Extra sections as (kind_wire_id, bytes). Excludes the Program section.
+    pub extra_sections: Vec<(u16, Vec<u8>)>,
+}
 
 pub struct Assembler {
     isa: IsaTable,
@@ -27,24 +40,36 @@ impl Assembler {
     }
 
     pub fn assemble(&self, source: &str) -> Result<Vec<u8>, AsmError> {
-        let (bytecode, _) = self.assemble_with_source_map(source)?;
-        Ok(bytecode)
+        Ok(self.assemble_with_sections_str(source)?.program)
     }
 
     pub fn assemble_with_source_map(&self, source: &str) -> Result<(Vec<u8>, SourceMap), AsmError> {
-        let mut pp = Preprocessor::new();
-        let lines = pp.process_str(source)?;
-        self.assemble_inner(&lines, pp.constants)
+        let out = self.assemble_with_sections_str(source)?;
+        Ok((out.program, out.source_map))
+    }
+
+    pub fn assemble_with_sections(&self, source: &str) -> Result<AssemblerOutput, AsmError> {
+        self.assemble_with_sections_str(source)
     }
 
     pub fn assemble_file(&self, path: &Path) -> Result<Vec<u8>, AsmError> {
-        let (bytecode, _) = self.assemble_file_with_source_map(path)?;
-        Ok(bytecode)
+        Ok(self.assemble_file_with_sections(path)?.program)
     }
 
     pub fn assemble_file_with_source_map(&self, path: &Path) -> Result<(Vec<u8>, SourceMap), AsmError> {
+        let out = self.assemble_file_with_sections(path)?;
+        Ok((out.program, out.source_map))
+    }
+
+    pub fn assemble_file_with_sections(&self, path: &Path) -> Result<AssemblerOutput, AsmError> {
         let mut pp = Preprocessor::new();
         let lines = pp.process_file(path)?;
+        self.assemble_inner(&lines, pp.constants)
+    }
+
+    fn assemble_with_sections_str(&self, source: &str) -> Result<AssemblerOutput, AsmError> {
+        let mut pp = Preprocessor::new();
+        let lines = pp.process_str(source)?;
         self.assemble_inner(&lines, pp.constants)
     }
 
@@ -74,9 +99,8 @@ impl Assembler {
         &self,
         lines: &[SourceLine],
         constants: HashMap<String, u16>,
-    ) -> Result<(Vec<u8>, SourceMap), AsmError> {
+    ) -> Result<AssemblerOutput, AsmError> {
         let labels = self.collect_labels(lines, &constants)?;
-        // Merge constants into labels so emit can resolve both
         let mut symbols = constants;
         for (k, v) in &labels {
             symbols.entry(k.clone()).or_insert(*v);
@@ -90,12 +114,14 @@ impl Assembler {
         symbols: &HashMap<String, u16>,
     ) -> Result<HashMap<String, u16>, AsmError> {
         let mut labels: HashMap<String, u16> = HashMap::new();
-        // Pre-seed with constants so size fns can resolve them
         labels.extend(symbols.iter().map(|(k, v)| (k.clone(), *v)));
-        let mut pc: u16 = 0;
+
+        let mut program_pc: u16 = 0;
+        let mut sprite_pc: u16 = SPRITE_SHEET_RAM_BASE;
         let mut current_scope = String::new();
 
         for sl in lines {
+            let pc = if sl.section == LineSection::SpriteSheet { &mut sprite_pc } else { &mut program_pc };
             let line_number = sl.line_number;
             let text = &sl.text;
 
@@ -103,10 +129,10 @@ impl Assembler {
                 let raw_name = text.trim_end_matches(':').trim();
                 if let Some(local) = raw_name.strip_prefix('@') {
                     let mangled = format!("{}@@{}", current_scope, local);
-                    labels.insert(mangled, pc);
+                    labels.insert(mangled, *pc);
                 } else {
                     current_scope = raw_name.to_string();
-                    labels.insert(current_scope.clone(), pc);
+                    labels.insert(current_scope.clone(), *pc);
                 }
                 continue;
             }
@@ -120,12 +146,12 @@ impl Assembler {
                     AsmError::syntax(line_number, text, format!("unknown directive {}", name_upper))
                 })?;
                 let refs: Vec<&str> = tokens[1..].iter().map(|s| s.as_str()).collect();
-                pc += (directive.size)(&refs, pc, &labels) as u16;
+                *pc += (directive.size)(&refs, *pc, &labels) as u16;
             } else {
                 let spec = self.isa.get_by_name(&name_upper).ok_or_else(|| {
                     AsmError::syntax(line_number, text, format!("unknown instruction {}", name_upper))
                 })?;
-                pc += spec.size as u16;
+                *pc += spec.size as u16;
             }
         }
         Ok(labels)
@@ -135,23 +161,29 @@ impl Assembler {
         &self,
         lines: &[SourceLine],
         symbols: &HashMap<String, u16>,
-    ) -> Result<(Vec<u8>, SourceMap), AsmError> {
-        let mut bytecode = Vec::new();
+    ) -> Result<AssemblerOutput, AsmError> {
+        let mut program = Vec::new();
+        let mut sprite_sheet: Vec<u8> = Vec::new();
         let mut source_map = SourceMap::new();
         let mut current_scope = String::new();
 
         for sl in lines {
             let line_number = sl.line_number;
             let text = &sl.text;
+            let buf = if sl.section == LineSection::SpriteSheet {
+                &mut sprite_sheet
+            } else {
+                &mut program
+            };
 
             if text.ends_with(':') {
                 let raw_name = text.trim_end_matches(':').trim();
                 if let Some(local) = raw_name.strip_prefix('@') {
                     let mangled = format!("{}@@{}", current_scope, local);
-                    source_map.insert_label(bytecode.len(), mangled);
+                    source_map.insert_label(program.len(), mangled);
                 } else {
                     current_scope = raw_name.to_string();
-                    source_map.insert_label(bytecode.len(), current_scope.clone());
+                    source_map.insert_label(program.len(), current_scope.clone());
                 }
                 continue;
             }
@@ -159,30 +191,45 @@ impl Assembler {
             let tokens = tokenize(text);
             if tokens.is_empty() { continue; }
             let name_upper = tokens[0].to_uppercase();
-            let current_pc = bytecode.len();
+            let current_pc = buf.len();
 
             if name_upper.starts_with('.') {
                 let directive = self.directives.get_by_name(&name_upper).ok_or_else(|| {
                     AsmError::syntax(line_number, text, format!("unknown directive {}", name_upper))
                 })?;
                 let refs: Vec<&str> = tokens[1..].iter().map(|s| s.as_str()).collect();
-                let data = (directive.emit)(&refs, symbols, current_pc as u16)
+                // Use program PC for directives in SpriteSheet sections (source map tracks program space)
+                let emit_pc = if sl.section == LineSection::SpriteSheet {
+                    (SPRITE_SHEET_RAM_BASE as usize) + current_pc
+                } else {
+                    current_pc
+                } as u16;
+                let data = (directive.emit)(&refs, symbols, emit_pc)
                     .map_err(|e| AsmError::syntax(line_number, text, e))?;
-                source_map.insert_item(current_pc, ItemInfo::Directive { name: name_upper, size: data.len() });
-                bytecode.extend(data);
+                if sl.section == LineSection::Program {
+                    source_map.insert_item(current_pc, ItemInfo::Directive { name: name_upper, size: data.len() });
+                }
+                buf.extend(data);
             } else {
                 let spec = self.isa.get_by_name(&name_upper).ok_or_else(|| {
                     AsmError::syntax(line_number, text, format!("unknown instruction {}", name_upper))
                 })?;
-                source_map.insert_item(
-                    current_pc,
-                    ItemInfo::Instruction { name: name_upper.clone(), opcode: spec.opcode, size: spec.size },
-                );
-                self.emit_instruction(&tokens, line_number, text, &mut bytecode, symbols, &current_scope)?;
+                if sl.section == LineSection::Program {
+                    source_map.insert_item(
+                        current_pc,
+                        ItemInfo::Instruction { name: name_upper.clone(), opcode: spec.opcode, size: spec.size },
+                    );
+                }
+                self.emit_instruction(&tokens, line_number, text, buf, symbols, &current_scope)?;
             }
         }
 
-        Ok((bytecode, source_map))
+        let mut extra_sections = Vec::new();
+        if !sprite_sheet.is_empty() {
+            extra_sections.push((SPRITE_SHEET_KIND, sprite_sheet));
+        }
+
+        Ok(AssemblerOutput { program, source_map, extra_sections })
     }
 
     fn emit_instruction(
