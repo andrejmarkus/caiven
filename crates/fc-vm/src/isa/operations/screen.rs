@@ -116,7 +116,7 @@ pub fn print(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
         if byte == 0 || text.len() >= 64 {
             break;
         }
-        text.push(byte as char);
+        text.push(if byte < 128 { byte as char } else { '?' });
         i += 1;
     }
 

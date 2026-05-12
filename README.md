@@ -18,7 +18,8 @@
 - 🎨 **Palette-based Graphics**: 128x128 resolution with a 16-color swappable palette.
 - 🕹️ **Integrated Assembler**: Compile `.asm` source files directly into executable binary `.rom` files.
 - 🔊 **Audio Engine**: Real-time sound synthesis using CPAL.
-- 🛠️ **Debugger**: Step-through execution and memory inspection for easier development.
+- 🛠️ **Pro Debugger**: Breakpoints, source-level stepping, timeline scrubber, register aliases, live memory view, and `.fcdbg` sidecar persistence.
+- 🎨 **In-Engine Sprite Editor**: Live pixel editing of the sprite sheet at runtime — paint, select colors, pick sprites, all without recompiling.
 - ⌨️ **Input Handling**: Support for classic directional and button inputs with configurable key bindings.
 
 ---
@@ -48,12 +49,38 @@ cargo build --release
 
 ### Debugger Controls
 
+Debugger is active in `debug` mode (`cargo run -- debug <source.asm>`). Arrow-key controls only apply while paused — they do not conflict with game input.
+
 | Key | Action |
 | :-- | :----- |
 | `Space` | Pause / resume execution |
-| `C` | Step one instruction |
-| `B` | Step back to previous snapshot |
+| `C` / `F10` | Step one instruction |
+| `B` | Toggle breakpoint at cursor address |
+| `↑` / `↓` | Move disassembly cursor up / down |
+| `←` / `→` | Scrub timeline back / forward (restores VM state) |
 | `N` / `M` | Previous / next RAM page |
+
+Breakpoints and register aliases persist in a `.fcdbg` TOML sidecar file next to the source or ROM:
+
+```toml
+breakpoints = [9, 42]
+r0 = "player_x"
+r1 = "player_y"
+```
+
+The overlay shows — while paused — a 5-line disassembly window (cursor `>`, breakpoint `*`, current PC in green), register values with aliases, camera + wait state, a timeline bar (blue = history, yellow dot = scrub position), and 3 rows of live RAM.
+
+### Sprite Editor
+
+Press `F2` in any run mode to open the sprite editor. Press `F1` to return to the game.
+
+| Zone | Location | Action |
+| :--- | :------- | :----- |
+| Zoom view | Top-left 64×64 | Click / drag to paint pixels |
+| Sheet browser | Right 64×128 | Click to select active sprite |
+| Palette strip | Bottom-left, rows 1–2 | Click to select draw color |
+
+Edits write directly to RAM (`0x4000`+). The running game sees changes immediately — no rebuild needed.
 
 ### Key Bindings
 

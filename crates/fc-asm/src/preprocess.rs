@@ -118,7 +118,7 @@ impl Preprocessor {
                 continue;
             }
 
-            if first == ".CONST" || first == "CONST" {
+            if first == ".CONST" {
                 if tokens.len() < 4 || tokens[2] != "=" {
                     return Err(AsmError::syntax(
                         line_number,
@@ -136,7 +136,7 @@ impl Preprocessor {
                 continue;
             }
 
-            if first == ".INCLUDE" || first == "INCLUDE" {
+            if first == ".INCLUDE" {
                 if tokens.len() < 2 {
                     return Err(AsmError::syntax(
                         line_number,
@@ -158,7 +158,7 @@ impl Preprocessor {
                 continue;
             }
 
-            if first == ".MACRO" || first == "MACRO" {
+            if first == ".MACRO" {
                 if tokens.len() < 2 {
                     return Err(AsmError::syntax(
                         line_number,

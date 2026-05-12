@@ -10,6 +10,12 @@ pub struct PeripheralRegistry {
     peripherals: Vec<Box<dyn Peripheral>>,
 }
 
+impl Default for PeripheralRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PeripheralRegistry {
     pub fn new() -> Self {
         Self {

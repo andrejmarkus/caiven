@@ -15,6 +15,12 @@ pub struct InstructionSet {
     by_opcode: [Option<usize>; 256],
 }
 
+impl Default for InstructionSet {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InstructionSet {
     pub fn new() -> Self {
         Self {

@@ -49,10 +49,14 @@ pub fn jump_subroutine(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let address = ctx.read_word()?;
     let pc = ctx.cpu.get_pc() as u16;
 
+    let sp = ctx.cpu.get_sp();
+    if sp < 2 {
+        return Err(VmFault::StackOverflow);
+    }
+
     let pc_low = (pc & 0xFF) as u8;
     let pc_high = ((pc >> 8) & 0xFF) as u8;
 
-    let sp = ctx.cpu.get_sp();
     ctx.mem.write(sp - 1, pc_high)?;
     ctx.mem.write(sp - 2, pc_low)?;
     ctx.cpu.set_sp(sp - 2);

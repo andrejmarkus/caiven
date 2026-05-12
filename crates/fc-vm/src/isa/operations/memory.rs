@@ -90,6 +90,8 @@ pub fn store_to_memory_indirect(ctx: &mut ExecutionContext) -> Result<(), VmFaul
     Ok(())
 }
 
+// CPY reads from the ROM program bytes (ctx.program), not RAM.
+// Use this to copy embedded asset data from ROM into RAM at runtime.
 pub fn copy(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let dst = ctx.read_word()? as usize;
     let src = ctx.read_word()? as usize;

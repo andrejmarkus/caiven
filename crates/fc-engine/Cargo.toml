@@ -1,18 +1,23 @@
 [package]
-name = "fc-host"
+name = "fc-engine"
 version = "0.1.0"
 edition = "2024"
 
 [[bin]]
-name = "fc-host"
+name = "fc-engine"
 path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
 env_logger = { workspace = true }
+fc-asm = { workspace = true }
+fc-core = { workspace = true }
 fc-rom = { workspace = true }
 fc-vm = { workspace = true }
+image = { workspace = true }
 log = { workspace = true }
 pixels = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
 winit = { workspace = true }

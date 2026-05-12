@@ -1,8 +1,6 @@
-use crate::{
-    rendering::{font::Font, screen::ScreenLayer, text::draw_text},
-    settings::{MEMORY_BYTES_PER_PAGE, MEMORY_PAGE_COUNT},
-    vm::{Vm, VmSnapshot},
-};
+use fc_vm::rendering::{font::Font, screen::ScreenLayer, text::draw_text};
+use fc_vm::settings::{MEMORY_BYTES_PER_PAGE, MEMORY_PAGE_COUNT};
+use fc_vm::vm::{Vm, VmSnapshot};
 use fc_core::{Color, Vec2};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -287,7 +285,6 @@ impl Debugger {
 
         let pc = vm.get_pc();
 
-        // Row 0: status bar
         let mode_str = match self.mode {
             DebugMode::Running => "RUN",
             DebugMode::Paused => "PAUSE",
@@ -307,7 +304,6 @@ impl Debugger {
         );
         draw_text(font, screen, &status, Vec2::new(0, 0), cyan);
 
-        // Rows 1-5: disassembly window
         let disasm_addrs = build_disasm_window(vm, self.cursor_addr, 5);
         for (i, &addr) in disasm_addrs.iter().enumerate() {
             let y = (i as u32 + 1) * 8;
@@ -315,17 +311,14 @@ impl Debugger {
             let is_cursor = addr == self.cursor_addr;
             let is_pc = addr == pc;
 
-            // BP marker
             let bp_char = if is_bp { "*" } else { " " };
             let bp_color = if is_bp { red } else { gray };
             draw_text(font, screen, bp_char, Vec2::new(0, y), bp_color);
 
-            // Cursor marker
             let cursor_char = if is_cursor { ">" } else { " " };
             let cursor_color = if is_cursor { yellow } else { gray };
             draw_text(font, screen, cursor_char, Vec2::new(4, y), cursor_color);
 
-            // Address + disasm — green for PC, white otherwise
             let text_color = if is_pc { green } else { white };
             let addr_str = format!("0X{:04X}", addr);
             draw_text(font, screen, &addr_str, Vec2::new(8, y), text_color);
@@ -335,7 +328,6 @@ impl Debugger {
             draw_text(font, screen, &truncated, Vec2::new(36, y), text_color);
         }
 
-        // Rows 6-7: registers (2 per row)
         let regs = vm.get_registers();
         for row in 0..2usize {
             let y = (6 + row as u32) * 8;
@@ -355,7 +347,6 @@ impl Debugger {
             }
         }
 
-        // Row 8: camera + waiting
         let cam_str = format!(
             "CAM:{},{} WT:{}",
             vm.get_camera_x(),
@@ -364,10 +355,7 @@ impl Debugger {
         );
         draw_text(font, screen, &cam_str, Vec2::new(0, 64), gray);
 
-        // Timeline scrubber (pixel bar at y=70-72)
         self.render_timeline(screen, 70);
-
-        // Rows 10-13: RAM
         self.render_memory_page(font, screen, vm, Vec2::new(0, 80), gray);
     }
 
@@ -389,13 +377,6 @@ impl Debugger {
         } else {
             None
         };
-
-        // Draw BP markers above the bar
-        for &bp in &self.breakpoints {
-            // Can't map BP address to timeline position meaningfully without
-            // knowing instruction timing; skip for now.
-            let _ = bp;
-        }
 
         for y_off in 0..3u32 {
             let y = y_start + y_off;
@@ -469,6 +450,6 @@ fn build_disasm_window(vm: &Vm, center: usize, count: usize) -> Vec<usize> {
     let half = count / 2;
     let start = idx.saturating_sub(half);
     let end = (start + count).min(addrs.len());
-    let start = if end < count { 0 } else { end - count }.min(start);
+    let start = end.saturating_sub(count).min(start);
     addrs[start..end].to_vec()
 }

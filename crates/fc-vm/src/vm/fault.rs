@@ -3,4 +3,6 @@ pub enum VmFault {
     InvalidOpcode(u8),
     InvalidRegister(usize),
     MemoryOutOfBounds(usize),
+    StackOverflow,
+    StepLimitExceeded,
 }

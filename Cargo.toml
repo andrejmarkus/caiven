@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/fc-core", "crates/fc-rom", "crates/fc-asm", "crates/fc-host"]
+members = ["crates/fc-core", "crates/fc-rom", "crates/fc-asm", "crates/fc-host", "crates/fc-vm", "crates/fc-engine"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -11,6 +11,7 @@ env_logger = "0.11"
 fc-asm = { path = "crates/fc-asm" }
 fc-core = { path = "crates/fc-core" }
 fc-rom = { path = "crates/fc-rom" }
+fc-vm = { path = "crates/fc-vm" }
 image = "0.25"
 log = "0.4"
 pixels = "0.15"

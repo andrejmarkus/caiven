@@ -130,7 +130,7 @@ impl Vm {
         self.instructions.get_by_opcode(opcode)
     }
 
-    pub fn get_program(&self) -> &Vec<u8> {
+    pub fn get_program(&self) -> &[u8] {
         &self.program
     }
 
@@ -172,6 +172,14 @@ impl Vm {
 
     pub fn ui_pixels(&self) -> &[u8] {
         self.ui.get_pixels()
+    }
+
+    pub fn get_palette(&self) -> &[Color] {
+        self.palette.get_colors()
+    }
+
+    pub fn poke_memory(&mut self, address: usize, value: u8) {
+        let _ = self.memory.write(address, value);
     }
 
     pub fn disassemble(&self, pc: usize) -> String {
@@ -233,13 +241,20 @@ impl Vm {
             .tick_all(&mut self.memory, self.frame_count);
         self.frame_count = self.frame_count.wrapping_add(1);
 
+        let mut steps = 0u32;
         while !self.waiting {
             self.step(input, font);
+            steps += 1;
+            if steps >= 1_000_000 {
+                self.set_fault(VmFault::StepLimitExceeded);
+                break;
+            }
         }
     }
 
     pub fn step(&mut self, input: &Input, font: &Font) {
         if self.fault.is_some() {
+            self.waiting = true;
             return;
         }
 

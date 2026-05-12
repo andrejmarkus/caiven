@@ -867,16 +867,16 @@ name = "fc-core"
 version = "0.1.0"
 
 [[package]]
-name = "fc-host"
+name = "fc-engine"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "cpal",
  "env_logger",
  "fc-asm",
  "fc-core",
  "fc-rom",
+ "fc-vm",
  "image",
  "log",
  "pixels",
@@ -886,11 +886,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "fc-host"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "env_logger",
+ "fc-rom",
+ "fc-vm",
+ "log",
+ "pixels",
+ "winit",
+]
+
+[[package]]
 name = "fc-rom"
 version = "0.1.0"
 dependencies = [
  "crc32fast",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "fc-vm"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cpal",
+ "fc-asm",
+ "fc-core",
+ "image",
+ "log",
+ "serde",
+ "toml",
+ "winit",
 ]
 
 [[package]]
