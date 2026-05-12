@@ -1,3 +1,5 @@
+use crate::peripheral::Peripheral;
+use crate::vm::memory::Memory;
 use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::{Arc, Mutex};
@@ -112,5 +114,39 @@ impl Audio {
         stream.play().context("failed to start audio playback")?;
 
         Ok(Self { stream })
+    }
+}
+
+pub struct AudioPeripheral {
+    sound: Arc<Mutex<Sound>>,
+}
+
+impl AudioPeripheral {
+    pub fn new(sound: Arc<Mutex<Sound>>) -> Self {
+        Self { sound }
+    }
+}
+
+impl Peripheral for AudioPeripheral {
+    fn name(&self) -> &'static str {
+        "audio"
+    }
+
+    fn init(&mut self, _mem: &mut Memory) {}
+
+    fn tick(&mut self, _mem: &mut Memory, _frame: u32) {
+        let Ok(mut s) = self.sound.try_lock() else { return };
+        if s.square.enabled && s.square.duration > 0 {
+            s.square.duration -= 1;
+            if s.square.duration == 0 {
+                s.square.enabled = false;
+            }
+        }
+        if s.noise.enabled && s.noise.duration > 0 {
+            s.noise.duration -= 1;
+            if s.noise.duration == 0 {
+                s.noise.enabled = false;
+            }
+        }
     }
 }

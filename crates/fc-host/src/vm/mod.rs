@@ -17,6 +17,7 @@ use self::cpu::Cpu;
 use self::memory::Memory;
 use crate::input::Input;
 use crate::isa::InstructionSet;
+use crate::peripheral::{Peripheral, PeripheralRegistry};
 use crate::rendering::font::Font;
 use crate::rendering::screen::ScreenLayer;
 use crate::vm::Camera;
@@ -35,6 +36,8 @@ pub struct Vm {
     instructions: Arc<InstructionSet>,
     source_map: fc_asm::SourceMap,
     sound: Arc<Mutex<Sound>>,
+    peripherals: PeripheralRegistry,
+    frame_count: u32,
     waiting: bool,
     fault: Option<VmFault>,
     world: ScreenLayer,
@@ -68,12 +71,22 @@ impl Vm {
                 },
             })),
             source_map: fc_asm::SourceMap::new(),
+            peripherals: PeripheralRegistry::new(),
+            frame_count: 0,
             waiting: false,
             fault: None,
             world: ScreenLayer::new(config.width, config.height),
             ui: ScreenLayer::new(config.width, config.height),
             config,
         }
+    }
+
+    pub fn register_peripheral(&mut self, p: impl Peripheral + 'static) {
+        self.peripherals.register(p);
+    }
+
+    pub fn registered_peripheral_names(&self) -> Vec<&'static str> {
+        self.peripherals.names()
     }
 
     pub fn set_fault(&mut self, fault: VmFault) {
@@ -91,6 +104,8 @@ impl Vm {
         self.program = program;
         self.source_map = source_map;
         self.cpu.set_pc(0);
+        self.frame_count = 0;
+        self.peripherals.init_all(&mut self.memory);
         Ok(())
     }
 
@@ -98,6 +113,8 @@ impl Vm {
         self.source_map = fc_asm::generate_source_map(&program);
         self.program = program;
         self.cpu.set_pc(0);
+        self.frame_count = 0;
+        self.peripherals.init_all(&mut self.memory);
     }
 
     pub fn load_section_to_ram(&mut self, base: usize, data: &[u8]) {
@@ -212,22 +229,8 @@ impl Vm {
 
     pub fn run_frame(&mut self, input: &Input, font: &Font) {
         self.waiting = false;
-
-        {
-            let mut s = self.sound.lock().unwrap();
-            if s.square.enabled && s.square.duration > 0 {
-                s.square.duration -= 1;
-                if s.square.duration == 0 {
-                    s.square.enabled = false;
-                }
-            }
-            if s.noise.enabled && s.noise.duration > 0 {
-                s.noise.duration -= 1;
-                if s.noise.duration == 0 {
-                    s.noise.enabled = false;
-                }
-            }
-        }
+        self.peripherals.tick_all(&mut self.memory, self.frame_count);
+        self.frame_count = self.frame_count.wrapping_add(1);
 
         while !self.waiting {
             self.step(input, font);
@@ -297,6 +300,7 @@ impl Vm {
             palette: self.palette.get_colors().to_vec(),
             waiting: self.waiting,
             fault: self.fault,
+            frame_count: self.frame_count,
         }
     }
 
@@ -311,6 +315,7 @@ impl Vm {
         self.palette.set_colors(snapshot.palette.clone());
         self.waiting = snapshot.waiting;
         self.fault = snapshot.fault;
+        self.frame_count = snapshot.frame_count;
     }
 }
 
@@ -324,4 +329,5 @@ pub struct VmSnapshot {
     pub palette: Vec<Color>,
     pub waiting: bool,
     pub fault: Option<VmFault>,
+    pub frame_count: u32,
 }

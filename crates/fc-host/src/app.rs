@@ -5,7 +5,7 @@ use crate::rendering::font::Font;
 use crate::rendering::screen::Screen;
 use crate::settings::NAME;
 use crate::timing::FixedTimestep;
-use crate::vm::audio::Audio;
+use crate::vm::audio::{Audio, AudioPeripheral};
 use crate::vm::{Vm, VmConfig};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -91,7 +91,7 @@ impl App {
 
         let config = VmConfig::default();
         let instruction_set = Arc::new(default_instruction_set());
-        let vm = Vm::new(instruction_set, config);
+        let mut vm = Vm::new(instruction_set, config);
 
         let audio = match Audio::new(vm.get_sound_shared()) {
             Ok(a) => Some(a),
@@ -100,6 +100,8 @@ impl App {
                 None
             }
         };
+
+        vm.register_peripheral(AudioPeripheral::new(vm.get_sound_shared()));
 
         info!("fantasy console initialized");
 
@@ -128,13 +130,30 @@ impl App {
     fn load_rom(&mut self, path: &Path) -> Result<()> {
         let rom = fc_rom::load(path)
             .with_context(|| format!("failed to load ROM from {}", path.display()))?;
+
+        for section in &rom.sections {
+            if section.kind == SectionKind::ModManifest {
+                let manifest = String::from_utf8_lossy(&section.data);
+                let registered = self.vm.registered_peripheral_names();
+                for required in manifest.lines().map(str::trim).filter(|s| !s.is_empty()) {
+                    if !registered.contains(&required) {
+                        anyhow::bail!(
+                            "ROM requires mod '{}' but it is not loaded",
+                            required
+                        );
+                    }
+                }
+            }
+        }
+
+        self.vm.load_rom(rom.program);
+
         for section in &rom.sections {
             if section.kind == SectionKind::SpriteSheet {
                 self.vm.load_section_to_ram(SPRITE_SHEET_RAM_BASE, &section.data);
                 info!("SpriteSheet section loaded to RAM at 0x{:04X} ({} bytes)", SPRITE_SHEET_RAM_BASE, section.data.len());
             }
         }
-        self.vm.load_rom(rom.program);
         info!("ROM loaded from {}", path.display());
         Ok(())
     }
