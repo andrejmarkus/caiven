@@ -1,6 +1,9 @@
 use fc_core::{Color, Vec2};
 use fc_vm::rendering::{font::Font, screen::ScreenLayer, text::draw_text};
 use fc_vm::vm::Vm;
+use winit::keyboard::KeyCode;
+
+use super::Editor;
 
 const SPRITE_SHEET_BASE: usize = 0x4000;
 const SPRITE_SIZE: usize = 8;
@@ -24,7 +27,7 @@ impl SpriteEditor {
         }
     }
 
-    pub fn handle_click(&mut self, x: u32, y: u32, vm: &mut Vm) {
+    fn handle_click_inner(&mut self, x: u32, y: u32, vm: &mut Vm) {
         if y < 64 {
             if x < 64 {
                 // Edit canvas — 8x8 sprite at 8x zoom in [0..63, 0..63]
@@ -50,7 +53,7 @@ impl SpriteEditor {
         }
     }
 
-    pub fn render(&self, screen: &mut ScreenLayer, vm: &Vm, font: &Font, cursor: (u32, u32)) {
+    fn render_inner(&self, screen: &mut ScreenLayer, vm: &Vm, font: &Font, cursor: (u32, u32)) {
         let palette = vm.get_palette();
 
         // Edit canvas (active sprite zoomed 8x into [0..63, 0..63])
@@ -145,4 +148,16 @@ impl SpriteEditor {
         let label = format!("SPR:{} COL:{}", self.active_sprite, self.active_color);
         draw_text(font, screen, &label, Vec2::new(0, 72), Color::new_rgb(200, 200, 200));
     }
+}
+
+impl Editor for SpriteEditor {
+    fn render(&self, layer: &mut ScreenLayer, vm: &Vm, font: &Font, cursor: (u32, u32)) {
+        self.render_inner(layer, vm, font, cursor);
+    }
+
+    fn handle_click(&mut self, x: u32, y: u32, vm: &mut Vm) {
+        self.handle_click_inner(x, y, vm);
+    }
+
+    fn handle_key(&mut self, _key: KeyCode, _vm: &mut Vm) {}
 }

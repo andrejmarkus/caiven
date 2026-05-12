@@ -1,7 +1,8 @@
 use crate::cart_save::{CartMeta, SectionLayout};
 use crate::debugger::{DebugMode, Debugger};
-use crate::editors::SpriteEditor;
+use crate::editors::{Editor, MapEditor, MetaEditor, MusicEditor, PaletteEditor, SfxEditor, SpriteEditor};
 use crate::hot_reload::HotReload;
+use crate::tabs;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use fc_rom::{RomHeader, SectionKind};
@@ -29,11 +30,19 @@ use winit::{
 };
 
 const SPRITE_SHEET_RAM_BASE: usize = 0x4000;
+const MAP_RAM_BASE: usize = 0x5000;
+const PALETTE_RAM_BASE: usize = 0x5800;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AppMode {
+pub enum AppMode {
+    Browser,
     Run,
-    SpriteEditor,
+    Sprite,
+    Map,
+    Sfx,
+    Music,
+    Palette,
+    Meta,
 }
 
 #[derive(Parser)]
@@ -84,6 +93,11 @@ pub struct App {
     hot_reload: HotReload,
     mode: AppMode,
     sprite_editor: SpriteEditor,
+    map_editor: MapEditor,
+    palette_editor: PaletteEditor,
+    meta_editor: MetaEditor,
+    sfx_editor: SfxEditor,
+    music_editor: MusicEditor,
     cart_meta: Option<CartMeta>,
     mouse_x: f64,
     mouse_y: f64,
@@ -133,6 +147,11 @@ impl App {
             hot_reload: HotReload::new(),
             mode: AppMode::Run,
             sprite_editor: SpriteEditor::new(),
+            map_editor: MapEditor::new(),
+            palette_editor: PaletteEditor::new(),
+            meta_editor: MetaEditor::new(),
+            sfx_editor: SfxEditor::new(),
+            music_editor: MusicEditor::new(),
             cart_meta: None,
             mouse_x: 0.0,
             mouse_y: 0.0,
@@ -166,21 +185,74 @@ impl App {
 
         let mut sections: Vec<SectionLayout> = Vec::new();
         for section in &rom.sections {
-            if section.kind == SectionKind::SpriteSheet {
-                self.vm
-                    .load_section_to_ram(SPRITE_SHEET_RAM_BASE, &section.data);
-                sections.push(SectionLayout {
-                    kind: SectionKind::SpriteSheet,
-                    ram_base: SPRITE_SHEET_RAM_BASE,
-                    len: section.data.len(),
-                });
-                info!(
-                    "SpriteSheet section loaded to RAM at 0x{:04X} ({} bytes)",
-                    SPRITE_SHEET_RAM_BASE,
-                    section.data.len()
-                );
+            match section.kind {
+                SectionKind::SpriteSheet => {
+                    self.vm.load_section_to_ram(SPRITE_SHEET_RAM_BASE, &section.data);
+                    sections.push(SectionLayout {
+                        kind: SectionKind::SpriteSheet,
+                        ram_base: SPRITE_SHEET_RAM_BASE,
+                        len: section.data.len(),
+                    });
+                    info!(
+                        "SpriteSheet loaded to RAM at 0x{:04X} ({} bytes)",
+                        SPRITE_SHEET_RAM_BASE,
+                        section.data.len()
+                    );
+                }
+                SectionKind::Map => {
+                    self.vm.load_section_to_ram(MAP_RAM_BASE, &section.data);
+                    sections.push(SectionLayout {
+                        kind: SectionKind::Map,
+                        ram_base: MAP_RAM_BASE,
+                        len: section.data.len(),
+                    });
+                    info!("Map loaded to RAM at 0x{:04X} ({} bytes)", MAP_RAM_BASE, section.data.len());
+                }
+                SectionKind::Palette => {
+                    self.vm.load_section_to_ram(PALETTE_RAM_BASE, &section.data);
+                    self.vm.set_palette_from_bytes(&section.data);
+                    sections.push(SectionLayout {
+                        kind: SectionKind::Palette,
+                        ram_base: PALETTE_RAM_BASE,
+                        len: section.data.len(),
+                    });
+                    info!("Palette loaded to RAM at 0x{:04X} ({} bytes)", PALETTE_RAM_BASE, section.data.len());
+                }
+                _ => {}
             }
         }
+
+        // If no Palette section was in the ROM, sync VM's default palette to RAM
+        if !sections.iter().any(|s| s.kind == SectionKind::Palette) {
+            let palette_bytes: Vec<u8> = self
+                .vm
+                .get_palette()
+                .iter()
+                .flat_map(|c| [c.get_r(), c.get_g(), c.get_b()])
+                .collect();
+            self.vm.load_section_to_ram(PALETTE_RAM_BASE, &palette_bytes);
+            sections.push(SectionLayout {
+                kind: SectionKind::Palette,
+                ram_base: PALETTE_RAM_BASE,
+                len: palette_bytes.len(),
+            });
+        }
+
+        // If no Map section was in the ROM, register it so Ctrl+S persists it
+        if !sections.iter().any(|s| s.kind == SectionKind::Map) {
+            sections.push(SectionLayout {
+                kind: SectionKind::Map,
+                ram_base: MAP_RAM_BASE,
+                len: 64 * 32,
+            });
+        }
+
+        self.meta_editor.set_header(
+            &rom.header.title,
+            &rom.header.author,
+            rom.header.entry_point,
+            rom.header.flags,
+        );
 
         self.cart_meta = Some(CartMeta {
             path: path.to_path_buf(),
@@ -254,6 +326,25 @@ impl App {
             .clamp(0.0, (self.config.height - 1) as f64) as u32;
         (sx, sy)
     }
+
+    fn dispatch_editor_click(&mut self, x: u32, y: u32) {
+        // Tab bar click: switch mode
+        if let Some(new_mode) = tabs::hit_test(x, y) {
+            self.mode = new_mode;
+            return;
+        }
+        // Delegate to active editor
+        let vm = &mut self.vm;
+        match self.mode {
+            AppMode::Sprite => self.sprite_editor.handle_click(x, y, vm),
+            AppMode::Map => self.map_editor.handle_click(x, y, vm),
+            AppMode::Palette => self.palette_editor.handle_click(x, y, vm),
+            AppMode::Meta => self.meta_editor.handle_click(x, y, vm),
+            AppMode::Sfx => self.sfx_editor.handle_click(x, y, vm),
+            AppMode::Music => self.music_editor.handle_click(x, y, vm),
+            AppMode::Run | AppMode::Browser => {}
+        }
+    }
 }
 
 impl ApplicationHandler for App {
@@ -306,22 +397,44 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 self.screen.get_debug_layer().clear();
+                let cursor = self.logical_mouse_pos();
+                let font = &self.font;
+                let vm = &self.vm;
+                let debug_layer = self.screen.get_debug_layer();
+
                 match self.mode {
-                    AppMode::SpriteEditor => {
-                        let cursor = self.logical_mouse_pos();
-                        self.sprite_editor
-                            .render(self.screen.get_debug_layer(), &self.vm, &self.font, cursor);
+                    AppMode::Sprite => {
+                        self.sprite_editor.render(debug_layer, vm, font, cursor);
+                    }
+                    AppMode::Map => {
+                        self.map_editor.render(debug_layer, vm, font, cursor);
+                    }
+                    AppMode::Palette => {
+                        self.palette_editor.render(debug_layer, vm, font, cursor);
+                    }
+                    AppMode::Meta => {
+                        self.meta_editor.render(debug_layer, vm, font, cursor);
+                    }
+                    AppMode::Sfx => {
+                        self.sfx_editor.render(debug_layer, vm, font, cursor);
+                    }
+                    AppMode::Music => {
+                        self.music_editor.render(debug_layer, vm, font, cursor);
                     }
                     AppMode::Run => {
                         if self.debugger.get_mode() == DebugMode::Paused {
-                            self.debugger.draw_overlay(
-                                self.screen.get_debug_layer(),
-                                &self.vm,
-                                &self.font,
-                            );
+                            self.debugger.draw_overlay(debug_layer, vm, font);
                         }
                     }
+                    AppMode::Browser => {}
                 }
+
+                // Draw tab bar whenever not in active gameplay
+                let paused = self.debugger.get_mode() == DebugMode::Paused;
+                if self.mode != AppMode::Run || paused {
+                    tabs::draw_tab_bar(self.screen.get_debug_layer(), &self.font, self.mode);
+                }
+
                 if let Some(pixels) = self.pixels.as_mut() {
                     self.screen.construct(
                         pixels.frame_mut(),
@@ -334,17 +447,18 @@ impl ApplicationHandler for App {
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse_x = position.x;
                 self.mouse_y = position.y;
-                if self.mouse_left && self.mode == AppMode::SpriteEditor {
+                if self.mouse_left && self.mode != AppMode::Run && self.mode != AppMode::Browser {
                     let (sx, sy) = self.logical_mouse_pos();
-                    self.sprite_editor.handle_click(sx, sy, &mut self.vm);
+                    self.dispatch_editor_click(sx, sy);
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if button == MouseButton::Left {
                     self.mouse_left = state == ElementState::Pressed;
-                    if self.mouse_left && self.mode == AppMode::SpriteEditor {
+                    if self.mouse_left && self.mode != AppMode::Run && self.mode != AppMode::Browser
+                    {
                         let (sx, sy) = self.logical_mouse_pos();
-                        self.sprite_editor.handle_click(sx, sy, &mut self.vm);
+                        self.dispatch_editor_click(sx, sy);
                     }
                 }
             }
@@ -358,55 +472,82 @@ impl ApplicationHandler for App {
                     if let Some(button) = self.input_map.get_button(code) {
                         self.input.set_button(button, pressed);
                     }
-                    let paused = self.debugger.get_mode() == DebugMode::Paused;
+
                     let ctrl = self.modifiers.state().control_key();
-                    match code {
-                        KeyCode::KeyS if pressed && !event.repeat && ctrl => {
-                            self.save_cart();
-                        }
-                        KeyCode::F1 if pressed && !event.repeat => {
-                            self.mode = AppMode::Run;
-                        }
-                        KeyCode::F2 if pressed && !event.repeat => {
-                            self.mode = AppMode::SpriteEditor;
-                        }
-                        KeyCode::Space if pressed && !event.repeat => {
-                            self.debugger.toggle_pause(self.vm.get_pc());
-                        }
-                        KeyCode::KeyC if pressed && !event.repeat => {
-                            self.debugger.step();
-                        }
-                        KeyCode::F10 if pressed && !event.repeat && paused => {
-                            self.debugger.step();
-                        }
-                        KeyCode::KeyB if pressed && !event.repeat && paused => {
-                            self.debugger.toggle_bp_at_cursor();
-                        }
-                        KeyCode::ArrowUp if pressed && paused => {
-                            self.debugger.cursor_up(&self.vm);
-                        }
-                        KeyCode::ArrowDown if pressed && paused => {
-                            self.debugger.cursor_down(&self.vm);
-                        }
-                        KeyCode::ArrowLeft if pressed && paused => {
-                            self.debugger.scrub_back();
-                            if let Some(state) = self.debugger.current_scrub_snapshot() {
-                                self.vm.restore(&state);
+
+                    if pressed && !event.repeat {
+                        match code {
+                            KeyCode::KeyS if ctrl => {
+                                self.save_cart();
+                                return;
                             }
+                            // Tab-bar mode switches (F1–F7, F8=browser)
+                            KeyCode::F1 => { self.mode = AppMode::Run; return; }
+                            KeyCode::F2 => { self.mode = AppMode::Sprite; return; }
+                            KeyCode::F3 => { self.mode = AppMode::Map; return; }
+                            KeyCode::F4 => { self.mode = AppMode::Sfx; return; }
+                            KeyCode::F5 => { self.mode = AppMode::Music; return; }
+                            KeyCode::F6 => { self.mode = AppMode::Palette; return; }
+                            KeyCode::F7 => { self.mode = AppMode::Meta; return; }
+                            KeyCode::F8 => { self.mode = AppMode::Browser; return; }
+                            _ => {}
                         }
-                        KeyCode::ArrowRight if pressed && paused => {
-                            self.debugger.scrub_forward();
-                            if let Some(state) = self.debugger.current_scrub_snapshot() {
-                                self.vm.restore(&state);
+                    }
+
+                    // Run-mode debugger controls
+                    if self.mode == AppMode::Run {
+                        let paused = self.debugger.get_mode() == DebugMode::Paused;
+                        match code {
+                            KeyCode::Space if pressed && !event.repeat => {
+                                self.debugger.toggle_pause(self.vm.get_pc());
                             }
+                            KeyCode::KeyC if pressed && !event.repeat => {
+                                self.debugger.step();
+                            }
+                            KeyCode::F10 if pressed && !event.repeat && paused => {
+                                self.debugger.step();
+                            }
+                            KeyCode::KeyB if pressed && !event.repeat && paused => {
+                                self.debugger.toggle_bp_at_cursor();
+                            }
+                            KeyCode::ArrowUp if pressed && paused => {
+                                self.debugger.cursor_up(&self.vm);
+                            }
+                            KeyCode::ArrowDown if pressed && paused => {
+                                self.debugger.cursor_down(&self.vm);
+                            }
+                            KeyCode::ArrowLeft if pressed && paused => {
+                                self.debugger.scrub_back();
+                                if let Some(state) = self.debugger.current_scrub_snapshot() {
+                                    self.vm.restore(&state);
+                                }
+                            }
+                            KeyCode::ArrowRight if pressed && paused => {
+                                self.debugger.scrub_forward();
+                                if let Some(state) = self.debugger.current_scrub_snapshot() {
+                                    self.vm.restore(&state);
+                                }
+                            }
+                            KeyCode::KeyN if pressed && !event.repeat => {
+                                self.debugger.prev_ram_page();
+                            }
+                            KeyCode::KeyM if pressed && !event.repeat => {
+                                self.debugger.next_ram_page();
+                            }
+                            _ => {}
                         }
-                        KeyCode::KeyN if pressed && !event.repeat => {
-                            self.debugger.prev_ram_page();
+                    } else {
+                        // Delegate key to active editor
+                        let vm = &mut self.vm;
+                        match self.mode {
+                            AppMode::Sprite => self.sprite_editor.handle_key(code, vm),
+                            AppMode::Map => self.map_editor.handle_key(code, vm),
+                            AppMode::Palette => self.palette_editor.handle_key(code, vm),
+                            AppMode::Meta => self.meta_editor.handle_key(code, vm),
+                            AppMode::Sfx => self.sfx_editor.handle_key(code, vm),
+                            AppMode::Music => self.music_editor.handle_key(code, vm),
+                            AppMode::Run | AppMode::Browser => {}
                         }
-                        KeyCode::KeyM if pressed && !event.repeat => {
-                            self.debugger.next_ram_page();
-                        }
-                        _ => {}
                     }
                 }
             }

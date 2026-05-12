@@ -186,6 +186,19 @@ impl Vm {
         self.palette.get_colors()
     }
 
+    pub fn set_palette_color(&mut self, index: usize, color: Color) {
+        self.palette.set_color(index, color);
+    }
+
+    pub fn set_palette_from_bytes(&mut self, bytes: &[u8]) {
+        for i in 0..16.min(bytes.len() / 3) {
+            let r = bytes[i * 3];
+            let g = bytes[i * 3 + 1];
+            let b = bytes[i * 3 + 2];
+            self.palette.set_color(i, Color::new_rgb(r, g, b));
+        }
+    }
+
     pub fn poke_memory(&mut self, address: usize, value: u8) {
         let _ = self.memory.write(address, value);
     }
