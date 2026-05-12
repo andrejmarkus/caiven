@@ -3,6 +3,7 @@ use crate::rendering::font::Font;
 use crate::rendering::screen::ScreenLayer;
 use super::audio::Sound;
 use super::camera::Camera;
+use super::config::VmConfig;
 use super::cpu::Cpu;
 use super::fault::VmFault;
 use super::memory::Memory;
@@ -17,6 +18,7 @@ pub struct ExecutionContext<'a> {
     pub program: &'a [u8],
     pub input: &'a Input,
     pub font: &'a Font,
+    pub config: &'a VmConfig,
     pub world: &'a mut ScreenLayer,
     pub ui: &'a mut ScreenLayer,
     pub waiting: &'a mut bool,

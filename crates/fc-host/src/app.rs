@@ -3,9 +3,9 @@ use crate::input::Input;
 use crate::isa::default_instruction_set;
 use crate::rendering::font::Font;
 use crate::rendering::screen::Screen;
-use crate::settings::{HEIGHT, NAME, SCREEN_HEIGHT, SCREEN_WIDTH, WIDTH};
+use crate::settings::NAME;
 use crate::timing::FixedTimestep;
-use crate::vm::Vm;
+use crate::vm::{Vm, VmConfig};
 use crate::vm::audio::Audio;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -61,6 +61,7 @@ pub struct App {
     input: Input,
     vm: Vm,
     font: Font,
+    config: VmConfig,
     #[allow(dead_code)]
     audio: Option<Audio>,
     debugger: Debugger,
@@ -78,8 +79,9 @@ impl App {
         )
         .context("failed to initialize font")?;
 
+        let config = VmConfig::default();
         let instruction_set = Arc::new(default_instruction_set());
-        let vm = Vm::new(instruction_set);
+        let vm = Vm::new(instruction_set, config);
 
         let audio = match Audio::new(vm.get_sound_shared()) {
             Ok(a) => Some(a),
@@ -94,10 +96,11 @@ impl App {
         Ok(Self {
             window: None,
             pixels: None,
-            screen: Screen::new(),
+            screen: Screen::new(config.width, config.height),
             input: Input::new(),
             vm,
             font,
+            config,
             audio,
             debugger: Debugger::new(false),
             timing: FixedTimestep::new(60),
@@ -130,9 +133,11 @@ impl App {
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        let screen_w = self.config.width * 4;
+        let screen_h = self.config.height * 4;
         let window_attrs = WindowAttributes::default()
             .with_title(NAME)
-            .with_inner_size(LogicalSize::new(SCREEN_WIDTH as f64, SCREEN_HEIGHT as f64))
+            .with_inner_size(LogicalSize::new(screen_w as f64, screen_h as f64))
             .with_resizable(false);
 
         let window = match event_loop.create_window(window_attrs) {
@@ -146,7 +151,7 @@ impl ApplicationHandler for App {
 
         let size = window.inner_size();
         let surface = SurfaceTexture::new(size.width, size.height, window.clone());
-        let pixels = match Pixels::new(WIDTH, HEIGHT, surface) {
+        let pixels = match Pixels::new(self.config.width, self.config.height, surface) {
             Ok(p) => p,
             Err(e) => {
                 error!("failed to create pixel buffer: {e}");
@@ -279,7 +284,7 @@ pub fn run() -> Result<()> {
         info!("building ROM: {} → {}", source.display(), output.display());
 
         let instruction_set = Arc::new(default_instruction_set());
-        let vm = Vm::new(instruction_set);
+        let vm = Vm::new(instruction_set, VmConfig::default());
 
         let src = std::fs::read_to_string(&source)
             .with_context(|| format!("cannot read {}", source.display()))?;

@@ -1,14 +1,13 @@
-use crate::settings::MEMORY_SIZE;
 use super::fault::VmFault;
 
 pub struct Memory {
-    ram: [u8; MEMORY_SIZE],
+    ram: Vec<u8>,
 }
 
 impl Memory {
-    pub fn new() -> Self {
+    pub fn new(size: usize) -> Self {
         Self {
-            ram: [0; MEMORY_SIZE],
+            ram: vec![0; size],
         }
     }
 
@@ -20,7 +19,7 @@ impl Memory {
         &self.ram
     }
 
-    pub fn set_ram(&mut self, ram: [u8; MEMORY_SIZE]) {
+    pub fn set_ram(&mut self, ram: Vec<u8>) {
         self.ram = ram;
     }
 

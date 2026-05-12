@@ -3,10 +3,10 @@ use std::sync::Arc;
 use crate::input::Input;
 use crate::isa::default_instruction_set;
 use crate::rendering::font::Font;
-use crate::vm::Vm;
+use crate::vm::{Vm, VmConfig};
 
 fn make_vm() -> Vm {
-    Vm::new(Arc::new(default_instruction_set()))
+    Vm::new(Arc::new(default_instruction_set()), VmConfig::default())
 }
 
 fn run(vm: &mut Vm, src: &str) {

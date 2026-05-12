@@ -1,5 +1,4 @@
 use crate::rendering::text::draw_text;
-use crate::settings::SPRITE_SIZE;
 use crate::vm::{ExecutionContext, VmFault};
 use fc_core::{Color, Vec2};
 use log::debug;
@@ -16,8 +15,8 @@ pub fn fill_screen(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
 
     debug!("Filling screen with palette index {}", color_idx);
 
-    for y in 0..crate::settings::HEIGHT {
-        for x in 0..crate::settings::WIDTH {
+    for y in 0..ctx.config.height {
+        for x in 0..ctx.config.width {
             ctx.world.set_pixel(Vec2::new(x, y), color);
         }
     }
@@ -84,9 +83,10 @@ pub fn sprite(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let cam_x = ctx.camera.get_x();
     let cam_y = ctx.camera.get_y();
 
-    for sy in 0..SPRITE_SIZE {
-        for sx in 0..SPRITE_SIZE {
-            let pixel = ctx.mem.read(base + sy as usize * SPRITE_SIZE as usize + sx as usize)?;
+    let ss = ctx.config.sprite_size;
+    for sy in 0..ss {
+        for sx in 0..ss {
+            let pixel = ctx.mem.read(base + sy as usize * ss as usize + sx as usize)?;
             if pixel == 0 {
                 continue;
             }
@@ -135,9 +135,10 @@ pub fn draw_tile(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let cam_x = ctx.camera.get_x();
     let cam_y = ctx.camera.get_y();
 
-    for sy in 0..SPRITE_SIZE {
-        for sx in 0..SPRITE_SIZE {
-            let pixel = ctx.mem.read(base + sy as usize * SPRITE_SIZE as usize + sx as usize)?;
+    let ss = ctx.config.sprite_size;
+    for sy in 0..ss {
+        for sx in 0..ss {
+            let pixel = ctx.mem.read(base + sy as usize * ss as usize + sx as usize)?;
             if pixel == 0 {
                 continue;
             }
@@ -145,8 +146,8 @@ pub fn draw_tile(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
             let color = ctx.palette.get_color(pixel as usize);
             ctx.world.set_pixel(
                 Vec2::new(
-                    (x0 * SPRITE_SIZE + sx).wrapping_sub(cam_x),
-                    (y0 * SPRITE_SIZE + sy).wrapping_sub(cam_y),
+                    (x0 * ss + sx).wrapping_sub(cam_x),
+                    (y0 * ss + sy).wrapping_sub(cam_y),
                 ),
                 color,
             );
@@ -168,17 +169,18 @@ pub fn tilemap(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let cam_x = ctx.camera.get_x();
     let cam_y = ctx.camera.get_y();
 
+    let ss = ctx.config.sprite_size;
     for ty in 0..h {
         for tx in 0..w {
             let map_index = (ty * w + tx) as usize;
             let tile_index = ctx.mem.read(map_base + map_index)? as usize;
 
-            for sy in 0..SPRITE_SIZE {
-                for sx in 0..SPRITE_SIZE {
+            for sy in 0..ss {
+                for sx in 0..ss {
                     let pixel = ctx.mem.read(
                         tiles_base
-                            + tile_index * (SPRITE_SIZE as usize * SPRITE_SIZE as usize)
-                            + sy as usize * SPRITE_SIZE as usize
+                            + tile_index * (ss as usize * ss as usize)
+                            + sy as usize * ss as usize
                             + sx as usize,
                     )?;
                     if pixel == 0 {
@@ -188,8 +190,8 @@ pub fn tilemap(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
                     let color = ctx.palette.get_color(pixel as usize);
                     ctx.world.set_pixel(
                         Vec2::new(
-                            (x0 + tx * SPRITE_SIZE + sx).wrapping_sub(cam_x),
-                            (y0 + ty * SPRITE_SIZE + sy).wrapping_sub(cam_y),
+                            (x0 + tx * ss + sx).wrapping_sub(cam_x),
+                            (y0 + ty * ss + sy).wrapping_sub(cam_y),
                         ),
                         color,
                     );
@@ -207,8 +209,9 @@ pub fn tile_at(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let map_base = ctx.read_register_value()? as usize;
     let w = ctx.read_byte()? as u32;
 
-    let tx = x / SPRITE_SIZE;
-    let ty = y / SPRITE_SIZE;
+    let ss = ctx.config.sprite_size;
+    let tx = x / ss;
+    let ty = y / ss;
     let map_index = (ty * w + tx) as usize;
     let tile_index = ctx.mem.read(map_base + map_index)?;
 

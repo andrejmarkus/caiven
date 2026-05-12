@@ -1,5 +1,6 @@
 pub mod audio;
 pub mod camera;
+pub mod config;
 pub mod context;
 pub mod cpu;
 pub mod fault;
@@ -7,6 +8,7 @@ pub mod memory;
 pub mod palette;
 
 pub use camera::*;
+pub use config::VmConfig;
 pub use context::*;
 pub use fault::VmFault;
 pub use palette::*;
@@ -37,18 +39,19 @@ pub struct Vm {
     fault: Option<VmFault>,
     world: ScreenLayer,
     ui: ScreenLayer,
+    config: VmConfig,
 }
 
 impl Vm {
-    pub fn new(instructions: Arc<InstructionSet>) -> Self {
-        let mut cpu = Cpu::new();
-        cpu.set_sp(crate::settings::MEMORY_SIZE);
+    pub fn new(instructions: Arc<InstructionSet>, config: VmConfig) -> Self {
+        let mut cpu = Cpu::new(config.register_count);
+        cpu.set_sp(config.memory_size);
         Self {
             cpu,
             program: Vec::new(),
-            memory: Memory::new(),
+            memory: Memory::new(config.memory_size),
             camera: Camera::new(Vec2::new(0, 0)),
-            palette: Palette::new(),
+            palette: Palette::new(config.palette_size),
             instructions: instructions.clone(),
             sound: Arc::new(Mutex::new(Sound {
                 square: SquareChannel {
@@ -67,8 +70,9 @@ impl Vm {
             source_map: fc_asm::SourceMap::new(),
             waiting: false,
             fault: None,
-            world: ScreenLayer::new(),
-            ui: ScreenLayer::new(),
+            world: ScreenLayer::new(config.width, config.height),
+            ui: ScreenLayer::new(config.width, config.height),
+            config,
         }
     }
 
@@ -266,6 +270,7 @@ impl Vm {
             program: &self.program,
             input,
             font,
+            config: &self.config,
             world: &mut self.world,
             ui: &mut self.ui,
             waiting: &mut self.waiting,
@@ -296,12 +301,10 @@ impl Vm {
         for (i, val) in snapshot.registers.iter().enumerate() {
             self.cpu.set_register(i, *val);
         }
-        self.memory
-            .set_ram(snapshot.memory.clone().try_into().unwrap());
+        self.memory.set_ram(snapshot.memory.clone());
         self.camera
             .set_position(snapshot.camera_x, snapshot.camera_y);
-        self.palette
-            .set_colors(snapshot.palette.clone().try_into().unwrap());
+        self.palette.set_colors(snapshot.palette.clone());
         self.waiting = snapshot.waiting;
         self.fault = snapshot.fault;
     }

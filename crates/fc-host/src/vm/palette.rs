@@ -1,14 +1,13 @@
-use crate::settings::PALETTE_SIZE;
 use fc_core::Color;
 
 pub struct Palette {
-    colors: [Color; PALETTE_SIZE],
+    colors: Vec<Color>,
 }
 
 impl Palette {
-    pub fn new() -> Self {
-        let mut colors = [Color::new_rgb(0, 0, 0); PALETTE_SIZE];
-        for i in 0..PALETTE_SIZE {
+    pub fn new(palette_size: usize) -> Self {
+        let mut colors = vec![Color::new_rgb(0, 0, 0); palette_size];
+        for i in 0..palette_size {
             colors[i] = Color::new_rgb(i as u8, i as u8, i as u8);
         }
         Self { colors }
@@ -18,7 +17,7 @@ impl Palette {
         &self.colors
     }
 
-    pub fn set_colors(&mut self, colors: [Color; PALETTE_SIZE]) {
+    pub fn set_colors(&mut self, colors: Vec<Color>) {
         self.colors = colors;
     }
 

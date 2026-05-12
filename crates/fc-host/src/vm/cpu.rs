@@ -1,17 +1,15 @@
-use crate::settings::REGISTER_COUNT;
-
 pub struct Cpu {
     pc: usize,
     sp: usize,
-    registers: [u16; REGISTER_COUNT],
+    registers: Vec<u16>,
 }
 
 impl Cpu {
-    pub fn new() -> Self {
+    pub fn new(register_count: usize) -> Self {
         Self {
             pc: 0,
             sp: 0,
-            registers: [0; REGISTER_COUNT],
+            registers: vec![0; register_count],
         }
     }
 
