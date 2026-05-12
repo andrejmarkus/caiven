@@ -1,9 +1,9 @@
 use crate::settings::REGISTER_COUNT;
 
 pub struct Cpu {
-    pub pc: usize,
-    pub sp: usize,
-    pub registers: [u16; REGISTER_COUNT],
+    pc: usize,
+    sp: usize,
+    registers: [u16; REGISTER_COUNT],
 }
 
 impl Cpu {

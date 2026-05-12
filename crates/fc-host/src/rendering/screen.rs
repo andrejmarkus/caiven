@@ -35,45 +35,29 @@ impl ScreenLayer {
 }
 
 pub struct Screen {
-    world: ScreenLayer,
-    ui: ScreenLayer,
     debug: ScreenLayer,
 }
 
 impl Screen {
     pub fn new() -> Self {
         Self {
-            world: ScreenLayer::new(),
-            ui: ScreenLayer::new(),
             debug: ScreenLayer::new(),
         }
-    }
-
-    pub fn get_world_layer(&mut self) -> &mut ScreenLayer {
-        &mut self.world
-    }
-
-    pub fn get_ui_layer(&mut self) -> &mut ScreenLayer {
-        &mut self.ui
-    }
-
-    pub fn get_layers_mut(&mut self) -> (&mut ScreenLayer, &mut ScreenLayer) {
-        (&mut self.world, &mut self.ui)
     }
 
     pub fn get_debug_layer(&mut self) -> &mut ScreenLayer {
         &mut self.debug
     }
 
-    pub fn construct(&self, out: &mut [u8]) {
+    pub fn construct(&self, out: &mut [u8], world: &[u8], ui: &[u8]) {
         out.fill(0);
-        for layer in [&self.world, &self.ui, &self.debug] {
+        for layer_pixels in [world, ui, self.debug.get_pixels()] {
             for i in (0..out.len()).step_by(4) {
-                let a = layer.get_pixels()[i + 3];
+                let a = layer_pixels[i + 3];
                 if a == 0 {
                     continue;
                 }
-                out[i..i + 4].copy_from_slice(&layer.get_pixels()[i..i + 4]);
+                out[i..i + 4].copy_from_slice(&layer_pixels[i..i + 4]);
             }
         }
     }

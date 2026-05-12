@@ -2,7 +2,7 @@ use crate::settings::PALETTE_SIZE;
 use fc_core::Color;
 
 pub struct Palette {
-    pub colors: [Color; PALETTE_SIZE],
+    colors: [Color; PALETTE_SIZE],
 }
 
 impl Palette {

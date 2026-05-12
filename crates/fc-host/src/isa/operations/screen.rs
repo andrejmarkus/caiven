@@ -1,17 +1,19 @@
 use crate::rendering::font::Font;
+use crate::rendering::text::draw_text;
 use crate::settings::SPRITE_SIZE;
+use crate::vm::{ExecutionContext, VmFault};
 use fc_core::{Color, Vec2};
-use crate::vm::ExecutionContext;
 use log::debug;
 
-pub fn clear_screen(ctx: &mut ExecutionContext) {
+pub fn clear_screen(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     ctx.world.clear();
     ctx.ui.clear();
+    Ok(())
 }
 
-pub fn fill_screen(ctx: &mut ExecutionContext) {
-    let color_idx = ctx.vm.read_byte() as usize;
-    let color = ctx.vm.get_palette_color(color_idx);
+pub fn fill_screen(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let color_idx = ctx.read_byte()? as usize;
+    let color = ctx.palette.get_color(color_idx);
 
     debug!("Filling screen with palette index {}", color_idx);
 
@@ -20,14 +22,15 @@ pub fn fill_screen(ctx: &mut ExecutionContext) {
             ctx.world.set_pixel(Vec2::new(x, y), color);
         }
     }
+    Ok(())
 }
 
-pub fn draw_pixel(ctx: &mut ExecutionContext) {
-    let x = ctx.vm.read_byte() as u32;
-    let y = ctx.vm.read_byte() as u32;
-    let r = ctx.vm.read_byte();
-    let g = ctx.vm.read_byte();
-    let b = ctx.vm.read_byte();
+pub fn draw_pixel(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let x = ctx.read_byte()? as u32;
+    let y = ctx.read_byte()? as u32;
+    let r = ctx.read_byte()?;
+    let g = ctx.read_byte()?;
+    let b = ctx.read_byte()?;
 
     debug!(
         "Drawing pixel at ({}, {}) with color ({}, {}, {})",
@@ -35,14 +38,15 @@ pub fn draw_pixel(ctx: &mut ExecutionContext) {
     );
     ctx.world
         .set_pixel(Vec2::new(x, y), Color::new_rgb(r, g, b));
+    Ok(())
 }
 
-pub fn draw_pixel_from_register(ctx: &mut ExecutionContext) {
-    let x = ctx.vm.read_register_value() as u32;
-    let y = ctx.vm.read_register_value() as u32;
-    let r = ctx.vm.read_byte();
-    let g = ctx.vm.read_byte();
-    let b = ctx.vm.read_byte();
+pub fn draw_pixel_from_register(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let x = ctx.read_register_value()? as u32;
+    let y = ctx.read_register_value()? as u32;
+    let r = ctx.read_byte()?;
+    let g = ctx.read_byte()?;
+    let b = ctx.read_byte()?;
 
     debug!(
         "Drawing pixel at ({}, {}) with color ({}, {}, {}) from registers",
@@ -50,63 +54,67 @@ pub fn draw_pixel_from_register(ctx: &mut ExecutionContext) {
     );
     ctx.world
         .set_pixel(Vec2::new(x, y), Color::new_rgb(r, g, b));
+    Ok(())
 }
 
-pub fn palette(ctx: &mut ExecutionContext) {
-    let index = ctx.vm.read_byte() as usize;
-    let r = ctx.vm.read_byte();
-    let g = ctx.vm.read_byte();
-    let b = ctx.vm.read_byte();
+pub fn palette(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let index = ctx.read_byte()? as usize;
+    let r = ctx.read_byte()?;
+    let g = ctx.read_byte()?;
+    let b = ctx.read_byte()?;
 
     debug!(
         "Setting palette index {} to color ({}, {}, {})",
         index, r, g, b
     );
 
-    ctx.vm.set_palette_color(index, Color::new_rgb(r, g, b));
+    ctx.palette.set_color(index, Color::new_rgb(r, g, b));
+    Ok(())
 }
 
-pub fn sprite(ctx: &mut ExecutionContext) {
-    let x0 = ctx.vm.read_register_value() as u32;
-    let y0 = ctx.vm.read_register_value() as u32;
-    let base = ctx.vm.read_register_value() as usize;
+pub fn sprite(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let x0 = ctx.read_register_value()? as u32;
+    let y0 = ctx.read_register_value()? as u32;
+    let base = ctx.read_register_value()? as usize;
 
     debug!(
         "Drawing sprite at ({}, {}) from memory 0x{:04X}",
         x0, y0, base
     );
 
+    let cam_x = ctx.camera.get_x();
+    let cam_y = ctx.camera.get_y();
+
     for sy in 0..SPRITE_SIZE {
         for sx in 0..SPRITE_SIZE {
-            let pixel = ctx
-                .vm
-                .read_memory(base + sy as usize * SPRITE_SIZE as usize + sx as usize);
+            let pixel = ctx.mem.read(base + sy as usize * SPRITE_SIZE as usize + sx as usize)?;
             if pixel == 0 {
                 continue;
             }
 
-            let color = ctx.vm.get_palette_color(pixel as usize);
+            let color = ctx.palette.get_color(pixel as usize);
             ctx.world.set_pixel(
                 Vec2::new(
-                    (x0 + sx).wrapping_sub(ctx.vm.get_camera_x()),
-                    (y0 + sy).wrapping_sub(ctx.vm.get_camera_y()),
+                    (x0 + sx).wrapping_sub(cam_x),
+                    (y0 + sy).wrapping_sub(cam_y),
                 ),
                 color,
             );
         }
     }
+    Ok(())
 }
 
-pub fn print(ctx: &mut ExecutionContext) {
-    let x = ctx.vm.read_register_value() as u32;
-    let y = ctx.vm.read_register_value() as u32;
-    let color_idx = ctx.vm.read_register_value() as usize;
-    let base = ctx.vm.read_register_value() as usize;
+pub fn print(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let x = ctx.read_register_value()? as u32;
+    let y = ctx.read_register_value()? as u32;
+    let color_idx = ctx.read_register_value()? as usize;
+    let base = ctx.read_register_value()? as usize;
 
     let mut text = String::new();
     let mut i = 0;
     loop {
-        let byte = ctx.vm.read_memory(base + i);
+        let byte = ctx.mem.read(base + i)?;
         if byte == 0 || text.len() > 64 {
             break;
         }
@@ -115,67 +123,74 @@ pub fn print(ctx: &mut ExecutionContext) {
     }
 
     debug!("Printing text \"{}\" at ({}, {})", text, x, y);
-    ctx.vm.draw_text(ctx.ui, &text, x, y, color_idx);
+    let color = ctx.palette.get_color(color_idx);
+    draw_text(ctx.ui, &text, Vec2::new(x, y), color);
+    Ok(())
 }
 
-pub fn draw_tile(ctx: &mut ExecutionContext) {
-    let x0 = ctx.vm.read_register_value() as u32;
-    let y0 = ctx.vm.read_register_value() as u32;
-    let base = ctx.vm.read_register_value() as usize;
+pub fn draw_tile(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let x0 = ctx.read_register_value()? as u32;
+    let y0 = ctx.read_register_value()? as u32;
+    let base = ctx.read_register_value()? as usize;
+
+    let cam_x = ctx.camera.get_x();
+    let cam_y = ctx.camera.get_y();
 
     for sy in 0..SPRITE_SIZE {
         for sx in 0..SPRITE_SIZE {
-            let pixel = ctx
-                .vm
-                .read_memory(base + sy as usize * SPRITE_SIZE as usize + sx as usize);
+            let pixel = ctx.mem.read(base + sy as usize * SPRITE_SIZE as usize + sx as usize)?;
             if pixel == 0 {
                 continue;
             }
 
-            let color = ctx.vm.get_palette_color(pixel as usize);
+            let color = ctx.palette.get_color(pixel as usize);
             ctx.world.set_pixel(
                 Vec2::new(
-                    (x0 * SPRITE_SIZE + sx).wrapping_sub(ctx.vm.get_camera_x()),
-                    (y0 * SPRITE_SIZE + sy).wrapping_sub(ctx.vm.get_camera_y()),
+                    (x0 * SPRITE_SIZE + sx).wrapping_sub(cam_x),
+                    (y0 * SPRITE_SIZE + sy).wrapping_sub(cam_y),
                 ),
                 color,
             );
         }
     }
+    Ok(())
 }
 
-pub fn tilemap(ctx: &mut ExecutionContext) {
-    let x0 = ctx.vm.read_register_value() as u32;
-    let y0 = ctx.vm.read_register_value() as u32;
-    let tiles_base = ctx.vm.read_register_value() as usize;
-    let map_base = ctx.vm.read_register_value() as usize;
-    let w = ctx.vm.read_byte() as u32;
-    let h = ctx.vm.read_byte() as u32;
+pub fn tilemap(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let x0 = ctx.read_register_value()? as u32;
+    let y0 = ctx.read_register_value()? as u32;
+    let tiles_base = ctx.read_register_value()? as usize;
+    let map_base = ctx.read_register_value()? as usize;
+    let w = ctx.read_byte()? as u32;
+    let h = ctx.read_byte()? as u32;
 
     debug!("Drawing tilemap at ({}, {}) with size {}x{}", x0, y0, w, h);
+
+    let cam_x = ctx.camera.get_x();
+    let cam_y = ctx.camera.get_y();
 
     for ty in 0..h {
         for tx in 0..w {
             let map_index = (ty * w + tx) as usize;
-            let tile_index = ctx.vm.read_memory(map_base + map_index) as usize;
+            let tile_index = ctx.mem.read(map_base + map_index)? as usize;
 
             for sy in 0..SPRITE_SIZE {
                 for sx in 0..SPRITE_SIZE {
-                    let pixel = ctx.vm.read_memory(
+                    let pixel = ctx.mem.read(
                         tiles_base
                             + tile_index * (SPRITE_SIZE as usize * SPRITE_SIZE as usize)
                             + sy as usize * SPRITE_SIZE as usize
                             + sx as usize,
-                    );
+                    )?;
                     if pixel == 0 {
                         continue;
                     }
 
-                    let color = ctx.vm.get_palette_color(pixel as usize);
+                    let color = ctx.palette.get_color(pixel as usize);
                     ctx.world.set_pixel(
                         Vec2::new(
-                            (x0 + tx * SPRITE_SIZE + sx).wrapping_sub(ctx.vm.get_camera_x()),
-                            (y0 + ty * SPRITE_SIZE + sy).wrapping_sub(ctx.vm.get_camera_y()),
+                            (x0 + tx * SPRITE_SIZE + sx).wrapping_sub(cam_x),
+                            (y0 + ty * SPRITE_SIZE + sy).wrapping_sub(cam_y),
                         ),
                         color,
                     );
@@ -183,57 +198,59 @@ pub fn tilemap(ctx: &mut ExecutionContext) {
             }
         }
     }
+    Ok(())
 }
 
-pub fn tile_at(ctx: &mut ExecutionContext) {
-    let rdest = ctx.vm.read_register_index();
-    let x = ctx.vm.read_register_value() as u32;
-    let y = ctx.vm.read_register_value() as u32;
-    let map_base = ctx.vm.read_register_value() as usize;
-    let w = ctx.vm.read_byte() as u32;
+pub fn tile_at(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let rdest = ctx.read_register_index()?;
+    let x = ctx.read_register_value()? as u32;
+    let y = ctx.read_register_value()? as u32;
+    let map_base = ctx.read_register_value()? as usize;
+    let w = ctx.read_byte()? as u32;
 
     let tx = x / SPRITE_SIZE;
     let ty = y / SPRITE_SIZE;
     let map_index = (ty * w + tx) as usize;
-    let tile_index = ctx.vm.read_memory(map_base + map_index);
+    let tile_index = ctx.mem.read(map_base + map_index)?;
 
     debug!(
         "Getting tile index at ({}, {}) -> tile ({}, {}) with index {}",
         x, y, tx, ty, tile_index
     );
 
-    ctx.vm.set_register(rdest, tile_index as u16);
+    ctx.cpu.set_register(rdest, tile_index as u16);
+    Ok(())
 }
 
-pub fn tile_solid(ctx: &mut ExecutionContext) {
-    let rdest = ctx.vm.read_register_index();
-    let tile_index = ctx.vm.read_register_value() as usize;
-    let flags_base = ctx.vm.read_register_value() as usize;
+pub fn tile_solid(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let rdest = ctx.read_register_index()?;
+    let tile_index = ctx.read_register_value()? as usize;
+    let flags_base = ctx.read_register_value()? as usize;
 
-    let flags = ctx.vm.read_memory(flags_base + tile_index);
+    let flags = ctx.mem.read(flags_base + tile_index)?;
 
     debug!(
         "Getting solidity of tile {} with flags at {} -> flags {}",
         tile_index, flags_base, flags
     );
 
-    ctx.vm
-        .set_register(rdest, if flags & 1 != 0 { 1 } else { 0 });
+    ctx.cpu.set_register(rdest, if flags & 1 != 0 { 1 } else { 0 });
+    Ok(())
 }
 
-pub fn text(ctx: &mut ExecutionContext) {
-    let x0 = ctx.vm.read_register_value() as u32;
-    let y = ctx.vm.read_register_value() as u32;
-    let color_idx = ctx.vm.read_register_value() as usize;
-    let base = ctx.vm.read_register_value() as usize;
-    let len = ctx.vm.read_byte() as usize;
+pub fn text(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let x0 = ctx.read_register_value()? as u32;
+    let y = ctx.read_register_value()? as u32;
+    let color_idx = ctx.read_register_value()? as usize;
+    let base = ctx.read_register_value()? as usize;
+    let len = ctx.read_byte()? as usize;
 
     let font = Font::get_global();
-    let color = ctx.vm.get_palette_color(color_idx);
+    let color = ctx.palette.get_color(color_idx);
     let mut current_x = x0;
 
     for i in 0..len {
-        let ch = ctx.vm.read_memory(base + i) as char;
+        let ch = ctx.mem.read(base + i)? as char;
 
         if let Some(glyph) = font.get_glyph(ch) {
             for gy in 0..font.get_height() {
@@ -247,16 +264,17 @@ pub fn text(ctx: &mut ExecutionContext) {
         }
         current_x += font.get_width() as u32 + 1;
     }
+    Ok(())
 }
 
-pub fn draw_number(ctx: &mut ExecutionContext) {
-    let x0 = ctx.vm.read_register_value() as u32;
-    let y = ctx.vm.read_register_value() as u32;
-    let color_idx = ctx.vm.read_register_value() as usize;
-    let value = ctx.vm.read_register_value();
+pub fn draw_number(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let x0 = ctx.read_register_value()? as u32;
+    let y = ctx.read_register_value()? as u32;
+    let color_idx = ctx.read_register_value()? as usize;
+    let value = ctx.read_register_value()?;
 
     let font = Font::get_global();
-    let color = ctx.vm.get_palette_color(color_idx);
+    let color = ctx.palette.get_color(color_idx);
     let mut current_x = x0;
 
     let s = value.to_string();
@@ -273,4 +291,5 @@ pub fn draw_number(ctx: &mut ExecutionContext) {
         }
         current_x += font.get_width() as u32 + 1;
     }
+    Ok(())
 }

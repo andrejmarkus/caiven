@@ -2,11 +2,13 @@ pub mod audio;
 pub mod camera;
 pub mod context;
 pub mod cpu;
+pub mod fault;
 pub mod memory;
 pub mod palette;
 
 pub use camera::*;
 pub use context::*;
+pub use fault::VmFault;
 pub use palette::*;
 
 use self::cpu::Cpu;
@@ -14,20 +16,12 @@ use self::memory::Memory;
 use crate::isa::InstructionSet;
 use crate::input::Input;
 use crate::rendering::screen::ScreenLayer;
-use crate::rendering::text::draw_text;
 use crate::vm::Camera;
 use crate::vm::Palette;
 use crate::vm::audio::{NoiseChannel, Sound, SquareChannel};
 use fc_core::{Color, Vec2};
 use log::error;
 use std::sync::{Arc, Mutex};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VmFault {
-    InvalidOpcode(u8),
-    InvalidRegister(usize),
-    MemoryOutOfBounds(usize),
-}
 
 pub struct Vm {
     cpu: Cpu,
@@ -40,12 +34,14 @@ pub struct Vm {
     sound: Arc<Mutex<Sound>>,
     waiting: bool,
     fault: Option<VmFault>,
+    world: ScreenLayer,
+    ui: ScreenLayer,
 }
 
 impl Vm {
     pub fn new(instructions: Arc<InstructionSet>) -> Self {
         let mut cpu = Cpu::new();
-        cpu.sp = crate::settings::MEMORY_SIZE;
+        cpu.set_sp(crate::settings::MEMORY_SIZE);
         Self {
             cpu,
             program: Vec::new(),
@@ -70,6 +66,8 @@ impl Vm {
             source_map: fc_asm::SourceMap::new(),
             waiting: false,
             fault: None,
+            world: ScreenLayer::new(),
+            ui: ScreenLayer::new(),
         }
     }
 
@@ -79,64 +77,22 @@ impl Vm {
         self.waiting = true;
     }
 
-    pub fn get_fault(&self) -> Option<VmFault> {
-        self.fault
-    }
-
-    pub fn get_sound(&self) -> Sound {
-        self.sound.lock().unwrap().clone()
-    }
-
-    pub fn set_sound(&mut self, sound: Sound) {
-        *self.sound.lock().unwrap() = sound;
-    }
-
     pub fn get_sound_shared(&self) -> Arc<Mutex<Sound>> {
         self.sound.clone()
-    }
-
-    pub fn read_byte(&mut self) -> u8 {
-        if self.cpu.pc >= self.program.len() {
-            self.set_fault(VmFault::MemoryOutOfBounds(self.cpu.pc));
-            return 0;
-        }
-        let byte = self.program[self.cpu.pc];
-        self.cpu.pc += 1;
-        byte
-    }
-
-    pub fn read_word(&mut self) -> u16 {
-        let low = self.read_byte() as u16;
-        let high = self.read_byte() as u16;
-        low | (high << 8)
-    }
-
-    pub fn read_register_index(&mut self) -> usize {
-        let index = self.read_byte() as usize;
-        if index >= self.get_registers_len() {
-            self.set_fault(VmFault::InvalidRegister(index));
-            return 0;
-        }
-        index
-    }
-
-    pub fn read_register_value(&mut self) -> u16 {
-        let index = self.read_register_index();
-        self.get_register_value(index)
     }
 
     pub fn load_program(&mut self, source: &str) -> Result<(), fc_asm::AsmError> {
         let (program, source_map) = fc_asm::assemble_with_source_map(source)?;
         self.program = program;
         self.source_map = source_map;
-        self.cpu.pc = 0;
+        self.cpu.set_pc(0);
         Ok(())
     }
 
     pub fn load_rom(&mut self, program: Vec<u8>) {
         self.source_map = fc_asm::generate_source_map(&program);
         self.program = program;
-        self.cpu.pc = 0;
+        self.cpu.set_pc(0);
     }
 
     pub fn assemble(&self, source: &str) -> Result<Vec<u8>, fc_asm::AsmError> {
@@ -155,68 +111,16 @@ impl Vm {
         self.cpu.get_registers()
     }
 
-    pub fn get_registers_len(&self) -> usize {
-        self.cpu.get_registers_len()
-    }
-
-    pub fn get_register_value(&self, index: usize) -> u16 {
-        self.cpu.get_register_value(index)
-    }
-
     pub fn get_source_map(&self) -> &fc_asm::SourceMap {
         &self.source_map
-    }
-
-    pub fn decrement_register_value(&mut self, index: usize, value: u16) {
-        self.cpu.decrement_register_value(index, value);
-    }
-
-    pub fn increment_register_value(&mut self, index: usize, value: u16) {
-        self.cpu.increment_register_value(index, value);
-    }
-
-    pub fn set_register(&mut self, index: usize, value: u16) {
-        self.cpu.set_register(index, value);
-    }
-
-    pub fn get_palette_color(&self, index: usize) -> Color {
-        self.palette.get_color(index)
-    }
-
-    pub fn set_palette_color(&mut self, index: usize, color: Color) {
-        self.palette.set_color(index, color);
-    }
-
-    pub fn set_pc(&mut self, address: usize) {
-        self.cpu.set_pc(address);
-    }
-
-    pub fn get_pc(&self) -> usize {
-        self.cpu.get_pc()
-    }
-
-    pub fn set_sp(&mut self, address: usize) {
-        self.cpu.set_sp(address);
-    }
-
-    pub fn get_sp(&self) -> usize {
-        self.cpu.get_sp()
-    }
-
-    pub fn shift_pc(&mut self, offset: isize) {
-        self.cpu.shift_pc(offset);
     }
 
     pub fn get_memory_length(&self) -> usize {
         self.memory.get_length()
     }
 
-    pub fn read_memory(&mut self, address: usize) -> u8 {
-        if address >= self.get_memory_length() {
-            self.set_fault(VmFault::MemoryOutOfBounds(address));
-            return 0;
-        }
-        self.memory.read(address)
+    pub fn peek_memory(&self, address: usize) -> u8 {
+        self.memory.read(address).unwrap_or(0)
     }
 
     pub fn get_camera_x(&self) -> u32 {
@@ -227,47 +131,20 @@ impl Vm {
         self.camera.get_y()
     }
 
-    pub fn set_camera_position(&mut self, x: u32, y: u32) {
-        self.camera.set_position(x, y);
-    }
-
-    pub fn move_camera_by(&mut self, dx: i32, dy: i32) {
-        self.camera.move_by(dx, dy);
-    }
-
     pub fn is_waiting(&self) -> bool {
         self.waiting
     }
 
-    pub fn pause(&mut self) {
-        self.waiting = true;
+    pub fn get_pc(&self) -> usize {
+        self.cpu.get_pc()
     }
 
-    pub fn draw_text(
-        &self,
-        layer: &mut ScreenLayer,
-        text: &str,
-        x: u32,
-        y: u32,
-        color_index: usize,
-    ) {
-        let color = self.palette.get_color(color_index);
-        draw_text(layer, text, Vec2::new(x, y), color);
+    pub fn world_pixels(&self) -> &[u8] {
+        self.world.get_pixels()
     }
 
-    pub fn peek_memory(&self, address: usize) -> u8 {
-        if address >= self.get_memory_length() {
-            return 0;
-        }
-        self.memory.read(address)
-    }
-
-    pub fn write_memory(&mut self, address: usize, value: u8) {
-        if address >= self.get_memory_length() {
-            self.set_fault(VmFault::MemoryOutOfBounds(address));
-            return;
-        }
-        self.memory.write(address, value)
+    pub fn ui_pixels(&self) -> &[u8] {
+        self.ui.get_pixels()
     }
 
     pub fn disassemble(&self, pc: usize) -> String {
@@ -323,7 +200,7 @@ impl Vm {
         }
     }
 
-    pub fn run_frame(&mut self, input: &Input, world: &mut ScreenLayer, ui: &mut ScreenLayer) {
+    pub fn run_frame(&mut self, input: &Input) {
         self.waiting = false;
 
         {
@@ -343,11 +220,11 @@ impl Vm {
         }
 
         while !self.waiting {
-            self.step(input, world, ui);
+            self.step(input);
         }
     }
 
-    pub fn step(&mut self, input: &Input, world: &mut ScreenLayer, ui: &mut ScreenLayer) {
+    pub fn step(&mut self, input: &Input) {
         if self.fault.is_some() {
             return;
         }
@@ -357,12 +234,13 @@ impl Vm {
             return;
         }
 
-        if self.cpu.pc >= self.program.len() {
+        let pc = self.cpu.get_pc();
+        if pc >= self.program.len() {
             self.waiting = true;
             return;
         }
 
-        let opcode = self.program[self.cpu.pc];
+        let opcode = self.program[pc];
 
         let handler = {
             let instruction = self.instructions.get_by_opcode(opcode);
@@ -374,14 +252,33 @@ impl Vm {
             }
         };
 
-        self.cpu.pc += 1;
-        let mut ctx = ExecutionContext::new(self, input, world, ui);
-        (handler)(&mut ctx);
+        self.cpu.set_pc(pc + 1);
+
+        let sound_arc = Arc::clone(&self.sound);
+        let mut sound_guard = sound_arc.lock().unwrap();
+        let mut ctx = ExecutionContext {
+            cpu: &mut self.cpu,
+            mem: &mut self.memory,
+            palette: &mut self.palette,
+            camera: &mut self.camera,
+            sound: &mut *sound_guard,
+            program: &self.program,
+            input,
+            world: &mut self.world,
+            ui: &mut self.ui,
+            waiting: &mut self.waiting,
+        };
+        let result = (handler)(&mut ctx);
+        drop(ctx);
+        drop(sound_guard);
+        if let Err(fault) = result {
+            self.set_fault(fault);
+        }
     }
 
     pub fn snapshot(&self) -> VmSnapshot {
         VmSnapshot {
-            pc: self.cpu.pc,
+            pc: self.cpu.get_pc(),
             registers: self.cpu.get_registers().to_vec(),
             memory: self.memory.get_ram().to_vec(),
             camera_x: self.camera.get_x(),
@@ -393,7 +290,7 @@ impl Vm {
     }
 
     pub fn restore(&mut self, snapshot: &VmSnapshot) {
-        self.cpu.pc = snapshot.pc;
+        self.cpu.set_pc(snapshot.pc);
         for (i, val) in snapshot.registers.iter().enumerate() {
             self.cpu.set_register(i, *val);
         }

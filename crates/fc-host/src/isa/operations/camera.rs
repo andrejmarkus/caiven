@@ -1,15 +1,17 @@
-use crate::vm::ExecutionContext;
+use crate::vm::{ExecutionContext, VmFault};
 
-pub fn set_camera_position(ctx: &mut ExecutionContext) {
-    let x = ctx.vm.read_register_value() as u32;
-    let y = ctx.vm.read_register_value() as u32;
+pub fn set_camera_position(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let x = ctx.read_register_value()? as u32;
+    let y = ctx.read_register_value()? as u32;
 
-    ctx.vm.set_camera_position(x, y);
+    ctx.camera.set_position(x, y);
+    Ok(())
 }
 
-pub fn move_camera(ctx: &mut ExecutionContext) {
-    let dx = ctx.vm.read_register_value() as i32;
-    let dy = ctx.vm.read_register_value() as i32;
+pub fn move_camera(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let dx = ctx.read_register_value()? as i32;
+    let dy = ctx.read_register_value()? as i32;
 
-    ctx.vm.move_camera_by(dx, dy);
+    ctx.camera.move_by(dx, dy);
+    Ok(())
 }

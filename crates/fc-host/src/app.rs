@@ -1,9 +1,10 @@
-use crate::isa::default_instruction_set;
 use crate::debugger::{DebugMode, Debugger};
 use crate::input::Input;
+use crate::isa::default_instruction_set;
 use crate::rendering::font::Font;
 use crate::rendering::screen::Screen;
 use crate::settings::{HEIGHT, NAME, SCREEN_HEIGHT, SCREEN_WIDTH, WIDTH};
+use crate::timing::FixedTimestep;
 use crate::vm::Vm;
 use crate::vm::audio::Audio;
 use anyhow::{Context, Result};
@@ -13,6 +14,7 @@ use log::{error, info};
 use pixels::{Pixels, SurfaceTexture};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::{
@@ -61,6 +63,8 @@ pub struct App {
     #[allow(dead_code)]
     audio: Option<Audio>,
     debugger: Debugger,
+    timing: FixedTimestep,
+    last_tick: Instant,
 }
 
 impl App {
@@ -94,6 +98,8 @@ impl App {
             vm,
             audio,
             debugger: Debugger::new(false),
+            timing: FixedTimestep::new(60),
+            last_tick: Instant::now(),
         })
     }
 
@@ -168,28 +174,16 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 self.screen.get_debug_layer().clear();
-
-                match self.debugger.get_mode() {
-                    DebugMode::Running => {
-                        let (world, ui) = self.screen.get_layers_mut();
-                        self.vm.run_frame(&self.input, world, ui);
-                        self.debugger.push_state(self.vm.snapshot());
-                    }
-                    DebugMode::Paused => {
-                        self.debugger
-                            .draw_overlay(self.screen.get_debug_layer(), &self.vm);
-                    }
-                    DebugMode::Step => {
-                        let (world, ui) = self.screen.get_layers_mut();
-                        self.vm.step(&self.input, world, ui);
-                        self.debugger.check_breakpoint(self.vm.get_pc());
-                        self.debugger.dump_state(&self.vm);
-                        self.debugger.pause();
-                    }
+                if self.debugger.get_mode() == DebugMode::Paused {
+                    self.debugger
+                        .draw_overlay(self.screen.get_debug_layer(), &self.vm);
                 }
-
                 if let Some(pixels) = self.pixels.as_mut() {
-                    self.screen.construct(pixels.frame_mut());
+                    self.screen.construct(
+                        pixels.frame_mut(),
+                        self.vm.world_pixels(),
+                        self.vm.ui_pixels(),
+                    );
                     let _ = pixels.render();
                 }
             }
@@ -241,6 +235,27 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
+        let now = Instant::now();
+        let dt = now.duration_since(self.last_tick);
+        self.last_tick = now;
+
+        match self.debugger.get_mode() {
+            DebugMode::Running => {
+                let steps = self.timing.tick(dt);
+                for _ in 0..steps {
+                    self.vm.run_frame(&self.input);
+                    self.debugger.push_state(self.vm.snapshot());
+                }
+            }
+            DebugMode::Step => {
+                self.vm.step(&self.input);
+                self.debugger.check_breakpoint(self.vm.get_pc());
+                self.debugger.dump_state(&self.vm);
+                self.debugger.pause();
+            }
+            DebugMode::Paused => {}
+        }
+
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
         }
