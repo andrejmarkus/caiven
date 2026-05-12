@@ -204,15 +204,11 @@ impl ApplicationHandler for App {
                         self.input.set_button(button, pressed);
                     }
                     match code {
-                        KeyCode::Space => {
-                            if pressed && !event.repeat {
-                                self.debugger.toggle_pause();
-                            }
+                        KeyCode::Space if pressed && !event.repeat => {
+                            self.debugger.toggle_pause();
                         }
-                        KeyCode::KeyC => {
-                            if pressed && !event.repeat {
-                                self.debugger.step();
-                            }
+                        KeyCode::KeyC if pressed && !event.repeat => {
+                            self.debugger.step();
                         }
                         KeyCode::KeyB => {
                             if pressed
@@ -223,15 +219,11 @@ impl ApplicationHandler for App {
                                 self.debugger.pause();
                             }
                         }
-                        KeyCode::KeyN => {
-                            if pressed && !event.repeat {
-                                self.debugger.prev_ram_page();
-                            }
+                        KeyCode::KeyN if pressed && !event.repeat => {
+                            self.debugger.prev_ram_page();
                         }
-                        KeyCode::KeyM => {
-                            if pressed && !event.repeat {
-                                self.debugger.next_ram_page();
-                            }
+                        KeyCode::KeyM if pressed && !event.repeat => {
+                            self.debugger.next_ram_page();
                         }
                         _ => {}
                     }
