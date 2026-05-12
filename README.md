@@ -19,7 +19,7 @@
 - 🕹️ **Integrated Assembler**: Compile `.asm` source files directly into executable binary `.rom` files.
 - 🔊 **Audio Engine**: Real-time sound synthesis using CPAL.
 - 🛠️ **Debugger**: Step-through execution and memory inspection for easier development.
-- ⌨️ **Input Handling**: Support for classic directional and button inputs.
+- ⌨️ **Input Handling**: Support for classic directional and button inputs with configurable key bindings.
 
 ---
 
@@ -39,10 +39,48 @@ cargo build --release
 
 ### Running
 
-- **Development Mode**: `cargo run -- --dev`
-- **Run ROM**: `cargo run -- --run games/roms/catch.rom`
-- **Build ROM**: `cargo run -- --build games/asm/movement.asm games/roms/movement.rom`
-- **Debug ROM**: `cargo run -- --debug games/roms/catch.rom`
+| Command | Description |
+| :------ | :---------- |
+| `cargo run -- dev` | Development mode — loads `games/asm/movement.asm` if present |
+| `cargo run -- run <file.rom>` | Run a compiled ROM |
+| `cargo run -- build <source.asm> <output.rom>` | Assemble source and write ROM |
+| `cargo run -- debug <source.asm>` | Run source with debugger enabled |
+
+### Debugger Controls
+
+| Key | Action |
+| :-- | :----- |
+| `Space` | Pause / resume execution |
+| `C` | Step one instruction |
+| `B` | Step back to previous snapshot |
+| `N` / `M` | Previous / next RAM page |
+
+### Key Bindings
+
+Default game controls:
+
+| Button | Keys |
+| :----- | :--- |
+| Up | `ArrowUp`, `W` |
+| Down | `ArrowDown`, `S` |
+| Left | `ArrowLeft`, `A` |
+| Right | `ArrowRight`, `D` |
+| A | `J` |
+| B | `K` |
+
+Override by creating `controls.toml` next to the binary:
+
+```toml
+[controls]
+up    = ["ArrowUp", "KeyW"]
+down  = ["ArrowDown", "KeyS"]
+left  = ["ArrowLeft", "KeyA"]
+right = ["ArrowRight", "KeyD"]
+a     = ["KeyJ"]
+b     = ["KeyK"]
+```
+
+Any `winit` physical key name is valid (e.g. `KeyZ`, `Digit1`, `Space`, `Enter`). Missing file falls back to defaults.
 
 ---
 
@@ -160,10 +198,16 @@ loop:
 
 ## 📂 Project Structure
 
-- `src/vm/`: The heart of the console (CPU, Memory, Audio, Palette).
-- `src/assembler/`: Custom assembler for the console's instruction set.
-- `src/rendering/`: Pixels and Winit-powered screen and text rendering.
-- `games/`: Example assembly programs and pre-built ROMs.
+Cargo workspace with four crates:
+
+| Crate | Description |
+| :---- | :---------- |
+| `crates/fc-core` | Shared types — `Color`, `Rgb` |
+| `crates/fc-asm` | Assembler: tokeniser, parser, code emitter |
+| `crates/fc-rom` | ROM format: header, load/write helpers |
+| `crates/fc-host` | Host runtime: VM, renderer, audio, input, debugger |
+
+- `games/`: Example `.asm` sources and pre-built `.rom` files.
 
 ---
 
