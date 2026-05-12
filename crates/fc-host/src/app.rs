@@ -10,11 +10,11 @@ use crate::vm::{Vm, VmConfig};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use fc_rom::RomHeader;
-use log::{error, info};
+use log::{error, info, warn};
 use pixels::{Pixels, SurfaceTexture};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::{
@@ -68,6 +68,8 @@ pub struct App {
     debugger: Debugger,
     timing: FixedTimestep,
     last_tick: Instant,
+    watch_path: Option<PathBuf>,
+    watch_mtime: Option<SystemTime>,
 }
 
 impl App {
@@ -107,6 +109,8 @@ impl App {
             debugger: Debugger::new(false),
             timing: FixedTimestep::new(60),
             last_tick: Instant::now(),
+            watch_path: None,
+            watch_mtime: None,
         })
     }
 
@@ -128,8 +132,27 @@ impl App {
         self.vm
             .load_program(&source)
             .with_context(|| format!("failed to assemble {}", path.display()))?;
+        self.watch_mtime = path.metadata().ok().and_then(|m| m.modified().ok());
         info!("source assembled from {}", path.display());
         Ok(())
+    }
+
+    fn watch_source(&mut self, path: PathBuf) -> Result<()> {
+        self.load_source(&path.clone())?;
+        self.watch_path = Some(path);
+        Ok(())
+    }
+
+    fn poll_hot_reload(&mut self) {
+        let Some(path) = self.watch_path.clone() else { return };
+        let Ok(meta) = path.metadata() else { return };
+        let Ok(mtime) = meta.modified() else { return };
+        if Some(mtime) != self.watch_mtime {
+            info!("hot-reload: {}", path.display());
+            if let Err(e) = self.load_source(&path) {
+                warn!("hot-reload failed: {e}");
+            }
+        }
     }
 }
 
@@ -234,6 +257,8 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
+        self.poll_hot_reload();
+
         let now = Instant::now();
         let dt = now.duration_since(self.last_tick);
         self.last_tick = now;
@@ -299,10 +324,10 @@ pub fn run() -> Result<()> {
 
     match command {
         Command::Dev => {
-            info!("development mode");
+            info!("development mode (hot-reload active)");
             let path = PathBuf::from("games/asm/movement.asm");
             if path.exists() {
-                app.load_source(&path)?;
+                app.watch_source(path)?;
             }
         }
         Command::Debug { source } => {
