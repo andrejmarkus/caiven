@@ -117,6 +117,14 @@ impl Vm {
         self.peripherals.init_all(&mut self.memory);
     }
 
+    pub fn load_rom_with_source_map(&mut self, program: Vec<u8>, source_map: fc_asm::SourceMap) {
+        self.program = program;
+        self.source_map = source_map;
+        self.cpu.set_pc(0);
+        self.frame_count = 0;
+        self.peripherals.init_all(&mut self.memory);
+    }
+
     pub fn load_section_to_ram(&mut self, base: usize, data: &[u8]) {
         for (i, &byte) in data.iter().enumerate() {
             if let Err(e) = self.memory.write(base + i, byte) {

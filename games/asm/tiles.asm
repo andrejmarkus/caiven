@@ -1,204 +1,137 @@
+; Tile maze — walk through a maze with collision detection
+; All sprites are in the sprite sheet (edit with F2)
+; Sprite 0 (0x4000): player
+; Sprite 1 (0x4040): floor tile
+; Sprite 2 (0x4080): wall tile
+
+.CONST PLAYER_X  = 5
+.CONST PLAYER_Y  = 6
+.CONST FLAGS_ADDR = 0
+.CONST MAP_ADDR   = 210
+
 init:
-    ; Palette setup
-    PAL 0 0 0 0       ; Transparent
-    PAL 1 60 60 60    ; Floor
-    PAL 2 120 120 120 ; Wall
-    PAL 3 255 100 100 ; Player
-    PAL 4 200 200 200 ; Wall Highlight
+    PAL 0   0   0   0    ; transparent
+    PAL 1  60  60  60    ; floor
+    PAL 2 120 120 120    ; wall outer
+    PAL 3 255 100 100    ; player
+    PAL 4 200 200 200    ; wall highlight
 
-    ; Data layout in RAM:
-    ; 0: Flags (2 bytes), 5: Player X, 6: Player Y
-    ; 10: Player Sprite (64 bytes), 80: Tileset, 210: Map
+    CPY FLAGS_ADDR, tile_flags, 2
+    CPY MAP_ADDR, map_start, 256
 
-    CPY 0, tile_flags, 2
-    CPY 10, player_sprite, 64
-    CPY 80, tileset, 128
-    CPY 210, map_start, 256
-    CPY 500, score_text, 5
-
-    ; Initial position
     MOV R0, 16
-    STM 5, R0
+    STM PLAYER_X, R0
     MOV R0, 16
-    STM 6, R0
+    STM PLAYER_Y, R0
 
-    ; Startup sound (Square + Noise)
-    SNDV 440 10 30 ; 0.5s dur
-    NSNDV 1000 5 15 ; 0.25s dur
+    SNDV 440 10 30
+    JMP loop
 
 loop:
     CLS
     NOSND
-    
-    ; Draw text
-    MOV R0, 2
-    MOV R1, 2
-    MOV R2, 0
-    MOV R3, 500
-    TXT R0 R1 R2 R3 5
 
-    ; Draw Map
-    MOV R0, 0   ; X=0
-    MOV R1, 0   ; Y=0
-    MOV R2, 80  ; Tileset Address
-    MOV R3, 210 ; Map Address
+    MOV R0, 0
+    MOV R1, 0
+    MOV R2, tile_sprite
+    MOV R3, MAP_ADDR
     TIL R0 R1 R2 R3 16 16
 
-    ; Draw Player
-    LDM R0, 5   ; Player X
-    LDM R1, 6   ; Player Y
-    MOV R2, 10  ; Player Sprite Address
+    LDM R0, PLAYER_X
+    LDM R1, PLAYER_Y
+    MOV R2, player_sprite
     SPT R0 R1 R2
 
-    ; --- Movement LEFT ---
+    ; LEFT
     IN R0, 2
-    JZ R0, move_right
-    LDM R1, 5 ; R1 = X
-    DEC R1    ; R1 = X - 1
-    LDM R2, 6 ; R2 = Y
-    MOV R3, 210 ; Map Addr
-    TAT R0 R1 R2 R3 16 ; R0 = Tile Index
-    MOV R2, 0 ; Flags Addr
-    TSD R3 R0 R2 ; R3 = Solid? (0/1)
-    JNZ R3, move_right_bump ; Collision
-    ; Check bottom-left
-    LDM R2, 6
-    ADD R2, 7 ; Y + 7
-    MOV R3, 210
-    TAT R0 R1 R2 R3 16 ; R0 = Tile
-    MOV R2, 0
-    TSD R3 R0 R2
-    JNZ R3, move_right_bump
-    ; Success - Update X
-    STM 5, R1
-    NSNDV 400 3 2 ; Step sound
-    JMP move_right
-
-move_right_bump:
-    SNDV 110 15 5 ; Bump thud
-    NSNDV 2000 10 3 ; Bump crunch
-
-move_right:
-    IN R0, 3
-    JZ R0, move_up
-    LDM R1, 5
-    ADD R1, 8 ; X + 8
-    LDM R2, 6
-    MOV R3, 210
+    JZ R0, @move_right
+    LDM R1, PLAYER_X
+    DEC R1
+    LDM R2, PLAYER_Y
+    MOV R3, MAP_ADDR
     TAT R0 R1 R2 R3 16
-    MOV R2, 0
+    MOV R2, FLAGS_ADDR
     TSD R3 R0 R2
-    JNZ R3, move_up_bump
-    LDM R2, 6
+    JNZ R3, @move_right
+    LDM R2, PLAYER_Y
     ADD R2, 7
-    MOV R3, 210
+    MOV R3, MAP_ADDR
     TAT R0 R1 R2 R3 16
-    MOV R2, 0
+    MOV R2, FLAGS_ADDR
     TSD R3 R0 R2
-    JNZ R3, move_up_bump
-    ; Update X
-    LDM R1, 5
+    JNZ R3, @move_right
+    STM PLAYER_X, R1
+
+@move_right:
+    IN R0, 3
+    JZ R0, @move_up
+    LDM R1, PLAYER_X
+    ADD R1, 8
+    LDM R2, PLAYER_Y
+    MOV R3, MAP_ADDR
+    TAT R0 R1 R2 R3 16
+    MOV R2, FLAGS_ADDR
+    TSD R3 R0 R2
+    JNZ R3, @move_up
+    LDM R2, PLAYER_Y
+    ADD R2, 7
+    MOV R3, MAP_ADDR
+    TAT R0 R1 R2 R3 16
+    MOV R2, FLAGS_ADDR
+    TSD R3 R0 R2
+    JNZ R3, @move_up
+    LDM R1, PLAYER_X
     ADD R1, 1
-    STM 5, R1
-    NSNDV 400 3 2
-    JMP move_up
+    STM PLAYER_X, R1
 
-move_up_bump:
-    SNDV 110 15 5
-    NSNDV 2000 10 3
-
-move_up:
+@move_up:
     IN R0, 0
-    JZ R0, move_down
-    LDM R1, 5
-    LDM R2, 6
-    DEC R2 ; Y - 1
-    MOV R3, 210
+    JZ R0, @move_down
+    LDM R1, PLAYER_X
+    LDM R2, PLAYER_Y
+    DEC R2
+    MOV R3, MAP_ADDR
     TAT R0 R1 R2 R3 16
-    MOV R1, 0
+    MOV R1, FLAGS_ADDR
     TSD R3 R0 R1
-    JNZ R3, move_down_bump
-    LDM R1, 5
-    ADD R1, 7 ; X + 7
-    MOV R3, 210
+    JNZ R3, @move_down
+    LDM R1, PLAYER_X
+    ADD R1, 7
+    MOV R3, MAP_ADDR
     TAT R0 R1 R2 R3 16
-    MOV R1, 0
+    MOV R1, FLAGS_ADDR
     TSD R3 R0 R1
-    JNZ R3, move_down_bump
-    ; Update Y
-    STM 6, R2
-    NSNDV 400 3 2
-    JMP move_down
+    JNZ R3, @move_down
+    STM PLAYER_Y, R2
 
-move_down_bump:
-    SNDV 110 15 5
-    NSNDV 2000 10 3
-
-move_down:
+@move_down:
     IN R0, 1
-    JZ R0, end_loop
-    LDM R1, 5
-    LDM R2, 6
-    ADD R2, 8 ; Y + 8
-    MOV R3, 210
+    JZ R0, @end_loop
+    LDM R1, PLAYER_X
+    LDM R2, PLAYER_Y
+    ADD R2, 8
+    MOV R3, MAP_ADDR
     TAT R0 R1 R2 R3 16
-    MOV R1, 0
+    MOV R1, FLAGS_ADDR
     TSD R3 R0 R1
-    JNZ R3, end_loop_bump
-    LDM R1, 5
-    ADD R1, 7 ; X + 7
-    MOV R3, 210
+    JNZ R3, @end_loop
+    LDM R1, PLAYER_X
+    ADD R1, 7
+    MOV R3, MAP_ADDR
     TAT R0 R1 R2 R3 16
-    MOV R1, 0
+    MOV R1, FLAGS_ADDR
     TSD R3 R0 R1
-    JNZ R3, end_loop_bump
-    ; Update Y
-    LDM R2, 6
+    JNZ R3, @end_loop
+    LDM R2, PLAYER_Y
     ADD R2, 1
-    STM 6, R2
-    NSNDV 400 3 2
-    JMP end_loop
+    STM PLAYER_Y, R2
 
-end_loop_bump:
-    SNDV 110 15 5
-    NSNDV 2000 10 3
-
-end_loop:
+@end_loop:
     WAIT
     JMP loop
 
 tile_flags:
     .DB 0, 1
-
-player_sprite:
-    .DB 0,0,3,3,3,3,0,0
-    .DB 0,3,3,3,3,3,3,0
-    .DB 3,3,0,3,3,0,3,3
-    .DB 3,3,3,3,3,3,3,3
-    .DB 3,3,0,3,3,0,3,3
-    .DB 3,0,3,3,3,3,0,3
-    .DB 0,3,3,0,0,3,3,0
-    .DB 0,0,3,3,3,3,0,0
-
-tileset:
-    ; Tile 0: Floor
-    .DB 1,1,1,1,1,1,1,1
-    .DB 1,1,1,1,1,1,1,1
-    .DB 1,1,1,1,1,1,1,1
-    .DB 1,1,1,1,1,1,1,1
-    .DB 1,1,1,1,1,1,1,1
-    .DB 1,1,1,1,1,1,1,1
-    .DB 1,1,1,1,1,1,1,1
-    .DB 1,1,1,1,1,1,1,1
-    ; Tile 1: Wall
-    .DB 2,2,2,2,2,2,2,2
-    .DB 2,4,4,4,4,4,4,2
-    .DB 2,4,2,2,2,2,4,2
-    .DB 2,4,2,2,2,2,4,2
-    .DB 2,4,2,2,2,2,4,2
-    .DB 2,4,2,2,2,2,4,2
-    .DB 2,4,4,4,4,4,4,2
-    .DB 2,2,2,2,2,2,2,2
 
 map_start:
     .DB 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
@@ -218,5 +151,34 @@ map_start:
     .DB 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
     .DB 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
 
-score_text:
-    .DB 'S', 'C', 'O', 'R', 'E'
+.BEGIN_SPRITE_SHEET
+player_sprite:
+    .DB 0,0,3,3,3,3,0,0
+    .DB 0,3,3,3,3,3,3,0
+    .DB 3,3,0,3,3,0,3,3
+    .DB 3,3,3,3,3,3,3,3
+    .DB 3,3,0,3,3,0,3,3
+    .DB 3,0,3,3,3,3,0,3
+    .DB 0,3,3,0,0,3,3,0
+    .DB 0,0,3,3,3,3,0,0
+
+tile_sprite:
+    ; Tile 0: floor
+    .DB 1,1,1,1,1,1,1,1
+    .DB 1,1,1,1,1,1,1,1
+    .DB 1,1,1,1,1,1,1,1
+    .DB 1,1,1,1,1,1,1,1
+    .DB 1,1,1,1,1,1,1,1
+    .DB 1,1,1,1,1,1,1,1
+    .DB 1,1,1,1,1,1,1,1
+    .DB 1,1,1,1,1,1,1,1
+    ; Tile 1: wall
+    .DB 2,2,2,2,2,2,2,2
+    .DB 2,4,4,4,4,4,4,2
+    .DB 2,4,2,2,2,2,4,2
+    .DB 2,4,2,2,2,2,4,2
+    .DB 2,4,2,2,2,2,4,2
+    .DB 2,4,2,2,2,2,4,2
+    .DB 2,4,4,4,4,4,4,2
+    .DB 2,2,2,2,2,2,2,2
+.END_SPRITE_SHEET

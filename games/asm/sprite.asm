@@ -1,30 +1,40 @@
+; Sprite viewer — shows the sprite sheet at center of screen
+; Open sprite editor (F2) to paint sprites, switch back to see them live
+
+.CONST SPR_X = 60
+.CONST SPR_Y = 60
+
 init:
-    PAL 1 255 0 0
-    PAL 2 0 255 0
-    PAL 3 0 0 255
+    PAL 0   0   0   0    ; black background
+    PAL 1 255  80  80    ; red
+    PAL 2  80 255  80    ; green
+    PAL 3  80  80 255    ; blue
+    PAL 4 255 255  80    ; yellow
+    PAL 5 255 160  40    ; orange
+    PAL 6 200  80 255    ; purple
+    PAL 7 255 255 255    ; white
+    JMP loop
 
-    CPY 32, sprite, 64
-
-    JMP start
-
-start:
+loop:
     CLS
-    MOV R0, 40
-    MOV R1, 40
-    MOV R2, 32
+    FILL 0
 
+    MOV R0, SPR_X
+    MOV R1, SPR_Y
+    MOV R2, sprite_a
     SPT R0 R1 R2
 
-infinite_loop:
     WAIT
-    JMP infinite_loop
+    JMP loop
 
-sprite:
-    .DB 0,0,0,0,0,0,0,0
+.BEGIN_SPRITE_SHEET
+sprite_a:
     .DB 0,0,1,1,1,1,0,0
     .DB 0,1,1,1,1,1,1,0
+    .DB 1,1,2,1,1,2,1,1
+    .DB 1,1,1,1,1,1,1,1
+    .DB 1,1,3,3,3,1,1,1
+    .DB 1,1,1,3,1,1,1,1
     .DB 0,1,1,1,1,1,1,0
-    .DB 0,1,1,1,1,1,1,0
-    .DB 0,1,1,1,1,1,1,0
-    .DB 0,0,1,1,1,1,0,0
-    .DB 0,0,0,0,0,0,0,0
+    .DB 0,0,1,1,1,0,0,0
+.END_SPRITE_SHEET

@@ -41,6 +41,9 @@ enum AppMode {
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
+    /// Enable debugger overlay
+    #[arg(short, long, global = true)]
+    debug: bool,
 }
 
 #[derive(Subcommand)]
@@ -52,23 +55,16 @@ enum Command {
         /// Output .rom path
         output: PathBuf,
     },
-    /// Run source file with debugger enabled
-    Debug {
-        /// Path to the .asm source file (assembled in memory)
-        source: PathBuf,
-    },
     /// Inspect a ROM file and print its section table
     Inspect {
         /// Path to the .rom file
         rom: PathBuf,
     },
-    /// Edit a ROM file in the sprite editor (Ctrl+S saves edits back)
-    Edit {
-        /// Path to the .rom file
-        rom: PathBuf,
+    /// Run a .asm or .rom file
+    Run {
+        /// Path to .asm source (hot reload) or .rom file
+        file: PathBuf,
     },
-    /// Development mode: load games/asm/movement.asm with hot reload
-    Dev,
 }
 
 pub struct App {
@@ -200,13 +196,16 @@ impl App {
     fn load_source(&mut self, path: &Path) -> Result<()> {
         let source = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read source {}", path.display()))?;
-        self.vm
-            .load_program(&source)
+        let out = fc_asm::assemble_with_sections(&source)
             .with_context(|| format!("failed to assemble {}", path.display()))?;
-        let mtime = path.metadata().ok().and_then(|m| m.modified().ok());
+        self.vm.load_rom_with_source_map(out.program, out.source_map);
+        for (wire_id, data) in &out.extra_sections {
+            if *wire_id == fc_rom::SectionKind::SpriteSheet.to_u16() {
+                self.vm.load_section_to_ram(SPRITE_SHEET_RAM_BASE, data);
+            }
+        }
         self.debugger.set_fcdbg_path(path.with_extension("fcdbg"));
         info!("source assembled from {}", path.display());
-        mtime.map(|_| ()).unwrap_or(());
         Ok(())
     }
 
@@ -451,16 +450,14 @@ impl ApplicationHandler for App {
 
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
-    let command = cli.command.unwrap_or(Command::Dev);
 
-    let log_level = match &command {
-        Command::Debug { .. } => "debug",
-        _ => "info",
-    };
+    let log_level = if cli.debug { "debug" } else { "info" };
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level)).init();
 
+    let command = cli.command;
+
     match &command {
-        Command::Build { source, output } => {
+        Some(Command::Build { source, output }) => {
             info!("building ROM: {} → {}", source.display(), output.display());
 
             let out = fc_asm::assemble_file_with_sections(source)
@@ -485,7 +482,7 @@ pub fn run() -> Result<()> {
             );
             return Ok(());
         }
-        Command::Inspect { rom } => {
+        Some(Command::Inspect { rom }) => {
             let loaded = fc_rom::load(rom)
                 .with_context(|| format!("failed to load ROM from {}", rom.display()))?;
             println!("ROM: {}", rom.display());
@@ -503,26 +500,23 @@ pub fn run() -> Result<()> {
     }
 
     let mut app = App::new()?;
+    app.set_debug_enabled(cli.debug);
 
     match command {
-        Command::Dev => {
-            info!("development mode (hot-reload active)");
-            let path = PathBuf::from("games/asm/movement.asm");
-            if path.exists() {
-                app.watch_source(path)?;
+        Some(Command::Run { file }) => {
+            let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if ext == "rom" {
+                info!("running ROM: {}", file.display());
+                app.load_rom(&file)?;
+            } else {
+                info!("running source: {} (hot-reload active)", file.display());
+                app.watch_source(file)?;
             }
         }
-        Command::Debug { source } => {
-            info!("debug mode: {}", source.display());
-            app.set_debug_enabled(true);
-            app.load_source(&source)?;
+        None => {
+            info!("no file specified — open a .asm or .rom file with: fc-engine run <file>");
         }
-        Command::Edit { rom } => {
-            info!("edit mode: {}", rom.display());
-            app.load_rom(&rom)?;
-            app.mode = AppMode::SpriteEditor;
-        }
-        Command::Build { .. } | Command::Inspect { .. } => unreachable!(),
+        Some(Command::Build { .. }) | Some(Command::Inspect { .. }) => unreachable!(),
     }
 
     let event_loop = EventLoop::new().context("failed to create event loop")?;

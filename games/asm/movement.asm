@@ -1,40 +1,69 @@
-; R0 = x, R1 = y, R2 = left input, R3 = right input
-; Init state in RAM
-MOV r0 10
-STM 100 r0
-MOV r1 10
-STM 101 r1
+; Movement demo — arrow keys move a sprite around the screen
+; Open sprite editor (F2) to edit the player sprite live
+
+.CONST PX = 0   ; player x stored at RAM addr 0
+.CONST PY = 1   ; player y stored at RAM addr 1
+
+init:
+    PAL 0  10  10  30    ; dark blue background
+    PAL 1 200 200 255    ; player body (light blue)
+    PAL 2 255 220  80    ; player highlight (yellow)
+    PAL 3 255  80  80    ; player accent (red)
+
+    MOV R0, 60
+    STM PX, R0
+    MOV R0, 60
+    STM PY, R0
+    JMP loop
 
 loop:
     CLS
-    ; Load state from RAM
-    LDM r0 100
-    LDM r1 101
-    
-    ; Read left and right input
-    IN r2 2
-    IN r3 3
-    
-    ; Check if left button is pressed
-    JNZ r2 move_left
-    
-    ; Check if right button is pressed
-    JNZ r3 move_right
-    
-    JMP draw
+    FILL 0
 
-move_left:
-    DEC r0
-    STM 100 r0
-    JMP draw
+    IN R0, 0
+    JZ R0, @chk_down
+    LDM R1, PY
+    DEC R1
+    STM PY, R1
 
-move_right:
-    ADD r0 1
-    STM 100 r0
+@chk_down:
+    IN R0, 1
+    JZ R0, @chk_left
+    LDM R1, PY
+    ADD R1, 1
+    STM PY, R1
 
-draw:
-    ; draw pixel at (R0, R1) with color red (255, 0, 0)
-    DPXR r0 r1 255,0,0
-    
+@chk_left:
+    IN R0, 2
+    JZ R0, @chk_right
+    LDM R1, PX
+    DEC R1
+    STM PX, R1
+
+@chk_right:
+    IN R0, 3
+    JZ R0, @draw
+    LDM R1, PX
+    ADD R1, 1
+    STM PX, R1
+
+@draw:
+    LDM R0, PX
+    LDM R1, PY
+    MOV R2, player_sprite
+    SPT R0 R1 R2
+
     WAIT
     JMP loop
+
+.BEGIN_SPRITE_SHEET
+player_sprite:
+    .DB 0,0,1,1,1,1,0,0
+    .DB 0,1,1,2,2,1,1,0
+    .DB 1,1,2,1,1,2,1,1
+    .DB 1,1,1,1,1,1,1,1
+    .DB 1,1,3,3,3,1,1,1
+    .DB 1,1,1,3,1,1,1,1
+    .DB 0,1,1,1,1,1,1,0
+    .DB 0,0,1,1,1,0,0,0
+.END_SPRITE_SHEET
