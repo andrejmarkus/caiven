@@ -47,7 +47,11 @@ impl Preprocessor {
     }
 
     pub fn process_str(&mut self, source: &str) -> Result<Vec<SourceLine>, AsmError> {
-        let lines = source.lines().enumerate().map(|(i, l)| (i + 1, l.to_string())).collect();
+        let lines = source
+            .lines()
+            .enumerate()
+            .map(|(i, l)| (i + 1, l.to_string()))
+            .collect();
         self.process_lines(lines, "<input>")
     }
 
@@ -56,19 +60,31 @@ impl Preprocessor {
             AsmError::syntax(0, "", format!("cannot open '{}': {}", path.display(), e))
         })?;
         if self.include_stack.contains(&canonical) {
-            return Err(AsmError::syntax(0, "", format!("include cycle: {}", path.display())));
+            return Err(AsmError::syntax(
+                0,
+                "",
+                format!("include cycle: {}", path.display()),
+            ));
         }
         let source = std::fs::read_to_string(path).map_err(|e| {
             AsmError::syntax(0, "", format!("cannot read '{}': {}", path.display(), e))
         })?;
         self.include_stack.push(canonical);
-        let lines = source.lines().enumerate().map(|(i, l)| (i + 1, l.to_string())).collect();
+        let lines = source
+            .lines()
+            .enumerate()
+            .map(|(i, l)| (i + 1, l.to_string()))
+            .collect();
         let result = self.process_lines(lines, &path.display().to_string());
         self.include_stack.pop();
         result
     }
 
-    fn process_lines(&mut self, lines: Vec<(usize, String)>, file: &str) -> Result<Vec<SourceLine>, AsmError> {
+    fn process_lines(
+        &mut self,
+        lines: Vec<(usize, String)>,
+        file: &str,
+    ) -> Result<Vec<SourceLine>, AsmError> {
         let mut output = Vec::new();
         let mut i = 0;
         while i < lines.len() {
@@ -104,7 +120,11 @@ impl Preprocessor {
 
             if first == ".CONST" || first == "CONST" {
                 if tokens.len() < 4 || tokens[2] != "=" {
-                    return Err(AsmError::syntax(line_number, trimmed, ".CONST requires: .CONST NAME = EXPR"));
+                    return Err(AsmError::syntax(
+                        line_number,
+                        trimmed,
+                        ".CONST requires: .CONST NAME = EXPR",
+                    ));
                 }
                 let name = tokens[1].to_string();
                 let expr_str = tokens[3..].join(" ");
@@ -118,7 +138,11 @@ impl Preprocessor {
 
             if first == ".INCLUDE" || first == "INCLUDE" {
                 if tokens.len() < 2 {
-                    return Err(AsmError::syntax(line_number, trimmed, ".INCLUDE requires a filename"));
+                    return Err(AsmError::syntax(
+                        line_number,
+                        trimmed,
+                        ".INCLUDE requires a filename",
+                    ));
                 }
                 let filename = unquote(&tokens[1]).ok_or_else(|| {
                     AsmError::syntax(line_number, trimmed, ".INCLUDE filename must be quoted")
@@ -136,7 +160,11 @@ impl Preprocessor {
 
             if first == ".MACRO" || first == "MACRO" {
                 if tokens.len() < 2 {
-                    return Err(AsmError::syntax(line_number, trimmed, ".MACRO requires a name"));
+                    return Err(AsmError::syntax(
+                        line_number,
+                        trimmed,
+                        ".MACRO requires a name",
+                    ));
                 }
                 let macro_name = tokens[1].to_uppercase();
                 let params: Vec<String> = tokens[2..].iter().map(|s| s.to_string()).collect();
@@ -144,7 +172,11 @@ impl Preprocessor {
                 i += 1;
                 loop {
                     if i >= lines.len() {
-                        return Err(AsmError::syntax(line_number, trimmed, "unterminated .MACRO (missing .ENDM)"));
+                        return Err(AsmError::syntax(
+                            line_number,
+                            trimmed,
+                            "unterminated .MACRO (missing .ENDM)",
+                        ));
                     }
                     let (_, body_raw) = &lines[i];
                     let body_stripped = strip_comment(body_raw);
@@ -166,8 +198,14 @@ impl Preprocessor {
                 let args: Vec<String> = tokens[1..].iter().map(|s| s.to_string()).collect();
                 if args.len() != mac.params.len() {
                     return Err(AsmError::syntax(
-                        line_number, trimmed,
-                        format!("macro '{}' expects {} args, got {}", first, mac.params.len(), args.len()),
+                        line_number,
+                        trimmed,
+                        format!(
+                            "macro '{}' expects {} args, got {}",
+                            first,
+                            mac.params.len(),
+                            args.len()
+                        ),
                     ));
                 }
                 let section = self.current_section;
@@ -221,7 +259,11 @@ pub fn tokenize(line: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut chars = line.chars().peekable();
     loop {
-        while chars.peek().map(|c| c.is_whitespace() || *c == ',').unwrap_or(false) {
+        while chars
+            .peek()
+            .map(|c| c.is_whitespace() || *c == ',')
+            .unwrap_or(false)
+        {
             chars.next();
         }
         let Some(&c) = chars.peek() else { break };
@@ -230,17 +272,23 @@ pub fn tokenize(line: &str) -> Vec<String> {
             chars.next();
             for ch in chars.by_ref() {
                 s.push(ch);
-                if ch == '"' { break; }
+                if ch == '"' {
+                    break;
+                }
             }
             tokens.push(s);
         } else {
             let mut s = String::new();
             while let Some(&c) = chars.peek() {
-                if c.is_whitespace() || c == ',' { break; }
+                if c.is_whitespace() || c == ',' {
+                    break;
+                }
                 s.push(c);
                 chars.next();
             }
-            if !s.is_empty() { tokens.push(s); }
+            if !s.is_empty() {
+                tokens.push(s);
+            }
         }
     }
     tokens

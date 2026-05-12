@@ -135,7 +135,9 @@ impl Peripheral for AudioPeripheral {
     fn init(&mut self, _mem: &mut Memory) {}
 
     fn tick(&mut self, _mem: &mut Memory, _frame: u32) {
-        let Ok(mut s) = self.sound.try_lock() else { return };
+        let Ok(mut s) = self.sound.try_lock() else {
+            return;
+        };
         if s.square.enabled && s.square.duration > 0 {
             s.square.duration -= 1;
             if s.square.duration == 0 {

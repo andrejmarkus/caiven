@@ -229,7 +229,8 @@ impl Vm {
 
     pub fn run_frame(&mut self, input: &Input, font: &Font) {
         self.waiting = false;
-        self.peripherals.tick_all(&mut self.memory, self.frame_count);
+        self.peripherals
+            .tick_all(&mut self.memory, self.frame_count);
         self.frame_count = self.frame_count.wrapping_add(1);
 
         while !self.waiting {
@@ -301,6 +302,8 @@ impl Vm {
             waiting: self.waiting,
             fault: self.fault,
             frame_count: self.frame_count,
+            world: self.world.get_pixels().to_vec(),
+            ui: self.ui.get_pixels().to_vec(),
         }
     }
 
@@ -316,6 +319,8 @@ impl Vm {
         self.waiting = snapshot.waiting;
         self.fault = snapshot.fault;
         self.frame_count = snapshot.frame_count;
+        self.world.set_pixels(snapshot.world.clone());
+        self.ui.set_pixels(snapshot.ui.clone());
     }
 }
 
@@ -330,4 +335,6 @@ pub struct VmSnapshot {
     pub waiting: bool,
     pub fault: Option<VmFault>,
     pub frame_count: u32,
+    pub world: Vec<u8>,
+    pub ui: Vec<u8>,
 }

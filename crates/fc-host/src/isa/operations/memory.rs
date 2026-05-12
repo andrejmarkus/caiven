@@ -102,7 +102,7 @@ pub fn copy(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
 
     for i in 0..length {
         if dst + i >= ctx.mem.get_length() || src + i >= ctx.program.len() {
-            break;
+            return Err(VmFault::MemoryOutOfBounds(dst + i));
         }
         let value = ctx.program[src + i];
         ctx.mem.write(dst + i, value)?;

@@ -12,7 +12,9 @@ pub struct PeripheralRegistry {
 
 impl PeripheralRegistry {
     pub fn new() -> Self {
-        Self { peripherals: Vec::new() }
+        Self {
+            peripherals: Vec::new(),
+        }
     }
 
     pub fn register(&mut self, p: impl Peripheral + 'static) {

@@ -19,7 +19,12 @@ pub struct RomHeader {
 
 impl RomHeader {
     pub fn new(title: impl Into<String>, author: impl Into<String>) -> Self {
-        Self { title: title.into(), author: author.into(), entry_point: 0, flags: 0 }
+        Self {
+            title: title.into(),
+            author: author.into(),
+            entry_point: 0,
+            flags: 0,
+        }
     }
 
     pub fn default_for(name: &str) -> Self {
@@ -47,6 +52,11 @@ impl RomHeader {
         author_field.copy_from_slice(&buf[32..64]);
         let entry_point = u32::from_le_bytes(buf[64..68].try_into().unwrap());
         let flags = u32::from_le_bytes(buf[68..72].try_into().unwrap());
-        Self { title: field_to_str(&title_field), author: field_to_str(&author_field), entry_point, flags }
+        Self {
+            title: field_to_str(&title_field),
+            author: field_to_str(&author_field),
+            entry_point,
+            flags,
+        }
     }
 }

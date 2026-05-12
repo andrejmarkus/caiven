@@ -113,7 +113,7 @@ pub fn print(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let mut i = 0;
     loop {
         let byte = ctx.mem.read(base + i)?;
-        if byte == 0 || text.len() > 64 {
+        if byte == 0 || text.len() >= 64 {
             break;
         }
         text.push(byte as char);

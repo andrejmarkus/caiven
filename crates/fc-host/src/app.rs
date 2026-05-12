@@ -137,10 +137,7 @@ impl App {
                 let registered = self.vm.registered_peripheral_names();
                 for required in manifest.lines().map(str::trim).filter(|s| !s.is_empty()) {
                     if !registered.contains(&required) {
-                        anyhow::bail!(
-                            "ROM requires mod '{}' but it is not loaded",
-                            required
-                        );
+                        anyhow::bail!("ROM requires mod '{}' but it is not loaded", required);
                     }
                 }
             }
@@ -150,8 +147,13 @@ impl App {
 
         for section in &rom.sections {
             if section.kind == SectionKind::SpriteSheet {
-                self.vm.load_section_to_ram(SPRITE_SHEET_RAM_BASE, &section.data);
-                info!("SpriteSheet section loaded to RAM at 0x{:04X} ({} bytes)", SPRITE_SHEET_RAM_BASE, section.data.len());
+                self.vm
+                    .load_section_to_ram(SPRITE_SHEET_RAM_BASE, &section.data);
+                info!(
+                    "SpriteSheet section loaded to RAM at 0x{:04X} ({} bytes)",
+                    SPRITE_SHEET_RAM_BASE,
+                    section.data.len()
+                );
             }
         }
         info!("ROM loaded from {}", path.display());
@@ -176,7 +178,9 @@ impl App {
     }
 
     fn poll_hot_reload(&mut self) {
-        let Some(path) = self.watch_path.clone() else { return };
+        let Some(path) = self.watch_path.clone() else {
+            return;
+        };
         let Ok(meta) = path.metadata() else { return };
         let Ok(mtime) = meta.modified() else { return };
         if Some(mtime) != self.watch_mtime {
@@ -348,7 +352,11 @@ pub fn run() -> Result<()> {
             fc_rom::write(output, &header, &out.program, &extra)
                 .with_context(|| format!("cannot write ROM to {}", output.display()))?;
 
-            info!("ROM written to {} ({} extra sections)", output.display(), extra.len());
+            info!(
+                "ROM written to {} ({} extra sections)",
+                output.display(),
+                extra.len()
+            );
             return Ok(());
         }
         Command::Inspect { rom } => {

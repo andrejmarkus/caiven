@@ -4,6 +4,6 @@ mod header;
 mod section;
 
 pub use error::RomError;
-pub use format::{load, write, Rom};
+pub use format::{Rom, load, write};
 pub use header::RomHeader;
 pub use section::{RomSection, SectionKind};

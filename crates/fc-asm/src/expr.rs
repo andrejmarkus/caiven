@@ -6,10 +6,17 @@ pub fn eval_expr(s: &str, symbols: &HashMap<String, u16>) -> Result<u16, String>
         return Err("empty expression".to_string());
     }
     let bytes = s.as_bytes();
-    let mut parser = Parser { src: bytes, pos: 0, symbols };
+    let mut parser = Parser {
+        src: bytes,
+        pos: 0,
+        symbols,
+    };
     let val = parser.parse_expr()?;
     if parser.pos != bytes.len() {
-        return Err(format!("unexpected '{}' in expression", bytes[parser.pos] as char));
+        return Err(format!(
+            "unexpected '{}' in expression",
+            bytes[parser.pos] as char
+        ));
     }
     Ok(val)
 }
@@ -40,8 +47,14 @@ impl<'a> Parser<'a> {
         loop {
             self.skip_ws();
             match self.peek() {
-                Some(b'+') => { self.pos += 1; left = left.wrapping_add(self.parse_shift()?); }
-                Some(b'-') => { self.pos += 1; left = left.wrapping_sub(self.parse_shift()?); }
+                Some(b'+') => {
+                    self.pos += 1;
+                    left = left.wrapping_add(self.parse_shift()?);
+                }
+                Some(b'-') => {
+                    self.pos += 1;
+                    left = left.wrapping_sub(self.parse_shift()?);
+                }
                 _ => break,
             }
         }
@@ -52,11 +65,17 @@ impl<'a> Parser<'a> {
         let mut left = self.parse_mul()?;
         loop {
             self.skip_ws();
-            if self.pos + 1 < self.src.len() && self.src[self.pos] == b'<' && self.src[self.pos + 1] == b'<' {
+            if self.pos + 1 < self.src.len()
+                && self.src[self.pos] == b'<'
+                && self.src[self.pos + 1] == b'<'
+            {
                 self.pos += 2;
                 let r = self.parse_mul()?;
                 left = left.wrapping_shl(r as u32);
-            } else if self.pos + 1 < self.src.len() && self.src[self.pos] == b'>' && self.src[self.pos + 1] == b'>' {
+            } else if self.pos + 1 < self.src.len()
+                && self.src[self.pos] == b'>'
+                && self.src[self.pos + 1] == b'>'
+            {
                 self.pos += 2;
                 let r = self.parse_mul()?;
                 left >>= r;
@@ -72,11 +91,16 @@ impl<'a> Parser<'a> {
         loop {
             self.skip_ws();
             match self.peek() {
-                Some(b'*') => { self.pos += 1; left = left.wrapping_mul(self.parse_unary()?); }
+                Some(b'*') => {
+                    self.pos += 1;
+                    left = left.wrapping_mul(self.parse_unary()?);
+                }
                 Some(b'/') => {
                     self.pos += 1;
                     let r = self.parse_unary()?;
-                    if r == 0 { return Err("division by zero".to_string()); }
+                    if r == 0 {
+                        return Err("division by zero".to_string());
+                    }
                     left /= r;
                 }
                 _ => break,
@@ -113,11 +137,17 @@ impl<'a> Parser<'a> {
                 Ok(v)
             }
             Some(b'\'') => self.parse_char_lit(),
-            Some(b'0') if self.pos + 1 < self.src.len() && (self.src[self.pos + 1] == b'x' || self.src[self.pos + 1] == b'X') => {
+            Some(b'0')
+                if self.pos + 1 < self.src.len()
+                    && (self.src[self.pos + 1] == b'x' || self.src[self.pos + 1] == b'X') =>
+            {
                 self.pos += 2;
                 self.parse_radix(16)
             }
-            Some(b'0') if self.pos + 1 < self.src.len() && (self.src[self.pos + 1] == b'b' || self.src[self.pos + 1] == b'B') => {
+            Some(b'0')
+                if self.pos + 1 < self.src.len()
+                    && (self.src[self.pos + 1] == b'b' || self.src[self.pos + 1] == b'B') =>
+            {
                 self.pos += 2;
                 self.parse_radix(2)
             }

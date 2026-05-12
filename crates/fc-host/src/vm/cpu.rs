@@ -22,7 +22,7 @@ impl Cpu {
     }
 
     pub fn get_register_value(&self, index: usize) -> u16 {
-        self.registers[index]
+        self.registers.get(index).copied().unwrap_or(0)
     }
 
     pub fn decrement_register_value(&mut self, index: usize, value: u16) {

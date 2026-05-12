@@ -9,7 +9,7 @@ mod source_map;
 pub use assembler::{Assembler, AssemblerOutput};
 pub use error::AsmError;
 pub use isa::{ArgType, IsaTable, OpcodeSpec};
-pub use preprocess::{SourceLine, MacroDef, Preprocessor};
+pub use preprocess::{MacroDef, Preprocessor, SourceLine};
 pub use source_map::{AddressInfo, ItemInfo, SourceMap};
 
 pub fn assemble(source: &str) -> Result<Vec<u8>, AsmError> {

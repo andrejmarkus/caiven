@@ -32,6 +32,10 @@ impl ScreenLayer {
         ]);
     }
 
+    pub fn set_pixels(&mut self, data: Vec<u8>) {
+        self.pixels = data;
+    }
+
     pub fn clear(&mut self) {
         self.pixels.fill(0);
     }

@@ -246,13 +246,13 @@ pub fn default_instruction_set() -> InstructionSet {
         debug_info: |bytes| {
             let rx = bytes[1];
             let ry = bytes[2];
-            let raddr = bytes[3];
-            let rpal = bytes[4];
+            let rtiles = bytes[3];
+            let rmap = bytes[4];
             let width = bytes[5];
             let height = bytes[6];
             format!(
                 "TIL R{}, R{}, R{}, R{}, {}, {}",
-                rx, ry, raddr, rpal, width, height
+                rx, ry, rtiles, rmap, width, height
             )
         },
     });

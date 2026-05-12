@@ -56,7 +56,10 @@ impl Assembler {
         Ok(self.assemble_file_with_sections(path)?.program)
     }
 
-    pub fn assemble_file_with_source_map(&self, path: &Path) -> Result<(Vec<u8>, SourceMap), AsmError> {
+    pub fn assemble_file_with_source_map(
+        &self,
+        path: &Path,
+    ) -> Result<(Vec<u8>, SourceMap), AsmError> {
         let out = self.assemble_file_with_sections(path)?;
         Ok((out.program, out.source_map))
     }
@@ -121,7 +124,11 @@ impl Assembler {
         let mut current_scope = String::new();
 
         for sl in lines {
-            let pc = if sl.section == LineSection::SpriteSheet { &mut sprite_pc } else { &mut program_pc };
+            let pc = if sl.section == LineSection::SpriteSheet {
+                &mut sprite_pc
+            } else {
+                &mut program_pc
+            };
             let line_number = sl.line_number;
             let text = &sl.text;
 
@@ -138,18 +145,28 @@ impl Assembler {
             }
 
             let tokens = tokenize(text);
-            if tokens.is_empty() { continue; }
+            if tokens.is_empty() {
+                continue;
+            }
             let name_upper = tokens[0].to_uppercase();
 
             if name_upper.starts_with('.') {
                 let directive = self.directives.get_by_name(&name_upper).ok_or_else(|| {
-                    AsmError::syntax(line_number, text, format!("unknown directive {}", name_upper))
+                    AsmError::syntax(
+                        line_number,
+                        text,
+                        format!("unknown directive {}", name_upper),
+                    )
                 })?;
                 let refs: Vec<&str> = tokens[1..].iter().map(|s| s.as_str()).collect();
                 *pc += (directive.size)(&refs, *pc, &labels) as u16;
             } else {
                 let spec = self.isa.get_by_name(&name_upper).ok_or_else(|| {
-                    AsmError::syntax(line_number, text, format!("unknown instruction {}", name_upper))
+                    AsmError::syntax(
+                        line_number,
+                        text,
+                        format!("unknown instruction {}", name_upper),
+                    )
                 })?;
                 *pc += spec.size as u16;
             }
@@ -189,13 +206,19 @@ impl Assembler {
             }
 
             let tokens = tokenize(text);
-            if tokens.is_empty() { continue; }
+            if tokens.is_empty() {
+                continue;
+            }
             let name_upper = tokens[0].to_uppercase();
             let current_pc = buf.len();
 
             if name_upper.starts_with('.') {
                 let directive = self.directives.get_by_name(&name_upper).ok_or_else(|| {
-                    AsmError::syntax(line_number, text, format!("unknown directive {}", name_upper))
+                    AsmError::syntax(
+                        line_number,
+                        text,
+                        format!("unknown directive {}", name_upper),
+                    )
                 })?;
                 let refs: Vec<&str> = tokens[1..].iter().map(|s| s.as_str()).collect();
                 // Use program PC for directives in SpriteSheet sections (source map tracks program space)
@@ -207,17 +230,31 @@ impl Assembler {
                 let data = (directive.emit)(&refs, symbols, emit_pc)
                     .map_err(|e| AsmError::syntax(line_number, text, e))?;
                 if sl.section == LineSection::Program {
-                    source_map.insert_item(current_pc, ItemInfo::Directive { name: name_upper, size: data.len() });
+                    source_map.insert_item(
+                        current_pc,
+                        ItemInfo::Directive {
+                            name: name_upper,
+                            size: data.len(),
+                        },
+                    );
                 }
                 buf.extend(data);
             } else {
                 let spec = self.isa.get_by_name(&name_upper).ok_or_else(|| {
-                    AsmError::syntax(line_number, text, format!("unknown instruction {}", name_upper))
+                    AsmError::syntax(
+                        line_number,
+                        text,
+                        format!("unknown instruction {}", name_upper),
+                    )
                 })?;
                 if sl.section == LineSection::Program {
                     source_map.insert_item(
                         current_pc,
-                        ItemInfo::Instruction { name: name_upper.clone(), opcode: spec.opcode, size: spec.size },
+                        ItemInfo::Instruction {
+                            name: name_upper.clone(),
+                            opcode: spec.opcode,
+                            size: spec.size,
+                        },
                     );
                 }
                 self.emit_instruction(&tokens, line_number, text, buf, symbols, &current_scope)?;
@@ -229,7 +266,11 @@ impl Assembler {
             extra_sections.push((SPRITE_SHEET_KIND, sprite_sheet));
         }
 
-        Ok(AssemblerOutput { program, source_map, extra_sections })
+        Ok(AssemblerOutput {
+            program,
+            source_map,
+            extra_sections,
+        })
     }
 
     fn emit_instruction(
@@ -243,17 +284,24 @@ impl Assembler {
     ) -> Result<(), AsmError> {
         let name_upper = tokens[0].to_uppercase();
         let spec = self.isa.get_by_name(&name_upper).ok_or_else(|| {
-            AsmError::syntax(line_number, source_line, format!("unknown instruction {}", name_upper))
+            AsmError::syntax(
+                line_number,
+                source_line,
+                format!("unknown instruction {}", name_upper),
+            )
         })?;
 
         bytecode.push(spec.opcode);
 
         if tokens.len() - 1 != spec.args.len() {
             return Err(AsmError::syntax(
-                line_number, source_line,
+                line_number,
+                source_line,
                 format!(
                     "wrong arg count for {}: expected {}, got {}",
-                    name_upper, spec.args.len(), tokens.len() - 1
+                    name_upper,
+                    spec.args.len(),
+                    tokens.len() - 1
                 ),
             ));
         }
@@ -267,12 +315,14 @@ impl Assembler {
                     bytecode.push(reg);
                 }
                 ArgType::Value => {
-                    let val = self.eval_u8(token, symbols, scope)
+                    let val = self
+                        .eval_u8(token, symbols, scope)
                         .map_err(|e| AsmError::syntax(line_number, source_line, e))?;
                     bytecode.push(val);
                 }
                 ArgType::Address => {
-                    let addr = self.eval_address(token, symbols, scope)
+                    let addr = self
+                        .eval_address(token, symbols, scope)
                         .map_err(|e| AsmError::syntax(line_number, source_line, e))?;
                     bytecode.extend([addr as u8, (addr >> 8) as u8]);
                 }
@@ -291,7 +341,12 @@ impl Assembler {
         Ok(val as u8)
     }
 
-    fn eval_address(&self, s: &str, symbols: &HashMap<String, u16>, scope: &str) -> Result<u16, String> {
+    fn eval_address(
+        &self,
+        s: &str,
+        symbols: &HashMap<String, u16>,
+        scope: &str,
+    ) -> Result<u16, String> {
         let resolved = resolve_local_refs(s, scope);
         eval_expr(&resolved, symbols).map_err(|e| format!("invalid address '{}': {}", s, e))
     }
@@ -300,5 +355,7 @@ impl Assembler {
 fn parse_register(s: &str) -> Result<u8, String> {
     let upper = s.to_uppercase();
     let digits = upper.trim_start_matches('R');
-    digits.parse::<u8>().map_err(|_| format!("invalid register: {}", s))
+    digits
+        .parse::<u8>()
+        .map_err(|_| format!("invalid register: {}", s))
 }
