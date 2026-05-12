@@ -1,5 +1,5 @@
 use crate::{
-    rendering::{screen::ScreenLayer, text::draw_text},
+    rendering::{font::Font, screen::ScreenLayer, text::draw_text},
     settings::{MEMORY_BYTES_PER_PAGE, MEMORY_PAGE_SIZE, MEMORY_ROW_BYTES},
     vm::{Vm, VmSnapshot},
 };
@@ -137,39 +137,42 @@ impl Debugger {
         println!("----------------");
     }
 
-    pub fn draw_overlay(&self, screen: &mut ScreenLayer, vm: &Vm) {
+    pub fn draw_overlay(&self, screen: &mut ScreenLayer, vm: &Vm, font: &Font) {
         if !self.enabled {
             return;
         }
         let color = Color::new_rgb(255, 255, 255);
-        draw_text(screen, &format!("PC:{}", vm.get_pc()), Vec2::new(2, 2), color);
-        draw_text(screen, &format!("R0:{}", vm.get_registers()[0]), Vec2::new(2, 10), color);
-        draw_text(screen, &format!("R1:{}", vm.get_registers()[1]), Vec2::new(2, 18), color);
-        draw_text(screen, &format!("R2:{}", vm.get_registers()[2]), Vec2::new(2, 26), color);
-        draw_text(screen, &format!("R3:{}", vm.get_registers()[3]), Vec2::new(2, 34), color);
+        draw_text(font, screen, &format!("PC:{}", vm.get_pc()), Vec2::new(2, 2), color);
+        draw_text(font, screen, &format!("R0:{}", vm.get_registers()[0]), Vec2::new(2, 10), color);
+        draw_text(font, screen, &format!("R1:{}", vm.get_registers()[1]), Vec2::new(2, 18), color);
+        draw_text(font, screen, &format!("R2:{}", vm.get_registers()[2]), Vec2::new(2, 26), color);
+        draw_text(font, screen, &format!("R3:{}", vm.get_registers()[3]), Vec2::new(2, 34), color);
         draw_text(
+            font,
             screen,
             &format!("CAMERA:({},{})", vm.get_camera_x(), vm.get_camera_y()),
             Vec2::new(2, 42),
             color,
         );
         draw_text(
+            font,
             screen,
             &format!("WAITING:{}", if vm.is_waiting() { "YES" } else { "NO" }),
             Vec2::new(2, 50),
             color,
         );
-        draw_text(screen, &format!("STATES:{}", self.states.len()), Vec2::new(86, 2), color);
-        self.render_instruction_info(screen, vm, Vec2::new(2, 58), color);
-        self.render_memory_page(screen, vm, Vec2::new(2, 66), color);
+        draw_text(font, screen, &format!("STATES:{}", self.states.len()), Vec2::new(86, 2), color);
+        self.render_instruction_info(font, screen, vm, Vec2::new(2, 58), color);
+        self.render_memory_page(font, screen, vm, Vec2::new(2, 66), color);
     }
 
-    fn render_memory_page(&self, screen: &mut ScreenLayer, vm: &Vm, position: Vec2, color: Color) {
+    fn render_memory_page(&self, font: &Font, screen: &mut ScreenLayer, vm: &Vm, position: Vec2, color: Color) {
         if !self.enabled {
             return;
         }
         let start_address = self.ram_page * MEMORY_BYTES_PER_PAGE;
         draw_text(
+            font,
             screen,
             &format!("RAM PAGE: {} (0X{:04X})", self.ram_page, start_address),
             Vec2::new(position.get_x(), position.get_y() + 4),
@@ -190,6 +193,7 @@ impl Debugger {
                 }
             }
             draw_text(
+                font,
                 screen,
                 &line,
                 Vec2::new(position.get_x(), position.get_y() + 12 + row as u32 * 8),
@@ -200,6 +204,7 @@ impl Debugger {
 
     fn render_instruction_info(
         &self,
+        font: &Font,
         screen: &mut ScreenLayer,
         vm: &Vm,
         position: Vec2,
@@ -209,6 +214,6 @@ impl Debugger {
             return;
         }
         let info = vm.disassemble(vm.get_pc());
-        draw_text(screen, &format!("INSTR:{}", info), position, color);
+        draw_text(font, screen, &format!("INSTR:{}", info), position, color);
     }
 }

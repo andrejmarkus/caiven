@@ -1,8 +1,5 @@
 use anyhow::{Context, Result};
 use std::collections::HashMap;
-use std::sync::OnceLock;
-
-pub static GLOBAL_FONT: OnceLock<Font> = OnceLock::new();
 
 pub struct Glyph {
     pub pixels: Vec<bool>,
@@ -15,22 +12,12 @@ pub struct Font {
 }
 
 impl Font {
-    pub fn init_global(
-        path: &str,
-        chars: &str,
-        glyph_width: usize,
-        glyph_height: usize,
-    ) -> Result<()> {
-        let font = Self::from_image(path, chars, glyph_width, glyph_height)
-            .context("failed to load font")?;
-        let _ = GLOBAL_FONT.set(font);
-        Ok(())
-    }
-
-    pub fn get_global() -> &'static Font {
-        GLOBAL_FONT
-            .get()
-            .expect("font not initialized — call Font::init_global first")
+    pub fn empty() -> Self {
+        Self {
+            glyphs: HashMap::new(),
+            width: 0,
+            height: 0,
+        }
     }
 
     pub fn get_glyph(&self, ch: char) -> Option<&Glyph> {

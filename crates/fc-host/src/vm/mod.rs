@@ -15,6 +15,7 @@ use self::cpu::Cpu;
 use self::memory::Memory;
 use crate::isa::InstructionSet;
 use crate::input::Input;
+use crate::rendering::font::Font;
 use crate::rendering::screen::ScreenLayer;
 use crate::vm::Camera;
 use crate::vm::Palette;
@@ -200,7 +201,7 @@ impl Vm {
         }
     }
 
-    pub fn run_frame(&mut self, input: &Input) {
+    pub fn run_frame(&mut self, input: &Input, font: &Font) {
         self.waiting = false;
 
         {
@@ -220,11 +221,11 @@ impl Vm {
         }
 
         while !self.waiting {
-            self.step(input);
+            self.step(input, font);
         }
     }
 
-    pub fn step(&mut self, input: &Input) {
+    pub fn step(&mut self, input: &Input, font: &Font) {
         if self.fault.is_some() {
             return;
         }
@@ -264,6 +265,7 @@ impl Vm {
             sound: &mut *sound_guard,
             program: &self.program,
             input,
+            font,
             world: &mut self.world,
             ui: &mut self.ui,
             waiting: &mut self.waiting,

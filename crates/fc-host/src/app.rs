@@ -60,6 +60,7 @@ pub struct App {
     screen: Screen,
     input: Input,
     vm: Vm,
+    font: Font,
     #[allow(dead_code)]
     audio: Option<Audio>,
     debugger: Debugger,
@@ -69,7 +70,7 @@ pub struct App {
 
 impl App {
     fn new() -> Result<Self> {
-        Font::init_global(
+        let font = Font::from_image(
             "assets/font.png",
             " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!?\"'()+-=.:,[]<>",
             3,
@@ -96,6 +97,7 @@ impl App {
             screen: Screen::new(),
             input: Input::new(),
             vm,
+            font,
             audio,
             debugger: Debugger::new(false),
             timing: FixedTimestep::new(60),
@@ -176,7 +178,7 @@ impl ApplicationHandler for App {
                 self.screen.get_debug_layer().clear();
                 if self.debugger.get_mode() == DebugMode::Paused {
                     self.debugger
-                        .draw_overlay(self.screen.get_debug_layer(), &self.vm);
+                        .draw_overlay(self.screen.get_debug_layer(), &self.vm, &self.font);
                 }
                 if let Some(pixels) = self.pixels.as_mut() {
                     self.screen.construct(
@@ -243,12 +245,12 @@ impl ApplicationHandler for App {
             DebugMode::Running => {
                 let steps = self.timing.tick(dt);
                 for _ in 0..steps {
-                    self.vm.run_frame(&self.input);
+                    self.vm.run_frame(&self.input, &self.font);
                     self.debugger.push_state(self.vm.snapshot());
                 }
             }
             DebugMode::Step => {
-                self.vm.step(&self.input);
+                self.vm.step(&self.input, &self.font);
                 self.debugger.check_breakpoint(self.vm.get_pc());
                 self.debugger.dump_state(&self.vm);
                 self.debugger.pause();

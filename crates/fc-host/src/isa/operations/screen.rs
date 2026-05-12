@@ -1,4 +1,3 @@
-use crate::rendering::font::Font;
 use crate::rendering::text::draw_text;
 use crate::settings::SPRITE_SIZE;
 use crate::vm::{ExecutionContext, VmFault};
@@ -124,7 +123,7 @@ pub fn print(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
 
     debug!("Printing text \"{}\" at ({}, {})", text, x, y);
     let color = ctx.palette.get_color(color_idx);
-    draw_text(ctx.ui, &text, Vec2::new(x, y), color);
+    draw_text(ctx.font, ctx.ui, &text, Vec2::new(x, y), color);
     Ok(())
 }
 
@@ -245,8 +244,8 @@ pub fn text(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let base = ctx.read_register_value()? as usize;
     let len = ctx.read_byte()? as usize;
 
-    let font = Font::get_global();
     let color = ctx.palette.get_color(color_idx);
+    let font = ctx.font;
     let mut current_x = x0;
 
     for i in 0..len {
@@ -273,7 +272,7 @@ pub fn draw_number(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let color_idx = ctx.read_register_value()? as usize;
     let value = ctx.read_register_value()?;
 
-    let font = Font::get_global();
+    let font = ctx.font;
     let color = ctx.palette.get_color(color_idx);
     let mut current_x = x0;
 

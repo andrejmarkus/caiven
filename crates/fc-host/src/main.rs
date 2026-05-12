@@ -7,6 +7,9 @@ mod settings;
 mod timing;
 mod vm;
 
+#[cfg(test)]
+mod tests;
+
 fn main() -> anyhow::Result<()> {
     app::run()
 }

@@ -1,8 +1,7 @@
 use crate::rendering::{font::Font, screen::ScreenLayer};
 use fc_core::{Color, Vec2};
 
-pub fn draw_character(layer: &mut ScreenLayer, ch: char, position: Vec2, color: Color) {
-    let font = Font::get_global();
+pub fn draw_character(font: &Font, layer: &mut ScreenLayer, ch: char, position: Vec2, color: Color) {
     if let Some(glyph) = font.get_glyph(ch) {
         for j in 0..font.get_height() {
             for i in 0..font.get_width() {
@@ -17,10 +16,10 @@ pub fn draw_character(layer: &mut ScreenLayer, ch: char, position: Vec2, color: 
     }
 }
 
-pub fn draw_text(layer: &mut ScreenLayer, text: &str, position: Vec2, color: Color) {
-    let font = Font::get_global();
+pub fn draw_text(font: &Font, layer: &mut ScreenLayer, text: &str, position: Vec2, color: Color) {
     for (i, ch) in text.chars().enumerate() {
         draw_character(
+            font,
             layer,
             ch,
             Vec2::new(

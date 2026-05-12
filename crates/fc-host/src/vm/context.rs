@@ -1,4 +1,5 @@
 use crate::input::Input;
+use crate::rendering::font::Font;
 use crate::rendering::screen::ScreenLayer;
 use super::audio::Sound;
 use super::camera::Camera;
@@ -15,6 +16,7 @@ pub struct ExecutionContext<'a> {
     pub sound: &'a mut Sound,
     pub program: &'a [u8],
     pub input: &'a Input,
+    pub font: &'a Font,
     pub world: &'a mut ScreenLayer,
     pub ui: &'a mut ScreenLayer,
     pub waiting: &'a mut bool,
