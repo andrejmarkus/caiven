@@ -18,4 +18,6 @@ fc-rom = { workspace = true }
 image = { workspace = true }
 log = { workspace = true }
 pixels = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
 winit = { workspace = true }

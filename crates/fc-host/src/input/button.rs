@@ -1,4 +1,5 @@
 #[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Button {
     Up = 0,
     Down = 1,

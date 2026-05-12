@@ -14,5 +14,7 @@ fc-rom = { path = "crates/fc-rom" }
 image = "0.25"
 log = "0.4"
 pixels = "0.15"
+serde = { version = "1", features = ["derive"] }
 thiserror = "2"
+toml = "0.8"
 winit = "0.30"

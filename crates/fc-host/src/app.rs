@@ -1,5 +1,5 @@
 use crate::debugger::{DebugMode, Debugger};
-use crate::input::Input;
+use crate::input::{Input, InputMap};
 use crate::isa::default_instruction_set;
 use crate::rendering::font::Font;
 use crate::rendering::screen::Screen;
@@ -59,6 +59,7 @@ pub struct App {
     pixels: Option<Pixels<'static>>,
     screen: Screen,
     input: Input,
+    input_map: InputMap,
     vm: Vm,
     font: Font,
     config: VmConfig,
@@ -98,6 +99,7 @@ impl App {
             pixels: None,
             screen: Screen::new(config.width, config.height),
             input: Input::new(),
+            input_map: InputMap::load("controls.toml"),
             vm,
             font,
             config,
@@ -198,13 +200,10 @@ impl ApplicationHandler for App {
                 let pressed = event.state.is_pressed();
 
                 if let PhysicalKey::Code(code) = event.physical_key {
+                    if let Some(button) = self.input_map.get_button(code) {
+                        self.input.set_button(button, pressed);
+                    }
                     match code {
-                        KeyCode::ArrowUp | KeyCode::KeyW => self.input.up = pressed,
-                        KeyCode::ArrowDown | KeyCode::KeyS => self.input.down = pressed,
-                        KeyCode::ArrowLeft | KeyCode::KeyA => self.input.left = pressed,
-                        KeyCode::ArrowRight | KeyCode::KeyD => self.input.right = pressed,
-                        KeyCode::KeyJ => self.input.a = pressed,
-                        KeyCode::KeyK => self.input.b = pressed,
                         KeyCode::Space => {
                             if pressed && !event.repeat {
                                 self.debugger.toggle_pause();

@@ -25,4 +25,15 @@ impl Input {
             Button::B => self.b,
         }
     }
+
+    pub fn set_button(&mut self, button: Button, pressed: bool) {
+        match button {
+            Button::Up => self.up = pressed,
+            Button::Down => self.down = pressed,
+            Button::Left => self.left = pressed,
+            Button::Right => self.right = pressed,
+            Button::A => self.a = pressed,
+            Button::B => self.b = pressed,
+        }
+    }
 }
