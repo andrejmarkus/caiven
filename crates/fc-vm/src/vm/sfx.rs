@@ -1,5 +1,7 @@
 pub const SFX_BANK_BASE: usize = 0x5C00;
+pub const MUSIC_BANK_BASE: usize = 0x6000;
 const SFX_STEPS: u8 = 16;
+const MUSIC_ROWS: u8 = 16;
 
 pub fn note_to_freq(note: u8) -> f32 {
     440.0 * 2.0f32.powf((note as f32 - 49.0) / 12.0)
@@ -49,5 +51,49 @@ impl SfxPlayer {
 
     pub fn sfx_bytes_base(sfx_id: u8, step: u8) -> usize {
         SFX_BANK_BASE + (sfx_id as usize) * (SFX_STEPS as usize * 4) + (step as usize) * 4
+    }
+}
+
+#[derive(Clone)]
+pub struct MusicPlayer {
+    pub active: bool,
+    pub pattern_id: u8,
+    pub row: u8,
+    pub tick_count: u8,
+    pub ticks_per_row: u8,
+    pub loop_on: bool,
+    pub ch0: SfxPlayer,
+    pub ch1: SfxPlayer,
+}
+
+impl MusicPlayer {
+    pub fn new() -> Self {
+        Self {
+            active: false,
+            pattern_id: 0,
+            row: 0,
+            tick_count: 0,
+            ticks_per_row: 64,
+            loop_on: true,
+            ch0: SfxPlayer::new(),
+            ch1: SfxPlayer::new(),
+        }
+    }
+
+    pub fn start(&mut self, pattern_id: u8) {
+        self.pattern_id = pattern_id.min(7);
+        self.row = 0;
+        self.tick_count = 0;
+        self.active = true;
+    }
+
+    pub fn stop(&mut self) {
+        self.active = false;
+        self.ch0.active = false;
+        self.ch1.active = false;
+    }
+
+    pub fn pattern_row_base(pattern_id: u8, row: u8) -> usize {
+        MUSIC_BANK_BASE + (pattern_id as usize) * (MUSIC_ROWS as usize * 2) + (row as usize) * 2
     }
 }

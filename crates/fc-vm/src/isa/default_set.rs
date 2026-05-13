@@ -222,6 +222,20 @@ pub fn default_instruction_set() -> InstructionSet {
     });
 
     set.register(Instruction {
+        name: "MUS",
+        opcode: 0x88,
+        execute: operations::play_music,
+        debug_info: |bytes| format!("MUS {}", bytes[1]),
+    });
+
+    set.register(Instruction {
+        name: "NOMUS",
+        opcode: 0x89,
+        execute: operations::stop_music_opcode,
+        debug_info: |_| "NOMUS".to_string(),
+    });
+
+    set.register(Instruction {
         name: "SPT",
         opcode: 0x06,
         execute: operations::sprite,

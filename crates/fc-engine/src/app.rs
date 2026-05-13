@@ -1,6 +1,6 @@
 use crate::cart_save::{CartMeta, SectionLayout};
 use crate::debugger::{DebugMode, Debugger};
-use crate::editors::{Editor, MapEditor, MetaEditor, MusicEditor, PaletteEditor, SfxEditor, SpriteEditor};
+use crate::editors::{BrowserEditor, Editor, MapEditor, MetaEditor, MusicEditor, PaletteEditor, SfxEditor, SpriteEditor};
 use crate::hot_reload::HotReload;
 use crate::tabs;
 use anyhow::{Context, Result};
@@ -34,6 +34,8 @@ const MAP_RAM_BASE: usize = 0x5000;
 const PALETTE_RAM_BASE: usize = 0x5800;
 const SFX_RAM_BASE: usize = 0x5C00;
 const SFX_BANK_LEN: usize = 16 * 64;
+const MUSIC_RAM_BASE: usize = 0x6000;
+const MUSIC_BANK_LEN: usize = 8 * 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppMode {
@@ -100,6 +102,7 @@ pub struct App {
     meta_editor: MetaEditor,
     sfx_editor: SfxEditor,
     music_editor: MusicEditor,
+    browser_editor: BrowserEditor,
     cart_meta: Option<CartMeta>,
     mouse_x: f64,
     mouse_y: f64,
@@ -154,6 +157,7 @@ impl App {
             meta_editor: MetaEditor::new(),
             sfx_editor: SfxEditor::new(),
             music_editor: MusicEditor::new(),
+            browser_editor: BrowserEditor::new(),
             cart_meta: None,
             mouse_x: 0.0,
             mouse_y: 0.0,
@@ -229,6 +233,15 @@ impl App {
                     });
                     info!("SfxBank loaded to RAM at 0x{:04X} ({} bytes)", SFX_RAM_BASE, section.data.len());
                 }
+                SectionKind::MusicBank => {
+                    self.vm.load_section_to_ram(MUSIC_RAM_BASE, &section.data);
+                    sections.push(SectionLayout {
+                        kind: SectionKind::MusicBank,
+                        ram_base: MUSIC_RAM_BASE,
+                        len: section.data.len(),
+                    });
+                    info!("MusicBank loaded to RAM at 0x{:04X} ({} bytes)", MUSIC_RAM_BASE, section.data.len());
+                }
                 _ => {}
             }
         }
@@ -267,6 +280,15 @@ impl App {
             });
         }
 
+        // If no MusicBank section, register for Ctrl+S persistence
+        if !sections.iter().any(|s| s.kind == SectionKind::MusicBank) {
+            sections.push(SectionLayout {
+                kind: SectionKind::MusicBank,
+                ram_base: MUSIC_RAM_BASE,
+                len: MUSIC_BANK_LEN,
+            });
+        }
+
         self.meta_editor.set_header(
             &rom.header.title,
             &rom.header.author,
@@ -280,6 +302,10 @@ impl App {
             program: rom.program,
             sections,
         });
+
+        if let Some(dir) = path.parent() {
+            self.browser_editor.set_scan_dir(dir.to_path_buf());
+        }
 
         info!("ROM loaded from {}", path.display());
         Ok(())
@@ -362,7 +388,25 @@ impl App {
             AppMode::Meta => self.meta_editor.handle_click(x, y, vm),
             AppMode::Sfx => self.sfx_editor.handle_click(x, y, vm),
             AppMode::Music => self.music_editor.handle_click(x, y, vm),
-            AppMode::Run | AppMode::Browser => {}
+            AppMode::Browser => {
+                self.browser_editor.handle_click(x, y, vm);
+            }
+            AppMode::Run => {}
+        }
+    }
+
+    fn poll_browser_load(&mut self) {
+        if self.mode != AppMode::Browser {
+            return;
+        }
+        if let Some(path) = self.browser_editor.take_pending_load() {
+            match self.load_rom(&path) {
+                Ok(()) => {
+                    self.mode = AppMode::Run;
+                    info!("browser: loaded {}", path.display());
+                }
+                Err(e) => error!("browser: load failed: {e}"),
+            }
         }
     }
 }
@@ -446,7 +490,9 @@ impl ApplicationHandler for App {
                             self.debugger.draw_overlay(debug_layer, vm, font);
                         }
                     }
-                    AppMode::Browser => {}
+                    AppMode::Browser => {
+                        self.browser_editor.render(debug_layer, vm, font, cursor);
+                    }
                 }
 
                 // Draw tab bar whenever not in active gameplay
@@ -467,7 +513,7 @@ impl ApplicationHandler for App {
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse_x = position.x;
                 self.mouse_y = position.y;
-                if self.mouse_left && self.mode != AppMode::Run && self.mode != AppMode::Browser {
+                if self.mouse_left && self.mode != AppMode::Run {
                     let (sx, sy) = self.logical_mouse_pos();
                     self.dispatch_editor_click(sx, sy);
                 }
@@ -475,10 +521,10 @@ impl ApplicationHandler for App {
             WindowEvent::MouseInput { state, button, .. } => {
                 if button == MouseButton::Left {
                     self.mouse_left = state == ElementState::Pressed;
-                    if self.mouse_left && self.mode != AppMode::Run && self.mode != AppMode::Browser
-                    {
+                    if self.mouse_left && self.mode != AppMode::Run {
                         let (sx, sy) = self.logical_mouse_pos();
                         self.dispatch_editor_click(sx, sy);
+                        self.poll_browser_load();
                     }
                 }
             }
@@ -556,7 +602,7 @@ impl ApplicationHandler for App {
                             }
                             _ => {}
                         }
-                    } else {
+                    } else if pressed {
                         // Delegate key to active editor
                         let vm = &mut self.vm;
                         match self.mode {
@@ -566,8 +612,10 @@ impl ApplicationHandler for App {
                             AppMode::Meta => self.meta_editor.handle_key(code, vm),
                             AppMode::Sfx => self.sfx_editor.handle_key(code, vm),
                             AppMode::Music => self.music_editor.handle_key(code, vm),
-                            AppMode::Run | AppMode::Browser => {}
+                            AppMode::Browser => self.browser_editor.handle_key(code, vm),
+                            AppMode::Run => {}
                         }
+                        self.poll_browser_load();
                     }
                 }
             }

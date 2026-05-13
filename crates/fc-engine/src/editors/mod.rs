@@ -1,3 +1,4 @@
+pub mod browser;
 pub mod map;
 pub mod meta;
 pub mod music;
@@ -5,6 +6,7 @@ pub mod palette;
 pub mod sfx;
 pub mod sprite;
 
+pub use browser::BrowserEditor;
 pub use map::MapEditor;
 pub use meta::MetaEditor;
 pub use music::MusicEditor;

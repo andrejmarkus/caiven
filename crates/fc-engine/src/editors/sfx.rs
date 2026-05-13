@@ -65,6 +65,13 @@ impl SfxEditor {
 
 impl Editor for SfxEditor {
     fn render(&self, layer: &mut ScreenLayer, vm: &Vm, font: &Font, _cursor: (u32, u32)) {
+        let bg = Color::new_rgb(15, 15, 15);
+        for y in 0..120u32 {
+            for x in 0..128u32 {
+                layer.set_pixel(Vec2::new(x, y), bg);
+            }
+        }
+
         // SFX selector strip (16 × 8px boxes)
         for id in 0u8..16 {
             let x = id as u32 * 8;

@@ -16,7 +16,7 @@ pub use palette::*;
 
 use self::cpu::Cpu;
 use self::memory::Memory;
-use self::sfx::{SfxPlayer, note_to_freq};
+use self::sfx::{MusicPlayer, SfxPlayer, note_to_freq};
 use crate::input::Input;
 use crate::isa::InstructionSet;
 use crate::peripheral::{Peripheral, PeripheralRegistry};
@@ -29,6 +29,52 @@ use fc_core::{Color, Vec2};
 use log::error;
 use std::sync::{Arc, Mutex};
 
+fn tick_sfx_channel(player: &mut SfxPlayer, memory: &Memory, sound: &mut Sound, forced_wave: Option<u8>) {
+    if !player.active { return; }
+
+    if player.tick_count == 0 {
+        let base = SfxPlayer::sfx_bytes_base(player.sfx_id, player.step);
+        let note = memory.read(base).unwrap_or(0);
+        let volume = memory.read(base + 1).unwrap_or(0);
+        let wave = forced_wave.unwrap_or_else(|| memory.read(base + 2).unwrap_or(0));
+
+        sound.square.duration = 0;
+        sound.noise.duration = 0;
+
+        if note == 0 {
+            match forced_wave {
+                Some(0) => sound.square.enabled = false,
+                Some(1) => sound.noise.enabled = false,
+                _ => { sound.square.enabled = false; sound.noise.enabled = false; }
+            }
+        } else {
+            let freq = note_to_freq(note);
+            let vol = volume as f32 / 15.0;
+            if wave == 0 {
+                sound.square = SquareChannel { enabled: true, frequency: freq, volume: vol, duration: 0 };
+                if forced_wave.is_none() { sound.noise.enabled = false; }
+            } else {
+                sound.noise = NoiseChannel { enabled: true, rate: freq, volume: vol, duration: 0 };
+                if forced_wave.is_none() { sound.square.enabled = false; }
+            }
+        }
+    }
+
+    player.tick_count += 1;
+    if player.tick_count >= player.ticks_per_step {
+        player.tick_count = 0;
+        player.step += 1;
+        if player.step >= 16 {
+            player.active = false;
+            match forced_wave {
+                Some(0) => sound.square.enabled = false,
+                Some(1) => sound.noise.enabled = false,
+                _ => { sound.square.enabled = false; sound.noise.enabled = false; }
+            }
+        }
+    }
+}
+
 pub struct Vm {
     cpu: Cpu,
     program: Vec<u8>,
@@ -39,6 +85,7 @@ pub struct Vm {
     source_map: fc_asm::SourceMap,
     sound: Arc<Mutex<Sound>>,
     sfx_player: SfxPlayer,
+    music_player: MusicPlayer,
     peripherals: PeripheralRegistry,
     frame_count: u32,
     waiting: bool,
@@ -75,6 +122,7 @@ impl Vm {
             })),
             source_map: fc_asm::SourceMap::new(),
             sfx_player: SfxPlayer::new(),
+            music_player: MusicPlayer::new(),
             peripherals: PeripheralRegistry::new(),
             frame_count: 0,
             waiting: false,
@@ -219,46 +267,63 @@ impl Vm {
         }
     }
 
+    pub fn start_music(&mut self, pattern_id: u8) {
+        self.music_player.start(pattern_id);
+    }
+
+    pub fn stop_music(&mut self) {
+        self.music_player.stop();
+        if let Ok(mut s) = self.sound.try_lock() {
+            s.square.enabled = false;
+            s.noise.enabled = false;
+        }
+    }
+
+    fn trigger_music_row(&mut self) {
+        let base = MusicPlayer::pattern_row_base(self.music_player.pattern_id, self.music_player.row);
+        let ch0_ref = self.memory.read(base).unwrap_or(0);
+        let ch1_ref = self.memory.read(base + 1).unwrap_or(0);
+        if ch0_ref > 0 {
+            self.music_player.ch0.start(ch0_ref - 1);
+        } else {
+            self.music_player.ch0.active = false;
+        }
+        if ch1_ref > 0 {
+            self.music_player.ch1.start(ch1_ref - 1);
+        } else {
+            self.music_player.ch1.active = false;
+        }
+    }
+
     fn tick_sfx_player(&mut self) {
-        if !self.sfx_player.active {
-            return;
+        if !self.sfx_player.active { return; }
+        if let Ok(mut s) = self.sound.try_lock() {
+            tick_sfx_channel(&mut self.sfx_player, &self.memory, &mut s, None);
+        }
+    }
+
+    fn tick_music_player(&mut self) {
+        if !self.music_player.active { return; }
+
+        // First tick of a new row: load SFX references into channel players
+        if self.music_player.tick_count == 0 {
+            self.trigger_music_row();
         }
 
-        if self.sfx_player.tick_count == 0 {
-            let base = SfxPlayer::sfx_bytes_base(self.sfx_player.sfx_id, self.sfx_player.step);
-            let note = self.memory.read(base).unwrap_or(0);
-            let volume = self.memory.read(base + 1).unwrap_or(0);
-            let wave = self.memory.read(base + 2).unwrap_or(0);
+        if let Ok(mut s) = self.sound.try_lock() {
+            tick_sfx_channel(&mut self.music_player.ch0, &self.memory, &mut s, Some(0));
+            tick_sfx_channel(&mut self.music_player.ch1, &self.memory, &mut s, Some(1));
+        }
 
-            if let Ok(mut s) = self.sound.try_lock() {
-                s.square.duration = 0;
-                s.noise.duration = 0;
-                if note == 0 {
-                    s.square.enabled = false;
-                    s.noise.enabled = false;
+        self.music_player.tick_count += 1;
+        if self.music_player.tick_count >= self.music_player.ticks_per_row {
+            self.music_player.tick_count = 0;
+            self.music_player.row += 1;
+            if self.music_player.row >= 16 {
+                if self.music_player.loop_on {
+                    self.music_player.row = 0;
                 } else {
-                    let freq = note_to_freq(note);
-                    let vol = volume as f32 / 15.0;
-                    if wave == 0 {
-                        s.square = SquareChannel { enabled: true, frequency: freq, volume: vol, duration: 0 };
-                        s.noise.enabled = false;
-                    } else {
-                        s.noise = NoiseChannel { enabled: true, rate: freq, volume: vol, duration: 0 };
-                        s.square.enabled = false;
-                    }
-                }
-            }
-        }
-
-        self.sfx_player.tick_count += 1;
-        if self.sfx_player.tick_count >= self.sfx_player.ticks_per_step {
-            self.sfx_player.tick_count = 0;
-            self.sfx_player.step += 1;
-            if self.sfx_player.step >= 16 {
-                self.sfx_player.active = false;
-                if let Ok(mut s) = self.sound.try_lock() {
-                    s.square.enabled = false;
-                    s.noise.enabled = false;
+                    self.music_player.active = false;
                 }
             }
         }
@@ -319,6 +384,7 @@ impl Vm {
 
     pub fn run_frame(&mut self, input: &Input, font: &Font) {
         self.waiting = false;
+        self.tick_music_player();
         self.tick_sfx_player();
         self.peripherals
             .tick_all(&mut self.memory, self.frame_count);
@@ -375,6 +441,7 @@ impl Vm {
             camera: &mut self.camera,
             sound: &mut sound_guard,
             sfx_player: &mut self.sfx_player,
+            music_player: &mut self.music_player,
             program: &self.program,
             input,
             font,
@@ -404,6 +471,7 @@ impl Vm {
             world: self.world.get_pixels().to_vec(),
             ui: self.ui.get_pixels().to_vec(),
             sfx_player: self.sfx_player.clone(),
+            music_player: self.music_player.clone(),
         }
     }
 
@@ -422,6 +490,7 @@ impl Vm {
         self.world.set_pixels(snapshot.world.clone());
         self.ui.set_pixels(snapshot.ui.clone());
         self.sfx_player = snapshot.sfx_player.clone();
+        self.music_player = snapshot.music_player.clone();
     }
 }
 
@@ -439,4 +508,5 @@ pub struct VmSnapshot {
     pub world: Vec<u8>,
     pub ui: Vec<u8>,
     pub sfx_player: SfxPlayer,
+    pub music_player: MusicPlayer,
 }

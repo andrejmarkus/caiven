@@ -54,6 +54,13 @@ impl SpriteEditor {
     }
 
     fn render_inner(&self, screen: &mut ScreenLayer, vm: &Vm, font: &Font, cursor: (u32, u32)) {
+        let bg = Color::new_rgb(15, 15, 15);
+        for y in 0..120u32 {
+            for x in 0..128u32 {
+                screen.set_pixel(Vec2::new(x, y), bg);
+            }
+        }
+
         let palette = vm.get_palette();
 
         // Edit canvas (active sprite zoomed 8x into [0..63, 0..63])

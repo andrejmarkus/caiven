@@ -9,6 +9,21 @@ pub fn play_sfx(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     Ok(())
 }
 
+pub fn play_music(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let id = ctx.read_byte()?;
+    debug!("MUS {}", id);
+    ctx.music_player.start(id);
+    Ok(())
+}
+
+pub fn stop_music_opcode(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    debug!("NOMUS");
+    ctx.music_player.stop();
+    ctx.sound.square.enabled = false;
+    ctx.sound.noise.enabled = false;
+    Ok(())
+}
+
 pub fn play_sound(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let freq = ctx.read_register_value()? as f32;
     let vol = ctx.read_register_value()? as f32 / 100.0;
