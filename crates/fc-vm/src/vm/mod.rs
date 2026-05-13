@@ -6,6 +6,7 @@ pub mod cpu;
 pub mod fault;
 pub mod memory;
 pub mod palette;
+pub mod sfx;
 
 pub use camera::*;
 pub use config::VmConfig;
@@ -15,6 +16,7 @@ pub use palette::*;
 
 use self::cpu::Cpu;
 use self::memory::Memory;
+use self::sfx::{SfxPlayer, note_to_freq};
 use crate::input::Input;
 use crate::isa::InstructionSet;
 use crate::peripheral::{Peripheral, PeripheralRegistry};
@@ -36,6 +38,7 @@ pub struct Vm {
     instructions: Arc<InstructionSet>,
     source_map: fc_asm::SourceMap,
     sound: Arc<Mutex<Sound>>,
+    sfx_player: SfxPlayer,
     peripherals: PeripheralRegistry,
     frame_count: u32,
     waiting: bool,
@@ -71,6 +74,7 @@ impl Vm {
                 },
             })),
             source_map: fc_asm::SourceMap::new(),
+            sfx_player: SfxPlayer::new(),
             peripherals: PeripheralRegistry::new(),
             frame_count: 0,
             waiting: false,
@@ -203,6 +207,63 @@ impl Vm {
         let _ = self.memory.write(address, value);
     }
 
+    pub fn start_sfx(&mut self, id: u8) {
+        self.sfx_player.start(id);
+    }
+
+    pub fn stop_sfx(&mut self) {
+        self.sfx_player.stop();
+        if let Ok(mut s) = self.sound.try_lock() {
+            s.square.enabled = false;
+            s.noise.enabled = false;
+        }
+    }
+
+    fn tick_sfx_player(&mut self) {
+        if !self.sfx_player.active {
+            return;
+        }
+
+        if self.sfx_player.tick_count == 0 {
+            let base = SfxPlayer::sfx_bytes_base(self.sfx_player.sfx_id, self.sfx_player.step);
+            let note = self.memory.read(base).unwrap_or(0);
+            let volume = self.memory.read(base + 1).unwrap_or(0);
+            let wave = self.memory.read(base + 2).unwrap_or(0);
+
+            if let Ok(mut s) = self.sound.try_lock() {
+                s.square.duration = 0;
+                s.noise.duration = 0;
+                if note == 0 {
+                    s.square.enabled = false;
+                    s.noise.enabled = false;
+                } else {
+                    let freq = note_to_freq(note);
+                    let vol = volume as f32 / 15.0;
+                    if wave == 0 {
+                        s.square = SquareChannel { enabled: true, frequency: freq, volume: vol, duration: 0 };
+                        s.noise.enabled = false;
+                    } else {
+                        s.noise = NoiseChannel { enabled: true, rate: freq, volume: vol, duration: 0 };
+                        s.square.enabled = false;
+                    }
+                }
+            }
+        }
+
+        self.sfx_player.tick_count += 1;
+        if self.sfx_player.tick_count >= self.sfx_player.ticks_per_step {
+            self.sfx_player.tick_count = 0;
+            self.sfx_player.step += 1;
+            if self.sfx_player.step >= 16 {
+                self.sfx_player.active = false;
+                if let Ok(mut s) = self.sound.try_lock() {
+                    s.square.enabled = false;
+                    s.noise.enabled = false;
+                }
+            }
+        }
+    }
+
     pub fn disassemble(&self, pc: usize) -> String {
         let program = self.get_program();
         let source_map = self.get_source_map();
@@ -258,6 +319,7 @@ impl Vm {
 
     pub fn run_frame(&mut self, input: &Input, font: &Font) {
         self.waiting = false;
+        self.tick_sfx_player();
         self.peripherals
             .tick_all(&mut self.memory, self.frame_count);
         self.frame_count = self.frame_count.wrapping_add(1);
@@ -312,6 +374,7 @@ impl Vm {
             palette: &mut self.palette,
             camera: &mut self.camera,
             sound: &mut sound_guard,
+            sfx_player: &mut self.sfx_player,
             program: &self.program,
             input,
             font,
@@ -340,6 +403,7 @@ impl Vm {
             frame_count: self.frame_count,
             world: self.world.get_pixels().to_vec(),
             ui: self.ui.get_pixels().to_vec(),
+            sfx_player: self.sfx_player.clone(),
         }
     }
 
@@ -357,6 +421,7 @@ impl Vm {
         self.frame_count = snapshot.frame_count;
         self.world.set_pixels(snapshot.world.clone());
         self.ui.set_pixels(snapshot.ui.clone());
+        self.sfx_player = snapshot.sfx_player.clone();
     }
 }
 
@@ -373,4 +438,5 @@ pub struct VmSnapshot {
     pub frame_count: u32,
     pub world: Vec<u8>,
     pub ui: Vec<u8>,
+    pub sfx_player: SfxPlayer,
 }

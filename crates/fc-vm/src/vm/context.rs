@@ -5,6 +5,7 @@ use super::cpu::Cpu;
 use super::fault::VmFault;
 use super::memory::Memory;
 use super::palette::Palette;
+use super::sfx::SfxPlayer;
 use crate::input::Input;
 use crate::rendering::font::Font;
 use crate::rendering::screen::ScreenLayer;
@@ -15,6 +16,7 @@ pub struct ExecutionContext<'a> {
     pub palette: &'a mut Palette,
     pub camera: &'a mut Camera,
     pub sound: &'a mut Sound,
+    pub sfx_player: &'a mut SfxPlayer,
     pub program: &'a [u8],
     pub input: &'a Input,
     pub font: &'a Font,

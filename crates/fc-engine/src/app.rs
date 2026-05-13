@@ -32,6 +32,8 @@ use winit::{
 const SPRITE_SHEET_RAM_BASE: usize = 0x4000;
 const MAP_RAM_BASE: usize = 0x5000;
 const PALETTE_RAM_BASE: usize = 0x5800;
+const SFX_RAM_BASE: usize = 0x5C00;
+const SFX_BANK_LEN: usize = 16 * 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppMode {
@@ -218,6 +220,15 @@ impl App {
                     });
                     info!("Palette loaded to RAM at 0x{:04X} ({} bytes)", PALETTE_RAM_BASE, section.data.len());
                 }
+                SectionKind::SfxBank => {
+                    self.vm.load_section_to_ram(SFX_RAM_BASE, &section.data);
+                    sections.push(SectionLayout {
+                        kind: SectionKind::SfxBank,
+                        ram_base: SFX_RAM_BASE,
+                        len: section.data.len(),
+                    });
+                    info!("SfxBank loaded to RAM at 0x{:04X} ({} bytes)", SFX_RAM_BASE, section.data.len());
+                }
                 _ => {}
             }
         }
@@ -244,6 +255,15 @@ impl App {
                 kind: SectionKind::Map,
                 ram_base: MAP_RAM_BASE,
                 len: 64 * 32,
+            });
+        }
+
+        // If no SfxBank section, register for Ctrl+S persistence
+        if !sections.iter().any(|s| s.kind == SectionKind::SfxBank) {
+            sections.push(SectionLayout {
+                kind: SectionKind::SfxBank,
+                ram_base: SFX_RAM_BASE,
+                len: SFX_BANK_LEN,
             });
         }
 

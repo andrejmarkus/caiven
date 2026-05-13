@@ -215,6 +215,13 @@ pub fn default_instruction_set() -> InstructionSet {
     });
 
     set.register(Instruction {
+        name: "SFX",
+        opcode: 0x87,
+        execute: operations::play_sfx,
+        debug_info: |bytes| format!("SFX {}", bytes[1]),
+    });
+
+    set.register(Instruction {
         name: "SPT",
         opcode: 0x06,
         execute: operations::sprite,

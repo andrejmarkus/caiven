@@ -2,6 +2,13 @@ use crate::vm::audio::{NoiseChannel, SquareChannel};
 use crate::vm::{ExecutionContext, VmFault};
 use log::debug;
 
+pub fn play_sfx(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let id = ctx.read_byte()?;
+    debug!("SFX {}", id);
+    ctx.sfx_player.start(id);
+    Ok(())
+}
+
 pub fn play_sound(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let freq = ctx.read_register_value()? as f32;
     let vol = ctx.read_register_value()? as f32 / 100.0;
