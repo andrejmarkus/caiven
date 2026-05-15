@@ -27,7 +27,7 @@ pub fn stop_music_opcode(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
 pub fn play_sound(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let freq = ctx.read_register_value()? as f32;
     let vol = ctx.read_register_value()? as f32 / 100.0;
-    let dur = ctx.read_register_value()?;
+    let dur = ctx.read_register_value()? as u16;
 
     debug!(
         "Playing square sound: freq={}, vol={}, dur={}",
@@ -63,7 +63,7 @@ pub fn play_sound_value(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
 pub fn play_noise(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let rate = ctx.read_register_value()? as f32;
     let vol = ctx.read_register_value()? as f32 / 100.0;
-    let dur = ctx.read_register_value()?;
+    let dur = ctx.read_register_value()? as u16;
 
     debug!("Playing noise: rate={}, vol={}, dur={}", rate, vol, dur);
     ctx.sound.noise = NoiseChannel {

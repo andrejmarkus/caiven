@@ -190,7 +190,7 @@ pub fn tile_at(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
         x, y, tx, ty, tile_index
     );
 
-    ctx.cpu.set_register(rdest, tile_index as u16);
+    ctx.cpu.set_register(rdest, tile_index as u32);
     Ok(())
 }
 
@@ -207,7 +207,7 @@ pub fn tile_solid(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     );
 
     ctx.cpu
-        .set_register(rdest, if flags & 1 != 0 { 1 } else { 0 });
+        .set_register(rdest, if flags & 1 != 0 { 1u32 } else { 0u32 });
     Ok(())
 }
 

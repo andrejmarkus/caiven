@@ -194,7 +194,7 @@ impl Vm {
         &self.program
     }
 
-    pub fn get_registers(&self) -> &[u16] {
+    pub fn get_registers(&self) -> &[u32] {
         self.cpu.get_registers()
     }
 
@@ -220,6 +220,10 @@ impl Vm {
 
     pub fn is_waiting(&self) -> bool {
         self.waiting
+    }
+
+    pub fn get_fault(&self) -> Option<VmFault> {
+        self.fault
     }
 
     pub fn get_pc(&self) -> usize {
@@ -497,7 +501,7 @@ impl Vm {
 #[derive(Clone)]
 pub struct VmSnapshot {
     pub pc: usize,
-    pub registers: Vec<u16>,
+    pub registers: Vec<u32>,
     pub memory: Vec<u8>,
     pub camera_x: u32,
     pub camera_y: u32,

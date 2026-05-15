@@ -12,7 +12,6 @@ pub struct Font {
 }
 
 impl Font {
-    #[cfg(test)]
     pub fn empty() -> Self {
         Self {
             glyphs: HashMap::new(),

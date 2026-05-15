@@ -5,4 +5,5 @@ pub enum VmFault {
     MemoryOutOfBounds(usize),
     StackOverflow,
     StepLimitExceeded,
+    DivisionByZero,
 }

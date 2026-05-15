@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/fc-core", "crates/fc-rom", "crates/fc-asm", "crates/fc-host", "crates/fc-vm", "crates/fc-engine"]
+members = ["crates/fc-core", "crates/fc-rom", "crates/fc-asm", "crates/fc-host", "crates/fc-vm", "crates/fc-engine", "crates/fc-lang"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -9,6 +9,7 @@ cpal = "0.17.1"
 crc32fast = "1"
 env_logger = "0.11"
 fc-asm = { path = "crates/fc-asm" }
+fc-lang = { path = "crates/fc-lang" }
 fc-core = { path = "crates/fc-core" }
 fc-rom = { path = "crates/fc-rom" }
 fc-vm = { path = "crates/fc-vm" }

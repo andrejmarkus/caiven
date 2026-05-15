@@ -1,0 +1,11 @@
+-- String demo: static string literals via txt()
+
+let frame = 0
+
+loop:
+  cls()
+  txt(2, 2, "hello, world!", 7)
+  txt(2, 12, "fc-lang strings", 6)
+  txt(2, 22, "foo" .. "bar", 5)
+  frame += 1
+  wait()

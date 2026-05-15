@@ -1,7 +1,7 @@
 pub struct Cpu {
     pc: usize,
     sp: usize,
-    registers: Vec<u16>,
+    registers: Vec<u32>,
 }
 
 impl Cpu {
@@ -9,11 +9,11 @@ impl Cpu {
         Self {
             pc: 0,
             sp: 0,
-            registers: vec![0; register_count],
+            registers: vec![0u32; register_count],
         }
     }
 
-    pub fn get_registers(&self) -> &[u16] {
+    pub fn get_registers(&self) -> &[u32] {
         &self.registers
     }
 
@@ -21,23 +21,23 @@ impl Cpu {
         self.registers.len()
     }
 
-    pub fn get_register_value(&self, index: usize) -> u16 {
+    pub fn get_register_value(&self, index: usize) -> u32 {
         self.registers.get(index).copied().unwrap_or(0)
     }
 
-    pub fn decrement_register_value(&mut self, index: usize, value: u16) {
+    pub fn decrement_register_value(&mut self, index: usize, value: u32) {
         if index < self.registers.len() {
             self.registers[index] = self.registers[index].wrapping_sub(value);
         }
     }
 
-    pub fn increment_register_value(&mut self, index: usize, value: u16) {
+    pub fn increment_register_value(&mut self, index: usize, value: u32) {
         if index < self.registers.len() {
             self.registers[index] = self.registers[index].wrapping_add(value);
         }
     }
 
-    pub fn set_register(&mut self, index: usize, value: u16) {
+    pub fn set_register(&mut self, index: usize, value: u32) {
         if index < self.registers.len() {
             self.registers[index] = value;
         }

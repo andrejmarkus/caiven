@@ -326,6 +326,17 @@ impl Assembler {
                         .map_err(|e| AsmError::syntax(line_number, source_line, e))?;
                     bytecode.extend([addr as u8, (addr >> 8) as u8]);
                 }
+                ArgType::Dword => {
+                    let val = self
+                        .eval_dword(token, symbols, scope)
+                        .map_err(|e| AsmError::syntax(line_number, source_line, e))?;
+                    bytecode.extend([
+                        (val & 0xFF) as u8,
+                        ((val >> 8) & 0xFF) as u8,
+                        ((val >> 16) & 0xFF) as u8,
+                        ((val >> 24) & 0xFF) as u8,
+                    ]);
+                }
             }
         }
 
@@ -349,6 +360,21 @@ impl Assembler {
     ) -> Result<u16, String> {
         let resolved = resolve_local_refs(s, scope);
         eval_expr(&resolved, symbols).map_err(|e| format!("invalid address '{}': {}", s, e))
+    }
+
+    fn eval_dword(&self, s: &str, symbols: &HashMap<String, u16>, scope: &str) -> Result<u32, String> {
+        let resolved = resolve_local_refs(s, scope);
+        let t = resolved.trim();
+        if t.starts_with("0x") || t.starts_with("0X") {
+            u32::from_str_radix(&t[2..], 16).map_err(|e| e.to_string())
+        } else if t.starts_with("0b") || t.starts_with("0B") {
+            u32::from_str_radix(&t[2..], 2).map_err(|e| e.to_string())
+        } else if t.chars().next().map_or(false, |c| c.is_ascii_digit() || c == '-') {
+            t.parse::<i32>().map(|v| v as u32).map_err(|e| e.to_string())
+        } else {
+            eval_expr(t, symbols).map(|v| v as u32)
+                .map_err(|e| format!("invalid dword '{}': {}", s, e))
+        }
     }
 }
 

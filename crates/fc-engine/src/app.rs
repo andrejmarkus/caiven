@@ -314,16 +314,24 @@ impl App {
     fn load_source(&mut self, path: &Path) -> Result<()> {
         let source = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read source {}", path.display()))?;
-        let out = fc_asm::assemble_with_sections(&source)
-            .with_context(|| format!("failed to assemble {}", path.display()))?;
-        self.vm.load_rom_with_source_map(out.program, out.source_map);
-        for (wire_id, data) in &out.extra_sections {
-            if *wire_id == fc_rom::SectionKind::SpriteSheet.to_u16() {
-                self.vm.load_section_to_ram(SPRITE_SHEET_RAM_BASE, data);
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if ext == "fc" {
+            let out = fc_lang::compile(&source)
+                .map_err(|e| anyhow::anyhow!("compile error in {}: {}", path.display(), e))?;
+            self.vm.load_rom_with_source_map(out.program, out.source_map);
+            info!("fc-lang compiled from {}", path.display());
+        } else {
+            let out = fc_asm::assemble_with_sections(&source)
+                .with_context(|| format!("failed to assemble {}", path.display()))?;
+            self.vm.load_rom_with_source_map(out.program, out.source_map);
+            for (wire_id, data) in &out.extra_sections {
+                if *wire_id == fc_rom::SectionKind::SpriteSheet.to_u16() {
+                    self.vm.load_section_to_ram(SPRITE_SHEET_RAM_BASE, data);
+                }
             }
+            info!("source assembled from {}", path.display());
         }
         self.debugger.set_fcdbg_path(path.with_extension("fcdbg"));
-        info!("source assembled from {}", path.display());
         Ok(())
     }
 

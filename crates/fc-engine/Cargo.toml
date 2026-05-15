@@ -12,6 +12,7 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 env_logger = { workspace = true }
 fc-asm = { workspace = true }
+fc-lang = { workspace = true }
 fc-core = { workspace = true }
 fc-rom = { workspace = true }
 fc-vm = { workspace = true }

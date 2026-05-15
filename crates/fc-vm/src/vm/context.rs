@@ -44,6 +44,14 @@ impl<'a> ExecutionContext<'a> {
         Ok(low | (high << 8))
     }
 
+    pub fn read_dword(&mut self) -> Result<u32, VmFault> {
+        let b0 = self.read_byte()? as u32;
+        let b1 = self.read_byte()? as u32;
+        let b2 = self.read_byte()? as u32;
+        let b3 = self.read_byte()? as u32;
+        Ok(b0 | (b1 << 8) | (b2 << 16) | (b3 << 24))
+    }
+
     pub fn read_register_index(&mut self) -> Result<usize, VmFault> {
         let index = self.read_byte()? as usize;
         if index >= self.cpu.get_registers_len() {
@@ -52,7 +60,7 @@ impl<'a> ExecutionContext<'a> {
         Ok(index)
     }
 
-    pub fn read_register_value(&mut self) -> Result<u16, VmFault> {
+    pub fn read_register_value(&mut self) -> Result<u32, VmFault> {
         let index = self.read_register_index()?;
         Ok(self.cpu.get_register_value(index))
     }

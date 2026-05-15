@@ -11,7 +11,7 @@ pub fn load_from_memory(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
         "Loaded value {} from memory address {} into register {}",
         value, address, reg_index
     );
-    ctx.cpu.set_register(reg_index, value as u16);
+    ctx.cpu.set_register(reg_index, value as u32);
     Ok(())
 }
 
@@ -19,8 +19,8 @@ pub fn load_word_from_memory(ctx: &mut ExecutionContext) -> Result<(), VmFault> 
     let reg_index = ctx.read_register_index()?;
     let address = ctx.read_word()? as usize;
 
-    let low = ctx.mem.read(address)? as u16;
-    let high = ctx.mem.read(address + 1)? as u16;
+    let low = ctx.mem.read(address)? as u32;
+    let high = ctx.mem.read(address + 1)? as u32;
     let value = low | (high << 8);
 
     debug!(
@@ -71,7 +71,7 @@ pub fn load_from_memory_indirect(ctx: &mut ExecutionContext) -> Result<(), VmFau
         "Loaded value {} from memory address in register {} into register {}",
         value, reg_from_index, reg_to_index
     );
-    ctx.cpu.set_register(reg_to_index, value as u16);
+    ctx.cpu.set_register(reg_to_index, value as u32);
     Ok(())
 }
 
@@ -87,6 +87,94 @@ pub fn store_to_memory_indirect(ctx: &mut ExecutionContext) -> Result<(), VmFaul
         value, reg_val_index, reg_addr_index
     );
     ctx.mem.write(address, value)?;
+    Ok(())
+}
+
+pub fn push_register(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let src = ctx.read_register_index()?;
+    let value = ctx.cpu.get_register_value(src);
+    let sp = ctx.cpu.get_sp();
+    if sp < 4 {
+        return Err(VmFault::StackOverflow);
+    }
+    let sp = sp - 4;
+    ctx.mem.write(sp, (value & 0xFF) as u8)?;
+    ctx.mem.write(sp + 1, ((value >> 8) & 0xFF) as u8)?;
+    ctx.mem.write(sp + 2, ((value >> 16) & 0xFF) as u8)?;
+    ctx.mem.write(sp + 3, ((value >> 24) & 0xFF) as u8)?;
+    ctx.cpu.set_sp(sp);
+    Ok(())
+}
+
+pub fn pop_register(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let dest = ctx.read_register_index()?;
+    let sp = ctx.cpu.get_sp();
+    let b0 = ctx.mem.read(sp)? as u32;
+    let b1 = ctx.mem.read(sp + 1)? as u32;
+    let b2 = ctx.mem.read(sp + 2)? as u32;
+    let b3 = ctx.mem.read(sp + 3)? as u32;
+    let value = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
+    ctx.cpu.set_register(dest, value);
+    ctx.cpu.set_sp(sp + 4);
+    Ok(())
+}
+
+pub fn get_sp(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let dest = ctx.read_register_index()?;
+    ctx.cpu.set_register(dest, ctx.cpu.get_sp() as u32);
+    Ok(())
+}
+
+pub fn set_sp(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let src = ctx.read_register_index()?;
+    let addr = ctx.cpu.get_register_value(src) as usize;
+    ctx.cpu.set_sp(addr);
+    Ok(())
+}
+
+pub fn load_dword_from_memory(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let dest = ctx.read_register_index()?;
+    let addr = ctx.read_word()? as usize;
+    let b0 = ctx.mem.read(addr)? as u32;
+    let b1 = ctx.mem.read(addr + 1)? as u32;
+    let b2 = ctx.mem.read(addr + 2)? as u32;
+    let b3 = ctx.mem.read(addr + 3)? as u32;
+    ctx.cpu.set_register(dest, b0 | (b1 << 8) | (b2 << 16) | (b3 << 24));
+    Ok(())
+}
+
+pub fn store_dword_to_memory(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let addr = ctx.read_word()? as usize;
+    let src = ctx.read_register_index()?;
+    let value = ctx.cpu.get_register_value(src);
+    ctx.mem.write(addr, (value & 0xFF) as u8)?;
+    ctx.mem.write(addr + 1, ((value >> 8) & 0xFF) as u8)?;
+    ctx.mem.write(addr + 2, ((value >> 16) & 0xFF) as u8)?;
+    ctx.mem.write(addr + 3, ((value >> 24) & 0xFF) as u8)?;
+    Ok(())
+}
+
+pub fn load_dword_from_memory_indirect(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let dest = ctx.read_register_index()?;
+    let addr_reg = ctx.read_register_index()?;
+    let addr = ctx.cpu.get_register_value(addr_reg) as usize;
+    let b0 = ctx.mem.read(addr)? as u32;
+    let b1 = ctx.mem.read(addr + 1)? as u32;
+    let b2 = ctx.mem.read(addr + 2)? as u32;
+    let b3 = ctx.mem.read(addr + 3)? as u32;
+    ctx.cpu.set_register(dest, b0 | (b1 << 8) | (b2 << 16) | (b3 << 24));
+    Ok(())
+}
+
+pub fn store_dword_to_memory_indirect(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let addr_reg = ctx.read_register_index()?;
+    let src = ctx.read_register_index()?;
+    let addr = ctx.cpu.get_register_value(addr_reg) as usize;
+    let value = ctx.cpu.get_register_value(src);
+    ctx.mem.write(addr, (value & 0xFF) as u8)?;
+    ctx.mem.write(addr + 1, ((value >> 8) & 0xFF) as u8)?;
+    ctx.mem.write(addr + 2, ((value >> 16) & 0xFF) as u8)?;
+    ctx.mem.write(addr + 3, ((value >> 24) & 0xFF) as u8)?;
     Ok(())
 }
 

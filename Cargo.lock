@@ -875,6 +875,7 @@ dependencies = [
  "env_logger",
  "fc-asm",
  "fc-core",
+ "fc-lang",
  "fc-rom",
  "fc-vm",
  "image",
@@ -897,6 +898,14 @@ dependencies = [
  "log",
  "pixels",
  "winit",
+]
+
+[[package]]
+name = "fc-lang"
+version = "0.1.0"
+dependencies = [
+ "fc-asm",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

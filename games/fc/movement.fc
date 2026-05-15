@@ -1,0 +1,26 @@
+-- Simple movement demo in fc-lang
+const SPR0 = 0x4000
+const SPEED = 2
+
+let x = 60
+let y = 60
+
+init:
+  pal(0, 10, 10, 30)
+
+loop:
+  cls()
+  if key(0) then
+    y -= SPEED
+  end
+  if key(1) then
+    y += SPEED
+  end
+  if key(2) then
+    x -= SPEED
+  end
+  if key(3) then
+    x += SPEED
+  end
+  spr(x, y, SPR0)
+  wait()

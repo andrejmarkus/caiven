@@ -108,6 +108,186 @@ pub fn default_instruction_set() -> InstructionSet {
     });
 
     set.register(Instruction {
+        name: "PUSH",
+        opcode: 0x17,
+        execute: operations::push_register,
+        debug_info: |bytes| format!("PUSH R{}", bytes[1]),
+    });
+
+    set.register(Instruction {
+        name: "POP",
+        opcode: 0x18,
+        execute: operations::pop_register,
+        debug_info: |bytes| format!("POP R{}", bytes[1]),
+    });
+
+    set.register(Instruction {
+        name: "GETSP",
+        opcode: 0x19,
+        execute: operations::get_sp,
+        debug_info: |bytes| format!("GETSP R{}", bytes[1]),
+    });
+
+    set.register(Instruction {
+        name: "SETSP",
+        opcode: 0x1A,
+        execute: operations::set_sp,
+        debug_info: |bytes| format!("SETSP R{}", bytes[1]),
+    });
+
+    set.register(Instruction {
+        name: "MUL",
+        opcode: 0x1B,
+        execute: operations::mul_register,
+        debug_info: |bytes| format!("MUL R{}, R{}", bytes[1], bytes[2]),
+    });
+
+    set.register(Instruction {
+        name: "DIV",
+        opcode: 0x1C,
+        execute: operations::div_register,
+        debug_info: |bytes| format!("DIV R{}, R{}", bytes[1], bytes[2]),
+    });
+
+    set.register(Instruction {
+        name: "MOD",
+        opcode: 0x1D,
+        execute: operations::mod_register,
+        debug_info: |bytes| format!("MOD R{}, R{}", bytes[1], bytes[2]),
+    });
+
+    set.register(Instruction {
+        name: "FMUL",
+        opcode: 0x1E,
+        execute: operations::fmul_register,
+        debug_info: |bytes| format!("FMUL R{}, R{}", bytes[1], bytes[2]),
+    });
+
+    set.register(Instruction {
+        name: "FDIV",
+        opcode: 0x1F,
+        execute: operations::fdiv_register,
+        debug_info: |bytes| format!("FDIV R{}, R{}", bytes[1], bytes[2]),
+    });
+
+    set.register(Instruction {
+        name: "AND",
+        opcode: 0x21,
+        execute: operations::and_register,
+        debug_info: |bytes| format!("AND R{}, R{}", bytes[1], bytes[2]),
+    });
+
+    set.register(Instruction {
+        name: "OR",
+        opcode: 0x22,
+        execute: operations::or_register,
+        debug_info: |bytes| format!("OR R{}, R{}", bytes[1], bytes[2]),
+    });
+
+    set.register(Instruction {
+        name: "XOR",
+        opcode: 0x23,
+        execute: operations::xor_register,
+        debug_info: |bytes| format!("XOR R{}, R{}", bytes[1], bytes[2]),
+    });
+
+    set.register(Instruction {
+        name: "NOT",
+        opcode: 0x24,
+        execute: operations::not_register,
+        debug_info: |bytes| format!("NOT R{}", bytes[1]),
+    });
+
+    set.register(Instruction {
+        name: "SHL",
+        opcode: 0x25,
+        execute: operations::shl_register,
+        debug_info: |bytes| format!("SHL R{}, {}", bytes[1], bytes[2]),
+    });
+
+    set.register(Instruction {
+        name: "SHR",
+        opcode: 0x26,
+        execute: operations::shr_register,
+        debug_info: |bytes| format!("SHR R{}, {}", bytes[1], bytes[2]),
+    });
+
+    set.register(Instruction {
+        name: "SAR",
+        opcode: 0x27,
+        execute: operations::sar_register,
+        debug_info: |bytes| format!("SAR R{}, {}", bytes[1], bytes[2]),
+    });
+
+    set.register(Instruction {
+        name: "NEG",
+        opcode: 0x28,
+        execute: operations::neg_register,
+        debug_info: |bytes| format!("NEG R{}", bytes[1]),
+    });
+
+    set.register(Instruction {
+        name: "SLTS",
+        opcode: 0x29,
+        execute: operations::set_less_than_signed,
+        debug_info: |bytes| format!("SLTS R{}, R{}, R{}", bytes[1], bytes[2], bytes[3]),
+    });
+
+    set.register(Instruction {
+        name: "EQ",
+        opcode: 0x2A,
+        execute: operations::set_equal,
+        debug_info: |bytes| format!("EQ R{}, R{}, R{}", bytes[1], bytes[2], bytes[3]),
+    });
+
+    set.register(Instruction {
+        name: "LDM32",
+        opcode: 0x2B,
+        execute: operations::load_dword_from_memory,
+        debug_info: |bytes| {
+            let addr = (bytes[2] as u16) | ((bytes[3] as u16) << 8);
+            format!("LDM32 R{}, 0x{:04X}", bytes[1], addr)
+        },
+    });
+
+    set.register(Instruction {
+        name: "STM32",
+        opcode: 0x2C,
+        execute: operations::store_dword_to_memory,
+        debug_info: |bytes| {
+            let addr = (bytes[1] as u16) | ((bytes[2] as u16) << 8);
+            format!("STM32 0x{:04X}, R{}", addr, bytes[3])
+        },
+    });
+
+    set.register(Instruction {
+        name: "LDM32I",
+        opcode: 0x2D,
+        execute: operations::load_dword_from_memory_indirect,
+        debug_info: |bytes| format!("LDM32I R{}, R{}", bytes[1], bytes[2]),
+    });
+
+    set.register(Instruction {
+        name: "STM32I",
+        opcode: 0x2E,
+        execute: operations::store_dword_to_memory_indirect,
+        debug_info: |bytes| format!("STM32I R{}, R{}", bytes[1], bytes[2]),
+    });
+
+    set.register(Instruction {
+        name: "MOV32",
+        opcode: 0x2F,
+        execute: operations::move_value_32,
+        debug_info: |bytes| {
+            let value = (bytes[2] as u32)
+                | ((bytes[3] as u32) << 8)
+                | ((bytes[4] as u32) << 16)
+                | ((bytes[5] as u32) << 24);
+            format!("MOV32 R{}, 0x{:08X}", bytes[1], value)
+        },
+    });
+
+    set.register(Instruction {
         name: "DEC",
         opcode: 0x03,
         execute: operations::decrement_value,
