@@ -34,6 +34,9 @@ pub enum LangError {
 
     #[error("line {line}: '{feature}' not yet implemented")]
     NotImplemented { line: usize, feature: String },
+
+    #[error("unresolved label '{label}'")]
+    UnresolvedLabel { label: String },
 }
 
 pub type Result<T> = std::result::Result<T, LangError>;

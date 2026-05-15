@@ -83,6 +83,7 @@ pub struct Vm {
     palette: Palette,
     instructions: Arc<InstructionSet>,
     source_map: fc_asm::SourceMap,
+    fc_source_lines: Vec<String>,
     sound: Arc<Mutex<Sound>>,
     sfx_player: SfxPlayer,
     music_player: MusicPlayer,
@@ -121,6 +122,7 @@ impl Vm {
                 },
             })),
             source_map: fc_asm::SourceMap::new(),
+            fc_source_lines: Vec::new(),
             sfx_player: SfxPlayer::new(),
             music_player: MusicPlayer::new(),
             peripherals: PeripheralRegistry::new(),
@@ -164,6 +166,7 @@ impl Vm {
     pub fn load_rom(&mut self, program: Vec<u8>) {
         self.source_map = fc_asm::generate_source_map(&program);
         self.program = program;
+        self.fc_source_lines.clear();
         self.cpu.set_pc(0);
         self.frame_count = 0;
         self.peripherals.init_all(&mut self.memory);
@@ -172,9 +175,19 @@ impl Vm {
     pub fn load_rom_with_source_map(&mut self, program: Vec<u8>, source_map: fc_asm::SourceMap) {
         self.program = program;
         self.source_map = source_map;
+        self.fc_source_lines.clear();
         self.cpu.set_pc(0);
         self.frame_count = 0;
         self.peripherals.init_all(&mut self.memory);
+    }
+
+    pub fn set_fc_source(&mut self, src: &str) {
+        self.fc_source_lines = src.lines().map(|l| l.to_string()).collect();
+    }
+
+    pub fn get_fc_source_line(&self, line: usize) -> Option<&str> {
+        // source lines are 1-based in AST
+        self.fc_source_lines.get(line.saturating_sub(1)).map(|s| s.as_str())
     }
 
     pub fn load_section_to_ram(&mut self, base: usize, data: &[u8]) {

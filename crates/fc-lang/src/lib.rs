@@ -18,6 +18,6 @@ pub fn compile(src: &str) -> error::Result<CompilerOutput> {
     let file = parser.parse_file()?;
     let mut compiler = lower::Compiler::new();
     compiler.compile(&file)?;
-    let (program, source_map) = compiler.finish();
+    let (program, source_map) = compiler.finish()?;
     Ok(CompilerOutput { program, source_map })
 }

@@ -17,6 +17,7 @@ pub enum ItemInfo {
 pub struct AddressInfo {
     pub labels: Vec<String>,
     pub item: Option<ItemInfo>,
+    pub src_line: Option<usize>,
 }
 
 pub struct SourceMap {
@@ -36,20 +37,24 @@ impl SourceMap {
         }
     }
 
-    pub fn insert_item(&mut self, address: usize, item: ItemInfo) {
-        let entry = self.map.entry(address).or_insert(AddressInfo {
+    fn entry(&mut self, address: usize) -> &mut AddressInfo {
+        self.map.entry(address).or_insert(AddressInfo {
             labels: Vec::new(),
             item: None,
-        });
-        entry.item = Some(item);
+            src_line: None,
+        })
+    }
+
+    pub fn insert_item(&mut self, address: usize, item: ItemInfo) {
+        self.entry(address).item = Some(item);
     }
 
     pub fn insert_label(&mut self, address: usize, label: String) {
-        let entry = self.map.entry(address).or_insert(AddressInfo {
-            labels: Vec::new(),
-            item: None,
-        });
-        entry.labels.push(label);
+        self.entry(address).labels.push(label);
+    }
+
+    pub fn set_src_line(&mut self, address: usize, line: usize) {
+        self.entry(address).src_line = Some(line);
     }
 
     pub fn get(&self, address: usize) -> Option<&AddressInfo> {

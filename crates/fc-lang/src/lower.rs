@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use crate::ast::*;
 use crate::error::{LangError, Result};
-use fc_asm::{ItemInfo, SourceMap};
+use fc_asm::SourceMap;
 
 const GLOBALS_BASE: u16 = 0x0000;
 const SCRATCH_BASE: u16 = 0x3FF0;
 const SCRATCH_STEP: u16 = 4;
 const FP_SAVE_ADDR: u16 = 0x3FEC;
-const STRING_POOL_BASE: u16 = 0x4000;
+const STRING_POOL_BASE: u16 = 0x3800;
 
 // Heap allocator (bump pointer)
 const HEAP_BASE: u32      = 0x6000;
@@ -27,18 +27,13 @@ const TABLE_SENTINEL: u32 = 0xFFFFFFFF; // marks empty slot key
 
 // Opcode constants
 const OP_MOV: u8     = 0x01;
-const OP_ADD: u8     = 0x02;
-const OP_DEC: u8     = 0x03;
 const OP_DPX: u8     = 0x04;
-const OP_DPXR: u8    = 0x05;
 const OP_SPT: u8     = 0x06;
 const OP_PAL: u8     = 0x07;
 const OP_TIL: u8     = 0x08;
-const OP_PRN: u8     = 0x09;
-const OP_SUB: u8     = 0x0A;
+
 const OP_RND: u8     = 0x0B;
 const OP_MOVR: u8    = 0x0C;
-const OP_SLT: u8     = 0x0D;
 const OP_FILL: u8    = 0x0E;
 const OP_JMP: u8     = 0x10;
 const OP_JNZ: u8     = 0x11;
@@ -55,11 +50,6 @@ const OP_MUL: u8     = 0x1B;
 const OP_DIV: u8     = 0x1C;
 const OP_MOD: u8     = 0x1D;
 const OP_AND: u8     = 0x21;
-const OP_OR: u8      = 0x22;
-const OP_XOR: u8     = 0x23;
-const OP_NOT: u8     = 0x24;
-const OP_SHL: u8     = 0x25;
-const OP_SHR: u8     = 0x26;
 const OP_NEG: u8     = 0x28;
 const OP_SLTS: u8    = 0x29;
 const OP_EQ: u8      = 0x2A;
@@ -70,15 +60,8 @@ const OP_STM32I: u8  = 0x2E;
 const OP_MOV32: u8   = 0x2F;
 const OP_IN: u8      = 0x20;
 const OP_CPY: u8     = 0x34;
-const OP_LDMI: u8    = 0x32;
-const OP_LDM: u8     = 0x30;
-const OP_STM: u8     = 0x31;
-const OP_TAT: u8     = 0x40;
-const OP_TSD: u8     = 0x41;
 const OP_TXT: u8     = 0x42;
 const OP_NUM: u8     = 0x43;
-const OP_POSC: u8    = 0x60;
-const OP_MOVC: u8    = 0x61;
 const OP_SFX: u8     = 0x87;
 const OP_MUS: u8     = 0x88;
 const OP_NOMUS: u8   = 0x89;
@@ -187,8 +170,8 @@ impl Compiler {
         }
     }
 
-    pub fn finish(mut self) -> (Vec<u8>, SourceMap) {
-        self.apply_patches();
+    pub fn finish(mut self) -> Result<(Vec<u8>, SourceMap)> {
+        self.apply_patches()?;
         // Patch CPY src/len and append string pool to ROM
         let pool_src = self.code.len();
         let pool_len = self.string_pool.len();
@@ -197,18 +180,21 @@ impl Compiler {
         self.code[self.cpy_len_patch]     = (pool_len & 0xFF) as u8;
         self.code[self.cpy_len_patch + 1] = ((pool_len >> 8) & 0xFF) as u8;
         self.code.extend_from_slice(&self.string_pool);
-        (self.code, self.source_map)
+        Ok((self.code, self.source_map))
     }
 
-    fn apply_patches(&mut self) {
+    fn apply_patches(&mut self) -> Result<()> {
         for (offset, label) in &self.patches {
             if let Some(&target) = self.labels.get(label) {
                 let lo = (target & 0xFF) as u8;
                 let hi = ((target >> 8) & 0xFF) as u8;
                 self.code[*offset] = lo;
                 self.code[*offset + 1] = hi;
+            } else {
+                return Err(crate::error::LangError::UnresolvedLabel { label: label.clone() });
             }
         }
+        Ok(())
     }
 
     fn fresh_label(&mut self, prefix: &str) -> String {
@@ -339,13 +325,6 @@ impl Compiler {
         self.code.push(rd);
     }
 
-    // 1-byte indirect load: Rd = mem[Raddr] (low byte only)
-    fn emit_ldmi(&mut self, rd: u8, raddr: u8) {
-        self.code.push(OP_LDMI);
-        self.code.push(rd);
-        self.code.push(raddr);
-    }
-
     // Intern a string literal into the pool; returns its RAM address after CPY.
     fn intern_string(&mut self, s: &str) -> u16 {
         if let Some(&off) = self.string_offsets.get(s) {
@@ -371,12 +350,6 @@ impl Compiler {
 
     fn emit_and_reg(&mut self, rd: u8, rs: u8) {
         self.code.push(OP_AND);
-        self.code.push(rd);
-        self.code.push(rs);
-    }
-
-    fn emit_mod_reg(&mut self, rd: u8, rs: u8) {
-        self.code.push(OP_MOD);
         self.code.push(rd);
         self.code.push(rs);
     }
@@ -657,10 +630,11 @@ impl Compiler {
         self.emit_mov(0, TABLE_CAP as u16);
         self.emit_stm32(RT_TMP4, 0);
 
-        let st_loop  = self.fresh_label("st_loop");
-        let st_write = self.fresh_label("st_write");
-        let st_wrap  = self.fresh_label("st_wrap");
-        let st_done  = self.fresh_label("st_done");
+        let st_loop      = self.fresh_label("st_loop");
+        let st_write     = self.fresh_label("st_write");
+        let st_overwrite = self.fresh_label("st_overwrite");
+        let st_wrap      = self.fresh_label("st_wrap");
+        let st_done      = self.fresh_label("st_done");
         self.emit_label(&st_loop);
 
         // guard against infinite loop if table full
@@ -701,6 +675,20 @@ impl Compiler {
         self.emit_jmp(&st_loop);
 
         self.emit_label(&st_write);
+        // Increment count only when inserting into a sentinel (new key)
+        // R1 = slot_key at this point
+        self.emit_mov32(2, TABLE_SENTINEL);
+        self.code.push(OP_EQ); self.code.push(2); self.code.push(1); self.code.push(2);
+        self.emit_jz(2, &st_overwrite); // R2=0 → existing key, skip increment
+        self.emit_ldm32(0, RT_TMP0);    // R0 = ptr
+        self.emit_mov(1, 4);
+        self.emit_addr(0, 1);           // R0 = ptr+4 (count field)
+        self.emit_ldm32i(1, 0);         // R1 = count
+        self.emit_mov(2, 1);
+        self.emit_addr(1, 2);           // R1 = count+1
+        self.emit_stm32i(0, 1);         // mem[ptr+4] = count+1
+
+        self.emit_label(&st_overwrite);
         // write key at probe
         self.emit_ldm32(0, RT_TMP3);
         self.emit_ldm32(1, RT_TMP1);
@@ -788,36 +776,10 @@ impl Compiler {
         self.emit_push(3); // push old FP
         self.emit_getsp(3); // FP = SP (points to the word after old FP was pushed)
 
-        // Note: SP now points to the slot where old FP is stored (i.e. FP-4 after entry).
-        // Actually after PUSH R3: SP decreased by 4, old FP is at mem[SP].
-        // Then GETSP R3: R3 = SP (i.e. FP points to old-FP slot).
-        // Parameters are at FP+4, FP+8, ... (pushed by caller in reverse, so param0 at FP+4*(nparams))
-        // Actually caller pushes args in reverse order: last arg first, first arg last.
-        // So after call: stack is [..., arg0, arg1, ..., argN-1, return_addr(implicit)]
-        // Wait — JSR pushes return addr. Then callee does PUSH R3; GETSP R3.
-        // Stack layout at function entry (after PUSH R3; GETSP R3):
-        //   FP+0: old FP (just pushed)
-        //   FP+4: return_addr (pushed by JSR)  ← not accessible directly
-        //   FP+8: arg0 (last pushed = first arg)
-        // Hmm, actually JSR pushes return addr onto stack first, then we push FP.
-        // Let me reconsider: caller pushes args in reverse (argN-1 first, arg0 last),
-        // then JSR (pushes ret addr), then callee does PUSH R3; GETSP R3.
-        // Stack (growing downward, SP points to last pushed):
-        //   [argN-1, ..., arg1, arg0, ret_addr, old_FP]  <- SP = FP here
-        // So: FP+4 = old_FP? No. FP = SP after PUSH R3.
-        // mem[FP] = old FP (just pushed).  (FP is SP after push)
-        // mem[FP+4] = return addr (pushed by JSR before PUSH R3)
-        // mem[FP+8] = arg0
-        // mem[FP+8 + i*4] = arg_i
-        // This is what emit_load_param uses: FP + (i+1)*4 with base 8.
-        // Let me fix: param i is at FP + (i+2)*4 to account for [old_FP, ret_addr, arg0, arg1...]
-        // Actually the calling convention must be consistent. Let me use a simpler model:
-        // Caller pushes args in order (arg0 first, argN-1 last), then JSR.
-        // Stack: [arg0, arg1, ..., argN-1, ret_addr, old_FP] <- FP=SP
-        // param i at FP + (N-1-i+2)*4? That's complicated.
-        // SIMPLEST: caller pushes args in REVERSE (argN-1 first, arg0 last).
-        // Then: mem[FP+4] = ret_addr, mem[FP+8] = arg0, mem[FP+8+i*4] = arg_i
-        // emit_load_param(i): addr = FP + (i+2)*4
+        // Stack at entry (after PUSH R3; GETSP R3):
+        //   mem[FP]   = old FP
+        //   mem[FP+4] = return addr (pushed by JSR)
+        //   mem[FP+8 + i*4] = arg_i  (caller pushes args in reverse: argN-1 first, arg0 last)
 
         self.fn_ctx = Some(FnCtx::new(func.params.clone()));
 
@@ -853,7 +815,19 @@ impl Compiler {
         Ok(())
     }
 
+    fn stmt_line(stmt: &Stmt) -> usize {
+        match stmt {
+            Stmt::Local { line, .. } | Stmt::Assign { line, .. } | Stmt::Do { line, .. }
+            | Stmt::While { line, .. } | Stmt::Repeat { line, .. } | Stmt::If { line, .. }
+            | Stmt::NumericFor { line, .. } | Stmt::Return { line, .. } | Stmt::Break { line }
+            | Stmt::ExprStmt { line, .. } | Stmt::SetField { line, .. }
+            | Stmt::SetIndex { line, .. } => *line,
+        }
+    }
+
     fn compile_stmt(&mut self, stmt: &Stmt) -> Result<()> {
+        let line = Self::stmt_line(stmt);
+        self.source_map.set_src_line(self.code.len(), line);
         match stmt {
             Stmt::ExprStmt { expr, .. } => {
                 self.lower_expr_r0(expr)?;
@@ -1061,8 +1035,6 @@ impl Compiler {
                 self.emit_pop(0);
                 self.emit_addr(0, 1);
                 self.emit_store_local(var_slot);
-                let _ = stop_slot;
-                let _ = step_slot;
 
                 self.emit_jmp(&loop_label);
                 self.emit_label(&end_label);
@@ -1228,9 +1200,7 @@ impl Compiler {
                         self.lower_expr_r0(&right)?;
                         self.emit_jmp(&end_label);
                         self.emit_label(&true_label);
-                        // R0 already has left value (which was truthy)
-                        // Re-evaluate left to get its value (already in R0 from above - but we jumped here)
-                        // Actually R0 still has left value when we jump to true_label
+                        // R0 still holds left value (truthy); jump skips right-eval
                         self.emit_label(&end_label);
                     }
                     BinOp::Concat => {
@@ -1296,7 +1266,7 @@ impl Compiler {
             Expr::Call { func, args, line } => {
                 self.lower_call(func, args, *line)?;
             }
-            Expr::Table { fields, line } => {
+            Expr::Table { fields, line: _ } => {
                 // Call __rt_newtable → R0 = ptr
                 self.emit_jsr("__rt_newtable");
                 let mut array_idx: u32 = 1;
@@ -1339,14 +1309,13 @@ impl Compiler {
                             self.emit_ldm32(0, RT_TMP0);    // recover ptr
                         }
                     }
-                    let _ = line;
                 }
                 // R0 = table ptr (already set by last settab / newtable if no fields)
             }
             Expr::Func { line, .. } => {
                 return Err(LangError::NotImplemented { line: *line, feature: "function expression".to_string() });
             }
-            Expr::Index { table, key, line } => {
+            Expr::Index { table, key, line: _ } => {
                 let key = key.as_ref().clone();
                 let table = table.as_ref().clone();
                 self.lower_expr_r0(&table)?;
@@ -1355,16 +1324,14 @@ impl Compiler {
                 self.emit_movr(1, 0);           // R1 = key
                 self.emit_pop(0);               // R0 = ptr
                 self.emit_jsr("__rt_gettab");
-                let _ = line;
             }
-            Expr::Field { table, name, line } => {
+            Expr::Field { table, name, line: _ } => {
                 let table = table.as_ref().clone();
                 let key_ptr = self.intern_string(name);
                 self.lower_expr_r0(&table)?;
                 // R0 = ptr; no nested eval, so no scratch collision risk
                 self.emit_mov(1, key_ptr);
                 self.emit_jsr("__rt_gettab");
-                let _ = line;
             }
         }
         Ok(())
@@ -1397,12 +1364,11 @@ impl Compiler {
                 }
                 self.code.push(OP_WAIT);
             }
-            "key" => {
+            "key" | "btn" => {
                 if args.len() != 1 {
                     return Err(LangError::ArgCount { line, name, expected: 1, got: args.len() });
                 }
                 let key = self.require_literal_u8(&args[0], line, &name)?;
-                // IN R0, key
                 self.code.push(OP_IN);
                 self.code.push(0);
                 self.code.push(key);

@@ -1,0 +1,58 @@
+-- Smoke test: tables + strings + numeric for + while + repeat
+-- "tap to score" style: ball bounces, score increments on button press
+
+let ball = 0
+let score = 0
+let hi = 0
+let frame = 0
+
+init:
+  ball = {x=64, y=64, dx=2, dy=1}
+  score = 0
+  hi = 0
+
+loop:
+  cls()
+
+  -- bounce
+  if ball.x >= 120 then
+    ball.dx = -2
+  end
+  if ball.x <= 4 then
+    ball.dx = 2
+  end
+  if ball.y >= 120 then
+    ball.dy = -1
+  end
+  if ball.y <= 4 then
+    ball.dy = 1
+  end
+
+  ball.x += ball.dx
+  ball.y += ball.dy
+
+  -- score on button press
+  if btn(4) then
+    score += 1
+  end
+  if btn(5) then
+    score -= 1
+  end
+  if score < 0 then
+    score = 0
+  end
+  if score > hi then
+    hi = score
+  end
+
+  -- draw ball (x, y, sprite_addr)
+  spr(ball.x, ball.y, 0x4000)
+
+  -- draw hud
+  txt(2, 2, "SCORE:", 7)
+  num(44, 2, score, 7)
+  txt(2, 10, "HI:", 7)
+  num(44, 10, hi, 5)
+
+  frame += 1
+  wait()

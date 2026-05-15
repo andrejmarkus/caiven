@@ -319,6 +319,7 @@ impl App {
             let out = fc_lang::compile(&source)
                 .map_err(|e| anyhow::anyhow!("compile error in {}: {}", path.display(), e))?;
             self.vm.load_rom_with_source_map(out.program, out.source_map);
+            self.vm.set_fc_source(&source);
             info!("fc-lang compiled from {}", path.display());
         } else {
             let out = fc_asm::assemble_with_sections(&source)

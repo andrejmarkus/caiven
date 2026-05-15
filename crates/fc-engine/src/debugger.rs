@@ -323,8 +323,15 @@ impl Debugger {
             let addr_str = format!("0X{:04X}", addr);
             draw_text(font, screen, &addr_str, Vec2::new(8, y), text_color);
 
-            let disasm = vm.disassemble(addr);
-            let truncated: String = disasm.chars().take(18).collect();
+            // If this address has an fc-lang source line, show it; else fall back to disasm
+            let text: String = vm
+                .get_source_map()
+                .get(addr)
+                .and_then(|info| info.src_line)
+                .and_then(|ln| vm.get_fc_source_line(ln))
+                .map(|s| s.trim().to_string())
+                .unwrap_or_else(|| vm.disassemble(addr));
+            let truncated: String = text.chars().take(18).collect();
             draw_text(font, screen, &truncated, Vec2::new(36, y), text_color);
         }
 

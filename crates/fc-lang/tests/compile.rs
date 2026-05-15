@@ -265,3 +265,10 @@ loop:
   wait()
 "#);
 }
+
+#[test]
+fn smoke_tables_strings() {
+    let src = std::fs::read_to_string("../../games/fc/demo_smoke.fc")
+        .expect("demo_smoke.fc not found");
+    compiles(&src);
+}
