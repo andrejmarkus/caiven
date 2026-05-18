@@ -1,0 +1,16 @@
+[package]
+name = "migration"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "migration"
+path = "src/lib.rs"
+
+[[bin]]
+name = "migration"
+path = "src/main.rs"
+
+[dependencies]
+sea-orm-migration = { workspace = true }
+tokio = { workspace = true }

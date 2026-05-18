@@ -1,0 +1,15 @@
+services:
+  hub:
+    build:
+      context: ../..
+      dockerfile: crates/fc-hub/Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - hub-data:/data
+    environment:
+      FC_HUB_API_KEY: ${FC_HUB_API_KEY:-changeme}
+    restart: unless-stopped
+
+volumes:
+  hub-data:
