@@ -382,10 +382,12 @@ impl App {
     }
 
     fn save_cart(&mut self) {
-        let Some(meta) = &self.cart_meta else {
+        let Some(meta) = &mut self.cart_meta else {
             warn!("Ctrl+S: no cart loaded");
             return;
         };
+        meta.header.title = self.meta_editor.title.clone();
+        meta.header.author = self.meta_editor.author.clone();
         match crate::cart_save::save(&self.vm, meta) {
             Ok(()) => info!("cart saved to {}", meta.path.display()),
             Err(e) => error!("cart save failed: {e}"),

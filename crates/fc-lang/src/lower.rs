@@ -62,6 +62,9 @@ const OP_IN: u8      = 0x20;
 const OP_CPY: u8     = 0x34;
 const OP_TXT: u8     = 0x42;
 const OP_NUM: u8     = 0x43;
+const OP_MATH1: u8   = 0x37;
+const OP_MAX: u8     = 0x38;
+const OP_MIN: u8     = 0x39;
 const OP_SFX: u8     = 0x87;
 const OP_MUS: u8     = 0x88;
 const OP_NOMUS: u8   = 0x89;
@@ -1546,6 +1549,38 @@ impl Compiler {
                 self.code.push(flags);
                 self.code.push(scale);
                 self.restore_fp_if_needed();
+            }
+            "sin" | "cos" | "abs" | "flr" | "sqrt" => {
+                if args.len() != 1 {
+                    return Err(LangError::ArgCount { line, name: name.clone(), expected: 1, got: args.len() });
+                }
+                let kind: u8 = match name.as_str() {
+                    "sin"  => 0,
+                    "cos"  => 1,
+                    "abs"  => 2,
+                    "flr"  => 3,
+                    "sqrt" => 4,
+                    _      => unreachable!(),
+                };
+                self.lower_expr_r0(&args[0])?;
+                self.emit_movr(1, 0);
+                self.code.push(OP_MATH1);
+                self.code.push(0); // dest R0
+                self.code.push(1); // src R1
+                self.code.push(kind);
+            }
+            "max" | "min" => {
+                if args.len() != 2 {
+                    return Err(LangError::ArgCount { line, name: name.clone(), expected: 2, got: args.len() });
+                }
+                self.lower_expr_r0(&args[0])?;
+                self.emit_push(0);              // save arg0 — R1 may be clobbered by arg1 eval
+                self.lower_expr_r0(&args[1])?;  // arg1 → R0
+                self.emit_pop(1);               // arg0 → R1
+                let op = if name == "max" { OP_MAX } else { OP_MIN };
+                self.code.push(op);
+                self.code.push(0);
+                self.code.push(1);
             }
             "rnd" => {
                 if args.len() != 1 {

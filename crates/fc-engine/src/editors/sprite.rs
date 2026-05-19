@@ -18,6 +18,7 @@ pub struct SpriteEditor {
     pub active_sprite: usize,
     pub active_color: u8,
     clipboard: Option<[u8; 64]>,
+    fill_mode: bool,
 }
 
 impl SpriteEditor {
@@ -26,6 +27,25 @@ impl SpriteEditor {
             active_sprite: 0,
             active_color: 1,
             clipboard: None,
+            fill_mode: false,
+        }
+    }
+
+    fn flood_fill(vm: &mut Vm, base: usize, px: usize, py: usize, target: u8, fill: u8) {
+        if target == fill { return; }
+        let mut visited = 0u64;
+        let mut stack = vec![(px, py)];
+        while let Some((x, y)) = stack.pop() {
+            let bit = y * SPRITE_SIZE + x;
+            if visited & (1u64 << bit) != 0 { continue; }
+            visited |= 1u64 << bit;
+            let off = base + bit;
+            if vm.peek_memory(off) != target { continue; }
+            vm.poke_memory(off, fill);
+            if x > 0 { stack.push((x - 1, y)); }
+            if x + 1 < SPRITE_SIZE { stack.push((x + 1, y)); }
+            if y > 0 { stack.push((x, y - 1)); }
+            if y + 1 < SPRITE_SIZE { stack.push((x, y + 1)); }
         }
     }
 
@@ -35,11 +55,13 @@ impl SpriteEditor {
                 // Edit canvas — 8x8 sprite at 8x zoom in [0..63, 0..63]
                 let px = (x / 8) as usize;
                 let py = (y / 8) as usize;
-                let offset = SPRITE_SHEET_BASE
-                    + self.active_sprite * SPRITE_SIZE * SPRITE_SIZE
-                    + py * SPRITE_SIZE
-                    + px;
-                vm.poke_memory(offset, self.active_color);
+                let base = SPRITE_SHEET_BASE + self.active_sprite * SPRITE_SIZE * SPRITE_SIZE;
+                if self.fill_mode {
+                    let target = vm.peek_memory(base + py * SPRITE_SIZE + px);
+                    Self::flood_fill(vm, base, px, py, target, self.active_color);
+                } else {
+                    vm.poke_memory(base + py * SPRITE_SIZE + px, self.active_color);
+                }
             } else {
                 // Sprite picker — [64..127, 0..63], 8 sprites wide × 8 sprites tall
                 let col = ((x - 64) / 8) as usize;
@@ -96,7 +118,7 @@ impl SpriteEditor {
         if cx < 64 && cy < 64 {
             let cell_x = (cx / 8) * 8;
             let cell_y = (cy / 8) * 8;
-            let hi = Color::new_rgb(255, 255, 255);
+            let hi = if self.fill_mode { Color::new_rgb(255, 160, 0) } else { Color::new_rgb(255, 255, 255) };
             for d in 0..8u32 {
                 screen.set_pixel(Vec2::new(cell_x + d, cell_y), hi);
                 screen.set_pixel(Vec2::new(cell_x + d, cell_y + 7), hi);
@@ -154,9 +176,11 @@ impl SpriteEditor {
         }
 
         // Info label
-        let clip_indicator = if self.clipboard.is_some() { " [V]=PASTE" } else { "" };
-        let label = format!("SPR:{} COL:{}  [C]=COPY{}", self.active_sprite, self.active_color, clip_indicator);
-        draw_text(font, screen, &label, Vec2::new(0, 72), Color::new_rgb(200, 200, 200));
+        let fill_str = if self.fill_mode { " [F]=FILL*" } else { " [F]=FILL" };
+        let clip_str = if self.clipboard.is_some() { " [V]=PASTE" } else { "" };
+        let label = format!("SPR:{} COL:{}{}{}", self.active_sprite, self.active_color, fill_str, clip_str);
+        let label_col = if self.fill_mode { Color::new_rgb(255, 200, 80) } else { Color::new_rgb(200, 200, 200) };
+        draw_text(font, screen, &label, Vec2::new(0, 72), label_col);
     }
 }
 
@@ -187,6 +211,9 @@ impl Editor for SpriteEditor {
                         vm.poke_memory(base + i, *b);
                     }
                 }
+            }
+            KeyCode::KeyF => {
+                self.fill_mode = !self.fill_mode;
             }
             _ => {}
         }

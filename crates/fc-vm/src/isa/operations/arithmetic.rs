@@ -265,3 +265,47 @@ fn noise_rnd() -> u32 {
     SEED.store(x, Ordering::Relaxed);
     x
 }
+
+/// Unary math: MATH1 Rdst Rsrc kind
+/// kind: 0=sin, 1=cos, 2=abs, 3=flr, 4=sqrt
+/// sin/cos: input 0..255 (256ths of a turn), output -128..127
+pub fn math1(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let dest = ctx.read_register_index()?;
+    let src = ctx.read_register_index()?;
+    let kind = ctx.read_byte()?;
+    let val = ctx.cpu.get_register_value(src) as i32;
+    let result: i32 = match kind {
+        0 => {
+            let t = val as f32 / 256.0 * std::f32::consts::TAU;
+            (t.sin() * 127.0).round() as i32
+        }
+        1 => {
+            let t = val as f32 / 256.0 * std::f32::consts::TAU;
+            (t.cos() * 127.0).round() as i32
+        }
+        2 => val.wrapping_abs(),
+        3 => val, // identity for integers; strip fractional bits here when fixed-point is added
+        4 => (val.max(0) as f32).sqrt() as i32,
+        _ => val,
+    };
+    ctx.cpu.set_register(dest, result as u32);
+    Ok(())
+}
+
+pub fn max_register(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let dest = ctx.read_register_index()?;
+    let src = ctx.read_register_index()?;
+    let a = ctx.cpu.get_register_value(dest) as i32;
+    let b = ctx.cpu.get_register_value(src) as i32;
+    ctx.cpu.set_register(dest, a.max(b) as u32);
+    Ok(())
+}
+
+pub fn min_register(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let dest = ctx.read_register_index()?;
+    let src = ctx.read_register_index()?;
+    let a = ctx.cpu.get_register_value(dest) as i32;
+    let b = ctx.cpu.get_register_value(src) as i32;
+    ctx.cpu.set_register(dest, a.min(b) as u32);
+    Ok(())
+}

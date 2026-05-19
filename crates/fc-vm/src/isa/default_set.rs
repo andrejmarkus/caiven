@@ -610,6 +610,27 @@ pub fn default_instruction_set() -> InstructionSet {
     });
 
     set.register(Instruction {
+        name: "MATH1",
+        opcode: 0x37,
+        execute: operations::math1,
+        debug_info: |bytes| format!("MATH1 R{}, R{}, {}", bytes[1], bytes[2], bytes[3]),
+    });
+
+    set.register(Instruction {
+        name: "MAX",
+        opcode: 0x38,
+        execute: operations::max_register,
+        debug_info: |bytes| format!("MAX R{}, R{}", bytes[1], bytes[2]),
+    });
+
+    set.register(Instruction {
+        name: "MIN",
+        opcode: 0x39,
+        execute: operations::min_register,
+        debug_info: |bytes| format!("MIN R{}, R{}", bytes[1], bytes[2]),
+    });
+
+    set.register(Instruction {
         name: "TAT",
         opcode: 0x40,
         execute: operations::tile_at,
