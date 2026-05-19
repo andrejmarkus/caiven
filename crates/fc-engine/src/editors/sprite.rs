@@ -17,6 +17,7 @@ const SPRITE_SIZE: usize = 8;
 pub struct SpriteEditor {
     pub active_sprite: usize,
     pub active_color: u8,
+    clipboard: Option<[u8; 64]>,
 }
 
 impl SpriteEditor {
@@ -24,6 +25,7 @@ impl SpriteEditor {
         SpriteEditor {
             active_sprite: 0,
             active_color: 1,
+            clipboard: None,
         }
     }
 
@@ -152,7 +154,8 @@ impl SpriteEditor {
         }
 
         // Info label
-        let label = format!("SPR:{} COL:{}", self.active_sprite, self.active_color);
+        let clip_indicator = if self.clipboard.is_some() { " [V]=PASTE" } else { "" };
+        let label = format!("SPR:{} COL:{}  [C]=COPY{}", self.active_sprite, self.active_color, clip_indicator);
         draw_text(font, screen, &label, Vec2::new(0, 72), Color::new_rgb(200, 200, 200));
     }
 }
@@ -166,5 +169,26 @@ impl Editor for SpriteEditor {
         self.handle_click_inner(x, y, vm);
     }
 
-    fn handle_key(&mut self, _key: KeyCode, _vm: &mut Vm) {}
+    fn handle_key(&mut self, key: KeyCode, vm: &mut Vm) {
+        const SPRITE_BYTES: usize = SPRITE_SIZE * SPRITE_SIZE;
+        match key {
+            KeyCode::KeyC => {
+                let base = SPRITE_SHEET_BASE + self.active_sprite * SPRITE_BYTES;
+                let mut buf = [0u8; 64];
+                for (i, b) in buf.iter_mut().enumerate() {
+                    *b = vm.peek_memory(base + i);
+                }
+                self.clipboard = Some(buf);
+            }
+            KeyCode::KeyV => {
+                if let Some(buf) = self.clipboard {
+                    let base = SPRITE_SHEET_BASE + self.active_sprite * SPRITE_BYTES;
+                    for (i, b) in buf.iter().enumerate() {
+                        vm.poke_memory(base + i, *b);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 }

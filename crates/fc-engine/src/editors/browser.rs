@@ -2,6 +2,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 
+use chrono::{DateTime, Local};
 use fc_core::{Color, Vec2};
 use fc_vm::rendering::{font::Font, screen::ScreenLayer, text::draw_text};
 use fc_vm::vm::Vm;
@@ -24,6 +25,13 @@ fn to_display(s: &str, max: usize) -> String {
         .filter(|c| FONT_CHARS.contains(*c))
         .take(max)
         .collect()
+}
+
+#[derive(Clone)]
+struct RomEntry {
+    path: PathBuf,
+    title: String,
+    date: String, // "MM-DD" from mtime
 }
 
 fn c_selected_bg() -> Color { Color::new_rgb(30, 50, 90) }
@@ -68,7 +76,7 @@ enum HubMsg {
 
 pub struct BrowserEditor {
     // local tab
-    files: Vec<PathBuf>,
+    files: Vec<RomEntry>,
     local_selected: usize,
     local_scroll: usize,
     // online tab
@@ -115,12 +123,28 @@ impl BrowserEditor {
     pub fn rescan(&mut self) {
         self.files.clear();
         if let Ok(entries) = std::fs::read_dir(&self.scan_dir) {
-            let mut files: Vec<PathBuf> = entries
+            let mut files: Vec<RomEntry> = entries
                 .filter_map(|e| e.ok())
                 .map(|e| e.path())
                 .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("rom"))
+                .map(|path| {
+                    let title = fc_rom::load(&path).ok()
+                        .map(|r| r.header.title)
+                        .filter(|t| !t.is_empty())
+                        .unwrap_or_else(|| {
+                            path.file_stem().and_then(|s| s.to_str()).unwrap_or("?").to_string()
+                        });
+                    let date = path.metadata().ok()
+                        .and_then(|m| m.modified().ok())
+                        .map(|t| {
+                            let dt: DateTime<Local> = t.into();
+                            dt.format("%m-%d").to_string()
+                        })
+                        .unwrap_or_default();
+                    RomEntry { path, title, date }
+                })
                 .collect();
-            files.sort();
+            files.sort_by(|a, b| a.path.cmp(&b.path));
             self.files = files;
         }
         self.local_selected = 0;
@@ -232,10 +256,13 @@ impl BrowserEditor {
             let y = LIST_TOP + vis_idx as u32 * ROW_H;
             let is_sel = file_idx == self.local_selected;
             if is_sel { Self::draw_selected_row(layer, y); }
-            let name = self.files[file_idx]
-                .file_stem().and_then(|s| s.to_str()).unwrap_or("?");
-            let display = to_display(name, 28);
+            let entry = &self.files[file_idx];
+            let display = to_display(&entry.title, 22);
+            let date = to_display(&entry.date, 5);
             draw_text(font, layer, &display, Vec2::new(2, y + 1), if is_sel { c_selected() } else { c_normal() });
+            if !date.is_empty() {
+                draw_text(font, layer, &date, Vec2::new(92, y + 1), c_hint());
+            }
         }
 
         Self::draw_scroll_thumb(layer, self.local_scroll, self.files.len());
@@ -324,7 +351,7 @@ impl Editor for BrowserEditor {
                 let file_idx = self.local_scroll + vis;
                 if file_idx < self.files.len() {
                     if file_idx == self.local_selected {
-                        self.pending_load = Some(self.files[file_idx].clone());
+                        self.pending_load = Some(self.files[file_idx].path.clone());
                     } else {
                         self.local_selected = file_idx;
                     }
@@ -406,8 +433,8 @@ impl Editor for BrowserEditor {
             KeyCode::Enter | KeyCode::NumpadEnter => {
                 match self.tab {
                     BrowserTab::Local => {
-                        if let Some(path) = self.files.get(self.local_selected) {
-                            self.pending_load = Some(path.clone());
+                        if let Some(entry) = self.files.get(self.local_selected) {
+                            self.pending_load = Some(entry.path.clone());
                         }
                     }
                     BrowserTab::Online => {
