@@ -409,6 +409,12 @@ pub fn default_isa() -> IsaTable {
             args: vec![Register, Register],
         },
         OpcodeSpec {
+            name: "JREG",
+            opcode: 0x3A,
+            size: 2,
+            args: vec![Register],
+        },
+        OpcodeSpec {
             name: "TAT",
             opcode: 0x40,
             size: 6,

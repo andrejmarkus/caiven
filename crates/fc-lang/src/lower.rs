@@ -65,6 +65,7 @@ const OP_NUM: u8     = 0x43;
 const OP_MATH1: u8   = 0x37;
 const OP_MAX: u8     = 0x38;
 const OP_MIN: u8     = 0x39;
+const OP_JREG: u8    = 0x3A;
 const OP_SFX: u8     = 0x87;
 const OP_MUS: u8     = 0x88;
 const OP_NOMUS: u8   = 0x89;
@@ -76,7 +77,8 @@ enum VarLoc {
     Const(u32),
     Global(u16),     // absolute RAM address (4-byte cell)
     Local(usize),    // slot index (FP - slot*4)
-    Param(usize),    // param index (FP + (idx+1)*4, stored by caller)
+    Param(usize),    // actual param index including hidden env_ptr for closures
+    Upvalue(usize),  // upval index; loaded from env_ptr (param[0]) + i*4
 }
 
 struct BreakTarget {
@@ -89,6 +91,8 @@ struct FnCtx {
     scopes: Vec<HashMap<String, usize>>,
     next_slot: usize,
     break_targets: Vec<BreakTarget>,
+    upvals: Vec<String>,
+    is_closure: bool,
 }
 
 impl FnCtx {
@@ -98,6 +102,19 @@ impl FnCtx {
             scopes: vec![HashMap::new()],
             next_slot: 0,
             break_targets: Vec::new(),
+            upvals: Vec::new(),
+            is_closure: false,
+        }
+    }
+
+    fn new_closure(params: Vec<String>, upvals: Vec<String>) -> Self {
+        FnCtx {
+            params,
+            scopes: vec![HashMap::new()],
+            next_slot: 0,
+            break_targets: Vec::new(),
+            upvals,
+            is_closure: true,
         }
     }
 
@@ -126,10 +143,17 @@ impl FnCtx {
                 return Some(VarLoc::Local(slot));
             }
         }
-        // Check params
+        // Check params — for closures, param[0] is hidden env_ptr so user params start at 1
         for (i, p) in self.params.iter().enumerate() {
             if p == name {
-                return Some(VarLoc::Param(i));
+                let actual_idx = if self.is_closure { i + 1 } else { i };
+                return Some(VarLoc::Param(actual_idx));
+            }
+        }
+        // Check upvals
+        for (i, u) in self.upvals.iter().enumerate() {
+            if u == name {
+                return Some(VarLoc::Upvalue(i));
             }
         }
         None
@@ -151,6 +175,7 @@ pub struct Compiler {
     string_offsets: HashMap<String, u16>,
     cpy_src_patch: usize,
     cpy_len_patch: usize,
+    fn_names: std::collections::HashSet<String>,
 }
 
 impl Compiler {
@@ -170,6 +195,7 @@ impl Compiler {
             string_offsets: HashMap::new(),
             cpy_src_patch: 0,
             cpy_len_patch: 0,
+            fn_names: std::collections::HashSet::new(),
         }
     }
 
@@ -343,6 +369,39 @@ impl Compiler {
     fn emit_setsp(&mut self, rs: u8) {
         self.code.push(OP_SETSP);
         self.code.push(rs);
+    }
+
+    fn emit_jreg(&mut self, reg: u8) {
+        self.code.push(OP_JREG);
+        self.code.push(reg);
+    }
+
+    // MOV Rd, label_addr — patched at apply_patches time
+    fn emit_mov_label(&mut self, rd: u8, label: &str) {
+        self.code.push(OP_MOV);
+        self.code.push(rd);
+        self.patches.push((self.code.len(), label.to_string()));
+        self.code.push(0);
+        self.code.push(0);
+    }
+
+    // Load upval[i] → R0: env_ptr = param[0]; R0 = mem32[env_ptr + i*4]
+    fn emit_load_upval(&mut self, i: usize) {
+        self.emit_load_param(0);           // R0 = env_ptr
+        self.emit_mov(1, (i * 4) as u16); // R1 = i*4
+        self.emit_addr(0, 1);             // R0 = env_ptr + i*4
+        self.emit_ldm32i(0, 0);           // R0 = mem32[R0]
+    }
+
+    // Store R0 into upval[i]: mem32[env_ptr + i*4] = R0
+    fn emit_store_upval(&mut self, i: usize) {
+        self.emit_push(0);                 // save value
+        self.emit_load_param(0);           // R0 = env_ptr
+        self.emit_mov(1, (i * 4) as u16); // R1 = i*4
+        self.emit_addr(0, 1);             // R0 = env_ptr + i*4 (address)
+        self.emit_movr(1, 0);             // R1 = address
+        self.emit_pop(0);                  // R0 = value
+        self.emit_stm32i(1, 0);           // mem32[address] = value
     }
 
     fn emit_mul_reg(&mut self, rd: u8, rs: u8) {
@@ -726,6 +785,11 @@ impl Compiler {
         // Emit RT helpers (newtable / gettab / settab)
         self.emit_rt_helpers();
 
+        // Populate fn_names for static-vs-dynamic call dispatch
+        for func in &file.functions {
+            self.fn_names.insert(func.name.clone());
+        }
+
         // Emit function bodies
         for func in &file.functions {
             self.compile_fn(func)?;
@@ -798,6 +862,57 @@ impl Compiler {
         Ok(())
     }
 
+    // Emit a closure body at the current code position.
+    // Calling convention: param[0] = env_ptr (hidden), param[1..] = user args.
+    // env_ptr points to upval array: [upval[0](u32), upval[1](u32), ...]
+    fn compile_closure_fn(&mut self, params: &[String], body: &[Stmt], upvals: Vec<String>) -> Result<()> {
+        self.emit_push(3);
+        self.emit_getsp(3);
+
+        let saved_ctx = self.fn_ctx.take();
+        self.fn_ctx = Some(FnCtx::new_closure(params.to_vec(), upvals));
+
+        let body = body.to_vec();
+        self.compile_block(&body)?;
+
+        self.emit_setsp(3);
+        self.emit_pop(3);
+        self.code.push(OP_RET);
+
+        self.fn_ctx = saved_ctx;
+        Ok(())
+    }
+
+    // Emit an indirect call through a closure pointer in R0.
+    // Stack layout before JREG: [...args (reversed)... env_ptr(top)]
+    // env_ptr = closure_ptr + 8; code_ptr = mem32[closure_ptr]
+    fn emit_dynamic_call(&mut self, func: &Expr, args: &[Expr], _line: usize) -> Result<()> {
+        // Push args in reverse order (argN-1 first, arg0 last = top of stack)
+        let args_clone: Vec<Expr> = args.to_vec();
+        for arg in args_clone.iter().rev() {
+            self.lower_expr_r0(arg)?;
+            self.emit_push(0);
+        }
+        // Eval func → R0 = closure_ptr
+        self.lower_expr_r0(func)?;
+        // R0 = closure_ptr; R1 = code_ptr = mem32[closure_ptr]
+        self.emit_ldm32i(1, 0);
+        // R0 = env_ptr = closure_ptr + 8
+        self.emit_mov(2, 8);
+        self.emit_addr(0, 2);
+        self.emit_push(0);             // push env_ptr (becomes param[0] of closure)
+        self.emit_jreg(1);             // jump to code_ptr; pushes 2-byte return addr
+        // Cleanup: pop env_ptr + all args
+        let total = (args.len() + 1) * 4;
+        if total > 0 {
+            self.emit_getsp(1);
+            self.emit_mov(2, total as u16);
+            self.emit_addr(1, 2);
+            self.emit_setsp(1);
+        }
+        Ok(())
+    }
+
     fn compile_block(&mut self, block: &[Stmt]) -> Result<()> {
         if let Some(ctx) = &mut self.fn_ctx {
             ctx.push_scope();
@@ -852,6 +967,9 @@ impl Compiler {
                     }
                     VarLoc::Param(idx) => {
                         self.emit_store_param(idx);
+                    }
+                    VarLoc::Upvalue(i) => {
+                        self.emit_store_upval(i);
                     }
                 }
             }
@@ -1152,6 +1270,7 @@ impl Compiler {
                     Some(VarLoc::Global(addr)) => { self.emit_ldm32(0, addr); }
                     Some(VarLoc::Local(slot)) => { self.emit_load_local(slot); }
                     Some(VarLoc::Param(idx)) => { self.emit_load_param(idx); }
+                    Some(VarLoc::Upvalue(i)) => { self.emit_load_upval(i); }
                 }
             }
             Expr::UnOp { op, expr, line } => {
@@ -1315,8 +1434,83 @@ impl Compiler {
                 }
                 // R0 = table ptr (already set by last settab / newtable if no fields)
             }
-            Expr::Func { line, .. } => {
-                return Err(LangError::NotImplemented { line: *line, feature: "function expression".to_string() });
+            Expr::Func { params, body, line } => {
+                let params = params.clone();
+                let body = body.clone();
+                let line = *line;
+                // Free-variable analysis
+                let upvals = collect_free_vars(&params, &body, |name| self.lookup_var(name));
+                // Emit closure struct: [code_ptr(u32) | n_upvals(u32) | upval[0]..upval[n-1]]
+                // Allocate heap: size = 8 + n*4
+                let n = upvals.len();
+                let alloc_size = (8 + n * 4) as u32;
+                // R0 = heap_top (closure_ptr); advance heap_top
+                self.emit_ldm32(0, HEAP_TOP_ADDR);           // R0 = closure_ptr
+                self.emit_push(0);                            // save closure_ptr
+                self.emit_mov32(1, alloc_size);
+                self.emit_addr(0, 1);
+                self.emit_stm32(HEAP_TOP_ADDR, 0);           // heap_top += alloc_size
+                self.emit_pop(0);                             // R0 = closure_ptr
+
+                // Store code_ptr (patched label) at [closure_ptr]
+                let fn_label = format!("__closure_{}_{}", self.code.len(), line);
+                self.emit_push(0);                            // save closure_ptr
+                self.emit_mov_label(1, &fn_label);            // R1 = code_ptr (patched)
+                self.emit_pop(0);                             // R0 = closure_ptr
+                self.emit_stm32i(0, 1);                       // mem32[closure_ptr] = code_ptr
+                // Store n_upvals at [closure_ptr+4]
+                self.emit_push(0);
+                self.emit_mov32(1, n as u32);
+                self.emit_mov(2, 4);
+                self.emit_addr(0, 2);                         // R0 = closure_ptr+4
+                self.emit_movr(2, 1);
+                self.emit_pop(1);                             // R1 = closure_ptr
+                self.emit_stm32i(1, 2);  // mem32[closure_ptr+4] = n — NOTE: use scratch differently
+                // Actually just: store n at closure_ptr+4
+                // Re-do cleanly: R0 = closure_ptr (already popped into R1), get it back
+                // Let me use a simpler sequence:
+                // At this point: R1 = closure_ptr, R2 = n_upvals, R0 = closure_ptr+4
+                self.emit_stm32i(0, 2);                       // mem32[closure_ptr+4] = n_upvals
+
+                // Store each upval: mem32[closure_ptr + 8 + i*4] = value
+                let upvals_clone = upvals.clone();
+                for (i, uname) in upvals_clone.iter().enumerate() {
+                    // R1 = closure_ptr (saved in R1 above) — but R1 may be clobbered
+                    // Use stm32 with known offset from base is not possible without indirect
+                    // Use stm32i: need address in a reg
+                    // Capture upval value into R0
+                    let loc = self.lookup_var(uname).unwrap();
+                    match loc {
+                        VarLoc::Local(slot) => self.emit_load_local(slot),
+                        VarLoc::Param(idx) => self.emit_load_param(idx),
+                        VarLoc::Upvalue(ui) => self.emit_load_upval(ui),
+                        VarLoc::Global(addr) => self.emit_ldm32(0, addr),
+                        VarLoc::Const(v) => self.emit_mov32(0, v),
+                    }
+                    self.emit_push(0);                        // save upval value
+                    // R0 = closure_ptr (need to reload)
+                    self.emit_ldm32(0, HEAP_TOP_ADDR);        // current heap_top
+                    self.emit_mov32(1, alloc_size);
+                    self.emit_subr(0, 1);                     // R0 = closure_ptr = heap_top - alloc_size
+                    self.emit_mov32(1, (8 + i * 4) as u32);
+                    self.emit_addr(0, 1);                     // R0 = &upval[i]
+                    self.emit_movr(1, 0);                     // R1 = address
+                    self.emit_pop(0);                         // R0 = upval value
+                    self.emit_stm32i(1, 0);                   // mem32[&upval[i]] = value
+                }
+
+                // Result = closure_ptr: reload
+                self.emit_ldm32(0, HEAP_TOP_ADDR);
+                self.emit_mov32(1, alloc_size);
+                self.emit_subr(0, 1);                         // R0 = closure_ptr
+
+                // Emit closure body after a JMP to skip it
+                let after_label = format!("__closure_after_{}_{}", self.code.len(), line);
+                self.emit_jmp(&after_label);
+                self.emit_label(&fn_label);
+                self.compile_closure_fn(&params, &body, upvals)?;
+                self.emit_label(&after_label);
+                let _ = line;
             }
             Expr::Index { table, key, line: _ } => {
                 let key = key.as_ref().clone();
@@ -1344,10 +1538,7 @@ impl Compiler {
         // Dynamic calls (Field/Index): eval func to R0 and treat as user-defined function addr
         // Only handle Var (builtin/user) and Field (method dispatch → lookup + call)
         if !matches!(func, Expr::Var(..)) {
-            // Generic dynamic dispatch: evaluate func → R0 (table field lookup),
-            // then push args and JSR — not supported in this VM (needs indirect JSR).
-            // For now emit an error unless it's a field (desugar already done in parser).
-            return Err(LangError::NotImplemented { line, feature: "dynamic call".to_string() });
+            return self.emit_dynamic_call(func, args, line);
         }
         let name = match func {
             Expr::Var(n, _) => n.clone(),
@@ -1592,12 +1783,23 @@ impl Compiler {
                 self.emit_addr16(max);
             }
             _ => {
-                // User-defined function call
-                if !self.labels.contains_key(&name) && !self.patches.iter().any(|(_, l)| l == &name) {
-                    // Check if it's a declared function (we'll validate at link time)
-                    // For now, just emit JSR and hope label resolves
+                // If name resolves to a runtime value (local/param/upvalue/global variable
+                // holding a closure ptr), dispatch dynamically via JREG.
+                // Named top-level functions use direct JSR.
+                let is_static_fn = self.fn_names.contains(&name)
+                    || matches!(self.lookup_var(&name), None | Some(VarLoc::Const(_)));
+                if !is_static_fn {
+                    if let Some(loc) = self.lookup_var(&name) {
+                        match loc {
+                            VarLoc::Local(_) | VarLoc::Param(_) | VarLoc::Upvalue(_) | VarLoc::Global(_) => {
+                                let func_expr = Expr::Var(name.clone(), line);
+                                return self.emit_dynamic_call(&func_expr, args, line);
+                            }
+                            VarLoc::Const(_) => {}
+                        }
+                    }
                 }
-                // Push args in reverse order
+                // Static call to top-level named function
                 let args_clone: Vec<Expr> = args.to_vec();
                 for arg in args_clone.iter().rev() {
                     self.lower_expr_r0(arg)?;
@@ -1660,5 +1862,129 @@ impl Compiler {
             }
             _ => Err(LangError::RequiresLiteral { line, name: name.to_string() }),
         }
+    }
+}
+
+fn collect_free_vars<F>(params: &[String], body: &[Stmt], mut lookup: F) -> Vec<String>
+where
+    F: FnMut(&str) -> Option<VarLoc>,
+{
+    let mut refs: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut collect = |s: String| { refs.insert(s); };
+    for stmt in body {
+        refs_stmt_owned(stmt, &mut collect);
+    }
+    // Remove closure's own params
+    for p in params {
+        refs.remove(p.as_str());
+    }
+    // Keep only names that resolve to a runtime location in outer scope
+    let mut upvals: Vec<String> = refs
+        .into_iter()
+        .filter(|name| {
+            matches!(
+                lookup(name),
+                Some(VarLoc::Local(_)) | Some(VarLoc::Param(_)) | Some(VarLoc::Upvalue(_))
+            )
+        })
+        .collect();
+    upvals.sort(); // deterministic order
+    upvals
+}
+
+fn refs_stmt_owned(stmt: &Stmt, out: &mut dyn FnMut(String)) {
+    match stmt {
+        Stmt::Assign { target, value, .. } => {
+            out(target.clone());
+            refs_expr_owned(value, out);
+        }
+        Stmt::Local { inits, .. } => {
+            for e in inits { refs_expr_owned(e, out); }
+        }
+        Stmt::ExprStmt { expr, .. } => {
+            refs_expr_owned(expr, out);
+        }
+        Stmt::If { cond, then_block, elseif_clauses, else_block, .. } => {
+            refs_expr_owned(cond, out);
+            for s in then_block { refs_stmt_owned(s, out); }
+            for (e, b) in elseif_clauses {
+                refs_expr_owned(e, out);
+                for s in b { refs_stmt_owned(s, out); }
+            }
+            if let Some(b) = else_block {
+                for s in b { refs_stmt_owned(s, out); }
+            }
+        }
+        Stmt::While { cond, body, .. } => {
+            refs_expr_owned(cond, out);
+            for s in body { refs_stmt_owned(s, out); }
+        }
+        Stmt::Repeat { body, cond, .. } => {
+            for s in body { refs_stmt_owned(s, out); }
+            refs_expr_owned(cond, out);
+        }
+        Stmt::NumericFor { start, stop, step, body, .. } => {
+            refs_expr_owned(start, out);
+            refs_expr_owned(stop, out);
+            if let Some(e) = step { refs_expr_owned(e, out); }
+            for s in body { refs_stmt_owned(s, out); }
+        }
+        Stmt::Return { values, .. } => {
+            for e in values { refs_expr_owned(e, out); }
+        }
+        Stmt::Do { body, .. } => {
+            for s in body { refs_stmt_owned(s, out); }
+        }
+        Stmt::SetField { table, value, .. } => {
+            refs_expr_owned(table, out);
+            refs_expr_owned(value, out);
+        }
+        Stmt::SetIndex { table, key, value, .. } => {
+            refs_expr_owned(table, out);
+            refs_expr_owned(key, out);
+            refs_expr_owned(value, out);
+        }
+        Stmt::Break { .. } => {}
+    }
+}
+
+fn refs_expr_owned(expr: &Expr, out: &mut dyn FnMut(String)) {
+    match expr {
+        Expr::Var(name, _) => out(name.clone()),
+        Expr::UnOp { expr, .. } => refs_expr_owned(expr, out),
+        Expr::BinOp { left, right, .. } => {
+            refs_expr_owned(left, out);
+            refs_expr_owned(right, out);
+        }
+        Expr::Call { func, args, .. } => {
+            refs_expr_owned(func, out);
+            for a in args { refs_expr_owned(a, out); }
+        }
+        Expr::Index { table, key, .. } => {
+            refs_expr_owned(table, out);
+            refs_expr_owned(key, out);
+        }
+        Expr::Field { table, .. } => refs_expr_owned(table, out),
+        Expr::Table { fields, .. } => {
+            for f in fields {
+                match f {
+                    TableField::NameField { value, .. } => refs_expr_owned(value, out),
+                    TableField::IndexField { key, value } => {
+                        refs_expr_owned(key, out);
+                        refs_expr_owned(value, out);
+                    }
+                    TableField::ValueField { value } => refs_expr_owned(value, out),
+                }
+            }
+        }
+        Expr::Func { params, body, .. } => {
+            // Body refs minus inner params (they shadow outer)
+            let mut inner_refs: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut collect = |s: String| { inner_refs.insert(s); };
+            for s in body { refs_stmt_owned(s, &mut collect); }
+            for p in params { inner_refs.remove(p); }
+            for r in inner_refs { out(r); }
+        }
+        _ => {}
     }
 }

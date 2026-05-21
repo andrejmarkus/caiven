@@ -514,6 +514,13 @@ pub fn default_instruction_set() -> InstructionSet {
     });
 
     set.register(Instruction {
+        name: "JREG",
+        opcode: 0x3A,
+        execute: operations::jump_register_subroutine,
+        debug_info: |bytes| format!("JREG R{}", bytes[1]),
+    });
+
+    set.register(Instruction {
         name: "RET",
         opcode: 0x14,
         execute: operations::return_subroutine,

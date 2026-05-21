@@ -617,7 +617,7 @@ impl Parser {
             TokenKind::LBrace => {
                 self.parse_table_ctor()
             }
-            TokenKind::Function => {
+            TokenKind::Fn | TokenKind::Function => {
                 self.advance();
                 let params = self.parse_param_list()?;
                 let body = self.parse_block()?;

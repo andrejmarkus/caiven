@@ -66,6 +66,28 @@ pub fn jump_subroutine(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     Ok(())
 }
 
+pub fn jump_register_subroutine(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let reg = ctx.read_register_index()?;
+    let addr = ctx.cpu.get_register_value(reg) as usize;
+    let pc = ctx.cpu.get_pc() as u16;
+
+    let sp = ctx.cpu.get_sp();
+    if sp < 2 {
+        return Err(VmFault::StackOverflow);
+    }
+
+    let pc_low = (pc & 0xFF) as u8;
+    let pc_high = ((pc >> 8) & 0xFF) as u8;
+
+    ctx.mem.write(sp - 1, pc_high)?;
+    ctx.mem.write(sp - 2, pc_low)?;
+    ctx.cpu.set_sp(sp - 2);
+
+    debug!("JREG to {:04X}, pushing return address {:04X}", addr, pc);
+    ctx.cpu.set_pc(addr);
+    Ok(())
+}
+
 pub fn return_subroutine(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let sp = ctx.cpu.get_sp();
     let pc_low = ctx.mem.read(sp)?;

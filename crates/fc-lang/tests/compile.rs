@@ -272,3 +272,53 @@ fn smoke_tables_strings() {
         .expect("demo_smoke.fc not found");
     compiles(&src);
 }
+
+#[test]
+fn closure_no_upvals() {
+    compiles(r#"
+let f = 0
+loop:
+  f = fn(x) return x end
+  wait()
+"#);
+}
+
+#[test]
+fn closure_with_upval() {
+    compiles(r#"
+let f = 0
+let base = 10
+loop:
+  f = fn(x) return base + x end
+  wait()
+"#);
+}
+
+#[test]
+fn closure_call_via_var() {
+    compiles(r#"
+let f = 0
+let result = 0
+let base = 5
+loop:
+  f = fn(x) return base + x end
+  result = f(3)
+  wait()
+"#);
+}
+
+#[test]
+fn closure_as_fn_arg() {
+    compiles(r#"
+fn apply(cb, val)
+  return cb(val)
+end
+let f = 0
+let result = 0
+let offset = 7
+loop:
+  f = fn(x) return offset + x end
+  result = apply(f, 2)
+  wait()
+"#);
+}
