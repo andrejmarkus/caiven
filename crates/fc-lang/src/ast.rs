@@ -91,6 +91,13 @@ pub enum Stmt {
         value: Expr,
         line: usize,
     },
+    GenericFor {
+        key_var: String,
+        val_var: String,
+        table: Expr,
+        body: Block,
+        line: usize,
+    },
 }
 
 #[derive(Debug, Clone)]

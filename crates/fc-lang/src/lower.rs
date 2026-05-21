@@ -939,7 +939,7 @@ impl Compiler {
             | Stmt::While { line, .. } | Stmt::Repeat { line, .. } | Stmt::If { line, .. }
             | Stmt::NumericFor { line, .. } | Stmt::Return { line, .. } | Stmt::Break { line }
             | Stmt::ExprStmt { line, .. } | Stmt::SetField { line, .. }
-            | Stmt::SetIndex { line, .. } => *line,
+            | Stmt::SetIndex { line, .. } | Stmt::GenericFor { line, .. } => *line,
         }
     }
 
@@ -1241,6 +1241,168 @@ impl Compiler {
                 self.emit_pop(0);     // R0 = ptr
                 self.emit_jsr("__rt_settab");
             }
+            Stmt::GenericFor { key_var, val_var, table, body, line: _ } => {
+                // for key_var [, val_var] in table do body end
+                // Iterates TABLE_CAP slots linearly, skipping sentinel (0xFFFF_FFFF) keys.
+                // Table layout: ptr+0=cap, ptr+4=count, ptr+8+i*8=key, ptr+12+i*8=val
+                let key_var = key_var.clone();
+                let val_var = val_var.clone();
+                let table   = table.clone();
+                let body    = body.clone();
+                let loop_label = self.fresh_label("gfor_loop");
+                let end_label  = self.fresh_label("gfor_end");
+                let skip_label = self.fresh_label("gfor_skip");
+
+                if let Some(_) = &self.fn_ctx {
+                    // ── inside function: use stack locals ────────────────────────
+
+                    let slots_at_entry = self.fn_ctx.as_ref().unwrap().next_slot;
+                    self.fn_ctx.as_mut().unwrap().break_targets.push(
+                        BreakTarget { end_label: end_label.clone(), slots_at_entry });
+
+                    self.lower_expr_r0(&table)?;
+                    self.fn_ctx.as_mut().unwrap().push_scope();
+
+                    let ptr_slot = { let s = self.fn_ctx.as_mut().unwrap().alloc_local("__iter_ptr".to_string()); self.emit_push(0); s };
+                    self.emit_mov(0, 0);
+                    let idx_slot = { let s = self.fn_ctx.as_mut().unwrap().alloc_local("__iter_idx".to_string()); self.emit_push(0); s };
+
+                    self.emit_label(&loop_label);
+
+                    // if idx >= TABLE_CAP → end
+                    self.emit_load_local(idx_slot);
+                    self.emit_mov32(1, TABLE_CAP);
+                    self.code.push(OP_SLTS); self.code.push(2); self.code.push(0); self.code.push(1);
+                    self.emit_jz(2, &end_label);
+
+                    // R0 = entry_addr = iter_ptr + HDR_SZ + idx * ENTRY_SZ
+                    self.emit_load_local(idx_slot);
+                    self.emit_mov32(1, TABLE_ENTRY_SZ);
+                    self.emit_mul_reg(0, 1);         // R0 = idx * 8
+                    self.emit_mov32(1, TABLE_HDR_SZ);
+                    self.emit_addr(0, 1);
+                    self.emit_movr(2, 0);            // R2 = offset
+                    self.emit_load_local(ptr_slot);  // R0 = iter_ptr
+                    self.emit_addr(0, 2);            // R0 = entry_addr
+
+                    // key = mem32[entry_addr]; save entry_addr in R2
+                    self.emit_movr(2, 0);
+                    self.emit_ldm32i(0, 0);          // R0 = key
+
+                    // if sentinel → skip
+                    self.emit_mov32(1, TABLE_SENTINEL);
+                    self.code.push(OP_EQ); self.code.push(1); self.code.push(0); self.code.push(1);
+                    self.emit_jnz(1, &skip_label);
+
+                    // val = mem32[entry_addr + 4]; R2 = entry_addr
+                    self.emit_push(0);               // save key
+                    self.emit_mov32(1, 4);
+                    self.emit_addr(2, 1);            // R2 = entry_addr + 4
+                    self.emit_ldm32i(1, 2);          // R1 = val
+                    self.emit_pop(0);                // R0 = key
+
+                    // bind key_var and val_var in inner scope
+                    self.fn_ctx.as_mut().unwrap().push_scope();
+                    let _ = { let s = self.fn_ctx.as_mut().unwrap().alloc_local(key_var.clone()); self.emit_push(0); s };
+                    self.emit_movr(0, 1);
+                    let _ = { let s = self.fn_ctx.as_mut().unwrap().alloc_local(val_var.clone()); self.emit_push(0); s };
+
+                    self.compile_block(&body)?;
+
+                    let freed = self.fn_ctx.as_mut().unwrap().pop_scope();
+                    if freed > 0 {
+                        self.emit_getsp(1);
+                        self.emit_mov(2, (freed * 4) as u16);
+                        self.emit_addr(1, 2);
+                        self.emit_setsp(1);
+                    }
+
+                    self.emit_label(&skip_label);
+                    self.emit_load_local(idx_slot);
+                    self.emit_mov(1, 1);
+                    self.emit_addr(0, 1);
+                    self.emit_store_local(idx_slot);
+                    self.emit_jmp(&loop_label);
+                    self.emit_label(&end_label);
+
+                    let freed = self.fn_ctx.as_mut().unwrap().pop_scope();
+                    if freed > 0 {
+                        self.emit_getsp(1);
+                        self.emit_mov(2, (freed * 4) as u16);
+                        self.emit_addr(1, 2);
+                        self.emit_setsp(1);
+                    }
+                    self.fn_ctx.as_mut().unwrap().break_targets.pop();
+
+                } else {
+                    // ── top-level (init/loop block): use globals ─────────────────
+
+                    self.top_break_targets.push(BreakTarget { end_label: end_label.clone(), slots_at_entry: 0 });
+
+                    // Alloc anonymous globals for iter state
+                    let lc = self.label_counter;
+                    let ptr_name = format!("__gfor_ptr_{}", lc);
+                    let idx_name = format!("__gfor_idx_{}", lc);
+                    let ptr_addr = self.alloc_global(&ptr_name);
+                    let idx_addr = self.alloc_global(&idx_name);
+
+                    // Alloc globals for key_var and val_var (so body lookups find them)
+                    let key_addr = if let Some(&a) = self.globals.get(&key_var) { a }
+                                   else { self.alloc_global(&key_var) };
+                    let val_addr = if let Some(&a) = self.globals.get(&val_var) { a }
+                                   else { self.alloc_global(&val_var) };
+
+                    self.lower_expr_r0(&table)?;
+                    self.emit_stm32(ptr_addr, 0);       // iter_ptr = table
+                    self.emit_mov(0, 0);
+                    self.emit_stm32(idx_addr, 0);       // iter_idx = 0
+
+                    self.emit_label(&loop_label);
+
+                    // if idx >= TABLE_CAP → end
+                    self.emit_ldm32(0, idx_addr);
+                    self.emit_mov32(1, TABLE_CAP);
+                    self.code.push(OP_SLTS); self.code.push(2); self.code.push(0); self.code.push(1);
+                    self.emit_jz(2, &end_label);
+
+                    // R0 = entry_addr = iter_ptr + HDR_SZ + idx * ENTRY_SZ
+                    self.emit_ldm32(0, idx_addr);
+                    self.emit_mov32(1, TABLE_ENTRY_SZ);
+                    self.emit_mul_reg(0, 1);             // R0 = idx * 8
+                    self.emit_mov32(1, TABLE_HDR_SZ);
+                    self.emit_addr(0, 1);
+                    self.emit_movr(2, 0);               // R2 = offset
+                    self.emit_ldm32(0, ptr_addr);       // R0 = iter_ptr
+                    self.emit_addr(0, 2);               // R0 = entry_addr
+
+                    // key = mem32[entry_addr]
+                    self.emit_movr(2, 0);               // R2 = entry_addr
+                    self.emit_ldm32i(0, 0);             // R0 = key
+
+                    // if sentinel → skip
+                    self.emit_mov32(1, TABLE_SENTINEL);
+                    self.code.push(OP_EQ); self.code.push(1); self.code.push(0); self.code.push(1);
+                    self.emit_jnz(1, &skip_label);
+
+                    // store key, load val
+                    self.emit_stm32(key_addr, 0);       // key_var = key
+                    self.emit_mov32(1, 4);
+                    self.emit_addr(2, 1);               // R2 = entry_addr + 4
+                    self.emit_ldm32i(0, 2);             // R0 = val
+                    self.emit_stm32(val_addr, 0);       // val_var = val
+
+                    self.compile_block(&body)?;
+
+                    self.emit_label(&skip_label);
+                    self.emit_ldm32(0, idx_addr);
+                    self.emit_mov(1, 1);
+                    self.emit_addr(0, 1);
+                    self.emit_stm32(idx_addr, 0);
+                    self.emit_jmp(&loop_label);
+                    self.emit_label(&end_label);
+                    self.top_break_targets.pop();
+                }
+            }
         }
         Ok(())
     }
@@ -1459,18 +1621,13 @@ impl Compiler {
                 self.emit_pop(0);                             // R0 = closure_ptr
                 self.emit_stm32i(0, 1);                       // mem32[closure_ptr] = code_ptr
                 // Store n_upvals at [closure_ptr+4]
-                self.emit_push(0);
-                self.emit_mov32(1, n as u32);
-                self.emit_mov(2, 4);
+                // Store n_upvals at [closure_ptr+4]: R0 = closure_ptr
+                self.emit_push(0);                            // save closure_ptr
+                self.emit_mov32(1, n as u32);                 // R1 = n
+                self.emit_mov(2, 4);                          // R2 = 4
                 self.emit_addr(0, 2);                         // R0 = closure_ptr+4
-                self.emit_movr(2, 1);
-                self.emit_pop(1);                             // R1 = closure_ptr
-                self.emit_stm32i(1, 2);  // mem32[closure_ptr+4] = n — NOTE: use scratch differently
-                // Actually just: store n at closure_ptr+4
-                // Re-do cleanly: R0 = closure_ptr (already popped into R1), get it back
-                // Let me use a simpler sequence:
-                // At this point: R1 = closure_ptr, R2 = n_upvals, R0 = closure_ptr+4
-                self.emit_stm32i(0, 2);                       // mem32[closure_ptr+4] = n_upvals
+                self.emit_stm32i(0, 1);                       // mem32[closure_ptr+4] = n
+                self.emit_pop(0);                             // R0 = closure_ptr (restore)
 
                 // Store each upval: mem32[closure_ptr + 8 + i*4] = value
                 let upvals_clone = upvals.clone();
@@ -1943,6 +2100,10 @@ fn refs_stmt_owned(stmt: &Stmt, out: &mut dyn FnMut(String)) {
             refs_expr_owned(table, out);
             refs_expr_owned(key, out);
             refs_expr_owned(value, out);
+        }
+        Stmt::GenericFor { table, body, .. } => {
+            refs_expr_owned(table, out);
+            for s in body { refs_stmt_owned(s, out); }
         }
         Stmt::Break { .. } => {}
     }

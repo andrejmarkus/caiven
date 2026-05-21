@@ -255,21 +255,42 @@ impl Parser {
             }
             TokenKind::For => {
                 self.advance();
-                let var = self.expect_ident()?;
-                self.expect(TokenKind::Eq)?;
-                let start = self.parse_expr()?;
-                self.expect(TokenKind::Comma)?;
-                let stop = self.parse_expr()?;
-                let step = if matches!(self.peek(), TokenKind::Comma) {
+                let first_var = self.expect_ident()?;
+                if matches!(self.peek(), TokenKind::Comma) {
+                    // Generic for: for k, v in expr do ... end
                     self.advance();
-                    Some(self.parse_expr()?)
+                    let val_var = self.expect_ident()?;
+                    self.expect(TokenKind::In)?;
+                    let table = self.parse_expr()?;
+                    self.expect(TokenKind::Do)?;
+                    let body = self.parse_block()?;
+                    self.expect(TokenKind::End)?;
+                    Ok(Stmt::GenericFor { key_var: first_var, val_var, table, body, line })
+                } else if matches!(self.peek(), TokenKind::In) {
+                    // Generic for with single var: for k in expr (k-only iteration)
+                    self.advance();
+                    let table = self.parse_expr()?;
+                    self.expect(TokenKind::Do)?;
+                    let body = self.parse_block()?;
+                    self.expect(TokenKind::End)?;
+                    Ok(Stmt::GenericFor { key_var: first_var, val_var: "_".to_string(), table, body, line })
                 } else {
-                    None
-                };
-                self.expect(TokenKind::Do)?;
-                let body = self.parse_block()?;
-                self.expect(TokenKind::End)?;
-                Ok(Stmt::NumericFor { var, start, stop, step, body, line })
+                    // Numeric for: for var = start, stop [, step] do ... end
+                    self.expect(TokenKind::Eq)?;
+                    let start = self.parse_expr()?;
+                    self.expect(TokenKind::Comma)?;
+                    let stop = self.parse_expr()?;
+                    let step = if matches!(self.peek(), TokenKind::Comma) {
+                        self.advance();
+                        Some(self.parse_expr()?)
+                    } else {
+                        None
+                    };
+                    self.expect(TokenKind::Do)?;
+                    let body = self.parse_block()?;
+                    self.expect(TokenKind::End)?;
+                    Ok(Stmt::NumericFor { var: first_var, start, stop, step, body, line })
+                }
             }
             TokenKind::Do => {
                 self.advance();

@@ -1381,6 +1381,7 @@ dependencies = [
  "cpal",
  "fc-asm",
  "fc-core",
+ "fc-lang",
  "image",
  "log",
  "serde",
