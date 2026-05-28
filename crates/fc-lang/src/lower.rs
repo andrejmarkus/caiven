@@ -1435,14 +1435,19 @@ impl Compiler {
                     Some(VarLoc::Upvalue(i)) => { self.emit_load_upval(i); }
                 }
             }
-            Expr::UnOp { op, expr, line } => {
+            Expr::UnOp { op, expr, line: _ } => {
                 let inner = expr.as_ref().clone();
                 match op {
                     UnOp::Len => {
-                        // Only string literals supported at compile time
                         match &inner {
                             Expr::Str(s, _) => { self.emit_mov_r0_imm(s.len() as u32); }
-                            _ => return Err(LangError::NotImplemented { line: *line, feature: "#".to_string() }),
+                            _ => {
+                                // Table ptr in R0; count is at ptr+4 (TABLE_HDR_SZ offset)
+                                self.lower_expr_r0(&inner)?;
+                                self.emit_mov(1, 4);
+                                self.emit_addr(0, 1);  // R0 = ptr + 4
+                                self.emit_ldm32i(0, 0); // R0 = mem32[ptr+4] = count
+                            }
                         }
                     }
                     _ => {
