@@ -175,3 +175,43 @@ loop:
     let ptr = read_u32(&vm, G0);
     assert_eq!(read_cstr(&vm, ptr), "abc");
 }
+
+// ─── txt with dynamic string (tostring) ──────────────────────────────────────
+
+#[test]
+fn txt_dynamic_tostring_no_fault() {
+    // txt(x, y, tostring(n), color) — TXTZ opcode path, no compile-time length
+    let vm = run_fc(r#"
+let n = 42
+loop:
+  txt(0, 0, tostring(n), 7)
+  wait()
+"#);
+    // just verify no vm fault — screen pixels not testable in unit test
+    let _ = vm;
+}
+
+// ─── txt with concat expression ───────────────────────────────────────────────
+
+#[test]
+fn txt_concat_no_fault() {
+    let vm = run_fc(r#"
+loop:
+  local label = "score: " .. tostring(99)
+  txt(0, 0, label, 7)
+  wait()
+"#);
+    let _ = vm;
+}
+
+// ─── txt literal still works (TXT path unchanged) ────────────────────────────
+
+#[test]
+fn txt_literal_no_fault() {
+    let vm = run_fc(r#"
+loop:
+  txt(0, 0, "hello", 7)
+  wait()
+"#);
+    let _ = vm;
+}

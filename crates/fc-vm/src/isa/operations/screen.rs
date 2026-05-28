@@ -240,6 +240,36 @@ pub fn text(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     Ok(())
 }
 
+pub fn text_nullterm(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let x0 = ctx.read_register_value()? as u32;
+    let y = ctx.read_register_value()? as u32;
+    let color_idx = ctx.read_register_value()? as usize;
+    let base = ctx.read_register_value()? as usize;
+
+    let color = ctx.palette.get_color(color_idx);
+    let font = ctx.font;
+    let mut current_x = x0;
+    let mut i = 0;
+
+    loop {
+        let byte = ctx.mem.read(base + i)?;
+        if byte == 0 || i >= 256 { break; }
+        if let Some(glyph) = font.get_glyph(byte as char) {
+            for gy in 0..font.get_height() {
+                for gx in 0..font.get_width() {
+                    if glyph.pixels[gy * font.get_width() + gx] {
+                        ctx.ui
+                            .set_pixel(Vec2::new(current_x + gx as u32, y + gy as u32), color);
+                    }
+                }
+            }
+        }
+        current_x += font.get_width() as u32 + 1;
+        i += 1;
+    }
+    Ok(())
+}
+
 pub fn draw_number(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let x0 = ctx.read_register_value()? as u32;
     let y = ctx.read_register_value()? as u32;

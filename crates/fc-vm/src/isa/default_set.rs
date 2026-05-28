@@ -678,6 +678,19 @@ pub fn default_instruction_set() -> InstructionSet {
     });
 
     set.register(Instruction {
+        name: "TXTZ",
+        opcode: 0x3B,
+        execute: operations::text_nullterm,
+        debug_info: |bytes| {
+            let rx = bytes[1];
+            let ry = bytes[2];
+            let rcolor = bytes[3];
+            let rstr = bytes[4];
+            format!("TXTZ R{}, R{}, R{}, R{}", rx, ry, rcolor, rstr)
+        },
+    });
+
+    set.register(Instruction {
         name: "NUM",
         opcode: 0x43,
         execute: operations::draw_number,

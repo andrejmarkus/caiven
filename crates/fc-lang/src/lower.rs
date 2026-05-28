@@ -70,6 +70,7 @@ const OP_MOV32: u8   = 0x2F;
 const OP_IN: u8      = 0x20;
 const OP_CPY: u8     = 0x34;
 const OP_TXT: u8     = 0x42;
+const OP_TXTZ: u8    = 0x3B;
 const OP_NUM: u8     = 0x43;
 const OP_MATH1: u8   = 0x37;
 const OP_MAX: u8     = 0x38;
@@ -2042,23 +2043,20 @@ impl Compiler {
                 }
             }
             "txt" => {
-                // txt(x, y, str, color) — str must be a string literal (len known at compile time)
-                // TXT opcode: R_x, R_y, R_color, R_base, len(byte)
+                // txt(x, y, str, color)
+                // Literal string: TXT opcode with compile-time length.
+                // Dynamic expression: TXTZ opcode (null-terminated, no length byte).
                 if args.len() != 4 {
                     return Err(LangError::ArgCount { line, name, expected: 4, got: args.len() });
                 }
-                let literal = Self::literal_str(&args[2]).ok_or_else(|| LangError::NotImplemented {
-                    line,
-                    feature: "txt with non-literal string (use a string literal directly)".to_string(),
-                })?;
-                let str_len = literal.len();
+                let str_len = Self::literal_str(&args[2]).map(|s| s.len());
                 self.save_fp_if_needed();
                 // x → scratch[0], y → scratch[1], str_ptr → scratch[2], color → scratch[3]
                 self.lower_expr_r0(&args[0])?;
                 self.emit_stm32(SCRATCH_BASE, 0);
                 self.lower_expr_r0(&args[1])?;
                 self.emit_stm32(SCRATCH_BASE + SCRATCH_STEP, 0);
-                self.lower_expr_r0(&args[2])?; // Expr::Str → R0 = ptr
+                self.lower_expr_r0(&args[2])?;
                 self.emit_stm32(SCRATCH_BASE + SCRATCH_STEP * 2, 0);
                 self.lower_expr_r0(&args[3])?;
                 self.emit_stm32(SCRATCH_BASE + SCRATCH_STEP * 3, 0);
@@ -2067,12 +2065,20 @@ impl Compiler {
                 self.emit_ldm32(1, SCRATCH_BASE + SCRATCH_STEP);
                 self.emit_ldm32(2, SCRATCH_BASE + SCRATCH_STEP * 3);
                 self.emit_ldm32(3, SCRATCH_BASE + SCRATCH_STEP * 2);
-                self.code.push(OP_TXT);
-                self.code.push(0); // Rx
-                self.code.push(1); // Ry
-                self.code.push(2); // Rcolor
-                self.code.push(3); // Rbase
-                self.code.push(str_len as u8);
+                if let Some(len) = str_len {
+                    self.code.push(OP_TXT);
+                    self.code.push(0); // Rx
+                    self.code.push(1); // Ry
+                    self.code.push(2); // Rcolor
+                    self.code.push(3); // Rbase
+                    self.code.push(len as u8);
+                } else {
+                    self.code.push(OP_TXTZ);
+                    self.code.push(0); // Rx
+                    self.code.push(1); // Ry
+                    self.code.push(2); // Rcolor
+                    self.code.push(3); // Rbase
+                }
                 self.restore_fp_if_needed();
             }
             "num" => {
