@@ -414,12 +414,10 @@ impl App {
     }
 
     fn dispatch_editor_click(&mut self, x: u32, y: u32) {
-        // Tab bar click: switch mode
         if let Some(new_mode) = tabs::hit_test(x, y) {
             self.mode = new_mode;
             return;
         }
-        // Delegate to active editor
         let vm = &mut self.vm;
         match self.mode {
             AppMode::Sprite => self.sprite_editor.handle_click(x, y, vm),
@@ -428,9 +426,38 @@ impl App {
             AppMode::Meta => self.meta_editor.handle_click(x, y, vm),
             AppMode::Sfx => self.sfx_editor.handle_click(x, y, vm),
             AppMode::Music => self.music_editor.handle_click(x, y, vm),
-            AppMode::Browser => {
-                self.browser_editor.handle_click(x, y, vm);
-            }
+            AppMode::Browser => self.browser_editor.handle_click(x, y, vm),
+            AppMode::Run => {}
+        }
+    }
+
+    fn dispatch_editor_drag(&mut self, x: u32, y: u32) {
+        if tabs::hit_test(x, y).is_some() {
+            return;
+        }
+        let vm = &mut self.vm;
+        match self.mode {
+            AppMode::Sprite => self.sprite_editor.handle_drag(x, y, vm),
+            AppMode::Map => self.map_editor.handle_drag(x, y, vm),
+            AppMode::Palette => self.palette_editor.handle_drag(x, y, vm),
+            AppMode::Meta => self.meta_editor.handle_drag(x, y, vm),
+            AppMode::Sfx => self.sfx_editor.handle_drag(x, y, vm),
+            AppMode::Music => self.music_editor.handle_drag(x, y, vm),
+            AppMode::Browser => self.browser_editor.handle_drag(x, y, vm),
+            AppMode::Run => {}
+        }
+    }
+
+    fn dispatch_editor_mouse_up(&mut self, x: u32, y: u32) {
+        let vm = &mut self.vm;
+        match self.mode {
+            AppMode::Sprite => self.sprite_editor.handle_mouse_up(x, y, vm),
+            AppMode::Map => self.map_editor.handle_mouse_up(x, y, vm),
+            AppMode::Palette => self.palette_editor.handle_mouse_up(x, y, vm),
+            AppMode::Meta => self.meta_editor.handle_mouse_up(x, y, vm),
+            AppMode::Sfx => self.sfx_editor.handle_mouse_up(x, y, vm),
+            AppMode::Music => self.music_editor.handle_mouse_up(x, y, vm),
+            AppMode::Browser => self.browser_editor.handle_mouse_up(x, y, vm),
             AppMode::Run => {}
         }
     }
@@ -552,16 +579,20 @@ impl ApplicationHandler for App {
                 self.mouse_y = position.y;
                 if self.mouse_left && self.mode != AppMode::Run {
                     let (sx, sy) = self.logical_mouse_pos();
-                    self.dispatch_editor_click(sx, sy);
+                    self.dispatch_editor_drag(sx, sy);
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if button == MouseButton::Left {
-                    self.mouse_left = state == ElementState::Pressed;
-                    if self.mouse_left && self.mode != AppMode::Run {
+                    let pressed = state == ElementState::Pressed;
+                    self.mouse_left = pressed;
+                    if pressed && self.mode != AppMode::Run {
                         let (sx, sy) = self.logical_mouse_pos();
                         self.dispatch_editor_click(sx, sy);
                         self.poll_browser_load();
+                    } else if !pressed && self.mode != AppMode::Run {
+                        let (sx, sy) = self.logical_mouse_pos();
+                        self.dispatch_editor_mouse_up(sx, sy);
                     }
                 }
             }

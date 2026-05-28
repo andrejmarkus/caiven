@@ -21,6 +21,10 @@ use winit::keyboard::KeyCode;
 pub trait Editor {
     fn render(&self, layer: &mut ScreenLayer, vm: &Vm, font: &Font, cursor: (u32, u32));
     fn handle_click(&mut self, x: u32, y: u32, vm: &mut Vm);
+    fn handle_drag(&mut self, x: u32, y: u32, vm: &mut Vm) {
+        self.handle_click(x, y, vm);
+    }
+    fn handle_mouse_up(&mut self, _x: u32, _y: u32, _vm: &mut Vm) {}
     fn handle_key(&mut self, _key: KeyCode, _vm: &mut Vm) {}
     fn tick(&mut self, _vm: &mut Vm) {}
 }

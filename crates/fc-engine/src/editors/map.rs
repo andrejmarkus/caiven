@@ -11,30 +11,116 @@ const MAP_W: usize = 64;
 const MAP_H: usize = 32;
 const SPRITE_SIZE: usize = 8;
 
-// Map viewport: x=0..95, y=0..119  → 12 tiles wide × 15 tiles tall at 8px
 const VIEW_TILES_W: usize = 12;
 const VIEW_TILES_H: usize = 15;
 const MAP_AREA_W: u32 = (VIEW_TILES_W * SPRITE_SIZE) as u32; // 96
 
-// Sprite picker: x=96..127, y=0..63 → 4 wide × 8 tall
 const PICKER_X: u32 = 96;
 const PICKER_COLS: usize = 4;
 const PICKER_ROWS: usize = 8;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MapEditorMode {
+    Paint,
+    Select,
+    Paste,
+}
+
+struct ClipboardRegion {
+    w: usize,
+    h: usize,
+    tiles: Vec<u8>,
+}
 
 pub struct MapEditor {
     pub active_sprite: u8,
     view_x: usize,
     view_y: usize,
+    edit_mode: MapEditorMode,
+    sel_anchor: Option<(usize, usize)>,
+    sel_end: Option<(usize, usize)>,
+    clipboard: Option<ClipboardRegion>,
 }
 
 impl MapEditor {
     pub fn new() -> Self {
-        MapEditor { active_sprite: 0, view_x: 0, view_y: 0 }
+        MapEditor {
+            active_sprite: 0,
+            view_x: 0,
+            view_y: 0,
+            edit_mode: MapEditorMode::Paint,
+            sel_anchor: None,
+            sel_end: None,
+            clipboard: None,
+        }
     }
 
     fn clamp_view(&mut self) {
         self.view_x = self.view_x.min(MAP_W.saturating_sub(VIEW_TILES_W));
         self.view_y = self.view_y.min(MAP_H.saturating_sub(VIEW_TILES_H));
+    }
+
+    fn screen_to_map_tile(&self, x: u32, y: u32) -> Option<(usize, usize)> {
+        if x >= MAP_AREA_W || y >= 120 {
+            return None;
+        }
+        let tx = self.view_x + (x / SPRITE_SIZE as u32) as usize;
+        let ty = self.view_y + (y / SPRITE_SIZE as u32) as usize;
+        if tx < MAP_W && ty < MAP_H { Some((tx, ty)) } else { None }
+    }
+
+    fn map_tile_to_screen(&self, tx: usize, ty: usize) -> Option<(u32, u32)> {
+        if tx < self.view_x || ty < self.view_y {
+            return None;
+        }
+        let sx = tx - self.view_x;
+        let sy = ty - self.view_y;
+        if sx >= VIEW_TILES_W || sy >= VIEW_TILES_H {
+            return None;
+        }
+        Some((sx as u32 * SPRITE_SIZE as u32, sy as u32 * SPRITE_SIZE as u32))
+    }
+
+    fn selection_rect(&self) -> Option<(usize, usize, usize, usize)> {
+        let (ax, ay) = self.sel_anchor?;
+        let (ex, ey) = self.sel_end?;
+        let x0 = ax.min(ex);
+        let y0 = ay.min(ey);
+        let x1 = ax.max(ex);
+        let y1 = ay.max(ey);
+        Some((x0, y0, x1, y1))
+    }
+
+    fn copy_selection(&mut self, vm: &Vm) {
+        let (x0, y0, x1, y1) = match self.selection_rect() {
+            Some(r) => r,
+            None => return,
+        };
+        let w = x1 - x0 + 1;
+        let h = y1 - y0 + 1;
+        let mut tiles = Vec::with_capacity(w * h);
+        for row in y0..=y1 {
+            for col in x0..=x1 {
+                tiles.push(vm.peek_memory(MAP_RAM_BASE + row * MAP_W + col));
+            }
+        }
+        self.clipboard = Some(ClipboardRegion { w, h, tiles });
+    }
+
+    fn stamp_clipboard(&self, tx: usize, ty: usize, vm: &mut Vm) {
+        let cb = match &self.clipboard {
+            Some(c) => c,
+            None => return,
+        };
+        for row in 0..cb.h {
+            for col in 0..cb.w {
+                let mx = tx + col;
+                let my = ty + row;
+                if mx < MAP_W && my < MAP_H {
+                    vm.poke_memory(MAP_RAM_BASE + my * MAP_W + mx, cb.tiles[row * cb.w + col]);
+                }
+            }
+        }
     }
 
     fn draw_sprite(screen: &mut ScreenLayer, vm: &Vm, sprite_idx: usize, base_x: u32, base_y: u32) {
@@ -51,10 +137,29 @@ impl MapEditor {
             }
         }
     }
+
+    fn draw_rect_border(layer: &mut ScreenLayer, x: u32, y: u32, w: u32, h: u32, color: Color) {
+        for dx in 0..w {
+            if x + dx < 128 {
+                layer.set_pixel(Vec2::new(x + dx, y), color);
+                if y + h > 0 {
+                    layer.set_pixel(Vec2::new(x + dx, y + h - 1), color);
+                }
+            }
+        }
+        for dy in 0..h {
+            if y + dy < 128 {
+                layer.set_pixel(Vec2::new(x, y + dy), color);
+                if x + w > 0 {
+                    layer.set_pixel(Vec2::new(x + w - 1, y + dy), color);
+                }
+            }
+        }
+    }
 }
 
 impl Editor for MapEditor {
-    fn render(&self, layer: &mut ScreenLayer, vm: &Vm, font: &Font, _cursor: (u32, u32)) {
+    fn render(&self, layer: &mut ScreenLayer, vm: &Vm, font: &Font, cursor: (u32, u32)) {
         // Map viewport background
         let bg = Color::new_rgb(10, 10, 10);
         for y in 0..120u32 {
@@ -81,7 +186,7 @@ impl Editor for MapEditor {
             }
         }
 
-        // Grid overlay (single-pixel lines)
+        // Grid overlay
         let grid = Color::new_rgb(45, 45, 45);
         for i in 0..=VIEW_TILES_W as u32 {
             let x = i * SPRITE_SIZE as u32;
@@ -96,6 +201,40 @@ impl Editor for MapEditor {
             if y < 120 {
                 for x in 0..MAP_AREA_W {
                     layer.set_pixel(Vec2::new(x, y), grid);
+                }
+            }
+        }
+
+        // Selection rectangle highlight
+        if self.edit_mode == MapEditorMode::Select || self.edit_mode == MapEditorMode::Paint {
+            if let Some((x0, y0, x1, y1)) = self.selection_rect() {
+                let sel_color = Color::new_rgb(255, 200, 0);
+                // Clamp to viewport
+                let vx0 = x0.max(self.view_x);
+                let vy0 = y0.max(self.view_y);
+                let vx1 = x1.min(self.view_x + VIEW_TILES_W - 1);
+                let vy1 = y1.min(self.view_y + VIEW_TILES_H - 1);
+                if vx0 <= vx1 && vy0 <= vy1 {
+                    let sx = (vx0 - self.view_x) as u32 * SPRITE_SIZE as u32;
+                    let sy = (vy0 - self.view_y) as u32 * SPRITE_SIZE as u32;
+                    let sw = (vx1 - vx0 + 1) as u32 * SPRITE_SIZE as u32;
+                    let sh = (vy1 - vy0 + 1) as u32 * SPRITE_SIZE as u32;
+                    Self::draw_rect_border(layer, sx, sy, sw, sh, sel_color);
+                }
+            }
+        }
+
+        // Paste mode: ghost preview at cursor tile
+        if self.edit_mode == MapEditorMode::Paste {
+            if let Some(cb) = &self.clipboard {
+                if cursor.0 < MAP_AREA_W && cursor.1 < 120 {
+                    if let Some((tx, ty)) = self.screen_to_map_tile(cursor.0, cursor.1) {
+                        if let Some((sx, sy)) = self.map_tile_to_screen(tx, ty) {
+                            let pw = cb.w as u32 * SPRITE_SIZE as u32;
+                            let ph = cb.h as u32 * SPRITE_SIZE as u32;
+                            Self::draw_rect_border(layer, sx, sy, pw, ph, Color::new_rgb(0, 255, 128));
+                        }
+                    }
                 }
             }
         }
@@ -127,52 +266,109 @@ impl Editor for MapEditor {
             }
         }
 
-        // Info text: sprite index + scroll position
+        // Info text
         let label = format!("S:{}", self.active_sprite);
         draw_text(font, layer, &label, Vec2::new(PICKER_X, 64), Color::new_rgb(200, 200, 200));
         let scroll = format!("{},{}", self.view_x, self.view_y);
         draw_text(font, layer, &scroll, Vec2::new(PICKER_X, 72), Color::new_rgb(120, 120, 120));
+        let mode_label = match self.edit_mode {
+            MapEditorMode::Paint => "",
+            MapEditorMode::Select => "SEL",
+            MapEditorMode::Paste => "PST",
+        };
+        if !mode_label.is_empty() {
+            draw_text(font, layer, mode_label, Vec2::new(PICKER_X, 80), Color::new_rgb(255, 200, 0));
+        }
+        if self.clipboard.is_some() {
+            draw_text(font, layer, "CB", Vec2::new(PICKER_X + 20, 80), Color::new_rgb(0, 200, 100));
+        }
     }
 
     fn handle_click(&mut self, x: u32, y: u32, vm: &mut Vm) {
         if y >= 120 {
             return;
         }
-        if x < MAP_AREA_W {
-            // Map viewport: paint tile
-            let tx = self.view_x + (x / SPRITE_SIZE as u32) as usize;
-            let ty = self.view_y + (y / SPRITE_SIZE as u32) as usize;
-            if tx < MAP_W && ty < MAP_H {
-                vm.poke_memory(MAP_RAM_BASE + ty * MAP_W + tx, self.active_sprite);
+        match self.edit_mode {
+            MapEditorMode::Paint => {
+                if x < MAP_AREA_W {
+                    if let Some((tx, ty)) = self.screen_to_map_tile(x, y) {
+                        vm.poke_memory(MAP_RAM_BASE + ty * MAP_W + tx, self.active_sprite);
+                    }
+                } else if x >= PICKER_X && y < (PICKER_ROWS * SPRITE_SIZE) as u32 {
+                    let col = ((x - PICKER_X) / SPRITE_SIZE as u32) as usize;
+                    let row = (y / SPRITE_SIZE as u32) as usize;
+                    let idx = row * PICKER_COLS + col;
+                    if idx < 64 {
+                        self.active_sprite = idx as u8;
+                    }
+                }
             }
-        } else if x >= PICKER_X && y < (PICKER_ROWS * SPRITE_SIZE) as u32 {
-            // Sprite picker: select active sprite
-            let col = ((x - PICKER_X) / SPRITE_SIZE as u32) as usize;
-            let row = (y / SPRITE_SIZE as u32) as usize;
-            let idx = row * PICKER_COLS + col;
-            if idx < 64 {
-                self.active_sprite = idx as u8;
+            MapEditorMode::Select => {
+                if x < MAP_AREA_W {
+                    if let Some(tile) = self.screen_to_map_tile(x, y) {
+                        self.sel_anchor = Some(tile);
+                        self.sel_end = Some(tile);
+                    }
+                }
+            }
+            MapEditorMode::Paste => {
+                if x < MAP_AREA_W {
+                    if let Some((tx, ty)) = self.screen_to_map_tile(x, y) {
+                        self.stamp_clipboard(tx, ty, vm);
+                    }
+                }
             }
         }
     }
 
-    fn handle_key(&mut self, key: KeyCode, _vm: &mut Vm) {
+    fn handle_drag(&mut self, x: u32, y: u32, vm: &mut Vm) {
+        if y >= 120 {
+            return;
+        }
+        match self.edit_mode {
+            MapEditorMode::Paint => {
+                if x < MAP_AREA_W {
+                    if let Some((tx, ty)) = self.screen_to_map_tile(x, y) {
+                        vm.poke_memory(MAP_RAM_BASE + ty * MAP_W + tx, self.active_sprite);
+                    }
+                }
+            }
+            MapEditorMode::Select => {
+                if x < MAP_AREA_W {
+                    if let Some(tile) = self.screen_to_map_tile(x, y) {
+                        self.sel_end = Some(tile);
+                    }
+                }
+            }
+            MapEditorMode::Paste => {}
+        }
+    }
+
+    fn handle_key(&mut self, key: KeyCode, vm: &mut Vm) {
         match key {
             KeyCode::ArrowLeft => {
-                self.view_x = self.view_x.saturating_sub(1);
-                self.clamp_view();
+                if self.edit_mode == MapEditorMode::Paint || self.edit_mode == MapEditorMode::Select {
+                    self.view_x = self.view_x.saturating_sub(1);
+                    self.clamp_view();
+                }
             }
             KeyCode::ArrowRight => {
-                self.view_x += 1;
-                self.clamp_view();
+                if self.edit_mode == MapEditorMode::Paint || self.edit_mode == MapEditorMode::Select {
+                    self.view_x += 1;
+                    self.clamp_view();
+                }
             }
             KeyCode::ArrowUp => {
-                self.view_y = self.view_y.saturating_sub(1);
-                self.clamp_view();
+                if self.edit_mode == MapEditorMode::Paint || self.edit_mode == MapEditorMode::Select {
+                    self.view_y = self.view_y.saturating_sub(1);
+                    self.clamp_view();
+                }
             }
             KeyCode::ArrowDown => {
-                self.view_y += 1;
-                self.clamp_view();
+                if self.edit_mode == MapEditorMode::Paint || self.edit_mode == MapEditorMode::Select {
+                    self.view_y += 1;
+                    self.clamp_view();
+                }
             }
             KeyCode::BracketLeft => {
                 if self.active_sprite > 0 {
@@ -183,6 +379,33 @@ impl Editor for MapEditor {
                 if self.active_sprite < 63 {
                     self.active_sprite += 1;
                 }
+            }
+            KeyCode::KeyS => {
+                match self.edit_mode {
+                    MapEditorMode::Select => {
+                        self.edit_mode = MapEditorMode::Paint;
+                        self.sel_anchor = None;
+                        self.sel_end = None;
+                    }
+                    _ => {
+                        self.edit_mode = MapEditorMode::Select;
+                        self.sel_anchor = None;
+                        self.sel_end = None;
+                    }
+                }
+            }
+            KeyCode::KeyC => {
+                if self.edit_mode == MapEditorMode::Select {
+                    self.copy_selection(vm);
+                }
+            }
+            KeyCode::KeyV => {
+                if self.clipboard.is_some() {
+                    self.edit_mode = MapEditorMode::Paste;
+                }
+            }
+            KeyCode::Escape => {
+                self.edit_mode = MapEditorMode::Paint;
             }
             _ => {}
         }
