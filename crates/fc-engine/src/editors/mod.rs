@@ -26,5 +26,6 @@ pub trait Editor {
     }
     fn handle_mouse_up(&mut self, _x: u32, _y: u32, _vm: &mut Vm) {}
     fn handle_key(&mut self, _key: KeyCode, _vm: &mut Vm) {}
+    #[allow(dead_code)]
     fn tick(&mut self, _vm: &mut Vm) {}
 }

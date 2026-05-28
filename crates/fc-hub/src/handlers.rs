@@ -152,7 +152,7 @@ pub struct CartUpload<'v> {
 pub async fn upload_cart(
     _key: ApiKey,
     state: &State<HubState>,
-    mut upload: Form<CartUpload<'_>>,
+    upload: Form<CartUpload<'_>>,
 ) -> Result<Json<Cart>, ApiError> {
     if !upload.rom.is_complete() {
         return Err(ApiError::PayloadTooLarge("ROM max 1MB".into()));
@@ -237,7 +237,7 @@ pub async fn upload_screenshot(
     _key: ApiKey,
     state: &State<HubState>,
     id: &str,
-    mut upload: Form<ScreenshotUpload<'_>>,
+    upload: Form<ScreenshotUpload<'_>>,
 ) -> Result<(), ApiError> {
     if !valid_id(id) {
         return Err(ApiError::bad_request("invalid id"));
