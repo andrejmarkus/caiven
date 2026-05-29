@@ -582,8 +582,13 @@ impl ApplicationHandler for App {
                         self.music_editor.render(debug_layer, vm, font, cursor);
                     }
                     AppMode::Run => {
-                        if self.debugger.get_mode() == DebugMode::Paused {
-                            self.debugger.draw_overlay(debug_layer, vm, font);
+                        match self.debugger.get_mode() {
+                            DebugMode::Paused | DebugMode::Step => {
+                                self.debugger.draw_overlay(debug_layer, vm, font);
+                            }
+                            DebugMode::Running => {
+                                self.debugger.draw_status_bar(debug_layer, vm, font);
+                            }
                         }
                     }
                     AppMode::Browser => {
@@ -612,6 +617,14 @@ impl ApplicationHandler for App {
                 }
                 if self.mouse_right && self.mode != AppMode::Run {
                     self.dispatch_editor_right_drag(sx, sy);
+                }
+                // Debugger timeline drag (Run mode)
+                if self.mouse_left && self.mode == AppMode::Run && self.debugger.is_enabled() {
+                    if let DebugClickAction::RestoreScrub = self.debugger.handle_click(sx, sy, &self.vm) {
+                        if let Some(state) = self.debugger.current_scrub_snapshot() {
+                            self.vm.restore(&state);
+                        }
+                    }
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {

@@ -281,7 +281,7 @@ impl Debugger {
 
     pub fn is_enabled(&self) -> bool { self.enabled }
 
-    /// Handle a mouse click on the debug overlay. Returns what the caller must do next.
+    /// Handle a mouse click (or drag) on the debug overlay. Returns what the caller must do next.
     pub fn handle_click(&mut self, x: u32, y: u32, vm: &Vm) -> DebugClickAction {
         if !self.enabled { return DebugClickAction::None; }
 
@@ -296,8 +296,8 @@ impl Debugger {
             return DebugClickAction::None;
         }
 
-        // Disasm rows (y=8..47, 5 rows × 8px)
-        if y >= 8 && y < 48 {
+        // Disasm rows (y=8..47, 5 rows × 8px) — only interactive when paused/stepping
+        if y >= 8 && y < 48 && self.mode != DebugMode::Running {
             let row = ((y - 8) / 8) as usize;
             let addrs = build_disasm_window(vm, self.cursor_addr, 5);
             if let Some(&addr) = addrs.get(row) {
@@ -313,7 +313,7 @@ impl Debugger {
             return DebugClickAction::None;
         }
 
-        // Timeline bar (y=70..72)
+        // Timeline bar (y=70..72) — drag-friendly, works in all modes
         if y >= 70 && y < 73 && !self.states.is_empty() {
             let idx = (x as usize * self.states.len()) / 128;
             let idx = idx.min(self.states.len() - 1);
@@ -321,7 +321,28 @@ impl Debugger {
             return DebugClickAction::RestoreScrub;
         }
 
+        // RAM page nav buttons (y=80..87 — header row; <  at x=96, > at x=112)
+        if y >= 80 && y < 88 {
+            if x >= 96 && x < 112 {
+                self.prev_ram_page();
+            } else if x >= 112 {
+                self.next_ram_page();
+            }
+            return DebugClickAction::None;
+        }
+
         DebugClickAction::None
+    }
+
+    /// Minimal status bar for when debugger is enabled but VM is running.
+    pub fn draw_status_bar(&self, screen: &mut ScreenLayer, vm: &Vm, font: &Font) {
+        if !self.enabled { return; }
+        let cyan = Color::new_rgb(0, 200, 255);
+        let yellow = Color::new_rgb(255, 220, 0);
+        let pc = vm.get_pc();
+        let status = format!("RUN PC:0X{:04X} S:{}", pc, self.states.len());
+        draw_text(font, screen, &status, Vec2::new(0, 0), cyan);
+        draw_text(font, screen, "PSE", Vec2::new(88, 0), yellow);
     }
 
     pub fn draw_overlay(&self, screen: &mut ScreenLayer, vm: &Vm, font: &Font) {
@@ -476,6 +497,8 @@ impl Debugger {
             position,
             color,
         );
+        draw_text(font, screen, "<", Vec2::new(position.get_x() + 96, position.get_y()), color);
+        draw_text(font, screen, ">", Vec2::new(position.get_x() + 112, position.get_y()), color);
         for row in 0..3usize {
             let addr = start + row * 8;
             if addr >= vm.get_memory_length() {
