@@ -1,6 +1,6 @@
 use crate::cart_save::{CartMeta, SectionLayout};
 use crate::debugger::{DebugClickAction, DebugMode, Debugger};
-use crate::editors::{BrowserEditor, Editor, MapEditor, MetaEditor, MusicEditor, PaletteEditor, SfxEditor, SpriteEditor};
+use crate::editors::{BrowserEditor, CodeEditor, CodeEditorAction, Editor, MapEditor, MetaEditor, MusicEditor, PaletteEditor, SfxEditor, SpriteEditor};
 use crate::hot_reload::HotReload;
 use crate::tabs;
 use anyhow::{Context, Result};
@@ -40,6 +40,7 @@ const MUSIC_BANK_LEN: usize = 8 * 32;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppMode {
     Browser,
+    Code,
     Run,
     Sprite,
     Map,
@@ -132,6 +133,7 @@ pub struct App {
     sfx_editor: SfxEditor,
     music_editor: MusicEditor,
     browser_editor: BrowserEditor,
+    code_editor: CodeEditor,
     cart_meta: Option<CartMeta>,
     mouse_x: f64,
     mouse_y: f64,
@@ -188,6 +190,7 @@ impl App {
             sfx_editor: SfxEditor::new(),
             music_editor: MusicEditor::new(),
             browser_editor: BrowserEditor::new(),
+            code_editor: CodeEditor::new(),
             cart_meta: None,
             mouse_x: 0.0,
             mouse_y: 0.0,
@@ -351,6 +354,7 @@ impl App {
                 .map_err(|e| anyhow::anyhow!("compile error in {}: {}", path.display(), e))?;
             self.vm.load_rom_with_source_map(out.program, out.source_map);
             self.vm.set_fc_source(&source);
+            self.code_editor.set_source_path(path.to_path_buf());
             info!("fc-lang compiled from {}", path.display());
         } else {
             let out = fc_asm::assemble_with_sections(&source)
@@ -429,6 +433,7 @@ impl App {
             AppMode::Sfx => self.sfx_editor.handle_click(x, y, vm),
             AppMode::Music => self.music_editor.handle_click(x, y, vm),
             AppMode::Browser => self.browser_editor.handle_click(x, y, vm),
+            AppMode::Code => self.code_editor.handle_click(x, y, vm),
             AppMode::Run => {}
         }
     }
@@ -446,6 +451,7 @@ impl App {
             AppMode::Sfx => self.sfx_editor.handle_drag(x, y, vm),
             AppMode::Music => self.music_editor.handle_drag(x, y, vm),
             AppMode::Browser => self.browser_editor.handle_drag(x, y, vm),
+            AppMode::Code => self.code_editor.handle_drag(x, y, vm),
             AppMode::Run => {}
         }
     }
@@ -460,7 +466,7 @@ impl App {
             AppMode::Sfx => self.sfx_editor.handle_mouse_up(x, y, vm),
             AppMode::Music => self.music_editor.handle_mouse_up(x, y, vm),
             AppMode::Browser => self.browser_editor.handle_mouse_up(x, y, vm),
-            AppMode::Run => {}
+            AppMode::Run | AppMode::Code => {}
         }
     }
 
@@ -490,6 +496,7 @@ impl App {
             AppMode::Sfx => self.sfx_editor.handle_scroll(dx, dy, vm),
             AppMode::Music => self.music_editor.handle_scroll(dx, dy, vm),
             AppMode::Browser => self.browser_editor.handle_scroll(dx, dy, vm),
+            AppMode::Code => self.code_editor.handle_scroll(dx, dy, vm),
             _ => {}
         }
     }
@@ -502,6 +509,45 @@ impl App {
                     info!("browser: loaded {}", path.display());
                 }
                 Err(e) => error!("browser: load failed: {e}"),
+            }
+        }
+    }
+
+    fn poll_code_editor_action(&mut self) {
+        if let Some(action) = self.code_editor.pending_action.take() {
+            self.apply_code_editor_action(action);
+        }
+    }
+
+    fn apply_code_editor_action(&mut self, action: CodeEditorAction) {
+        match action {
+            CodeEditorAction::None => {}
+            CodeEditorAction::Save => {
+                if self.code_editor.save() {
+                    info!("code editor: source saved");
+                } else {
+                    warn!("code editor: save failed (no path?)");
+                }
+            }
+            CodeEditorAction::CompileAndRun => {
+                let source = self.code_editor.get_source();
+                match fc_lang::compile(&source) {
+                    Ok(out) => {
+                        self.vm.load_rom_with_source_map(out.program, out.source_map);
+                        self.vm.set_fc_source(&source);
+                        if let Some(path) = &self.code_editor.source_path {
+                            let _ = std::fs::write(path, &source);
+                        }
+                        self.code_editor.error_msg = None;
+                        self.mode = AppMode::Run;
+                        info!("code editor: compiled and running");
+                    }
+                    Err(e) => {
+                        let msg = format!("{e}");
+                        warn!("code editor: compile error: {msg}");
+                        self.code_editor.error_msg = Some(msg);
+                    }
+                }
             }
         }
     }
@@ -581,6 +627,9 @@ impl ApplicationHandler for App {
                     AppMode::Music => {
                         self.music_editor.render(debug_layer, vm, font, cursor);
                     }
+                    AppMode::Code => {
+                        self.code_editor.render(debug_layer, vm, font, cursor);
+                    }
                     AppMode::Run => {
                         match self.debugger.get_mode() {
                             DebugMode::Paused | DebugMode::Step => {
@@ -646,6 +695,7 @@ impl ApplicationHandler for App {
                             // always dispatch so tab bar is clickable in Run mode
                             self.dispatch_editor_click(sx, sy);
                             self.poll_browser_load();
+                            self.poll_code_editor_action();
                             // debugger overlay click (Run mode only)
                             if self.mode == AppMode::Run && self.debugger.is_enabled() {
                                 let pc = self.vm.get_pc();
@@ -701,8 +751,17 @@ impl ApplicationHandler for App {
                             KeyCode::F6 => { self.mode = AppMode::Palette; return; }
                             KeyCode::F7 => { self.mode = AppMode::Meta; return; }
                             KeyCode::F8 => { self.mode = AppMode::Browser; return; }
+                            KeyCode::F9 => { self.mode = AppMode::Code; return; }
                             _ => {}
                         }
+                    }
+
+                    // Code editor — handle directly with modifier state
+                    if self.mode == AppMode::Code && pressed {
+                        let shift = self.modifiers.state().shift_key();
+                        let action = self.code_editor.handle_key_direct(code, shift, ctrl);
+                        self.apply_code_editor_action(action);
+                        return;
                     }
 
                     // Run-mode debugger controls
@@ -758,7 +817,7 @@ impl ApplicationHandler for App {
                             AppMode::Sfx => self.sfx_editor.handle_key(code, vm),
                             AppMode::Music => self.music_editor.handle_key(code, vm),
                             AppMode::Browser => self.browser_editor.handle_key(code, vm),
-                            AppMode::Run => {}
+                            AppMode::Run | AppMode::Code => {}
                         }
                         self.poll_browser_load();
                     }
