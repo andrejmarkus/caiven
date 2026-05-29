@@ -66,7 +66,8 @@ impl SpriteEditor {
                 // Sprite picker — [64..127, 0..63], 8 sprites wide × 8 sprites tall
                 let col = ((x - 64) / 8) as usize;
                 let row = (y / 8) as usize;
-                self.active_sprite = row * 8 + col;
+                let picker_base = (self.active_sprite / 64) * 64;
+                self.active_sprite = picker_base + row * 8 + col;
             }
         } else if y < 72 {
             // Palette row — 16 colors as 8x8 squares across full width
@@ -127,10 +128,11 @@ impl SpriteEditor {
             }
         }
 
-        // Sprite picker ([64..127, 0..63] — 8 wide × 8 tall)
+        // Sprite picker ([64..127, 0..63] — 8 wide × 8 tall), paged by active_sprite
+        let picker_base = (self.active_sprite / 64) * 64;
         for row in 0..8usize {
             for col in 0..8usize {
-                let idx = row * 8 + col;
+                let idx = picker_base + row * 8 + col;
                 let base_x = 64 + col as u32 * 8;
                 let base_y = row as u32 * 8;
                 for py in 0..SPRITE_SIZE {
@@ -175,8 +177,9 @@ impl SpriteEditor {
             }
         }
 
-        // Info label
-        let label = format!("SPR:{} COL:{}", self.active_sprite, self.active_color);
+        // Info label — show page (0-3 of 4 picker pages)
+        let page = self.active_sprite / 64;
+        let label = format!("SPR:{} COL:{} P{}/4", self.active_sprite, self.active_color, page);
         draw_text(font, screen, &label, Vec2::new(0, 72), Color::new_rgb(200, 200, 200));
 
         // Button row at y=80
@@ -245,6 +248,14 @@ impl Editor for SpriteEditor {
     fn handle_key(&mut self, key: KeyCode, vm: &mut Vm) {
         const SPRITE_BYTES: usize = SPRITE_SIZE * SPRITE_SIZE;
         match key {
+            KeyCode::PageUp => {
+                let page = self.active_sprite / 64;
+                if page > 0 { self.active_sprite = (page - 1) * 64; }
+            }
+            KeyCode::PageDown => {
+                let page = self.active_sprite / 64;
+                if page < 3 { self.active_sprite = (page + 1) * 64; }
+            }
             KeyCode::KeyC => {
                 let base = SPRITE_SHEET_BASE + self.active_sprite * SPRITE_BYTES;
                 let mut buf = [0u8; 64];
