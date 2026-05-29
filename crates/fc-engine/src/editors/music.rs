@@ -4,7 +4,7 @@ use fc_vm::vm::sfx::MUSIC_BANK_BASE;
 use fc_vm::vm::Vm;
 use winit::keyboard::KeyCode;
 
-use super::Editor;
+use super::{draw_button, Editor};
 
 const PATTERNS: u8 = 8;
 const ROWS: u8 = 16;
@@ -108,9 +108,23 @@ impl Editor for MusicEditor {
             let ch1_col = if is_cur && self.channel == 1 { c_sel_cell() } else if ch1 == 0 { c_empty() } else { base_col };
             draw_text(font, layer, &sfx_label(ch1), Vec2::new(COL_CH1, y), ch1_col);
         }
+
+        // PLAY / STOP buttons drawn last
+        draw_button(layer, font, 100, 10, "PLAY", false);
+        draw_button(layer, font, 100, 18, "STOP", false);
     }
 
-    fn handle_click(&mut self, x: u32, y: u32, _vm: &mut Vm) {
+    fn handle_scroll(&mut self, _dx: f32, dy: f32, _vm: &mut Vm) {
+        if dy < 0.0 && self.pattern_id < PATTERNS - 1 { self.pattern_id += 1; }
+        else if dy > 0.0 && self.pattern_id > 0 { self.pattern_id -= 1; }
+    }
+
+    fn handle_click(&mut self, x: u32, y: u32, vm: &mut Vm) {
+        // PLAY/STOP buttons (check before row grid)
+        if x >= 100 {
+            if y >= 10 && y < 17 { vm.start_music(self.pattern_id); return; }
+            if y >= 18 && y < 25 { vm.stop_music(); return; }
+        }
         if y < SELECTOR_H {
             self.pattern_id = (x / 16).min(PATTERNS as u32 - 1) as u8;
         } else if y >= GRID_TOP {

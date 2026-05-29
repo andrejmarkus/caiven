@@ -317,6 +317,42 @@ impl BrowserEditor {
 }
 
 impl Editor for BrowserEditor {
+    fn handle_scroll(&mut self, _dx: f32, dy: f32, _vm: &mut Vm) {
+        match self.tab {
+            BrowserTab::Local => {
+                if dy < 0.0 {
+                    if self.local_scroll + VISIBLE_ROWS < self.files.len() {
+                        self.local_scroll += 1;
+                        if self.local_selected < self.local_scroll {
+                            self.local_selected = self.local_scroll;
+                        }
+                    }
+                } else if dy > 0.0 && self.local_scroll > 0 {
+                    self.local_scroll -= 1;
+                    if self.local_selected >= self.local_scroll + VISIBLE_ROWS {
+                        self.local_selected = self.local_scroll + VISIBLE_ROWS - 1;
+                    }
+                }
+            }
+            BrowserTab::Online => {
+                let len = if let OnlineState::Loaded { carts, .. } = &self.online_state { carts.len() } else { 0 };
+                if dy < 0.0 {
+                    if self.online_scroll + VISIBLE_ROWS < len {
+                        self.online_scroll += 1;
+                        if self.online_selected < self.online_scroll {
+                            self.online_selected = self.online_scroll;
+                        }
+                    }
+                } else if dy > 0.0 && self.online_scroll > 0 {
+                    self.online_scroll -= 1;
+                    if self.online_selected >= self.online_scroll + VISIBLE_ROWS {
+                        self.online_selected = self.online_scroll + VISIBLE_ROWS - 1;
+                    }
+                }
+            }
+        }
+    }
+
     fn render(&self, layer: &mut ScreenLayer, _vm: &Vm, font: &Font, _cursor: (u32, u32)) {
         // Sub-tab header: "LOCAL" at x=1, "ONLINE" at x=29 (gap of 8px between them)
         let local_col = if self.tab == BrowserTab::Local { c_selected() } else { c_hint() };

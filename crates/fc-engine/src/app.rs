@@ -19,7 +19,7 @@ use pixels::{Pixels, SurfaceTexture};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
-use winit::event::{ElementState, Modifiers, MouseButton};
+use winit::event::{ElementState, Modifiers, MouseButton, MouseScrollDelta};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::{
@@ -136,6 +136,7 @@ pub struct App {
     mouse_x: f64,
     mouse_y: f64,
     mouse_left: bool,
+    mouse_right: bool,
     modifiers: Modifiers,
 }
 
@@ -191,6 +192,7 @@ impl App {
             mouse_x: 0.0,
             mouse_y: 0.0,
             mouse_left: false,
+            mouse_right: false,
             modifiers: Modifiers::default(),
         })
     }
@@ -462,6 +464,36 @@ impl App {
         }
     }
 
+    fn dispatch_editor_right_click(&mut self, x: u32, y: u32) {
+        let vm = &mut self.vm;
+        match self.mode {
+            AppMode::Sprite => self.sprite_editor.handle_right_click(x, y, vm),
+            AppMode::Map => self.map_editor.handle_right_click(x, y, vm),
+            _ => {}
+        }
+    }
+
+    fn dispatch_editor_right_drag(&mut self, x: u32, y: u32) {
+        let vm = &mut self.vm;
+        match self.mode {
+            AppMode::Sprite => self.sprite_editor.handle_right_drag(x, y, vm),
+            AppMode::Map => self.map_editor.handle_right_drag(x, y, vm),
+            _ => {}
+        }
+    }
+
+    fn dispatch_editor_scroll(&mut self, dx: f32, dy: f32) {
+        let vm = &mut self.vm;
+        match self.mode {
+            AppMode::Sprite => self.sprite_editor.handle_scroll(dx, dy, vm),
+            AppMode::Map => self.map_editor.handle_scroll(dx, dy, vm),
+            AppMode::Sfx => self.sfx_editor.handle_scroll(dx, dy, vm),
+            AppMode::Music => self.music_editor.handle_scroll(dx, dy, vm),
+            AppMode::Browser => self.browser_editor.handle_scroll(dx, dy, vm),
+            _ => {}
+        }
+    }
+
     fn poll_browser_load(&mut self) {
         if let Some(path) = self.browser_editor.take_pending_load() {
             match self.load_rom(&path) {
@@ -559,11 +591,8 @@ impl ApplicationHandler for App {
                     }
                 }
 
-                // Draw tab bar whenever not in active gameplay
-                let paused = self.debugger.get_mode() == DebugMode::Paused;
-                if self.mode != AppMode::Run || paused {
-                    tabs::draw_tab_bar(self.screen.get_debug_layer(), &self.font, self.mode);
-                }
+                // Tab bar always visible
+                tabs::draw_tab_bar(self.screen.get_debug_layer(), &self.font, self.mode);
 
                 if let Some(pixels) = self.pixels.as_mut() {
                     self.screen.construct(
@@ -577,23 +606,44 @@ impl ApplicationHandler for App {
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse_x = position.x;
                 self.mouse_y = position.y;
+                let (sx, sy) = self.logical_mouse_pos();
                 if self.mouse_left && self.mode != AppMode::Run {
-                    let (sx, sy) = self.logical_mouse_pos();
                     self.dispatch_editor_drag(sx, sy);
+                }
+                if self.mouse_right && self.mode != AppMode::Run {
+                    self.dispatch_editor_right_drag(sx, sy);
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                if self.mode != AppMode::Run {
+                    let (dx, dy) = match delta {
+                        MouseScrollDelta::LineDelta(x, y) => (x, y),
+                        MouseScrollDelta::PixelDelta(pos) => (pos.x as f32 / 20.0, pos.y as f32 / 20.0),
+                    };
+                    self.dispatch_editor_scroll(dx, dy);
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                if button == MouseButton::Left {
-                    let pressed = state == ElementState::Pressed;
-                    self.mouse_left = pressed;
-                    if pressed && self.mode != AppMode::Run {
-                        let (sx, sy) = self.logical_mouse_pos();
-                        self.dispatch_editor_click(sx, sy);
-                        self.poll_browser_load();
-                    } else if !pressed && self.mode != AppMode::Run {
-                        let (sx, sy) = self.logical_mouse_pos();
-                        self.dispatch_editor_mouse_up(sx, sy);
+                let pressed = state == ElementState::Pressed;
+                let (sx, sy) = self.logical_mouse_pos();
+                match button {
+                    MouseButton::Left => {
+                        self.mouse_left = pressed;
+                        if pressed {
+                            // always dispatch so tab bar is clickable in Run mode
+                            self.dispatch_editor_click(sx, sy);
+                            self.poll_browser_load();
+                        } else if !pressed && self.mode != AppMode::Run {
+                            self.dispatch_editor_mouse_up(sx, sy);
+                        }
                     }
+                    MouseButton::Right => {
+                        self.mouse_right = pressed;
+                        if pressed && self.mode != AppMode::Run {
+                            self.dispatch_editor_right_click(sx, sy);
+                        }
+                    }
+                    _ => {}
                 }
             }
             WindowEvent::ModifiersChanged(mods) => {

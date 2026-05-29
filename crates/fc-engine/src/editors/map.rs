@@ -3,7 +3,7 @@ use fc_vm::rendering::{font::Font, screen::ScreenLayer, text::draw_text};
 use fc_vm::vm::Vm;
 use winit::keyboard::KeyCode;
 
-use super::Editor;
+use super::{button_hit, draw_button, Editor};
 
 const MAP_RAM_BASE: usize = 0x5000;
 const SPRITE_SHEET_BASE: usize = 0x4000;
@@ -89,6 +89,18 @@ impl MapEditor {
         let x1 = ax.max(ex);
         let y1 = ay.max(ey);
         Some((x0, y0, x1, y1))
+    }
+
+    fn fill_selection(&self, vm: &mut Vm, tile: u8) {
+        let (x0, y0, x1, y1) = match self.selection_rect() {
+            Some(r) => r,
+            None => return,
+        };
+        for row in y0..=y1 {
+            for col in x0..=x1 {
+                vm.poke_memory(MAP_RAM_BASE + row * MAP_W + col, tile);
+            }
+        }
     }
 
     fn copy_selection(&mut self, vm: &Vm) {
@@ -247,10 +259,11 @@ impl Editor for MapEditor {
             }
         }
 
-        // Draw sprite picker (4 cols × 8 rows = 32 sprites)
+        // Draw sprite picker (4 cols × 8 rows = 32 sprites), paged by active_sprite
+        let picker_base = (self.active_sprite as usize / 32) * 32;
         for row in 0..PICKER_ROWS {
             for col in 0..PICKER_COLS {
-                let idx = row * PICKER_COLS + col;
+                let idx = picker_base + row * PICKER_COLS + col;
                 let bx = PICKER_X + col as u32 * SPRITE_SIZE as u32;
                 let by = row as u32 * SPRITE_SIZE as u32;
                 Self::draw_sprite(layer, vm, idx, bx, by);
@@ -269,6 +282,8 @@ impl Editor for MapEditor {
         // Info text
         let label = format!("S:{}", self.active_sprite);
         draw_text(font, layer, &label, Vec2::new(PICKER_X, 64), Color::new_rgb(200, 200, 200));
+        let page_label = format!("P{}", picker_base / 32);
+        draw_text(font, layer, &page_label, Vec2::new(PICKER_X + 20, 64), Color::new_rgb(120, 120, 120));
         let scroll = format!("{},{}", self.view_x, self.view_y);
         draw_text(font, layer, &scroll, Vec2::new(PICKER_X, 72), Color::new_rgb(120, 120, 120));
         let mode_label = match self.edit_mode {
@@ -282,12 +297,56 @@ impl Editor for MapEditor {
         if self.clipboard.is_some() {
             draw_text(font, layer, "CB", Vec2::new(PICKER_X + 20, 80), Color::new_rgb(0, 200, 100));
         }
+
+        // Sidebar action buttons at y=88..119
+        draw_button(layer, font, PICKER_X + 1, 88, "SEL", self.edit_mode == MapEditorMode::Select);
+        if self.edit_mode == MapEditorMode::Select {
+            draw_button(layer, font, PICKER_X + 1, 96, "CPY", false);
+            draw_button(layer, font, PICKER_X + 1, 104, "FIL", false);
+        }
+        if self.clipboard.is_some() {
+            draw_button(layer, font, PICKER_X + 1, 112, "PST", self.edit_mode == MapEditorMode::Paste);
+        }
+    }
+
+    fn handle_right_click(&mut self, x: u32, y: u32, vm: &mut Vm) {
+        if y >= 120 || x >= MAP_AREA_W { return; }
+        if let Some((tx, ty)) = self.screen_to_map_tile(x, y) {
+            vm.poke_memory(MAP_RAM_BASE + ty * MAP_W + tx, 0);
+        }
+    }
+
+    fn handle_scroll(&mut self, dx: f32, dy: f32, _vm: &mut Vm) {
+        if dy > 0.0 { self.view_y = self.view_y.saturating_sub(1); }
+        else if dy < 0.0 { self.view_y += 1; }
+        if dx > 0.0 { self.view_x += 1; }
+        else if dx < 0.0 { self.view_x = self.view_x.saturating_sub(1); }
+        self.clamp_view();
     }
 
     fn handle_click(&mut self, x: u32, y: u32, vm: &mut Vm) {
         if y >= 120 {
             return;
         }
+
+        // Sidebar action buttons (below picker at y>=88)
+        if x >= PICKER_X && y >= 88 {
+            if button_hit(PICKER_X + 1, 88, "SEL", x, y) {
+                self.edit_mode = match self.edit_mode {
+                    MapEditorMode::Select => { self.sel_anchor = None; self.sel_end = None; MapEditorMode::Paint }
+                    _ => { self.sel_anchor = None; self.sel_end = None; MapEditorMode::Select }
+                };
+            } else if button_hit(PICKER_X + 1, 96, "CPY", x, y) {
+                self.copy_selection(vm);
+            } else if button_hit(PICKER_X + 1, 104, "FIL", x, y) {
+                let tile = self.active_sprite;
+                self.fill_selection(vm, tile);
+            } else if button_hit(PICKER_X + 1, 112, "PST", x, y) {
+                if self.clipboard.is_some() { self.edit_mode = MapEditorMode::Paste; }
+            }
+            return;
+        }
+
         match self.edit_mode {
             MapEditorMode::Paint => {
                 if x < MAP_AREA_W {
@@ -297,8 +356,9 @@ impl Editor for MapEditor {
                 } else if x >= PICKER_X && y < (PICKER_ROWS * SPRITE_SIZE) as u32 {
                     let col = ((x - PICKER_X) / SPRITE_SIZE as u32) as usize;
                     let row = (y / SPRITE_SIZE as u32) as usize;
-                    let idx = row * PICKER_COLS + col;
-                    if idx < 64 {
+                    let picker_base = (self.active_sprite as usize / 32) * 32;
+                    let idx = picker_base + row * PICKER_COLS + col;
+                    if idx < 256 {
                         self.active_sprite = idx as u8;
                     }
                 }
@@ -371,13 +431,24 @@ impl Editor for MapEditor {
                 }
             }
             KeyCode::BracketLeft => {
-                if self.active_sprite > 0 {
-                    self.active_sprite -= 1;
-                }
+                self.active_sprite = self.active_sprite.saturating_sub(1);
             }
             KeyCode::BracketRight => {
-                if self.active_sprite < 63 {
+                if self.active_sprite < 255 {
                     self.active_sprite += 1;
+                }
+            }
+            // Page through picker in blocks of 32
+            KeyCode::PageUp => {
+                let page = self.active_sprite as usize / 32;
+                if page > 0 {
+                    self.active_sprite = ((page - 1) * 32) as u8;
+                }
+            }
+            KeyCode::PageDown => {
+                let page = self.active_sprite as usize / 32;
+                if page < 7 {
+                    self.active_sprite = ((page + 1) * 32) as u8;
                 }
             }
             KeyCode::KeyS => {
@@ -397,6 +468,17 @@ impl Editor for MapEditor {
             KeyCode::KeyC => {
                 if self.edit_mode == MapEditorMode::Select {
                     self.copy_selection(vm);
+                }
+            }
+            KeyCode::KeyF => {
+                if self.edit_mode == MapEditorMode::Select {
+                    let tile = self.active_sprite;
+                    self.fill_selection(vm, tile);
+                }
+            }
+            KeyCode::Delete => {
+                if self.edit_mode == MapEditorMode::Select {
+                    self.fill_selection(vm, 0);
                 }
             }
             KeyCode::KeyV => {

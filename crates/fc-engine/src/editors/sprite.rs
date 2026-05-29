@@ -3,7 +3,7 @@ use fc_vm::rendering::{font::Font, screen::ScreenLayer, text::draw_text};
 use fc_vm::vm::Vm;
 use winit::keyboard::KeyCode;
 
-use super::Editor;
+use super::{button_hit, draw_button, Editor};
 
 const SPRITE_SHEET_BASE: usize = 0x4000;
 const SPRITE_SIZE: usize = 8;
@@ -176,11 +176,18 @@ impl SpriteEditor {
         }
 
         // Info label
-        let fill_str = if self.fill_mode { " [F]=FILL*" } else { " [F]=FILL" };
-        let clip_str = if self.clipboard.is_some() { " [V]=PASTE" } else { "" };
-        let label = format!("SPR:{} COL:{}{}{}", self.active_sprite, self.active_color, fill_str, clip_str);
-        let label_col = if self.fill_mode { Color::new_rgb(255, 200, 80) } else { Color::new_rgb(200, 200, 200) };
-        draw_text(font, screen, &label, Vec2::new(0, 72), label_col);
+        let label = format!("SPR:{} COL:{}", self.active_sprite, self.active_color);
+        draw_text(font, screen, &label, Vec2::new(0, 72), Color::new_rgb(200, 200, 200));
+
+        // Button row at y=80
+        draw_button(screen, font, 0, 80, "FILL", self.fill_mode);
+        draw_button(screen, font, 22, 80, "COPY", false);
+        if self.clipboard.is_some() {
+            draw_button(screen, font, 44, 80, "PST", false);
+        }
+        // Scroll hint
+        let hint = format!("WHEEL=SPR RCLICK=ERASE");
+        draw_text(font, screen, &hint, Vec2::new(0, 89), Color::new_rgb(70, 70, 70));
     }
 }
 
@@ -190,7 +197,49 @@ impl Editor for SpriteEditor {
     }
 
     fn handle_click(&mut self, x: u32, y: u32, vm: &mut Vm) {
+        // Button row at y=80..86 — don't pass through to canvas
+        if y >= 80 && y < 87 {
+            if button_hit(0, 80, "FILL", x, y) {
+                self.fill_mode = !self.fill_mode;
+            } else if button_hit(22, 80, "COPY", x, y) {
+                let base = SPRITE_SHEET_BASE + self.active_sprite * SPRITE_SIZE * SPRITE_SIZE;
+                let mut buf = [0u8; 64];
+                for (i, b) in buf.iter_mut().enumerate() { *b = vm.peek_memory(base + i); }
+                self.clipboard = Some(buf);
+            } else if button_hit(44, 80, "PST", x, y) {
+                if let Some(buf) = self.clipboard {
+                    let base = SPRITE_SHEET_BASE + self.active_sprite * SPRITE_SIZE * SPRITE_SIZE;
+                    for (i, b) in buf.iter().enumerate() { vm.poke_memory(base + i, *b); }
+                }
+            }
+            return;
+        }
         self.handle_click_inner(x, y, vm);
+    }
+
+    fn handle_drag(&mut self, x: u32, y: u32, vm: &mut Vm) {
+        // Skip button row during drag
+        if y < 80 {
+            self.handle_click_inner(x, y, vm);
+        }
+    }
+
+    fn handle_right_click(&mut self, x: u32, y: u32, vm: &mut Vm) {
+        // Erase: paint color 0 on canvas
+        if x < 64 && y < 64 {
+            let px = (x / 8) as usize;
+            let py = (y / 8) as usize;
+            let base = SPRITE_SHEET_BASE + self.active_sprite * SPRITE_SIZE * SPRITE_SIZE;
+            vm.poke_memory(base + py * SPRITE_SIZE + px, 0);
+        }
+    }
+
+    fn handle_scroll(&mut self, _dx: f32, dy: f32, _vm: &mut Vm) {
+        if dy < 0.0 && self.active_sprite < 255 {
+            self.active_sprite += 1;
+        } else if dy > 0.0 && self.active_sprite > 0 {
+            self.active_sprite -= 1;
+        }
     }
 
     fn handle_key(&mut self, key: KeyCode, vm: &mut Vm) {

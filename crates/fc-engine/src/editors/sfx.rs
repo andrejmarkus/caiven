@@ -4,7 +4,7 @@ use fc_vm::vm::sfx::note_name;
 use fc_vm::vm::Vm;
 use winit::keyboard::KeyCode;
 
-use super::Editor;
+use super::{draw_button, Editor};
 
 const SFX_BANK_BASE: usize = 0x5C00;
 const STEPS: u8 = 16;
@@ -139,9 +139,23 @@ impl Editor for SfxEditor {
             let fx_str = match fx { 1 => "SL", 2 => "VB", 3 => "DR", _ => "--" };
             draw_text(font, layer, fx_str, Vec2::new(COL_FX, y), fx_col);
         }
+
+        // PLAY / STOP buttons drawn last (top-right, above grid rows)
+        draw_button(layer, font, 95, 10, "PLAY", false);
+        draw_button(layer, font, 95, 18, "STOP", false);
     }
 
-    fn handle_click(&mut self, x: u32, y: u32, _vm: &mut Vm) {
+    fn handle_scroll(&mut self, _dx: f32, dy: f32, _vm: &mut Vm) {
+        if dy < 0.0 && self.sfx_id < 15 { self.sfx_id += 1; }
+        else if dy > 0.0 && self.sfx_id > 0 { self.sfx_id -= 1; }
+    }
+
+    fn handle_click(&mut self, x: u32, y: u32, vm: &mut Vm) {
+        // PLAY/STOP buttons (drawn on top of grid rows, check first)
+        if x >= 95 {
+            if y >= 10 && y < 17 { vm.start_sfx(self.sfx_id); return; }
+            if y >= 18 && y < 25 { vm.stop_sfx(); return; }
+        }
         if y < SELECTOR_H {
             self.sfx_id = (x / 8).min(15) as u8;
         } else if y >= GRID_TOP {
