@@ -12,6 +12,14 @@ pub enum DebugMode {
     Step,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DebugClickAction {
+    None,
+    TogglePause,
+    Step,
+    RestoreScrub,
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct FcDbgFile {
     #[serde(default)]
@@ -271,6 +279,51 @@ impl Debugger {
         println!("----------------");
     }
 
+    pub fn is_enabled(&self) -> bool { self.enabled }
+
+    /// Handle a mouse click on the debug overlay. Returns what the caller must do next.
+    pub fn handle_click(&mut self, x: u32, y: u32, vm: &Vm) -> DebugClickAction {
+        if !self.enabled { return DebugClickAction::None; }
+
+        // Status line buttons (y=0..7)
+        if y < 8 {
+            if x >= 88 && x < 104 {
+                return DebugClickAction::TogglePause;
+            }
+            if x >= 104 && x < 120 && self.mode == DebugMode::Paused {
+                return DebugClickAction::Step;
+            }
+            return DebugClickAction::None;
+        }
+
+        // Disasm rows (y=8..47, 5 rows × 8px)
+        if y >= 8 && y < 48 {
+            let row = ((y - 8) / 8) as usize;
+            let addrs = build_disasm_window(vm, self.cursor_addr, 5);
+            if let Some(&addr) = addrs.get(row) {
+                if x < 8 {
+                    // Gutter click: toggle breakpoint at this address
+                    self.cursor_addr = addr;
+                    self.toggle_bp_at_cursor();
+                } else {
+                    // Row click: move cursor here
+                    self.cursor_addr = addr;
+                }
+            }
+            return DebugClickAction::None;
+        }
+
+        // Timeline bar (y=70..72)
+        if y >= 70 && y < 73 && !self.states.is_empty() {
+            let idx = (x as usize * self.states.len()) / 128;
+            let idx = idx.min(self.states.len() - 1);
+            self.scrub_offset = self.states.len().saturating_sub(1 + idx);
+            return DebugClickAction::RestoreScrub;
+        }
+
+        DebugClickAction::None
+    }
+
     pub fn draw_overlay(&self, screen: &mut ScreenLayer, vm: &Vm, font: &Font) {
         if !self.enabled {
             return;
@@ -303,6 +356,13 @@ impl Debugger {
             scrub_indicator
         );
         draw_text(font, screen, &status, Vec2::new(0, 0), cyan);
+
+        // Clickable buttons on status line: [PSE/RUN] [STP]
+        let pause_label = if self.mode == DebugMode::Running { "RUN" } else { "PSE" };
+        draw_text(font, screen, pause_label, Vec2::new(88, 0), yellow);
+        if self.mode == DebugMode::Paused {
+            draw_text(font, screen, "STP", Vec2::new(104, 0), green);
+        }
 
         let disasm_addrs = build_disasm_window(vm, self.cursor_addr, 5);
         for (i, &addr) in disasm_addrs.iter().enumerate() {

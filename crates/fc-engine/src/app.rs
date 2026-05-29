@@ -1,5 +1,5 @@
 use crate::cart_save::{CartMeta, SectionLayout};
-use crate::debugger::{DebugMode, Debugger};
+use crate::debugger::{DebugClickAction, DebugMode, Debugger};
 use crate::editors::{BrowserEditor, Editor, MapEditor, MetaEditor, MusicEditor, PaletteEditor, SfxEditor, SpriteEditor};
 use crate::hot_reload::HotReload;
 use crate::tabs;
@@ -633,6 +633,20 @@ impl ApplicationHandler for App {
                             // always dispatch so tab bar is clickable in Run mode
                             self.dispatch_editor_click(sx, sy);
                             self.poll_browser_load();
+                            // debugger overlay click (Run mode only)
+                            if self.mode == AppMode::Run && self.debugger.is_enabled() {
+                                let pc = self.vm.get_pc();
+                                match self.debugger.handle_click(sx, sy, &self.vm) {
+                                    DebugClickAction::TogglePause => self.debugger.toggle_pause(pc),
+                                    DebugClickAction::Step => self.debugger.step(),
+                                    DebugClickAction::RestoreScrub => {
+                                        if let Some(state) = self.debugger.current_scrub_snapshot() {
+                                            self.vm.restore(&state);
+                                        }
+                                    }
+                                    DebugClickAction::None => {}
+                                }
+                            }
                         } else if !pressed && self.mode != AppMode::Run {
                             self.dispatch_editor_mouse_up(sx, sy);
                         }
