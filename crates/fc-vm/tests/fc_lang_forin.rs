@@ -33,6 +33,70 @@ fn read_u32(vm: &Vm, addr: usize) -> u32 {
 const G0: usize = 0x0000;
 const G1: usize = 0x0004;
 
+// ─── for i = start, stop [, step] ────────────────────────────────────────────
+
+#[test]
+fn numeric_for_sum() {
+    // sum 1..10 = 55
+    let vm = run_fc(r#"
+let result = 0
+loop:
+  local s = 0
+  for i = 1, 10 do
+    s = s + i
+  end
+  result = s
+  wait()
+"#);
+    assert_eq!(read_u32(&vm, G0), 55);
+}
+
+#[test]
+fn numeric_for_step() {
+    // sum even numbers 2,4,6,8,10 = 30
+    let vm = run_fc(r#"
+let result = 0
+loop:
+  local s = 0
+  for i = 2, 10, 2 do
+    s = s + i
+  end
+  result = s
+  wait()
+"#);
+    assert_eq!(read_u32(&vm, G0), 30);
+}
+
+#[test]
+fn numeric_for_count_down() {
+    // count down 5,4,3,2,1 → 5 iterations, sum = 15
+    let vm = run_fc(r#"
+let result = 0
+loop:
+  local s = 0
+  for i = 5, 1, -1 do
+    s = s + i
+  end
+  result = s
+  wait()
+"#);
+    assert_eq!(read_u32(&vm, G0), 15);
+}
+
+#[test]
+fn numeric_for_zero_iterations() {
+    // start > stop with positive step → body never runs
+    let vm = run_fc(r#"
+let result = 99
+loop:
+  for i = 5, 1 do
+    result = 0
+  end
+  wait()
+"#);
+    assert_eq!(read_u32(&vm, G0), 99);
+}
+
 // ─── for k, v in table ────────────────────────────────────────────────────────
 
 #[test]

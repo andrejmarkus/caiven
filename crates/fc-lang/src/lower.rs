@@ -1301,92 +1301,121 @@ impl Compiler {
             }
             Stmt::NumericFor { var, start, stop, step, body, line } => {
                 // for var = start, stop [, step] do body end
-                // Allocate 3 locals: __for_var, __for_stop, __for_step
-                let loop_label = self.fresh_label("for_loop");
-                let end_label = self.fresh_label("for_end");
-
-                let slots_at_entry = self.fn_ctx.as_ref().map(|c| c.next_slot).unwrap_or(0);
-                if let Some(ctx) = &mut self.fn_ctx {
-                    ctx.break_targets.push(BreakTarget { end_label: end_label.clone(), slots_at_entry });
-                }
-
-                // We compile numeric for by emitting explicit local management.
-                // Push scope, allocate var/__stop/__step, loop, pop scope.
-                if let Some(ctx) = &mut self.fn_ctx {
-                    ctx.push_scope();
-                }
-
-                // init var = start
-                let start = start.clone();
-                self.lower_expr_r0(&start)?;
-                let var_slot = if let Some(ctx) = &mut self.fn_ctx {
-                    let slot = ctx.alloc_local(var.clone());
-                    self.emit_push(0);
-                    slot
-                } else {
-                    return Err(LangError::NotImplemented { line: *line, feature: "for at top-level".to_string() });
-                };
-
-                // stop
-                let stop = stop.clone();
-                self.lower_expr_r0(&stop)?;
-                let stop_slot = if let Some(ctx) = &mut self.fn_ctx {
-                    let slot = ctx.alloc_local("__for_stop".to_string());
-                    self.emit_push(0);
-                    slot
-                } else { unreachable!() };
-
-                // step (default 1)
+                let loop_label = self.fresh_label("nfor_loop");
+                let end_label  = self.fresh_label("nfor_end");
                 let step_val = step.clone().unwrap_or_else(|| Expr::Number(1, *line));
-                self.lower_expr_r0(&step_val)?;
-                let step_slot = if let Some(ctx) = &mut self.fn_ctx {
-                    let slot = ctx.alloc_local("__for_step".to_string());
+
+                // Detect step sign at compile time so we emit the correct condition.
+                // Positive (default): exit when var > stop  (SLTS R2, stop, var)
+                // Negative:           exit when var < stop  (SLTS R2, var,  stop)
+                // Number is u32 so negative literals parse as UnOp::Neg(Number(n)).
+                let neg_step = matches!(&step_val, Expr::UnOp { op: UnOp::Neg, .. });
+
+                if self.fn_ctx.is_some() {
+                    // ── inside a function: use stack locals ──────────────────
+                    let slots_at_entry = self.fn_ctx.as_ref().unwrap().next_slot;
+                    self.fn_ctx.as_mut().unwrap().break_targets.push(
+                        BreakTarget { end_label: end_label.clone(), slots_at_entry }
+                    );
+                    self.fn_ctx.as_mut().unwrap().push_scope();
+
+                    let start = start.clone();
+                    self.lower_expr_r0(&start)?;
+                    let var_slot = { let s = self.fn_ctx.as_mut().unwrap().alloc_local(var.clone()); self.emit_push(0); s };
+
+                    let stop = stop.clone();
+                    self.lower_expr_r0(&stop)?;
+                    let stop_slot = { let s = self.fn_ctx.as_mut().unwrap().alloc_local("__nfor_stop".to_string()); self.emit_push(0); s };
+
+                    self.lower_expr_r0(&step_val)?;
+                    let step_slot = { let s = self.fn_ctx.as_mut().unwrap().alloc_local("__nfor_step".to_string()); self.emit_push(0); s };
+
+                    self.emit_label(&loop_label);
+
+                    // Load var → R0, stop → R1
+                    self.emit_load_local(var_slot);
                     self.emit_push(0);
-                    slot
-                } else { unreachable!() };
+                    self.emit_load_local(stop_slot);
+                    self.emit_movr(1, 0);
+                    self.emit_pop(0);
+                    // Condition: positive step → exit when stop < var (R1 < R0)
+                    //            negative step → exit when var  < stop (R0 < R1)
+                    self.code.push(OP_SLTS);
+                    self.code.push(2);
+                    if neg_step { self.code.push(0); self.code.push(1); }
+                    else        { self.code.push(1); self.code.push(0); }
+                    self.emit_jnz(2, &end_label);
 
-                self.emit_label(&loop_label);
+                    let body = body.clone();
+                    self.compile_block(&body)?;
 
-                // Condition: var <= stop (assuming positive step)
-                // R0 = var, R1 = stop
-                self.emit_load_local(var_slot);
-                self.emit_push(0);
-                self.emit_load_local(stop_slot);
-                self.emit_movr(1, 0);
-                self.emit_pop(0);
-                // SLTS R2, R1, R0 → R2 = (stop < var) i.e. var > stop → exit
-                self.code.push(OP_SLTS);
-                self.code.push(2);
-                self.code.push(1);
-                self.code.push(0);
-                self.emit_jnz(2, &end_label);
+                    // var += step
+                    self.emit_load_local(var_slot);
+                    self.emit_push(0);
+                    self.emit_load_local(step_slot);
+                    self.emit_movr(1, 0);
+                    self.emit_pop(0);
+                    self.emit_addr(0, 1);
+                    self.emit_store_local(var_slot);
 
-                // body
-                let body = body.clone();
-                self.compile_block(&body)?;
+                    self.emit_jmp(&loop_label);
+                    self.emit_label(&end_label);
 
-                // var += step
-                self.emit_load_local(var_slot);
-                self.emit_push(0);
-                self.emit_load_local(step_slot);
-                self.emit_movr(1, 0);
-                self.emit_pop(0);
-                self.emit_addr(0, 1);
-                self.emit_store_local(var_slot);
+                    let freed = self.fn_ctx.as_mut().unwrap().pop_scope();
+                    if freed > 0 {
+                        self.emit_getsp(1);
+                        self.emit_mov(2, (freed * 4) as u16);
+                        self.emit_addr(1, 2);
+                        self.emit_setsp(1);
+                    }
+                    self.fn_ctx.as_mut().unwrap().break_targets.pop();
+                } else {
+                    // ── top-level: use global memory slots ──────────────────
+                    let uid = self.fresh_label("nfor");
+                    let var_name  = format!("__nfor_v_{}", uid);
+                    let stop_name = format!("__nfor_s_{}", uid);
+                    let step_name = format!("__nfor_t_{}", uid);
 
-                self.emit_jmp(&loop_label);
-                self.emit_label(&end_label);
+                    let var_addr  = self.alloc_global(&var_name);
+                    let stop_addr = self.alloc_global(&stop_name);
+                    let step_addr = self.alloc_global(&step_name);
+                    // Make loop var visible by name so body can reference it
+                    self.globals.insert(var.clone(), var_addr);
 
-                // Pop scope (frees var + stop + step)
-                let freed = self.fn_ctx.as_mut().map(|ctx| ctx.pop_scope()).unwrap_or(0);
-                if freed > 0 {
-                    self.emit_getsp(1);
-                    self.emit_mov(2, (freed * 4) as u16);
-                    self.emit_addr(1, 2);
-                    self.emit_setsp(1);
-                }
-                if let Some(ctx) = &mut self.fn_ctx {
-                    ctx.break_targets.pop();
+                    let start = start.clone();
+                    self.lower_expr_r0(&start)?;
+                    self.emit_stm32(var_addr, 0);
+
+                    let stop = stop.clone();
+                    self.lower_expr_r0(&stop)?;
+                    self.emit_stm32(stop_addr, 0);
+
+                    self.lower_expr_r0(&step_val)?;
+                    self.emit_stm32(step_addr, 0);
+
+                    self.emit_label(&loop_label);
+
+                    // Load var → R0, stop → R1
+                    self.emit_ldm32(0, var_addr);
+                    self.emit_ldm32(1, stop_addr);
+                    // Condition: same sign logic as function path
+                    self.code.push(OP_SLTS);
+                    self.code.push(2);
+                    if neg_step { self.code.push(0); self.code.push(1); }
+                    else        { self.code.push(1); self.code.push(0); }
+                    self.emit_jnz(2, &end_label);
+
+                    let body = body.clone();
+                    self.compile_block(&body)?;
+
+                    // var += step
+                    self.emit_ldm32(0, var_addr);
+                    self.emit_ldm32(1, step_addr);
+                    self.emit_addr(0, 1);
+                    self.emit_stm32(var_addr, 0);
+
+                    self.emit_jmp(&loop_label);
+                    self.emit_label(&end_label);
                 }
             }
             Stmt::Do { body, .. } => {
