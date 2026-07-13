@@ -1,5 +1,4 @@
-pub const SFX_BANK_BASE: usize = 0x5C00;
-pub const MUSIC_BANK_BASE: usize = 0x6000;
+pub use fc_core::memory::{MUSIC_RAM_BASE as MUSIC_BANK_BASE, SFX_RAM_BASE as SFX_BANK_BASE};
 const SFX_STEPS: u8 = 16;
 const MUSIC_ROWS: u8 = 16;
 

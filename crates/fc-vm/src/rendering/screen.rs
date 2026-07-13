@@ -1,3 +1,4 @@
+use fc_core::memory::RGBA_BYTES;
 use fc_core::{Color, Vec2};
 
 pub struct ScreenLayer {
@@ -9,7 +10,7 @@ pub struct ScreenLayer {
 impl ScreenLayer {
     pub fn new(width: u32, height: u32) -> Self {
         Self {
-            pixels: vec![0; width as usize * height as usize * 4],
+            pixels: vec![0; width as usize * height as usize * RGBA_BYTES],
             width,
             height,
         }
@@ -23,8 +24,8 @@ impl ScreenLayer {
         if position.get_x() >= self.width || position.get_y() >= self.height {
             return;
         }
-        let i = (position.get_y() * self.width + position.get_x()) * 4;
-        self.pixels[i as usize..i as usize + 4].copy_from_slice(&[
+        let i = (position.get_y() * self.width + position.get_x()) as usize * RGBA_BYTES;
+        self.pixels[i..i + RGBA_BYTES].copy_from_slice(&[
             color.get_r(),
             color.get_g(),
             color.get_b(),
@@ -59,12 +60,12 @@ impl Screen {
     pub fn construct(&self, out: &mut [u8], world: &[u8], ui: &[u8]) {
         out.fill(0);
         for layer_pixels in [world, ui, self.debug.get_pixels()] {
-            for i in (0..out.len()).step_by(4) {
+            for i in (0..out.len()).step_by(RGBA_BYTES) {
                 let a = layer_pixels[i + 3];
                 if a == 0 {
                     continue;
                 }
-                out[i..i + 4].copy_from_slice(&layer_pixels[i..i + 4]);
+                out[i..i + RGBA_BYTES].copy_from_slice(&layer_pixels[i..i + RGBA_BYTES]);
             }
         }
     }

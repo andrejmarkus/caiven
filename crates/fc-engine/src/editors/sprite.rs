@@ -1,3 +1,4 @@
+use fc_core::memory::SPRITE_SHEET_RAM_BASE as SPRITE_SHEET_BASE;
 use fc_core::{Color, Vec2};
 use fc_vm::rendering::{font::Font, screen::ScreenLayer, text::draw_text};
 use fc_vm::vm::Vm;
@@ -5,7 +6,6 @@ use winit::keyboard::KeyCode;
 
 use super::{Editor, button_hit, draw_button};
 
-const SPRITE_SHEET_BASE: usize = 0x4000;
 const SPRITE_SIZE: usize = 8;
 
 // Layout (128x128 screen):

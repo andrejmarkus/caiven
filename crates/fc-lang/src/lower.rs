@@ -1,5 +1,6 @@
 use crate::ast::*;
 use crate::error::{LangError, Result};
+use fc_asm::opcodes::*;
 use fc_asm::SourceMap;
 use std::collections::HashMap;
 
@@ -31,56 +32,6 @@ const TABLE_ENTRY_SZ: u32 = 8; // key(u32) + val(u32)
 const TABLE_HDR_SZ: u32 = 8; // cap(u32) + count(u32)
 const TABLE_ALLOC_SZ: u32 = TABLE_HDR_SZ + TABLE_CAP * TABLE_ENTRY_SZ; // 72
 const TABLE_SENTINEL: u32 = 0xFFFFFFFF; // marks empty slot key
-
-// Opcode constants
-const OP_MOV: u8 = 0x01;
-const OP_DPX: u8 = 0x04;
-const OP_SPT: u8 = 0x06;
-const OP_PAL: u8 = 0x07;
-const OP_TIL: u8 = 0x08;
-
-const OP_RND: u8 = 0x0B;
-const OP_MOVR: u8 = 0x0C;
-const OP_FILL: u8 = 0x0E;
-const OP_JMP: u8 = 0x10;
-const OP_JNZ: u8 = 0x11;
-const OP_JZ: u8 = 0x12;
-const OP_JSR: u8 = 0x13;
-const OP_RET: u8 = 0x14;
-const OP_ADDR: u8 = 0x15;
-const OP_SUBR: u8 = 0x16;
-const OP_PUSH: u8 = 0x17;
-const OP_POP: u8 = 0x18;
-const OP_GETSP: u8 = 0x19;
-const OP_SETSP: u8 = 0x1A;
-const OP_MUL: u8 = 0x1B;
-const OP_DIV: u8 = 0x1C;
-const OP_MOD: u8 = 0x1D;
-const OP_AND: u8 = 0x21;
-const OP_LDMI: u8 = 0x32; // byte indirect load
-const OP_STMI: u8 = 0x33; // byte indirect store
-const OP_NEG: u8 = 0x28;
-const OP_SLTS: u8 = 0x29;
-const OP_EQ: u8 = 0x2A;
-const OP_LDM32: u8 = 0x2B;
-const OP_STM32: u8 = 0x2C;
-const OP_LDM32I: u8 = 0x2D;
-const OP_STM32I: u8 = 0x2E;
-const OP_MOV32: u8 = 0x2F;
-const OP_IN: u8 = 0x20;
-const OP_CPY: u8 = 0x34;
-const OP_TXT: u8 = 0x42;
-const OP_TXTZ: u8 = 0x3B;
-const OP_NUM: u8 = 0x43;
-const OP_MATH1: u8 = 0x37;
-const OP_MAX: u8 = 0x38;
-const OP_MIN: u8 = 0x39;
-const OP_JREG: u8 = 0x3A;
-const OP_SFX: u8 = 0x87;
-const OP_MUS: u8 = 0x88;
-const OP_NOMUS: u8 = 0x89;
-const OP_WAIT: u8 = 0xFF;
-const OP_CLS: u8 = 0x00;
 
 #[derive(Clone, Debug)]
 enum VarLoc {

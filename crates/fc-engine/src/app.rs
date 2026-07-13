@@ -8,6 +8,10 @@ use crate::hot_reload::HotReload;
 use crate::tabs;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use fc_core::memory::{
+    MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE, PALETTE_RAM_BASE, SFX_BANK_LEN, SFX_RAM_BASE,
+    SPRITE_SHEET_RAM_BASE,
+};
 use fc_rom::{RomHeader, SectionKind};
 use fc_vm::default_instruction_set;
 use fc_vm::input::{Input, InputMap};
@@ -31,14 +35,6 @@ use winit::{
     event::WindowEvent,
     window::{Window, WindowAttributes},
 };
-
-const SPRITE_SHEET_RAM_BASE: usize = 0x4000;
-const MAP_RAM_BASE: usize = 0x5000;
-const PALETTE_RAM_BASE: usize = 0x5800;
-const SFX_RAM_BASE: usize = 0x5C00;
-const SFX_BANK_LEN: usize = 16 * 64;
-const MUSIC_RAM_BASE: usize = 0x6000;
-const MUSIC_BANK_LEN: usize = 8 * 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppMode {

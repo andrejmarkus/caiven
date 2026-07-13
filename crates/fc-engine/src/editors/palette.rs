@@ -1,3 +1,4 @@
+use fc_core::memory::PALETTE_RAM_BASE;
 use fc_core::{Color, Vec2};
 use fc_vm::rendering::{font::Font, screen::ScreenLayer, text::draw_text};
 use fc_vm::vm::Vm;
@@ -5,7 +6,6 @@ use winit::keyboard::KeyCode;
 
 use super::Editor;
 
-const PALETTE_RAM_BASE: usize = 0x5800;
 const NUM_COLORS: usize = 16;
 
 // Layout (128×120 usable area above tab bar):

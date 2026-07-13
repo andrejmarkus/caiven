@@ -11,7 +11,7 @@ use std::path::Path;
 const SPRITE_SHEET_KIND: u16 = 0x0002;
 
 /// RAM base address where the SpriteSheet section is auto-loaded by the host.
-pub const SPRITE_SHEET_RAM_BASE: u16 = 0x4000;
+pub const SPRITE_SHEET_RAM_BASE: u16 = fc_core::memory::SPRITE_SHEET_RAM_BASE as u16;
 
 pub struct AssemblerOutput {
     pub program: Vec<u8>,

@@ -1,3 +1,4 @@
+use fc_core::memory::SFX_RAM_BASE as SFX_BANK_BASE;
 use fc_core::{Color, Vec2};
 use fc_vm::rendering::{font::Font, screen::ScreenLayer, text::draw_text};
 use fc_vm::vm::Vm;
@@ -6,7 +7,6 @@ use winit::keyboard::KeyCode;
 
 use super::{Editor, draw_button};
 
-const SFX_BANK_BASE: usize = 0x5C00;
 const STEPS: u8 = 16;
 const BYTES_PER_STEP: usize = 4;
 const BYTES_PER_SFX: usize = STEPS as usize * BYTES_PER_STEP;

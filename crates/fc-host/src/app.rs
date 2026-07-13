@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use fc_core::memory::SPRITE_SHEET_RAM_BASE;
 use fc_rom::SectionKind;
 use fc_vm::default_instruction_set;
 use fc_vm::input::{Input, InputMap};
@@ -22,8 +23,6 @@ use winit::{
     event::WindowEvent,
     window::{Window, WindowAttributes},
 };
-
-const SPRITE_SHEET_RAM_BASE: usize = 0x4000;
 
 #[derive(Parser)]
 #[command(name = "fc-host", about = "Fantasy Console — ROM runner")]

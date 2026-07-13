@@ -3,6 +3,7 @@ mod directive;
 mod error;
 pub mod expr;
 mod isa;
+pub mod opcodes;
 pub mod preprocess;
 mod source_map;
 

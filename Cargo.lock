@@ -1294,6 +1294,7 @@ dependencies = [
 name = "fc-asm"
 version = "0.1.0"
 dependencies = [
+ "fc-core",
  "thiserror 2.0.18",
 ]
 
@@ -1331,6 +1332,7 @@ dependencies = [
  "anyhow",
  "clap",
  "env_logger",
+ "fc-core",
  "fc-rom",
  "fc-vm",
  "log",
