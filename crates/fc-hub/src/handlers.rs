@@ -1,6 +1,7 @@
 use std::io::Cursor;
 
 use rocket::{
+    FromForm, State,
     data::Capped,
     form::Form,
     fs::TempFile,
@@ -8,9 +9,8 @@ use rocket::{
     http::{Header, Status},
     post,
     request::{FromRequest, Outcome, Request},
-    response::{self, content::RawHtml, Responder, Response},
+    response::{self, Responder, Response, content::RawHtml},
     serde::json::Json,
-    FromForm, State,
 };
 use std::path::Path;
 use tokio::io::AsyncReadExt;
@@ -29,9 +29,10 @@ async fn move_file(src: &Path, dst: &Path) -> std::io::Result<()> {
 }
 
 use crate::{
-    db, error::ApiError, gallery,
+    HubState, db,
+    error::ApiError,
+    gallery,
     models::{Cart, CartList, CartMeta},
-    HubState,
 };
 
 pub struct ApiKey;
@@ -41,7 +42,11 @@ impl<'r> FromRequest<'r> for ApiKey {
     type Error = ();
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, ()> {
-        let state = req.rocket().state::<HubState>().unwrap();
+        // HubState is attached via .manage() at startup; if it is missing,
+        // fail the request instead of panicking inside the request guard.
+        let Some(state) = req.rocket().state::<HubState>() else {
+            return Outcome::Error((Status::InternalServerError, ()));
+        };
         match req.headers().get_one("X-Api-Key") {
             Some(k) if k == state.api_key => Outcome::Success(ApiKey),
             _ => Outcome::Error((Status::Unauthorized, ())),
@@ -55,7 +60,13 @@ fn valid_id(s: &str) -> bool {
 
 fn safe_filename(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .take(64)
         .collect()
 }
@@ -128,7 +139,12 @@ pub async fn list_carts(
     let page = page.unwrap_or(0);
     let per_page = per_page.unwrap_or(20).min(100);
     let (carts, total) = db::list(&state.db, page, per_page, q.as_deref()).await?;
-    Ok(Json(CartList { carts, total, page, per_page }))
+    Ok(Json(CartList {
+        carts,
+        total,
+        page,
+        per_page,
+    }))
 }
 
 #[get("/api/carts/<id>")]

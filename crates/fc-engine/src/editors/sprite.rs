@@ -3,7 +3,7 @@ use fc_vm::rendering::{font::Font, screen::ScreenLayer, text::draw_text};
 use fc_vm::vm::Vm;
 use winit::keyboard::KeyCode;
 
-use super::{button_hit, draw_button, Editor};
+use super::{Editor, button_hit, draw_button};
 
 const SPRITE_SHEET_BASE: usize = 0x4000;
 const SPRITE_SIZE: usize = 8;
@@ -32,20 +32,34 @@ impl SpriteEditor {
     }
 
     fn flood_fill(vm: &mut Vm, base: usize, px: usize, py: usize, target: u8, fill: u8) {
-        if target == fill { return; }
+        if target == fill {
+            return;
+        }
         let mut visited = 0u64;
         let mut stack = vec![(px, py)];
         while let Some((x, y)) = stack.pop() {
             let bit = y * SPRITE_SIZE + x;
-            if visited & (1u64 << bit) != 0 { continue; }
+            if visited & (1u64 << bit) != 0 {
+                continue;
+            }
             visited |= 1u64 << bit;
             let off = base + bit;
-            if vm.peek_memory(off) != target { continue; }
+            if vm.peek_memory(off) != target {
+                continue;
+            }
             vm.poke_memory(off, fill);
-            if x > 0 { stack.push((x - 1, y)); }
-            if x + 1 < SPRITE_SIZE { stack.push((x + 1, y)); }
-            if y > 0 { stack.push((x, y - 1)); }
-            if y + 1 < SPRITE_SIZE { stack.push((x, y + 1)); }
+            if x > 0 {
+                stack.push((x - 1, y));
+            }
+            if x + 1 < SPRITE_SIZE {
+                stack.push((x + 1, y));
+            }
+            if y > 0 {
+                stack.push((x, y - 1));
+            }
+            if y + 1 < SPRITE_SIZE {
+                stack.push((x, y + 1));
+            }
         }
     }
 
@@ -96,7 +110,10 @@ impl SpriteEditor {
                     + py * SPRITE_SIZE
                     + px;
                 let color_idx = vm.peek_memory(offset) as usize;
-                let color = palette.get(color_idx).copied().unwrap_or(Color::new_rgb(0, 0, 0));
+                let color = palette
+                    .get(color_idx)
+                    .copied()
+                    .unwrap_or(Color::new_rgb(0, 0, 0));
                 for dy in 0..8u32 {
                     for dx in 0..8u32 {
                         screen.set_pixel(Vec2::new(px as u32 * 8 + dx, py as u32 * 8 + dy), color);
@@ -119,7 +136,11 @@ impl SpriteEditor {
         if cx < 64 && cy < 64 {
             let cell_x = (cx / 8) * 8;
             let cell_y = (cy / 8) * 8;
-            let hi = if self.fill_mode { Color::new_rgb(255, 160, 0) } else { Color::new_rgb(255, 255, 255) };
+            let hi = if self.fill_mode {
+                Color::new_rgb(255, 160, 0)
+            } else {
+                Color::new_rgb(255, 255, 255)
+            };
             for d in 0..8u32 {
                 screen.set_pixel(Vec2::new(cell_x + d, cell_y), hi);
                 screen.set_pixel(Vec2::new(cell_x + d, cell_y + 7), hi);
@@ -142,7 +163,10 @@ impl SpriteEditor {
                             + py * SPRITE_SIZE
                             + px;
                         let color_idx = vm.peek_memory(offset) as usize;
-                        let color = palette.get(color_idx).copied().unwrap_or(Color::new_rgb(0, 0, 0));
+                        let color = palette
+                            .get(color_idx)
+                            .copied()
+                            .unwrap_or(Color::new_rgb(0, 0, 0));
                         screen.set_pixel(Vec2::new(base_x + px as u32, base_y + py as u32), color);
                     }
                 }
@@ -179,8 +203,17 @@ impl SpriteEditor {
 
         // Info label — show page (0-3 of 4 picker pages)
         let page = self.active_sprite / 64;
-        let label = format!("SPR:{} COL:{} P{}/4", self.active_sprite, self.active_color, page);
-        draw_text(font, screen, &label, Vec2::new(0, 72), Color::new_rgb(200, 200, 200));
+        let label = format!(
+            "SPR:{} COL:{} P{}/4",
+            self.active_sprite, self.active_color, page
+        );
+        draw_text(
+            font,
+            screen,
+            &label,
+            Vec2::new(0, 72),
+            Color::new_rgb(200, 200, 200),
+        );
 
         // Button row at y=80
         draw_button(screen, font, 0, 80, "FILL", self.fill_mode);
@@ -189,8 +222,14 @@ impl SpriteEditor {
             draw_button(screen, font, 44, 80, "PST", false);
         }
         // Scroll hint
-        let hint = format!("WHEEL=SPR RCLICK=ERASE");
-        draw_text(font, screen, &hint, Vec2::new(0, 89), Color::new_rgb(70, 70, 70));
+        let hint = "WHEEL=SPR RCLICK=ERASE".to_string();
+        draw_text(
+            font,
+            screen,
+            &hint,
+            Vec2::new(0, 89),
+            Color::new_rgb(70, 70, 70),
+        );
     }
 }
 
@@ -201,18 +240,22 @@ impl Editor for SpriteEditor {
 
     fn handle_click(&mut self, x: u32, y: u32, vm: &mut Vm) {
         // Button row at y=80..86 — don't pass through to canvas
-        if y >= 80 && y < 87 {
+        if (80..87).contains(&y) {
             if button_hit(0, 80, "FILL", x, y) {
                 self.fill_mode = !self.fill_mode;
             } else if button_hit(22, 80, "COPY", x, y) {
                 let base = SPRITE_SHEET_BASE + self.active_sprite * SPRITE_SIZE * SPRITE_SIZE;
                 let mut buf = [0u8; 64];
-                for (i, b) in buf.iter_mut().enumerate() { *b = vm.peek_memory(base + i); }
+                for (i, b) in buf.iter_mut().enumerate() {
+                    *b = vm.peek_memory(base + i);
+                }
                 self.clipboard = Some(buf);
-            } else if button_hit(44, 80, "PST", x, y) {
-                if let Some(buf) = self.clipboard {
-                    let base = SPRITE_SHEET_BASE + self.active_sprite * SPRITE_SIZE * SPRITE_SIZE;
-                    for (i, b) in buf.iter().enumerate() { vm.poke_memory(base + i, *b); }
+            } else if button_hit(44, 80, "PST", x, y)
+                && let Some(buf) = self.clipboard
+            {
+                let base = SPRITE_SHEET_BASE + self.active_sprite * SPRITE_SIZE * SPRITE_SIZE;
+                for (i, b) in buf.iter().enumerate() {
+                    vm.poke_memory(base + i, *b);
                 }
             }
             return;
@@ -250,11 +293,15 @@ impl Editor for SpriteEditor {
         match key {
             KeyCode::PageUp => {
                 let page = self.active_sprite / 64;
-                if page > 0 { self.active_sprite = (page - 1) * 64; }
+                if page > 0 {
+                    self.active_sprite = (page - 1) * 64;
+                }
             }
             KeyCode::PageDown => {
                 let page = self.active_sprite / 64;
-                if page < 3 { self.active_sprite = (page + 1) * 64; }
+                if page < 3 {
+                    self.active_sprite = (page + 1) * 64;
+                }
             }
             KeyCode::KeyC => {
                 let base = SPRITE_SHEET_BASE + self.active_sprite * SPRITE_BYTES;

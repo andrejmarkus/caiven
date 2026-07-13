@@ -40,12 +40,31 @@ pub trait Editor {
 }
 
 /// Draw a small labeled button. Width = label.len()*4 + 4, height = 7.
-pub fn draw_button(layer: &mut ScreenLayer, font: &Font, bx: u32, by: u32, label: &str, active: bool) {
+pub fn draw_button(
+    layer: &mut ScreenLayer,
+    font: &Font,
+    bx: u32,
+    by: u32,
+    label: &str,
+    active: bool,
+) {
     let w = label.len() as u32 * 4 + 4;
     let h = 7u32;
-    let bg = if active { Color::new_rgb(60, 100, 180) } else { Color::new_rgb(35, 35, 35) };
-    let border = if active { Color::new_rgb(100, 160, 220) } else { Color::new_rgb(70, 70, 70) };
-    let fg = if active { Color::new_rgb(255, 255, 255) } else { Color::new_rgb(140, 140, 140) };
+    let bg = if active {
+        Color::new_rgb(60, 100, 180)
+    } else {
+        Color::new_rgb(35, 35, 35)
+    };
+    let border = if active {
+        Color::new_rgb(100, 160, 220)
+    } else {
+        Color::new_rgb(70, 70, 70)
+    };
+    let fg = if active {
+        Color::new_rgb(255, 255, 255)
+    } else {
+        Color::new_rgb(140, 140, 140)
+    };
     for dy in 0..h {
         for dx in 0..w {
             layer.set_pixel(Vec2::new(bx + dx, by + dy), bg);

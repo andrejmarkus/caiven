@@ -1,8 +1,8 @@
 use crate::vm::{ExecutionContext, VmFault};
 
 pub fn set_camera_position(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
-    let x = ctx.read_register_value()? as u32;
-    let y = ctx.read_register_value()? as u32;
+    let x = ctx.read_register_value()?;
+    let y = ctx.read_register_value()?;
 
     ctx.camera.set_position(x, y);
     Ok(())

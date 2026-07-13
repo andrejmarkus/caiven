@@ -1,6 +1,6 @@
-use fc_vm::{Vm, VmConfig, VmFault, default_instruction_set};
 use fc_vm::input::Input;
 use fc_vm::rendering::font::Font;
+use fc_vm::{Vm, VmConfig, VmFault, default_instruction_set};
 use std::sync::Arc;
 
 fn make_vm() -> Vm {
@@ -12,7 +12,9 @@ fn run_program(vm: &mut Vm, src: &str) {
     let input = Input::new();
     let font = Font::empty();
     for _ in 0..10000 {
-        if vm.is_waiting() { break; }
+        if vm.is_waiting() {
+            break;
+        }
         vm.step(&input, &font);
     }
 }
@@ -108,7 +110,10 @@ fn neg_register() {
 fn slts_signed() {
     let mut vm = make_vm();
     // -1 (0xFFFFFFFF) < 1 → signed: yes
-    run_program(&mut vm, "MOV32 R1, 0xFFFFFFFF\nMOV R2, 1\nSLTS R0, R1, R2\nWAIT");
+    run_program(
+        &mut vm,
+        "MOV32 R1, 0xFFFFFFFF\nMOV R2, 1\nSLTS R0, R1, R2\nWAIT",
+    );
     assert_eq!(reg(&vm, 0), 1);
 }
 
@@ -147,15 +152,19 @@ fn getsp_setsp() {
 #[test]
 fn ldm32_stm32() {
     let mut vm = make_vm();
-    run_program(&mut vm, "MOV32 R0, 0xDEADBEEF\nSTM32 0x1000, R0\nMOV R0, 0\nLDM32 R0, 0x1000\nWAIT");
+    run_program(
+        &mut vm,
+        "MOV32 R0, 0xDEADBEEF\nSTM32 0x1000, R0\nMOV R0, 0\nLDM32 R0, 0x1000\nWAIT",
+    );
     assert_eq!(reg(&vm, 0), 0xDEADBEEFu32);
 }
 
 #[test]
 fn ldm32i_stm32i() {
     let mut vm = make_vm();
-    run_program(&mut vm,
-        "MOV32 R0, 0xCAFEBABE\nMOV R1, 0x2000\nSTM32I R1, R0\nMOV R0, 0\nLDM32I R0, R1\nWAIT"
+    run_program(
+        &mut vm,
+        "MOV32 R0, 0xCAFEBABE\nMOV R1, 0x2000\nSTM32I R1, R0\nMOV R0, 0\nLDM32I R0, R1\nWAIT",
     );
     assert_eq!(reg(&vm, 0), 0xCAFEBABEu32);
 }
@@ -184,7 +193,8 @@ fn existing_carts_assemble() {
     ] {
         let p = std::path::Path::new(path);
         if p.exists() {
-            asm.assemble_file(p).unwrap_or_else(|e| panic!("failed to assemble {}: {:?}", path, e));
+            asm.assemble_file(p)
+                .unwrap_or_else(|e| panic!("failed to assemble {}: {:?}", path, e));
         }
     }
 }

@@ -17,11 +17,17 @@ impl Parser {
     }
 
     fn peek(&self) -> &TokenKind {
-        self.tokens.get(self.pos).map(|t| &t.kind).unwrap_or(&TokenKind::Eof)
+        self.tokens
+            .get(self.pos)
+            .map(|t| &t.kind)
+            .unwrap_or(&TokenKind::Eof)
     }
 
     fn peek2(&self) -> &TokenKind {
-        self.tokens.get(self.pos + 1).map(|t| &t.kind).unwrap_or(&TokenKind::Eof)
+        self.tokens
+            .get(self.pos + 1)
+            .map(|t| &t.kind)
+            .unwrap_or(&TokenKind::Eof)
     }
 
     fn advance(&mut self) -> &TokenKind {
@@ -72,7 +78,10 @@ impl Parser {
         self.skip_newlines();
         let line = self.line();
         match self.peek().clone() {
-            TokenKind::Number(n) => { self.advance(); Ok(n) }
+            TokenKind::Number(n) => {
+                self.advance();
+                Ok(n)
+            }
             other => Err(LangError::UnexpectedToken {
                 line,
                 got: other.to_string(),
@@ -119,7 +128,12 @@ impl Parser {
                     let params = self.parse_param_list()?;
                     let body = self.parse_block()?;
                     self.expect(TokenKind::End)?;
-                    functions.push(FnDecl { name, params, body, line });
+                    functions.push(FnDecl {
+                        name,
+                        params,
+                        body,
+                        line,
+                    });
                 }
                 TokenKind::Ident(ref name) if name == "init" => {
                     self.advance();
@@ -144,7 +158,13 @@ impl Parser {
             }
         }
 
-        Ok(SourceFile { consts, globals, init_block, loop_block, functions })
+        Ok(SourceFile {
+            consts,
+            globals,
+            init_block,
+            loop_block,
+            functions,
+        })
     }
 
     fn parse_param_list(&mut self) -> Result<Vec<String>> {
@@ -156,7 +176,9 @@ impl Parser {
             while matches!(self.peek(), TokenKind::Comma) {
                 self.advance();
                 self.skip_newlines();
-                if matches!(self.peek(), TokenKind::RParen) { break; }
+                if matches!(self.peek(), TokenKind::RParen) {
+                    break;
+                }
                 params.push(self.expect_ident()?);
             }
         }
@@ -166,8 +188,11 @@ impl Parser {
 
     fn is_block_end(&self) -> bool {
         match self.peek() {
-            TokenKind::End | TokenKind::Else | TokenKind::Elseif
-            | TokenKind::Until | TokenKind::Eof => true,
+            TokenKind::End
+            | TokenKind::Else
+            | TokenKind::Elseif
+            | TokenKind::Until
+            | TokenKind::Eof => true,
             TokenKind::Ident(name) if name == "init" || name == "loop" => true,
             _ => false,
         }
@@ -236,7 +261,13 @@ impl Parser {
                     }
                 }
                 self.expect(TokenKind::End)?;
-                Ok(Stmt::If { cond, then_block, elseif_clauses, else_block, line })
+                Ok(Stmt::If {
+                    cond,
+                    then_block,
+                    elseif_clauses,
+                    else_block,
+                    line,
+                })
             }
             TokenKind::While => {
                 self.advance();
@@ -265,7 +296,13 @@ impl Parser {
                     self.expect(TokenKind::Do)?;
                     let body = self.parse_block()?;
                     self.expect(TokenKind::End)?;
-                    Ok(Stmt::GenericFor { key_var: first_var, val_var, table, body, line })
+                    Ok(Stmt::GenericFor {
+                        key_var: first_var,
+                        val_var,
+                        table,
+                        body,
+                        line,
+                    })
                 } else if matches!(self.peek(), TokenKind::In) {
                     // Generic for with single var: for k in expr (k-only iteration)
                     self.advance();
@@ -273,7 +310,13 @@ impl Parser {
                     self.expect(TokenKind::Do)?;
                     let body = self.parse_block()?;
                     self.expect(TokenKind::End)?;
-                    Ok(Stmt::GenericFor { key_var: first_var, val_var: "_".to_string(), table, body, line })
+                    Ok(Stmt::GenericFor {
+                        key_var: first_var,
+                        val_var: "_".to_string(),
+                        table,
+                        body,
+                        line,
+                    })
                 } else {
                     // Numeric for: for var = start, stop [, step] do ... end
                     self.expect(TokenKind::Eq)?;
@@ -289,7 +332,14 @@ impl Parser {
                     self.expect(TokenKind::Do)?;
                     let body = self.parse_block()?;
                     self.expect(TokenKind::End)?;
-                    Ok(Stmt::NumericFor { var: first_var, start, stop, step, body, line })
+                    Ok(Stmt::NumericFor {
+                        var: first_var,
+                        start,
+                        stop,
+                        step,
+                        body,
+                        line,
+                    })
                 }
             }
             TokenKind::Do => {
@@ -302,7 +352,12 @@ impl Parser {
                 self.advance();
                 let mut values = Vec::new();
                 self.skip_newlines();
-                if !self.is_block_end() && !matches!(self.peek(), TokenKind::Newline | TokenKind::Semicolon | TokenKind::Eof) {
+                if !self.is_block_end()
+                    && !matches!(
+                        self.peek(),
+                        TokenKind::Newline | TokenKind::Semicolon | TokenKind::Eof
+                    )
+                {
                     values.push(self.parse_expr()?);
                     while matches!(self.peek(), TokenKind::Comma) {
                         self.advance();
@@ -319,7 +374,10 @@ impl Parser {
                 // Could be: plain assign, compound assign, call, or chained accessor (t.f, t[k], t:m())
                 let name = self.expect_ident()?;
                 // Check for postfix chain: . [ : before deciding on simple assign vs table op
-                if matches!(self.peek(), TokenKind::Dot | TokenKind::LBracket | TokenKind::Colon) {
+                if matches!(
+                    self.peek(),
+                    TokenKind::Dot | TokenKind::LBracket | TokenKind::Colon
+                ) {
                     // Build base expr then follow chain like parse_primary does
                     let mut base: Expr = Expr::Var(name, line);
                     // Walk all but last postfix so we can distinguish LHS from call
@@ -331,17 +389,44 @@ impl Parser {
                                 if matches!(self.peek(), TokenKind::Eq) {
                                     self.advance();
                                     let value = self.parse_expr()?;
-                                    return Ok(Stmt::SetField { table: base, name: field, value, line });
+                                    return Ok(Stmt::SetField {
+                                        table: base,
+                                        name: field,
+                                        value,
+                                        line,
+                                    });
                                 }
                                 if matches!(self.peek(), TokenKind::PlusEq | TokenKind::MinusEq) {
-                                    let op = if matches!(self.peek(), TokenKind::PlusEq) { BinOp::Add } else { BinOp::Sub };
+                                    let op = if matches!(self.peek(), TokenKind::PlusEq) {
+                                        BinOp::Add
+                                    } else {
+                                        BinOp::Sub
+                                    };
                                     self.advance();
                                     let rhs = self.parse_expr()?;
-                                    let read = Expr::Field { table: Box::new(base.clone()), name: field.clone(), line };
-                                    let value = Expr::BinOp { op, left: Box::new(read), right: Box::new(rhs), line };
-                                    return Ok(Stmt::SetField { table: base, name: field, value, line });
+                                    let read = Expr::Field {
+                                        table: Box::new(base.clone()),
+                                        name: field.clone(),
+                                        line,
+                                    };
+                                    let value = Expr::BinOp {
+                                        op,
+                                        left: Box::new(read),
+                                        right: Box::new(rhs),
+                                        line,
+                                    };
+                                    return Ok(Stmt::SetField {
+                                        table: base,
+                                        name: field,
+                                        value,
+                                        line,
+                                    });
                                 }
-                                base = Expr::Field { table: Box::new(base), name: field, line };
+                                base = Expr::Field {
+                                    table: Box::new(base),
+                                    name: field,
+                                    line,
+                                };
                             }
                             TokenKind::LBracket => {
                                 self.advance();
@@ -350,36 +435,87 @@ impl Parser {
                                 if matches!(self.peek(), TokenKind::Eq) {
                                     self.advance();
                                     let value = self.parse_expr()?;
-                                    return Ok(Stmt::SetIndex { table: base, key, value, line });
+                                    return Ok(Stmt::SetIndex {
+                                        table: base,
+                                        key,
+                                        value,
+                                        line,
+                                    });
                                 }
                                 if matches!(self.peek(), TokenKind::PlusEq | TokenKind::MinusEq) {
-                                    let op = if matches!(self.peek(), TokenKind::PlusEq) { BinOp::Add } else { BinOp::Sub };
+                                    let op = if matches!(self.peek(), TokenKind::PlusEq) {
+                                        BinOp::Add
+                                    } else {
+                                        BinOp::Sub
+                                    };
                                     self.advance();
                                     let rhs = self.parse_expr()?;
-                                    let read = Expr::Index { table: Box::new(base.clone()), key: Box::new(key.clone()), line };
-                                    let value = Expr::BinOp { op, left: Box::new(read), right: Box::new(rhs), line };
-                                    return Ok(Stmt::SetIndex { table: base, key, value, line });
+                                    let read = Expr::Index {
+                                        table: Box::new(base.clone()),
+                                        key: Box::new(key.clone()),
+                                        line,
+                                    };
+                                    let value = Expr::BinOp {
+                                        op,
+                                        left: Box::new(read),
+                                        right: Box::new(rhs),
+                                        line,
+                                    };
+                                    return Ok(Stmt::SetIndex {
+                                        table: base,
+                                        key,
+                                        value,
+                                        line,
+                                    });
                                 }
-                                base = Expr::Index { table: Box::new(base), key: Box::new(key), line };
+                                base = Expr::Index {
+                                    table: Box::new(base),
+                                    key: Box::new(key),
+                                    line,
+                                };
                             }
                             TokenKind::Colon => {
                                 // Method call: base:name(args) → call(base.name, base, args)
                                 self.advance();
                                 let method = self.expect_ident()?;
-                                let func_expr = Expr::Field { table: Box::new(base.clone()), name: method, line };
+                                let func_expr = Expr::Field {
+                                    table: Box::new(base.clone()),
+                                    name: method,
+                                    line,
+                                };
                                 let mut args = vec![base.clone()];
                                 let extra = self.parse_call_args()?;
                                 args.extend(extra);
-                                base = Expr::Call { func: Box::new(func_expr), args, line };
+                                base = Expr::Call {
+                                    func: Box::new(func_expr),
+                                    args,
+                                    line,
+                                };
                                 // After method call, may continue chain or end as ExprStmt
-                                if !matches!(self.peek(), TokenKind::Dot | TokenKind::LBracket | TokenKind::Colon | TokenKind::LParen) {
+                                if !matches!(
+                                    self.peek(),
+                                    TokenKind::Dot
+                                        | TokenKind::LBracket
+                                        | TokenKind::Colon
+                                        | TokenKind::LParen
+                                ) {
                                     return Ok(Stmt::ExprStmt { expr: base, line });
                                 }
                             }
                             TokenKind::LParen => {
                                 let args = self.parse_call_args()?;
-                                base = Expr::Call { func: Box::new(base), args, line };
-                                if !matches!(self.peek(), TokenKind::Dot | TokenKind::LBracket | TokenKind::Colon | TokenKind::LParen) {
+                                base = Expr::Call {
+                                    func: Box::new(base),
+                                    args,
+                                    line,
+                                };
+                                if !matches!(
+                                    self.peek(),
+                                    TokenKind::Dot
+                                        | TokenKind::LBracket
+                                        | TokenKind::Colon
+                                        | TokenKind::LParen
+                                ) {
                                     return Ok(Stmt::ExprStmt { expr: base, line });
                                 }
                             }
@@ -397,7 +533,11 @@ impl Parser {
                         TokenKind::Eq => {
                             self.advance();
                             let value = self.parse_expr()?;
-                            Ok(Stmt::Assign { target: name, value, line })
+                            Ok(Stmt::Assign {
+                                target: name,
+                                value,
+                                line,
+                            })
                         }
                         TokenKind::PlusEq => {
                             self.advance();
@@ -408,7 +548,11 @@ impl Parser {
                                 right: Box::new(rhs),
                                 line,
                             };
-                            Ok(Stmt::Assign { target: name, value, line })
+                            Ok(Stmt::Assign {
+                                target: name,
+                                value,
+                                line,
+                            })
                         }
                         TokenKind::MinusEq => {
                             self.advance();
@@ -419,7 +563,11 @@ impl Parser {
                                 right: Box::new(rhs),
                                 line,
                             };
-                            Ok(Stmt::Assign { target: name, value, line })
+                            Ok(Stmt::Assign {
+                                target: name,
+                                value,
+                                line,
+                            })
                         }
                         TokenKind::LParen => {
                             let args = self.parse_call_args()?;
@@ -432,23 +580,19 @@ impl Parser {
                                 line,
                             })
                         }
-                        other => {
-                            Err(LangError::UnexpectedToken {
-                                line,
-                                got: other.to_string(),
-                                expected: "= / += / -= / (".to_string(),
-                            })
-                        }
+                        other => Err(LangError::UnexpectedToken {
+                            line,
+                            got: other.to_string(),
+                            expected: "= / += / -= / (".to_string(),
+                        }),
                     }
                 }
             }
-            other => {
-                Err(LangError::UnexpectedToken {
-                    line,
-                    got: other.to_string(),
-                    expected: "statement".to_string(),
-                })
-            }
+            other => Err(LangError::UnexpectedToken {
+                line,
+                got: other.to_string(),
+                expected: "statement".to_string(),
+            }),
         }
     }
 
@@ -461,7 +605,9 @@ impl Parser {
             while matches!(self.peek(), TokenKind::Comma) {
                 self.advance();
                 self.skip_newlines();
-                if matches!(self.peek(), TokenKind::RParen) { break; }
+                if matches!(self.peek(), TokenKind::RParen) {
+                    break;
+                }
                 args.push(self.parse_expr()?);
             }
         }
@@ -483,7 +629,12 @@ impl Parser {
                 let line = self.line();
                 self.advance();
                 let right = self.parse_and()?;
-                left = Expr::BinOp { op: BinOp::Or, left: Box::new(left), right: Box::new(right), line };
+                left = Expr::BinOp {
+                    op: BinOp::Or,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                    line,
+                };
             } else {
                 break;
             }
@@ -499,7 +650,12 @@ impl Parser {
                 let line = self.line();
                 self.advance();
                 let right = self.parse_comparison()?;
-                left = Expr::BinOp { op: BinOp::And, left: Box::new(left), right: Box::new(right), line };
+                left = Expr::BinOp {
+                    op: BinOp::And,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                    line,
+                };
             } else {
                 break;
             }
@@ -521,7 +677,12 @@ impl Parser {
         };
         self.advance();
         let right = self.parse_concat()?;
-        Ok(Expr::BinOp { op, left: Box::new(left), right: Box::new(right), line })
+        Ok(Expr::BinOp {
+            op,
+            left: Box::new(left),
+            right: Box::new(right),
+            line,
+        })
     }
 
     fn parse_concat(&mut self) -> Result<Expr> {
@@ -531,7 +692,12 @@ impl Parser {
             self.advance();
             // right-associative
             let right = self.parse_concat()?;
-            Ok(Expr::BinOp { op: BinOp::Concat, left: Box::new(left), right: Box::new(right), line })
+            Ok(Expr::BinOp {
+                op: BinOp::Concat,
+                left: Box::new(left),
+                right: Box::new(right),
+                line,
+            })
         } else {
             Ok(left)
         }
@@ -548,7 +714,12 @@ impl Parser {
             };
             self.advance();
             let right = self.parse_multiplicative()?;
-            left = Expr::BinOp { op, left: Box::new(left), right: Box::new(right), line };
+            left = Expr::BinOp {
+                op,
+                left: Box::new(left),
+                right: Box::new(right),
+                line,
+            };
         }
         Ok(left)
     }
@@ -565,7 +736,12 @@ impl Parser {
             };
             self.advance();
             let right = self.parse_unary()?;
-            left = Expr::BinOp { op, left: Box::new(left), right: Box::new(right), line };
+            left = Expr::BinOp {
+                op,
+                left: Box::new(left),
+                right: Box::new(right),
+                line,
+            };
         }
         Ok(left)
     }
@@ -576,17 +752,29 @@ impl Parser {
             TokenKind::Minus => {
                 self.advance();
                 let expr = self.parse_unary()?;
-                Ok(Expr::UnOp { op: UnOp::Neg, expr: Box::new(expr), line })
+                Ok(Expr::UnOp {
+                    op: UnOp::Neg,
+                    expr: Box::new(expr),
+                    line,
+                })
             }
             TokenKind::Not => {
                 self.advance();
                 let expr = self.parse_unary()?;
-                Ok(Expr::UnOp { op: UnOp::Not, expr: Box::new(expr), line })
+                Ok(Expr::UnOp {
+                    op: UnOp::Not,
+                    expr: Box::new(expr),
+                    line,
+                })
             }
             TokenKind::Hash => {
                 self.advance();
                 let expr = self.parse_unary()?;
-                Ok(Expr::UnOp { op: UnOp::Len, expr: Box::new(expr), line })
+                Ok(Expr::UnOp {
+                    op: UnOp::Len,
+                    expr: Box::new(expr),
+                    line,
+                })
             }
             _ => self.parse_power(),
         }
@@ -599,7 +787,12 @@ impl Parser {
             self.advance();
             // right-associative
             let exp = self.parse_unary()?;
-            Ok(Expr::BinOp { op: BinOp::Pow, left: Box::new(base), right: Box::new(exp), line })
+            Ok(Expr::BinOp {
+                op: BinOp::Pow,
+                left: Box::new(base),
+                right: Box::new(exp),
+                line,
+            })
         } else {
             Ok(base)
         }
@@ -635,9 +828,7 @@ impl Parser {
                 self.expect(TokenKind::RParen)?;
                 Ok(e)
             }
-            TokenKind::LBrace => {
-                self.parse_table_ctor()
-            }
+            TokenKind::LBrace => self.parse_table_ctor(),
             TokenKind::Fn | TokenKind::Function => {
                 self.advance();
                 let params = self.parse_param_list()?;
@@ -654,20 +845,32 @@ impl Parser {
                         TokenKind::LParen => {
                             let args = self.parse_call_args()?;
                             let l = expr.line();
-                            expr = Expr::Call { func: Box::new(expr), args, line: l };
+                            expr = Expr::Call {
+                                func: Box::new(expr),
+                                args,
+                                line: l,
+                            };
                         }
                         TokenKind::Dot => {
                             self.advance();
                             let field_name = self.expect_ident()?;
                             let l = expr.line();
-                            expr = Expr::Field { table: Box::new(expr), name: field_name, line: l };
+                            expr = Expr::Field {
+                                table: Box::new(expr),
+                                name: field_name,
+                                line: l,
+                            };
                         }
                         TokenKind::LBracket => {
                             self.advance();
                             let key = self.parse_expr()?;
                             self.expect(TokenKind::RBracket)?;
                             let l = expr.line();
-                            expr = Expr::Index { table: Box::new(expr), key: Box::new(key), line: l };
+                            expr = Expr::Index {
+                                table: Box::new(expr),
+                                key: Box::new(key),
+                                line: l,
+                            };
                         }
                         _ => break,
                     }
@@ -688,7 +891,9 @@ impl Parser {
         let mut fields = Vec::new();
         loop {
             self.skip_newlines();
-            if matches!(self.peek(), TokenKind::RBrace) { break; }
+            if matches!(self.peek(), TokenKind::RBrace) {
+                break;
+            }
             let field = match self.peek().clone() {
                 TokenKind::LBracket => {
                     self.advance();
@@ -712,7 +917,9 @@ impl Parser {
             fields.push(field);
             self.skip_newlines();
             match self.peek() {
-                TokenKind::Comma | TokenKind::Semicolon => { self.advance(); }
+                TokenKind::Comma | TokenKind::Semicolon => {
+                    self.advance();
+                }
                 _ => {}
             }
         }

@@ -1,7 +1,7 @@
+use fc_core::{Color, Vec2};
 use fc_vm::rendering::{font::Font, screen::ScreenLayer, text::draw_text};
 use fc_vm::settings::{MEMORY_BYTES_PER_PAGE, MEMORY_PAGE_COUNT};
 use fc_vm::vm::{Vm, VmSnapshot};
-use fc_core::{Color, Vec2};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -279,25 +279,29 @@ impl Debugger {
         println!("----------------");
     }
 
-    pub fn is_enabled(&self) -> bool { self.enabled }
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
 
     /// Handle a mouse click (or drag) on the debug overlay. Returns what the caller must do next.
     pub fn handle_click(&mut self, x: u32, y: u32, vm: &Vm) -> DebugClickAction {
-        if !self.enabled { return DebugClickAction::None; }
+        if !self.enabled {
+            return DebugClickAction::None;
+        }
 
         // Status line buttons (y=0..7)
         if y < 8 {
-            if x >= 88 && x < 104 {
+            if (88..104).contains(&x) {
                 return DebugClickAction::TogglePause;
             }
-            if x >= 104 && x < 120 && self.mode == DebugMode::Paused {
+            if (104..120).contains(&x) && self.mode == DebugMode::Paused {
                 return DebugClickAction::Step;
             }
             return DebugClickAction::None;
         }
 
         // Disasm rows (y=8..47, 5 rows × 8px) — only interactive when paused/stepping
-        if y >= 8 && y < 48 && self.mode != DebugMode::Running {
+        if (8..48).contains(&y) && self.mode != DebugMode::Running {
             let row = ((y - 8) / 8) as usize;
             let addrs = build_disasm_window(vm, self.cursor_addr, 5);
             if let Some(&addr) = addrs.get(row) {
@@ -314,7 +318,7 @@ impl Debugger {
         }
 
         // Timeline bar (y=70..72) — drag-friendly, works in all modes
-        if y >= 70 && y < 73 && !self.states.is_empty() {
+        if (70..73).contains(&y) && !self.states.is_empty() {
             let idx = (x as usize * self.states.len()) / 128;
             let idx = idx.min(self.states.len() - 1);
             self.scrub_offset = self.states.len().saturating_sub(1 + idx);
@@ -322,8 +326,8 @@ impl Debugger {
         }
 
         // RAM page nav buttons (y=80..87 — header row; <  at x=96, > at x=112)
-        if y >= 80 && y < 88 {
-            if x >= 96 && x < 112 {
+        if (80..88).contains(&y) {
+            if (96..112).contains(&x) {
                 self.prev_ram_page();
             } else if x >= 112 {
                 self.next_ram_page();
@@ -336,7 +340,9 @@ impl Debugger {
 
     /// Minimal status bar for when debugger is enabled but VM is running.
     pub fn draw_status_bar(&self, screen: &mut ScreenLayer, vm: &Vm, font: &Font) {
-        if !self.enabled { return; }
+        if !self.enabled {
+            return;
+        }
         let cyan = Color::new_rgb(0, 200, 255);
         let yellow = Color::new_rgb(255, 220, 0);
         let pc = vm.get_pc();
@@ -379,7 +385,11 @@ impl Debugger {
         draw_text(font, screen, &status, Vec2::new(0, 0), cyan);
 
         // Clickable buttons on status line: [PSE/RUN] [STP]
-        let pause_label = if self.mode == DebugMode::Running { "RUN" } else { "PSE" };
+        let pause_label = if self.mode == DebugMode::Running {
+            "RUN"
+        } else {
+            "PSE"
+        };
         draw_text(font, screen, pause_label, Vec2::new(88, 0), yellow);
         if self.mode == DebugMode::Paused {
             draw_text(font, screen, "STP", Vec2::new(104, 0), green);
@@ -497,8 +507,20 @@ impl Debugger {
             position,
             color,
         );
-        draw_text(font, screen, "<", Vec2::new(position.get_x() + 96, position.get_y()), color);
-        draw_text(font, screen, ">", Vec2::new(position.get_x() + 112, position.get_y()), color);
+        draw_text(
+            font,
+            screen,
+            "<",
+            Vec2::new(position.get_x() + 96, position.get_y()),
+            color,
+        );
+        draw_text(
+            font,
+            screen,
+            ">",
+            Vec2::new(position.get_x() + 112, position.get_y()),
+            color,
+        );
         for row in 0..3usize {
             let addr = start + row * 8;
             if addr >= vm.get_memory_length() {

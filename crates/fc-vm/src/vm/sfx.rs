@@ -7,7 +7,9 @@ pub fn note_to_freq(note: u8) -> f32 {
     440.0 * 2.0f32.powf((note as f32 - 49.0) / 12.0)
 }
 
-const NOTE_NAMES: [&str; 12] = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const NOTE_NAMES: [&str; 12] = [
+    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+];
 
 pub fn note_name(note: u8) -> String {
     if note == 0 {
@@ -25,6 +27,12 @@ pub struct SfxPlayer {
     pub step: u8,
     pub tick_count: u8,
     pub ticks_per_step: u8,
+}
+
+impl Default for SfxPlayer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SfxPlayer {
@@ -64,6 +72,12 @@ pub struct MusicPlayer {
     pub loop_on: bool,
     pub ch0: SfxPlayer,
     pub ch1: SfxPlayer,
+}
+
+impl Default for MusicPlayer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MusicPlayer {

@@ -6,7 +6,11 @@ pub enum LangError {
     UnexpectedChar { line: usize, ch: char },
 
     #[error("line {line}: unexpected token '{got}', expected {expected}")]
-    UnexpectedToken { line: usize, got: String, expected: String },
+    UnexpectedToken {
+        line: usize,
+        got: String,
+        expected: String,
+    },
 
     #[error("line {line}: unterminated string")]
     UnterminatedString { line: usize },
@@ -18,7 +22,12 @@ pub enum LangError {
     UndefinedFunction { line: usize, name: String },
 
     #[error("line {line}: wrong arg count for '{name}': expected {expected}, got {got}")]
-    ArgCount { line: usize, name: String, expected: usize, got: usize },
+    ArgCount {
+        line: usize,
+        name: String,
+        expected: usize,
+        got: usize,
+    },
 
     #[error("line {line}: '{name}' requires a literal argument")]
     RequiresLiteral { line: usize, name: String },

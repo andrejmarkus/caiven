@@ -150,7 +150,11 @@ pub struct Lexer<'a> {
 
 impl<'a> Lexer<'a> {
     pub fn new(src: &'a str) -> Self {
-        Self { src, pos: 0, line: 1 }
+        Self {
+            src,
+            pos: 0,
+            line: 1,
+        }
     }
 
     fn peek(&self) -> Option<char> {
@@ -180,7 +184,10 @@ impl<'a> Lexer<'a> {
             self.advance(); // '0'
             self.advance(); // 'x'
             let start = self.pos;
-            while matches!(self.peek(), Some('0'..='9') | Some('a'..='f') | Some('A'..='F')) {
+            while matches!(
+                self.peek(),
+                Some('0'..='9') | Some('a'..='f') | Some('A'..='F')
+            ) {
                 self.advance();
             }
             u32::from_str_radix(&self.src[start..self.pos], 16).unwrap_or(0)
@@ -212,7 +219,10 @@ impl<'a> Lexer<'a> {
                         Some('\\') => s.push('\\'),
                         Some('"') => s.push('"'),
                         Some('\'') => s.push('\''),
-                        Some(c) => { s.push('\\'); s.push(c); }
+                        Some(c) => {
+                            s.push('\\');
+                            s.push(c);
+                        }
                         None => return Err(LangError::UnterminatedString { line }),
                     }
                 }
@@ -230,7 +240,10 @@ impl<'a> Lexer<'a> {
         loop {
             match self.peek() {
                 None => break,
-                Some('\n') => { self.line += 1; self.advance(); }
+                Some('\n') => {
+                    self.line += 1;
+                    self.advance();
+                }
                 Some(']') => {
                     self.advance();
                     if self.peek() == Some(']') {
@@ -238,7 +251,9 @@ impl<'a> Lexer<'a> {
                         break;
                     }
                 }
-                _ => { self.advance(); }
+                _ => {
+                    self.advance();
+                }
             }
         }
     }
@@ -250,13 +265,19 @@ impl<'a> Lexer<'a> {
             let line = self.line;
             match self.peek() {
                 None => {
-                    tokens.push(Token { kind: TokenKind::Eof, line });
+                    tokens.push(Token {
+                        kind: TokenKind::Eof,
+                        line,
+                    });
                     break;
                 }
                 Some('\n') => {
                     self.advance();
                     self.line += 1;
-                    tokens.push(Token { kind: TokenKind::Newline, line });
+                    tokens.push(Token {
+                        kind: TokenKind::Newline,
+                        line,
+                    });
                 }
                 Some('-') => {
                     self.advance();
@@ -278,48 +299,153 @@ impl<'a> Lexer<'a> {
                         }
                     } else if self.peek() == Some('=') {
                         self.advance();
-                        tokens.push(Token { kind: TokenKind::MinusEq, line });
+                        tokens.push(Token {
+                            kind: TokenKind::MinusEq,
+                            line,
+                        });
                     } else {
-                        tokens.push(Token { kind: TokenKind::Minus, line });
+                        tokens.push(Token {
+                            kind: TokenKind::Minus,
+                            line,
+                        });
                     }
                 }
                 Some('+') => {
                     self.advance();
                     if self.peek() == Some('=') {
                         self.advance();
-                        tokens.push(Token { kind: TokenKind::PlusEq, line });
+                        tokens.push(Token {
+                            kind: TokenKind::PlusEq,
+                            line,
+                        });
                     } else {
-                        tokens.push(Token { kind: TokenKind::Plus, line });
+                        tokens.push(Token {
+                            kind: TokenKind::Plus,
+                            line,
+                        });
                     }
                 }
-                Some('*') => { self.advance(); tokens.push(Token { kind: TokenKind::Star, line }); }
-                Some('/') => { self.advance(); tokens.push(Token { kind: TokenKind::Slash, line }); }
-                Some('%') => { self.advance(); tokens.push(Token { kind: TokenKind::Percent, line }); }
-                Some('^') => { self.advance(); tokens.push(Token { kind: TokenKind::Caret, line }); }
-                Some('#') => { self.advance(); tokens.push(Token { kind: TokenKind::Hash, line }); }
-                Some('(') => { self.advance(); tokens.push(Token { kind: TokenKind::LParen, line }); }
-                Some(')') => { self.advance(); tokens.push(Token { kind: TokenKind::RParen, line }); }
-                Some('{') => { self.advance(); tokens.push(Token { kind: TokenKind::LBrace, line }); }
-                Some('}') => { self.advance(); tokens.push(Token { kind: TokenKind::RBrace, line }); }
-                Some('[') => { self.advance(); tokens.push(Token { kind: TokenKind::LBracket, line }); }
-                Some(']') => { self.advance(); tokens.push(Token { kind: TokenKind::RBracket, line }); }
-                Some(',') => { self.advance(); tokens.push(Token { kind: TokenKind::Comma, line }); }
-                Some(';') => { self.advance(); tokens.push(Token { kind: TokenKind::Semicolon, line }); }
-                Some(':') => { self.advance(); tokens.push(Token { kind: TokenKind::Colon, line }); }
+                Some('*') => {
+                    self.advance();
+                    tokens.push(Token {
+                        kind: TokenKind::Star,
+                        line,
+                    });
+                }
+                Some('/') => {
+                    self.advance();
+                    tokens.push(Token {
+                        kind: TokenKind::Slash,
+                        line,
+                    });
+                }
+                Some('%') => {
+                    self.advance();
+                    tokens.push(Token {
+                        kind: TokenKind::Percent,
+                        line,
+                    });
+                }
+                Some('^') => {
+                    self.advance();
+                    tokens.push(Token {
+                        kind: TokenKind::Caret,
+                        line,
+                    });
+                }
+                Some('#') => {
+                    self.advance();
+                    tokens.push(Token {
+                        kind: TokenKind::Hash,
+                        line,
+                    });
+                }
+                Some('(') => {
+                    self.advance();
+                    tokens.push(Token {
+                        kind: TokenKind::LParen,
+                        line,
+                    });
+                }
+                Some(')') => {
+                    self.advance();
+                    tokens.push(Token {
+                        kind: TokenKind::RParen,
+                        line,
+                    });
+                }
+                Some('{') => {
+                    self.advance();
+                    tokens.push(Token {
+                        kind: TokenKind::LBrace,
+                        line,
+                    });
+                }
+                Some('}') => {
+                    self.advance();
+                    tokens.push(Token {
+                        kind: TokenKind::RBrace,
+                        line,
+                    });
+                }
+                Some('[') => {
+                    self.advance();
+                    tokens.push(Token {
+                        kind: TokenKind::LBracket,
+                        line,
+                    });
+                }
+                Some(']') => {
+                    self.advance();
+                    tokens.push(Token {
+                        kind: TokenKind::RBracket,
+                        line,
+                    });
+                }
+                Some(',') => {
+                    self.advance();
+                    tokens.push(Token {
+                        kind: TokenKind::Comma,
+                        line,
+                    });
+                }
+                Some(';') => {
+                    self.advance();
+                    tokens.push(Token {
+                        kind: TokenKind::Semicolon,
+                        line,
+                    });
+                }
+                Some(':') => {
+                    self.advance();
+                    tokens.push(Token {
+                        kind: TokenKind::Colon,
+                        line,
+                    });
+                }
                 Some('=') => {
                     self.advance();
                     if self.peek() == Some('=') {
                         self.advance();
-                        tokens.push(Token { kind: TokenKind::EqEq, line });
+                        tokens.push(Token {
+                            kind: TokenKind::EqEq,
+                            line,
+                        });
                     } else {
-                        tokens.push(Token { kind: TokenKind::Eq, line });
+                        tokens.push(Token {
+                            kind: TokenKind::Eq,
+                            line,
+                        });
                     }
                 }
                 Some('!') => {
                     self.advance();
                     if self.peek() == Some('=') {
                         self.advance();
-                        tokens.push(Token { kind: TokenKind::NotEq, line });
+                        tokens.push(Token {
+                            kind: TokenKind::NotEq,
+                            line,
+                        });
                     } else {
                         return Err(LangError::UnexpectedChar { line, ch: '!' });
                     }
@@ -328,7 +454,10 @@ impl<'a> Lexer<'a> {
                     self.advance();
                     if self.peek() == Some('=') {
                         self.advance();
-                        tokens.push(Token { kind: TokenKind::TildeEq, line });
+                        tokens.push(Token {
+                            kind: TokenKind::TildeEq,
+                            line,
+                        });
                     } else {
                         return Err(LangError::UnexpectedChar { line, ch: '~' });
                     }
@@ -337,18 +466,30 @@ impl<'a> Lexer<'a> {
                     self.advance();
                     if self.peek() == Some('=') {
                         self.advance();
-                        tokens.push(Token { kind: TokenKind::LtEq, line });
+                        tokens.push(Token {
+                            kind: TokenKind::LtEq,
+                            line,
+                        });
                     } else {
-                        tokens.push(Token { kind: TokenKind::Lt, line });
+                        tokens.push(Token {
+                            kind: TokenKind::Lt,
+                            line,
+                        });
                     }
                 }
                 Some('>') => {
                     self.advance();
                     if self.peek() == Some('=') {
                         self.advance();
-                        tokens.push(Token { kind: TokenKind::GtEq, line });
+                        tokens.push(Token {
+                            kind: TokenKind::GtEq,
+                            line,
+                        });
                     } else {
-                        tokens.push(Token { kind: TokenKind::Gt, line });
+                        tokens.push(Token {
+                            kind: TokenKind::Gt,
+                            line,
+                        });
                     }
                 }
                 Some('.') => {
@@ -357,27 +498,45 @@ impl<'a> Lexer<'a> {
                         self.advance();
                         if self.peek() == Some('.') {
                             self.advance();
-                            tokens.push(Token { kind: TokenKind::DotDotDot, line });
+                            tokens.push(Token {
+                                kind: TokenKind::DotDotDot,
+                                line,
+                            });
                         } else {
-                            tokens.push(Token { kind: TokenKind::DotDot, line });
+                            tokens.push(Token {
+                                kind: TokenKind::DotDot,
+                                line,
+                            });
                         }
                     } else {
-                        tokens.push(Token { kind: TokenKind::Dot, line });
+                        tokens.push(Token {
+                            kind: TokenKind::Dot,
+                            line,
+                        });
                     }
                 }
                 Some('"') => {
                     self.advance();
                     let s = self.read_string('"')?;
-                    tokens.push(Token { kind: TokenKind::StringLit(s), line });
+                    tokens.push(Token {
+                        kind: TokenKind::StringLit(s),
+                        line,
+                    });
                 }
                 Some('\'') => {
                     self.advance();
                     let s = self.read_string('\'')?;
-                    tokens.push(Token { kind: TokenKind::StringLit(s), line });
+                    tokens.push(Token {
+                        kind: TokenKind::StringLit(s),
+                        line,
+                    });
                 }
                 Some(ch) if ch.is_ascii_digit() => {
                     let n = self.read_number();
-                    tokens.push(Token { kind: TokenKind::Number(n), line });
+                    tokens.push(Token {
+                        kind: TokenKind::Number(n),
+                        line,
+                    });
                 }
                 Some(ch) if ch.is_ascii_alphabetic() || ch == '_' => {
                     let start = self.pos;

@@ -139,7 +139,8 @@ pub fn load_dword_from_memory(ctx: &mut ExecutionContext) -> Result<(), VmFault>
     let b1 = ctx.mem.read(addr + 1)? as u32;
     let b2 = ctx.mem.read(addr + 2)? as u32;
     let b3 = ctx.mem.read(addr + 3)? as u32;
-    ctx.cpu.set_register(dest, b0 | (b1 << 8) | (b2 << 16) | (b3 << 24));
+    ctx.cpu
+        .set_register(dest, b0 | (b1 << 8) | (b2 << 16) | (b3 << 24));
     Ok(())
 }
 
@@ -162,7 +163,8 @@ pub fn load_dword_from_memory_indirect(ctx: &mut ExecutionContext) -> Result<(),
     let b1 = ctx.mem.read(addr + 1)? as u32;
     let b2 = ctx.mem.read(addr + 2)? as u32;
     let b3 = ctx.mem.read(addr + 3)? as u32;
-    ctx.cpu.set_register(dest, b0 | (b1 << 8) | (b2 << 16) | (b3 << 24));
+    ctx.cpu
+        .set_register(dest, b0 | (b1 << 8) | (b2 << 16) | (b3 << 24));
     Ok(())
 }
 

@@ -1,9 +1,19 @@
-use crate::expr::eval_expr;
+use crate::expr::{EvalError, eval_expr};
 use std::collections::HashMap;
+use thiserror::Error;
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum DirectiveError {
+    #[error(transparent)]
+    Eval(#[from] EvalError),
+
+    #[error("{directive} value {value} out of range")]
+    ValueOutOfRange { directive: &'static str, value: u16 },
+}
 
 pub type DirectiveSizeFn = fn(args: &[&str], pc: u16, symbols: &HashMap<String, u16>) -> usize;
 pub type DirectiveEmitFn =
-    fn(args: &[&str], symbols: &HashMap<String, u16>, pc: u16) -> Result<Vec<u8>, String>;
+    fn(args: &[&str], symbols: &HashMap<String, u16>, pc: u16) -> Result<Vec<u8>, DirectiveError>;
 
 pub struct Directive {
     pub name: &'static str,
@@ -63,7 +73,10 @@ pub fn default_directives() -> DirectiveSet {
                 } else {
                     let val = eval_expr(arg, symbols)?;
                     if val > 255 {
-                        return Err(format!(".DB value {} out of range", val));
+                        return Err(DirectiveError::ValueOutOfRange {
+                            directive: ".DB",
+                            value: val,
+                        });
                     }
                     bytes.push(val as u8);
                 }
@@ -143,7 +156,10 @@ pub fn default_directives() -> DirectiveSet {
             let count = eval_expr(args[0], symbols)?;
             let value = eval_expr(args[1], symbols)?;
             if value > 255 {
-                return Err(format!(".FILL value {} out of range", value));
+                return Err(DirectiveError::ValueOutOfRange {
+                    directive: ".FILL",
+                    value,
+                });
             }
             Ok(vec![value as u8; count as usize])
         },

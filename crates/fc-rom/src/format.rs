@@ -37,6 +37,11 @@ pub fn load(path: &Path) -> Result<Rom, RomError> {
     load_bytes(&data)
 }
 
+/// Read a little-endian u32 at `pos`. Caller must ensure `pos + 4 <= data.len()`.
+fn read_u32_le(data: &[u8], pos: usize) -> u32 {
+    u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]])
+}
+
 fn load_bytes(data: &[u8]) -> Result<Rom, RomError> {
     if data.len() < FIXED_HDR {
         return Err(RomError::Truncated);
@@ -59,14 +64,15 @@ fn load_bytes(data: &[u8]) -> Result<Rom, RomError> {
     for i in 0..n_sections {
         let e = FIXED_HDR + i * SECTION_ENTRY_LEN;
         let kind_id = u16::from_le_bytes([data[e], data[e + 1]]);
-        let offset = u32::from_le_bytes(data[e + 2..e + 6].try_into().unwrap()) as usize;
-        let len = u32::from_le_bytes(data[e + 6..e + 10].try_into().unwrap()) as usize;
-        let stored_crc = u32::from_le_bytes(data[e + 10..e + 14].try_into().unwrap());
+        let offset = read_u32_le(data, e + 2) as usize;
+        let len = read_u32_le(data, e + 6) as usize;
+        let stored_crc = read_u32_le(data, e + 10);
 
-        if data.len() < offset + len {
+        let end = offset.checked_add(len).ok_or(RomError::Truncated)?;
+        if data.len() < end {
             return Err(RomError::Truncated);
         }
-        let section_data = data[offset..offset + len].to_vec();
+        let section_data = data[offset..end].to_vec();
         let actual_crc = crc32fast::hash(&section_data);
         if actual_crc != stored_crc {
             return Err(RomError::ChecksumMismatch {

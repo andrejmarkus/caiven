@@ -2,9 +2,9 @@ use std::io::Cursor;
 
 use rocket::serde::json::serde_json;
 use rocket::{
+    Request,
     http::{ContentType, Status},
     response::{self, Responder, Response},
-    Request,
 };
 
 #[derive(Debug)]

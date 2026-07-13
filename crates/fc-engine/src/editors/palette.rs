@@ -21,12 +21,19 @@ pub struct PaletteEditor {
 
 impl PaletteEditor {
     pub fn new() -> Self {
-        PaletteEditor { active_slot: 1, active_channel: 0 }
+        PaletteEditor {
+            active_slot: 1,
+            active_channel: 0,
+        }
     }
 
     fn read_color(vm: &Vm, slot: usize) -> (u8, u8, u8) {
         let base = PALETTE_RAM_BASE + slot * 3;
-        (vm.peek_memory(base), vm.peek_memory(base + 1), vm.peek_memory(base + 2))
+        (
+            vm.peek_memory(base),
+            vm.peek_memory(base + 1),
+            vm.peek_memory(base + 2),
+        )
     }
 
     fn write_color(vm: &mut Vm, slot: usize, r: u8, g: u8, b: u8) {
@@ -41,7 +48,11 @@ impl PaletteEditor {
         let track_x: u32 = 32;
         let track_w: u32 = 96;
         let track_color = Color::new_rgb(40, 40, 40);
-        let fill_color = if active { Color::new_rgb(220, 220, 220) } else { Color::new_rgb(100, 100, 100) };
+        let fill_color = if active {
+            Color::new_rgb(220, 220, 220)
+        } else {
+            Color::new_rgb(100, 100, 100)
+        };
         let filled = (value as u32 * track_w) / 255;
 
         for dy in 0..8u32 {
@@ -53,7 +64,10 @@ impl PaletteEditor {
         // Thumb
         if filled < track_w {
             for dy in 0..8u32 {
-                layer.set_pixel(Vec2::new(track_x + filled, y + dy), Color::new_rgb(255, 255, 255));
+                layer.set_pixel(
+                    Vec2::new(track_x + filled, y + dy),
+                    Color::new_rgb(255, 255, 255),
+                );
             }
         }
     }
@@ -112,14 +126,32 @@ impl Editor for PaletteEditor {
 
         // RGB values text (y=40)
         let vals = format!("R:{:03} G:{:03} B:{:03}", r, g, b);
-        draw_text(font, layer, &vals, Vec2::new(0, 40), Color::new_rgb(200, 200, 200));
+        draw_text(
+            font,
+            layer,
+            &vals,
+            Vec2::new(0, 40),
+            Color::new_rgb(200, 200, 200),
+        );
 
         // Slot + hex label (y=48)
         let hex = format!("#{:02X}{:02X}{:02X} SL:{}", r, g, b, self.active_slot);
-        draw_text(font, layer, &hex, Vec2::new(0, 48), Color::new_rgb(140, 140, 140));
+        draw_text(
+            font,
+            layer,
+            &hex,
+            Vec2::new(0, 48),
+            Color::new_rgb(140, 140, 140),
+        );
 
         // Key hints (y=56)
-        draw_text(font, layer, "+-SLOT []CH ^vVAL", Vec2::new(0, 56), Color::new_rgb(80, 80, 80));
+        draw_text(
+            font,
+            layer,
+            "+-SLOT []CH ^vVAL",
+            Vec2::new(0, 56),
+            Color::new_rgb(80, 80, 80),
+        );
     }
 
     fn handle_click(&mut self, x: u32, y: u32, vm: &mut Vm) {
@@ -131,7 +163,7 @@ impl Editor for PaletteEditor {
             let ch = ((y - 8) / 8) as usize;
             if ch < 3 {
                 let raw_x = x.saturating_sub(32).min(95);
-                let value = ((raw_x as u32 * 255) / 95) as u8;
+                let value = ((raw_x * 255) / 95) as u8;
                 let (mut r, mut g, mut b) = Self::read_color(vm, self.active_slot);
                 match ch {
                     0 => r = value,

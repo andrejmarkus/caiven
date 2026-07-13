@@ -24,8 +24,8 @@ pub struct MacroDef {
 }
 
 pub struct Preprocessor {
-    pub constants: HashMap<String, u16>,
-    pub macros: HashMap<String, MacroDef>,
+    constants: HashMap<String, u16>,
+    macros: HashMap<String, MacroDef>,
     include_stack: Vec<PathBuf>,
     current_section: LineSection,
 }
@@ -44,6 +44,16 @@ impl Preprocessor {
             include_stack: Vec::new(),
             current_section: LineSection::Program,
         }
+    }
+
+    /// Constants collected from `.CONST` lines during processing.
+    pub fn constants(&self) -> &HashMap<String, u16> {
+        &self.constants
+    }
+
+    /// Consume the preprocessor, returning the collected constants.
+    pub fn into_constants(self) -> HashMap<String, u16> {
+        self.constants
     }
 
     pub fn process_str(&mut self, source: &str) -> Result<Vec<SourceLine>, AsmError> {
@@ -338,7 +348,7 @@ mod tests {
         let lines = pp.process_str(".CONST W = 128\nMOV R0 W").unwrap();
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].text, "MOV R0 W");
-        assert_eq!(pp.constants["W"], 128);
+        assert_eq!(pp.constants()["W"], 128);
     }
 
     #[test]

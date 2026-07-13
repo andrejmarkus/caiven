@@ -29,8 +29,15 @@ use fc_core::{Color, Vec2};
 use log::error;
 use std::sync::{Arc, Mutex};
 
-fn tick_sfx_channel(player: &mut SfxPlayer, memory: &Memory, sound: &mut Sound, forced_wave: Option<u8>) {
-    if !player.active { return; }
+fn tick_sfx_channel(
+    player: &mut SfxPlayer,
+    memory: &Memory,
+    sound: &mut Sound,
+    forced_wave: Option<u8>,
+) {
+    if !player.active {
+        return;
+    }
 
     if player.tick_count == 0 {
         let base = SfxPlayer::sfx_bytes_base(player.sfx_id, player.step);
@@ -45,17 +52,34 @@ fn tick_sfx_channel(player: &mut SfxPlayer, memory: &Memory, sound: &mut Sound, 
             match forced_wave {
                 Some(0) => sound.square.enabled = false,
                 Some(1) => sound.noise.enabled = false,
-                _ => { sound.square.enabled = false; sound.noise.enabled = false; }
+                _ => {
+                    sound.square.enabled = false;
+                    sound.noise.enabled = false;
+                }
             }
         } else {
             let freq = note_to_freq(note);
             let vol = volume as f32 / 15.0;
             if wave == 0 {
-                sound.square = SquareChannel { enabled: true, frequency: freq, volume: vol, duration: 0 };
-                if forced_wave.is_none() { sound.noise.enabled = false; }
+                sound.square = SquareChannel {
+                    enabled: true,
+                    frequency: freq,
+                    volume: vol,
+                    duration: 0,
+                };
+                if forced_wave.is_none() {
+                    sound.noise.enabled = false;
+                }
             } else {
-                sound.noise = NoiseChannel { enabled: true, rate: freq, volume: vol, duration: 0 };
-                if forced_wave.is_none() { sound.square.enabled = false; }
+                sound.noise = NoiseChannel {
+                    enabled: true,
+                    rate: freq,
+                    volume: vol,
+                    duration: 0,
+                };
+                if forced_wave.is_none() {
+                    sound.square.enabled = false;
+                }
             }
         }
     }
@@ -69,7 +93,10 @@ fn tick_sfx_channel(player: &mut SfxPlayer, memory: &Memory, sound: &mut Sound, 
             match forced_wave {
                 Some(0) => sound.square.enabled = false,
                 Some(1) => sound.noise.enabled = false,
-                _ => { sound.square.enabled = false; sound.noise.enabled = false; }
+                _ => {
+                    sound.square.enabled = false;
+                    sound.noise.enabled = false;
+                }
             }
         }
     }
@@ -187,7 +214,9 @@ impl Vm {
 
     pub fn get_fc_source_line(&self, line: usize) -> Option<&str> {
         // source lines are 1-based in AST
-        self.fc_source_lines.get(line.saturating_sub(1)).map(|s| s.as_str())
+        self.fc_source_lines
+            .get(line.saturating_sub(1))
+            .map(|s| s.as_str())
     }
 
     pub fn load_section_to_ram(&mut self, base: usize, data: &[u8]) {
@@ -297,7 +326,8 @@ impl Vm {
     }
 
     fn trigger_music_row(&mut self) {
-        let base = MusicPlayer::pattern_row_base(self.music_player.pattern_id, self.music_player.row);
+        let base =
+            MusicPlayer::pattern_row_base(self.music_player.pattern_id, self.music_player.row);
         let ch0_ref = self.memory.read(base).unwrap_or(0);
         let ch1_ref = self.memory.read(base + 1).unwrap_or(0);
         if ch0_ref > 0 {
@@ -313,14 +343,18 @@ impl Vm {
     }
 
     fn tick_sfx_player(&mut self) {
-        if !self.sfx_player.active { return; }
+        if !self.sfx_player.active {
+            return;
+        }
         if let Ok(mut s) = self.sound.try_lock() {
             tick_sfx_channel(&mut self.sfx_player, &self.memory, &mut s, None);
         }
     }
 
     fn tick_music_player(&mut self) {
-        if !self.music_player.active { return; }
+        if !self.music_player.active {
+            return;
+        }
 
         // First tick of a new row: load SFX references into channel players
         if self.music_player.tick_count == 0 {
@@ -450,7 +484,9 @@ impl Vm {
         self.cpu.set_pc(pc + 1);
 
         let sound_arc = Arc::clone(&self.sound);
-        let mut sound_guard = sound_arc.lock().unwrap();
+        // A poisoned lock only means another thread panicked mid-write;
+        // sound state is non-critical, so recover rather than propagate the panic.
+        let mut sound_guard = sound_arc.lock().unwrap_or_else(|e| e.into_inner());
         let mut ctx = ExecutionContext {
             cpu: &mut self.cpu,
             mem: &mut self.memory,

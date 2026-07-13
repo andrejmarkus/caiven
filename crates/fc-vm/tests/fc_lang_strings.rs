@@ -1,7 +1,7 @@
 use fc_lang::compile;
-use fc_vm::{Vm, VmConfig, default_instruction_set};
 use fc_vm::input::Input;
 use fc_vm::rendering::font::Font;
+use fc_vm::{Vm, VmConfig, default_instruction_set};
 use std::sync::Arc;
 
 fn make_vm() -> Vm {
@@ -15,7 +15,9 @@ fn run_fc(src: &str) -> Vm {
     let input = Input::new();
     let font = Font::empty();
     for _ in 0..500_000 {
-        if vm.is_waiting() { break; }
+        if vm.is_waiting() {
+            break;
+        }
         vm.step(&input, &font);
     }
     assert!(vm.get_fault().is_none(), "vm fault: {:?}", vm.get_fault());
@@ -35,7 +37,9 @@ fn read_cstr(vm: &Vm, addr: u32) -> String {
     let mut a = addr as usize;
     loop {
         let b = vm.peek_memory(a);
-        if b == 0 { break; }
+        if b == 0 {
+            break;
+        }
         s.push(b as char);
         a += 1;
     }
@@ -52,14 +56,16 @@ const G3: usize = 0x000C;
 
 #[test]
 fn strlen_literal() {
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 let r0 = 0
 let r1 = 0
 loop:
   r0 = strlen("hello")
   r1 = strlen("")
   wait()
-"#);
+"#,
+    );
     assert_eq!(read_u32(&vm, G0), 5, "strlen(\"hello\") should be 5");
     assert_eq!(read_u32(&vm, G1), 0, "strlen(\"\") should be 0");
 }
@@ -68,45 +74,59 @@ loop:
 
 #[test]
 fn strlen_concat() {
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 let r0 = 0
 let r1 = 0
 loop:
   r0 = strlen("ab" .. "cd")
   r1 = strlen("hello" .. " world")
   wait()
-"#);
+"#,
+    );
     assert_eq!(read_u32(&vm, G0), 4, "strlen(\"ab\"..\"cd\") should be 4");
-    assert_eq!(read_u32(&vm, G1), 11, "strlen(\"hello\" .. \" world\") should be 11");
+    assert_eq!(
+        read_u32(&vm, G1),
+        11,
+        "strlen(\"hello\" .. \" world\") should be 11"
+    );
 }
 
 // ─── dynamic concat content ───────────────────────────────────────────────────
 
 #[test]
 fn dynamic_concat_content() {
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 let ptr = 0
 loop:
   local a = "foo"
   local b = "bar"
   ptr = a .. b
   wait()
-"#);
+"#,
+    );
     let ptr = read_u32(&vm, G0);
-    assert_eq!(read_cstr(&vm, ptr), "foobar", "\"foo\"..\"bar\" should be \"foobar\"");
+    assert_eq!(
+        read_cstr(&vm, ptr),
+        "foobar",
+        "\"foo\"..\"bar\" should be \"foobar\""
+    );
 }
 
 // ─── concat with variable and literal ────────────────────────────────────────
 
 #[test]
 fn concat_var_and_literal() {
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 let ptr = 0
 loop:
   local prefix = "hello"
   ptr = prefix .. " world"
   wait()
-"#);
+"#,
+    );
     let ptr = read_u32(&vm, G0);
     assert_eq!(read_cstr(&vm, ptr), "hello world");
 }
@@ -115,7 +135,8 @@ loop:
 
 #[test]
 fn tostring_positive() {
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 let p0 = 0
 let p1 = 0
 let p2 = 0
@@ -124,24 +145,39 @@ loop:
   p1 = tostring(42)
   p2 = tostring(100)
   wait()
-"#);
-    assert_eq!(read_cstr(&vm, read_u32(&vm, G0)), "0", "tostring(0) should be \"0\"");
-    assert_eq!(read_cstr(&vm, read_u32(&vm, G1)), "42", "tostring(42) should be \"42\"");
-    assert_eq!(read_cstr(&vm, read_u32(&vm, G2)), "100", "tostring(100) should be \"100\"");
+"#,
+    );
+    assert_eq!(
+        read_cstr(&vm, read_u32(&vm, G0)),
+        "0",
+        "tostring(0) should be \"0\""
+    );
+    assert_eq!(
+        read_cstr(&vm, read_u32(&vm, G1)),
+        "42",
+        "tostring(42) should be \"42\""
+    );
+    assert_eq!(
+        read_cstr(&vm, read_u32(&vm, G2)),
+        "100",
+        "tostring(100) should be \"100\""
+    );
 }
 
 // ─── tostring negative ────────────────────────────────────────────────────────
 
 #[test]
 fn tostring_negative() {
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 let p0 = 0
 let p1 = 0
 loop:
   p0 = tostring(-1)
   p1 = tostring(-99)
   wait()
-"#);
+"#,
+    );
     assert_eq!(read_cstr(&vm, read_u32(&vm, G0)), "-1");
     assert_eq!(read_cstr(&vm, read_u32(&vm, G1)), "-99");
 }
@@ -150,14 +186,16 @@ loop:
 
 #[test]
 fn tostring_strlen() {
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 let r0 = 0
 let r1 = 0
 loop:
   r0 = strlen(tostring(12345))
   r1 = strlen(tostring(-7))
   wait()
-"#);
+"#,
+    );
     assert_eq!(read_u32(&vm, G0), 5, "strlen(tostring(12345)) should be 5");
     assert_eq!(read_u32(&vm, G1), 2, "strlen(tostring(-7)) should be 2");
 }
@@ -166,12 +204,14 @@ loop:
 
 #[test]
 fn concat_three_strings() {
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 let ptr = 0
 loop:
   ptr = ("a" .. "b") .. "c"
   wait()
-"#);
+"#,
+    );
     let ptr = read_u32(&vm, G0);
     assert_eq!(read_cstr(&vm, ptr), "abc");
 }
@@ -181,12 +221,14 @@ loop:
 #[test]
 fn txt_dynamic_tostring_no_fault() {
     // txt(x, y, tostring(n), color) — TXTZ opcode path, no compile-time length
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 let n = 42
 loop:
   txt(0, 0, tostring(n), 7)
   wait()
-"#);
+"#,
+    );
     // just verify no vm fault — screen pixels not testable in unit test
     let _ = vm;
 }
@@ -195,12 +237,14 @@ loop:
 
 #[test]
 fn txt_concat_no_fault() {
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 loop:
   local label = "score: " .. tostring(99)
   txt(0, 0, label, 7)
   wait()
-"#);
+"#,
+    );
     let _ = vm;
 }
 
@@ -208,10 +252,12 @@ loop:
 
 #[test]
 fn txt_literal_no_fault() {
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 loop:
   txt(0, 0, "hello", 7)
   wait()
-"#);
+"#,
+    );
     let _ = vm;
 }

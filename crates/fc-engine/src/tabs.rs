@@ -27,7 +27,11 @@ pub fn draw_tab_bar(layer: &mut ScreenLayer, font: &Font, active: AppMode) {
         let x = i as u32 * TAB_W;
         let is_active = *mode == active;
         let bg = if is_active { bg_active } else { bg_inactive };
-        let fg = if is_active { text_active } else { text_inactive };
+        let fg = if is_active {
+            text_active
+        } else {
+            text_inactive
+        };
 
         for dy in 0..TAB_H {
             for dx in 0..TAB_W {
@@ -41,7 +45,7 @@ pub fn draw_tab_bar(layer: &mut ScreenLayer, font: &Font, active: AppMode) {
 
 /// Returns the AppMode for the tab clicked at screen coordinates (x, y), if any.
 pub fn hit_test(x: u32, y: u32) -> Option<AppMode> {
-    if y < TAB_BAR_Y || y >= TAB_BAR_Y + TAB_H {
+    if !(TAB_BAR_Y..TAB_BAR_Y + TAB_H).contains(&y) {
         return None;
     }
     let tab = (x / TAB_W) as usize;

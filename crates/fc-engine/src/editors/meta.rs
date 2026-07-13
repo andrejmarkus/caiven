@@ -9,18 +9,41 @@ const MAX_LEN: usize = 32;
 
 fn key_to_char(key: KeyCode) -> Option<char> {
     match key {
-        KeyCode::KeyA => Some('A'), KeyCode::KeyB => Some('B'), KeyCode::KeyC => Some('C'),
-        KeyCode::KeyD => Some('D'), KeyCode::KeyE => Some('E'), KeyCode::KeyF => Some('F'),
-        KeyCode::KeyG => Some('G'), KeyCode::KeyH => Some('H'), KeyCode::KeyI => Some('I'),
-        KeyCode::KeyJ => Some('J'), KeyCode::KeyK => Some('K'), KeyCode::KeyL => Some('L'),
-        KeyCode::KeyM => Some('M'), KeyCode::KeyN => Some('N'), KeyCode::KeyO => Some('O'),
-        KeyCode::KeyP => Some('P'), KeyCode::KeyQ => Some('Q'), KeyCode::KeyR => Some('R'),
-        KeyCode::KeyS => Some('S'), KeyCode::KeyT => Some('T'), KeyCode::KeyU => Some('U'),
-        KeyCode::KeyV => Some('V'), KeyCode::KeyW => Some('W'), KeyCode::KeyX => Some('X'),
-        KeyCode::KeyY => Some('Y'), KeyCode::KeyZ => Some('Z'),
-        KeyCode::Digit0 => Some('0'), KeyCode::Digit1 => Some('1'), KeyCode::Digit2 => Some('2'),
-        KeyCode::Digit3 => Some('3'), KeyCode::Digit4 => Some('4'), KeyCode::Digit5 => Some('5'),
-        KeyCode::Digit6 => Some('6'), KeyCode::Digit7 => Some('7'), KeyCode::Digit8 => Some('8'),
+        KeyCode::KeyA => Some('A'),
+        KeyCode::KeyB => Some('B'),
+        KeyCode::KeyC => Some('C'),
+        KeyCode::KeyD => Some('D'),
+        KeyCode::KeyE => Some('E'),
+        KeyCode::KeyF => Some('F'),
+        KeyCode::KeyG => Some('G'),
+        KeyCode::KeyH => Some('H'),
+        KeyCode::KeyI => Some('I'),
+        KeyCode::KeyJ => Some('J'),
+        KeyCode::KeyK => Some('K'),
+        KeyCode::KeyL => Some('L'),
+        KeyCode::KeyM => Some('M'),
+        KeyCode::KeyN => Some('N'),
+        KeyCode::KeyO => Some('O'),
+        KeyCode::KeyP => Some('P'),
+        KeyCode::KeyQ => Some('Q'),
+        KeyCode::KeyR => Some('R'),
+        KeyCode::KeyS => Some('S'),
+        KeyCode::KeyT => Some('T'),
+        KeyCode::KeyU => Some('U'),
+        KeyCode::KeyV => Some('V'),
+        KeyCode::KeyW => Some('W'),
+        KeyCode::KeyX => Some('X'),
+        KeyCode::KeyY => Some('Y'),
+        KeyCode::KeyZ => Some('Z'),
+        KeyCode::Digit0 => Some('0'),
+        KeyCode::Digit1 => Some('1'),
+        KeyCode::Digit2 => Some('2'),
+        KeyCode::Digit3 => Some('3'),
+        KeyCode::Digit4 => Some('4'),
+        KeyCode::Digit5 => Some('5'),
+        KeyCode::Digit6 => Some('6'),
+        KeyCode::Digit7 => Some('7'),
+        KeyCode::Digit8 => Some('8'),
         KeyCode::Digit9 => Some('9'),
         KeyCode::Space => Some(' '),
         KeyCode::Minus => Some('-'),
@@ -82,7 +105,13 @@ impl Editor for MetaEditor {
         let value_c = Color::new_rgb(220, 220, 220);
         let hint_c = Color::new_rgb(70, 70, 70);
 
-        draw_text(font, layer, "CART META", Vec2::new(0, 0), Color::new_rgb(180, 180, 180));
+        draw_text(
+            font,
+            layer,
+            "CART META",
+            Vec2::new(0, 0),
+            Color::new_rgb(180, 180, 180),
+        );
 
         // Title field
         let title_lc = if self.focused == 0 { active_c } else { label_c };
@@ -104,19 +133,43 @@ impl Editor for MetaEditor {
 
         // Read-only fields
         draw_text(font, layer, "ENTRY", Vec2::new(0, 52), label_c);
-        draw_text(font, layer, &format!("0x{:04X}", self.entry_point), Vec2::new(0, 60), value_c);
+        draw_text(
+            font,
+            layer,
+            &format!("0x{:04X}", self.entry_point),
+            Vec2::new(0, 60),
+            value_c,
+        );
 
         draw_text(font, layer, "FLAGS", Vec2::new(0, 72), label_c);
-        draw_text(font, layer, &format!("0x{:04X}", self.flags), Vec2::new(0, 80), value_c);
+        draw_text(
+            font,
+            layer,
+            &format!("0x{:04X}", self.flags),
+            Vec2::new(0, 80),
+            value_c,
+        );
 
-        draw_text(font, layer, "TAB=SWITCH  CTRL+S=SAVE", Vec2::new(0, 96), hint_c);
-        draw_text(font, layer, "TYPE TO EDIT TITLE+AUTHOR", Vec2::new(0, 104), hint_c);
+        draw_text(
+            font,
+            layer,
+            "TAB=SWITCH  CTRL+S=SAVE",
+            Vec2::new(0, 96),
+            hint_c,
+        );
+        draw_text(
+            font,
+            layer,
+            "TYPE TO EDIT TITLE+AUTHOR",
+            Vec2::new(0, 104),
+            hint_c,
+        );
     }
 
     fn handle_click(&mut self, _x: u32, y: u32, _vm: &mut Vm) {
-        if y >= 12 && y < 30 {
+        if (12..30).contains(&y) {
             self.focused = 0;
-        } else if y >= 32 && y < 50 {
+        } else if (32..50).contains(&y) {
             self.focused = 1;
         }
     }
@@ -127,11 +180,19 @@ impl Editor for MetaEditor {
                 self.focused = 1 - self.focused;
             }
             KeyCode::Backspace => {
-                if self.focused == 0 { self.title.pop(); } else { self.author.pop(); }
+                if self.focused == 0 {
+                    self.title.pop();
+                } else {
+                    self.author.pop();
+                }
             }
             _ => {
                 if let Some(c) = key_to_char(key) {
-                    let field = if self.focused == 0 { &mut self.title } else { &mut self.author };
+                    let field = if self.focused == 0 {
+                        &mut self.title
+                    } else {
+                        &mut self.author
+                    };
                     if field.len() < MAX_LEN {
                         field.push(c);
                     }

@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use crate::ast::*;
 use crate::error::{LangError, Result};
 use fc_asm::SourceMap;
+use std::collections::HashMap;
 
 const GLOBALS_BASE: u16 = 0x0000;
 const SCRATCH_BASE: u16 = 0x3FF0;
@@ -10,15 +10,15 @@ const FP_SAVE_ADDR: u16 = 0x3FEC;
 const STRING_POOL_BASE: u16 = 0x3800;
 
 // Heap allocator (bump pointer)
-const HEAP_BASE: u32      = 0x6000;
-const HEAP_TOP_ADDR: u16  = 0x5000; // u32 at 0x5000: current heap top
-// Runtime scratch (non-reentrant; table ops don't nest)
+const HEAP_BASE: u32 = 0x6000;
+const HEAP_TOP_ADDR: u16 = 0x5000; // u32 at 0x5000: current heap top
+                                   // Runtime scratch (non-reentrant; table ops don't nest)
 const RT_TMP0: u16 = 0x5004;
 const RT_TMP1: u16 = 0x5008;
 const RT_TMP2: u16 = 0x500C;
 const RT_TMP3: u16 = 0x5010;
 const RT_TMP4: u16 = 0x5014; // iteration counter for __rt_settab probe loop
-// String runtime scratch (non-reentrant; string ops don't nest)
+                             // String runtime scratch (non-reentrant; string ops don't nest)
 const RT_STR_TMP0: u16 = 0x5018;
 const RT_STR_TMP1: u16 = 0x501C;
 const RT_STR_TMP2: u16 = 0x5020;
@@ -26,69 +26,69 @@ const RT_STR_TMP3: u16 = 0x5024;
 const RT_STR_TMP4: u16 = 0x5028;
 const RT_STR_TMP5: u16 = 0x502C;
 // Table layout constants
-const TABLE_CAP: u32    = 8;         // fixed capacity (power-of-2 → bitmask works)
-const TABLE_ENTRY_SZ: u32 = 8;       // key(u32) + val(u32)
-const TABLE_HDR_SZ: u32 = 8;         // cap(u32) + count(u32)
+const TABLE_CAP: u32 = 8; // fixed capacity (power-of-2 → bitmask works)
+const TABLE_ENTRY_SZ: u32 = 8; // key(u32) + val(u32)
+const TABLE_HDR_SZ: u32 = 8; // cap(u32) + count(u32)
 const TABLE_ALLOC_SZ: u32 = TABLE_HDR_SZ + TABLE_CAP * TABLE_ENTRY_SZ; // 72
 const TABLE_SENTINEL: u32 = 0xFFFFFFFF; // marks empty slot key
 
 // Opcode constants
-const OP_MOV: u8     = 0x01;
-const OP_DPX: u8     = 0x04;
-const OP_SPT: u8     = 0x06;
-const OP_PAL: u8     = 0x07;
-const OP_TIL: u8     = 0x08;
+const OP_MOV: u8 = 0x01;
+const OP_DPX: u8 = 0x04;
+const OP_SPT: u8 = 0x06;
+const OP_PAL: u8 = 0x07;
+const OP_TIL: u8 = 0x08;
 
-const OP_RND: u8     = 0x0B;
-const OP_MOVR: u8    = 0x0C;
-const OP_FILL: u8    = 0x0E;
-const OP_JMP: u8     = 0x10;
-const OP_JNZ: u8     = 0x11;
-const OP_JZ: u8      = 0x12;
-const OP_JSR: u8     = 0x13;
-const OP_RET: u8     = 0x14;
-const OP_ADDR: u8    = 0x15;
-const OP_SUBR: u8    = 0x16;
-const OP_PUSH: u8    = 0x17;
-const OP_POP: u8     = 0x18;
-const OP_GETSP: u8   = 0x19;
-const OP_SETSP: u8   = 0x1A;
-const OP_MUL: u8     = 0x1B;
-const OP_DIV: u8     = 0x1C;
-const OP_MOD: u8     = 0x1D;
-const OP_AND: u8     = 0x21;
-const OP_LDMI: u8    = 0x32; // byte indirect load
-const OP_STMI: u8    = 0x33; // byte indirect store
-const OP_NEG: u8     = 0x28;
-const OP_SLTS: u8    = 0x29;
-const OP_EQ: u8      = 0x2A;
-const OP_LDM32: u8   = 0x2B;
-const OP_STM32: u8   = 0x2C;
-const OP_LDM32I: u8  = 0x2D;
-const OP_STM32I: u8  = 0x2E;
-const OP_MOV32: u8   = 0x2F;
-const OP_IN: u8      = 0x20;
-const OP_CPY: u8     = 0x34;
-const OP_TXT: u8     = 0x42;
-const OP_TXTZ: u8    = 0x3B;
-const OP_NUM: u8     = 0x43;
-const OP_MATH1: u8   = 0x37;
-const OP_MAX: u8     = 0x38;
-const OP_MIN: u8     = 0x39;
-const OP_JREG: u8    = 0x3A;
-const OP_SFX: u8     = 0x87;
-const OP_MUS: u8     = 0x88;
-const OP_NOMUS: u8   = 0x89;
-const OP_WAIT: u8    = 0xFF;
-const OP_CLS: u8     = 0x00;
+const OP_RND: u8 = 0x0B;
+const OP_MOVR: u8 = 0x0C;
+const OP_FILL: u8 = 0x0E;
+const OP_JMP: u8 = 0x10;
+const OP_JNZ: u8 = 0x11;
+const OP_JZ: u8 = 0x12;
+const OP_JSR: u8 = 0x13;
+const OP_RET: u8 = 0x14;
+const OP_ADDR: u8 = 0x15;
+const OP_SUBR: u8 = 0x16;
+const OP_PUSH: u8 = 0x17;
+const OP_POP: u8 = 0x18;
+const OP_GETSP: u8 = 0x19;
+const OP_SETSP: u8 = 0x1A;
+const OP_MUL: u8 = 0x1B;
+const OP_DIV: u8 = 0x1C;
+const OP_MOD: u8 = 0x1D;
+const OP_AND: u8 = 0x21;
+const OP_LDMI: u8 = 0x32; // byte indirect load
+const OP_STMI: u8 = 0x33; // byte indirect store
+const OP_NEG: u8 = 0x28;
+const OP_SLTS: u8 = 0x29;
+const OP_EQ: u8 = 0x2A;
+const OP_LDM32: u8 = 0x2B;
+const OP_STM32: u8 = 0x2C;
+const OP_LDM32I: u8 = 0x2D;
+const OP_STM32I: u8 = 0x2E;
+const OP_MOV32: u8 = 0x2F;
+const OP_IN: u8 = 0x20;
+const OP_CPY: u8 = 0x34;
+const OP_TXT: u8 = 0x42;
+const OP_TXTZ: u8 = 0x3B;
+const OP_NUM: u8 = 0x43;
+const OP_MATH1: u8 = 0x37;
+const OP_MAX: u8 = 0x38;
+const OP_MIN: u8 = 0x39;
+const OP_JREG: u8 = 0x3A;
+const OP_SFX: u8 = 0x87;
+const OP_MUS: u8 = 0x88;
+const OP_NOMUS: u8 = 0x89;
+const OP_WAIT: u8 = 0xFF;
+const OP_CLS: u8 = 0x00;
 
 #[derive(Clone, Debug)]
 enum VarLoc {
     Const(u32),
-    Global(u16),     // absolute RAM address (4-byte cell)
-    Local(usize),    // slot index (FP - slot*4)
-    Param(usize),    // actual param index including hidden env_ptr for closures
-    Upvalue(usize),  // upval index; loaded from env_ptr (param[0]) + i*4
+    Global(u16),    // absolute RAM address (4-byte cell)
+    Local(usize),   // slot index (FP - slot*4)
+    Param(usize),   // actual param index including hidden env_ptr for closures
+    Upvalue(usize), // upval index; loaded from env_ptr (param[0]) + i*4
 }
 
 struct BreakTarget {
@@ -188,6 +188,12 @@ pub struct Compiler {
     fn_names: std::collections::HashSet<String>,
 }
 
+impl Default for Compiler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Compiler {
     pub fn new() -> Self {
         Compiler {
@@ -214,9 +220,9 @@ impl Compiler {
         // Patch CPY src/len and append string pool to ROM
         let pool_src = self.code.len();
         let pool_len = self.string_pool.len();
-        self.code[self.cpy_src_patch]     = (pool_src & 0xFF) as u8;
+        self.code[self.cpy_src_patch] = (pool_src & 0xFF) as u8;
         self.code[self.cpy_src_patch + 1] = ((pool_src >> 8) & 0xFF) as u8;
-        self.code[self.cpy_len_patch]     = (pool_len & 0xFF) as u8;
+        self.code[self.cpy_len_patch] = (pool_len & 0xFF) as u8;
         self.code[self.cpy_len_patch + 1] = ((pool_len >> 8) & 0xFF) as u8;
         self.code.extend_from_slice(&self.string_pool);
         Ok((self.code, self.source_map))
@@ -230,7 +236,9 @@ impl Compiler {
                 self.code[*offset] = lo;
                 self.code[*offset + 1] = hi;
             } else {
-                return Err(crate::error::LangError::UnresolvedLabel { label: label.clone() });
+                return Err(crate::error::LangError::UnresolvedLabel {
+                    label: label.clone(),
+                });
             }
         }
         Ok(())
@@ -423,21 +431,21 @@ impl Compiler {
 
     // Load upval[i] → R0: env_ptr = param[0]; R0 = mem32[env_ptr + i*4]
     fn emit_load_upval(&mut self, i: usize) {
-        self.emit_load_param(0);           // R0 = env_ptr
+        self.emit_load_param(0); // R0 = env_ptr
         self.emit_mov(1, (i * 4) as u16); // R1 = i*4
-        self.emit_addr(0, 1);             // R0 = env_ptr + i*4
-        self.emit_ldm32i(0, 0);           // R0 = mem32[R0]
+        self.emit_addr(0, 1); // R0 = env_ptr + i*4
+        self.emit_ldm32i(0, 0); // R0 = mem32[R0]
     }
 
     // Store R0 into upval[i]: mem32[env_ptr + i*4] = R0
     fn emit_store_upval(&mut self, i: usize) {
-        self.emit_push(0);                 // save value
-        self.emit_load_param(0);           // R0 = env_ptr
+        self.emit_push(0); // save value
+        self.emit_load_param(0); // R0 = env_ptr
         self.emit_mov(1, (i * 4) as u16); // R1 = i*4
-        self.emit_addr(0, 1);             // R0 = env_ptr + i*4 (address)
-        self.emit_movr(1, 0);             // R1 = address
-        self.emit_pop(0);                  // R0 = value
-        self.emit_stm32i(1, 0);           // mem32[address] = value
+        self.emit_addr(0, 1); // R0 = env_ptr + i*4 (address)
+        self.emit_movr(1, 0); // R1 = address
+        self.emit_pop(0); // R0 = value
+        self.emit_stm32i(1, 0); // mem32[address] = value
     }
 
     fn emit_mul_reg(&mut self, rd: u8, rs: u8) {
@@ -570,7 +578,7 @@ impl Compiler {
         self.emit_stm32(RT_TMP2, 2);
 
         let fill_loop = self.fresh_label("nt_fill");
-        let fill_end  = self.fresh_label("nt_fill_end");
+        let fill_end = self.fresh_label("nt_fill_end");
         self.emit_label(&fill_loop);
         self.emit_ldm32(2, RT_TMP2);
         self.emit_jz(2, &fill_end);
@@ -621,11 +629,11 @@ impl Compiler {
 
         // probe = ptr + HDR_SZ + hash*8
         self.emit_mov32(2, TABLE_ENTRY_SZ);
-        self.emit_mul_reg(1, 2);    // R1 = hash * 8
+        self.emit_mul_reg(1, 2); // R1 = hash * 8
         self.emit_ldm32(0, RT_TMP0);
         self.emit_mov(2, TABLE_HDR_SZ as u16);
-        self.emit_addr(0, 2);       // R0 = ptr + HDR_SZ
-        self.emit_addr(0, 1);       // R0 = ptr + HDR_SZ + hash*8
+        self.emit_addr(0, 2); // R0 = ptr + HDR_SZ
+        self.emit_addr(0, 1); // R0 = ptr + HDR_SZ + hash*8
         self.emit_stm32(RT_TMP2, 0); // RT_TMP2 = probe
 
         // probe_limit = ptr + TABLE_ALLOC_SZ
@@ -638,10 +646,10 @@ impl Compiler {
         self.emit_mov(3, TABLE_CAP as u16);
 
         // loop: linear probe
-        let gt_loop  = self.fresh_label("gt_loop");
+        let gt_loop = self.fresh_label("gt_loop");
         let gt_found = self.fresh_label("gt_found");
-        let gt_miss  = self.fresh_label("gt_miss");
-        let gt_wrap  = self.fresh_label("gt_wrap");
+        let gt_miss = self.fresh_label("gt_miss");
+        let gt_wrap = self.fresh_label("gt_wrap");
         self.emit_label(&gt_loop);
 
         // guard against infinite loop if table full
@@ -655,12 +663,18 @@ impl Compiler {
 
         // if slot_key == SENTINEL → miss
         self.emit_mov32(2, TABLE_SENTINEL);
-        self.code.push(OP_EQ); self.code.push(0); self.code.push(1); self.code.push(2);
+        self.code.push(OP_EQ);
+        self.code.push(0);
+        self.code.push(1);
+        self.code.push(2);
         self.emit_jnz(0, &gt_miss);
 
         // if slot_key == key → found
         self.emit_ldm32(2, RT_TMP1); // R2 = search key
-        self.code.push(OP_EQ); self.code.push(0); self.code.push(1); self.code.push(2);
+        self.code.push(OP_EQ);
+        self.code.push(0);
+        self.code.push(1);
+        self.code.push(2);
         self.emit_jnz(0, &gt_found);
 
         // probe += 8; if probe >= limit → wrap to ptr+HDR_SZ
@@ -670,8 +684,11 @@ impl Compiler {
         self.emit_stm32(RT_TMP2, 0); // probe += 8
 
         self.emit_ldm32(1, RT_TMP3); // R1 = limit
-        // if probe >= limit: SLTS R2, probe, limit → R2 = (probe < limit)
-        self.code.push(OP_SLTS); self.code.push(2); self.code.push(0); self.code.push(1);
+                                     // if probe >= limit: SLTS R2, probe, limit → R2 = (probe < limit)
+        self.code.push(OP_SLTS);
+        self.code.push(2);
+        self.code.push(0);
+        self.code.push(1);
         self.emit_jz(2, &gt_wrap); // probe >= limit → wrap
         self.emit_jmp(&gt_loop);
 
@@ -728,11 +745,11 @@ impl Compiler {
         self.emit_mov(0, TABLE_CAP as u16);
         self.emit_stm32(RT_TMP4, 0);
 
-        let st_loop      = self.fresh_label("st_loop");
-        let st_write     = self.fresh_label("st_write");
+        let st_loop = self.fresh_label("st_loop");
+        let st_write = self.fresh_label("st_write");
         let st_overwrite = self.fresh_label("st_overwrite");
-        let st_wrap      = self.fresh_label("st_wrap");
-        let st_done      = self.fresh_label("st_done");
+        let st_wrap = self.fresh_label("st_wrap");
+        let st_done = self.fresh_label("st_done");
         self.emit_label(&st_loop);
 
         // guard against infinite loop if table full
@@ -743,15 +760,21 @@ impl Compiler {
         self.emit_stm32(RT_TMP4, 0);
 
         self.emit_ldm32(0, RT_TMP3); // R0 = probe
-        self.emit_ldm32i(1, 0);      // R1 = slot_key
+        self.emit_ldm32i(1, 0); // R1 = slot_key
 
         // if sentinel or key matches → write
         self.emit_mov32(2, TABLE_SENTINEL);
-        self.code.push(OP_EQ); self.code.push(2); self.code.push(1); self.code.push(2);
+        self.code.push(OP_EQ);
+        self.code.push(2);
+        self.code.push(1);
+        self.code.push(2);
         self.emit_jnz(2, &st_write);
 
         self.emit_ldm32(2, RT_TMP1);
-        self.code.push(OP_EQ); self.code.push(2); self.code.push(1); self.code.push(2);
+        self.code.push(OP_EQ);
+        self.code.push(2);
+        self.code.push(1);
+        self.code.push(2);
         self.emit_jnz(2, &st_write);
 
         // probe += 8; wrap if >= limit
@@ -761,7 +784,10 @@ impl Compiler {
         self.emit_stm32(RT_TMP3, 0);
 
         // if probe >= limit (R3) → wrap
-        self.code.push(OP_SLTS); self.code.push(1); self.code.push(0); self.code.push(3);
+        self.code.push(OP_SLTS);
+        self.code.push(1);
+        self.code.push(0);
+        self.code.push(3);
         self.emit_jz(1, &st_wrap);
         self.emit_jmp(&st_loop);
 
@@ -776,15 +802,18 @@ impl Compiler {
         // Increment count only when inserting into a sentinel (new key)
         // R1 = slot_key at this point
         self.emit_mov32(2, TABLE_SENTINEL);
-        self.code.push(OP_EQ); self.code.push(2); self.code.push(1); self.code.push(2);
+        self.code.push(OP_EQ);
+        self.code.push(2);
+        self.code.push(1);
+        self.code.push(2);
         self.emit_jz(2, &st_overwrite); // R2=0 → existing key, skip increment
-        self.emit_ldm32(0, RT_TMP0);    // R0 = ptr
+        self.emit_ldm32(0, RT_TMP0); // R0 = ptr
         self.emit_mov(1, 4);
-        self.emit_addr(0, 1);           // R0 = ptr+4 (count field)
-        self.emit_ldm32i(1, 0);         // R1 = count
+        self.emit_addr(0, 1); // R0 = ptr+4 (count field)
+        self.emit_ldm32i(1, 0); // R1 = count
         self.emit_mov(2, 1);
-        self.emit_addr(1, 2);           // R1 = count+1
-        self.emit_stm32i(0, 1);         // mem[ptr+4] = count+1
+        self.emit_addr(1, 2); // R1 = count+1
+        self.emit_stm32i(0, 1); // mem[ptr+4] = count+1
 
         self.emit_label(&st_overwrite);
         // write key at probe
@@ -814,13 +843,13 @@ impl Compiler {
         let sl_loop = self.fresh_label("sl_loop");
         let sl_done = self.fresh_label("sl_done");
         self.emit_label(&sl_loop);
-        self.emit_ldmi(1, 0);         // R1 = mem[R0] (byte)
-        self.emit_jz(1, &sl_done);    // null → stop
+        self.emit_ldmi(1, 0); // R1 = mem[R0] (byte)
+        self.emit_jz(1, &sl_done); // null → stop
         self.emit_mov(1, 1);
-        self.emit_addr(0, 1);         // R0++
+        self.emit_addr(0, 1); // R0++
         self.emit_jmp(&sl_loop);
         self.emit_label(&sl_done);
-        self.emit_subr(0, 2);         // R0 = end - start = length
+        self.emit_subr(0, 2); // R0 = end - start = length
         self.code.push(OP_RET);
 
         // ── __rt_strcat ──────────────────────────────────────────────
@@ -842,9 +871,9 @@ impl Compiler {
 
         // alloc = len_a + len_b + 4
         self.emit_ldm32(1, RT_STR_TMP2); // R1 = len_a
-        self.emit_addr(0, 1);             // R0 = len_b + len_a
+        self.emit_addr(0, 1); // R0 = len_b + len_a
         self.emit_mov(1, 4);
-        self.emit_addr(0, 1);             // R0 = total + 4
+        self.emit_addr(0, 1); // R0 = total + 4
 
         // new_ptr = heap_top; heap_top += alloc
         self.emit_ldm32(1, HEAP_TOP_ADDR);
@@ -860,13 +889,13 @@ impl Compiler {
         let sca_done = self.fresh_label("sca_done");
         self.emit_label(&sca_loop);
         self.emit_jz(2, &sca_done);
-        self.emit_ldmi(3, 0);             // R3 = *src
-        self.emit_stmi(1, 3);             // *dst = R3
+        self.emit_ldmi(3, 0); // R3 = *src
+        self.emit_stmi(1, 3); // *dst = R3
         self.emit_mov(3, 1);
-        self.emit_addr(0, 3);             // src++
-        self.emit_addr(1, 3);             // dst++
+        self.emit_addr(0, 3); // src++
+        self.emit_addr(1, 3); // dst++
         self.emit_mov(3, 1);
-        self.emit_subr(2, 3);             // count--
+        self.emit_subr(2, 3); // count--
         self.emit_jmp(&sca_loop);
         self.emit_label(&sca_done);
         self.emit_stm32(RT_STR_TMP5, 1); // save dst cursor
@@ -905,11 +934,15 @@ impl Compiler {
 
         // sign check: R1 = (R0 < 0) ? 1 : 0
         self.emit_mov(2, 0);
-        self.code.push(OP_SLTS); self.code.push(1); self.code.push(0); self.code.push(2);
+        self.code.push(OP_SLTS);
+        self.code.push(1);
+        self.code.push(0);
+        self.code.push(2);
         self.emit_stm32(RT_STR_TMP0, 1); // save sign flag
         let ts_pos = self.fresh_label("ts_pos");
         self.emit_jz(1, &ts_pos);
-        self.code.push(OP_NEG); self.code.push(0); // R0 = -R0
+        self.code.push(OP_NEG);
+        self.code.push(0); // R0 = -R0
         self.emit_label(&ts_pos);
 
         // alloc 16 bytes on heap
@@ -922,20 +955,20 @@ impl Compiler {
         // write null at new_ptr + 12
         self.emit_ldm32(1, RT_STR_TMP2);
         self.emit_mov(2, 12);
-        self.emit_addr(1, 2);         // R1 = new_ptr + 12
+        self.emit_addr(1, 2); // R1 = new_ptr + 12
         self.emit_mov(2, 0);
-        self.emit_stmi(1, 2);         // mem[new_ptr+12] = 0
+        self.emit_stmi(1, 2); // mem[new_ptr+12] = 0
 
         // write_pos = new_ptr + 11
         self.emit_ldm32(1, RT_STR_TMP2);
         self.emit_mov(2, 11);
-        self.emit_addr(1, 2);         // R1 = new_ptr + 11
+        self.emit_addr(1, 2); // R1 = new_ptr + 11
         self.emit_stm32(RT_STR_TMP3, 1);
 
         // handle R0 == 0 specially
         let ts_dig_loop = self.fresh_label("ts_dig_loop");
-        let ts_sign     = self.fresh_label("ts_sign");
-        let ts_ret      = self.fresh_label("ts_ret");
+        let ts_sign = self.fresh_label("ts_sign");
+        let ts_ret = self.fresh_label("ts_ret");
         let ts_done_dig = self.fresh_label("ts_done_dig");
         self.emit_jnz(0, &ts_dig_loop);
         // write '0'
@@ -950,19 +983,19 @@ impl Compiler {
         // digit extraction loop
         self.emit_label(&ts_dig_loop);
         self.emit_jz(0, &ts_done_dig);
-        self.emit_movr(3, 0);             // R3 = save value
+        self.emit_movr(3, 0); // R3 = save value
         self.emit_mov32(1, 10);
-        self.emit_mod_reg(0, 1);          // R0 = value % 10
+        self.emit_mod_reg(0, 1); // R0 = value % 10
         self.emit_mov32(1, 0x30);
-        self.emit_addr(0, 1);             // R0 = '0' + digit
+        self.emit_addr(0, 1); // R0 = '0' + digit
         self.emit_ldm32(1, RT_STR_TMP3);
-        self.emit_stmi(1, 0);             // mem[write_pos] = char
+        self.emit_stmi(1, 0); // mem[write_pos] = char
         self.emit_mov(0, 1);
-        self.emit_subr(1, 0);             // write_pos--
+        self.emit_subr(1, 0); // write_pos--
         self.emit_stm32(RT_STR_TMP3, 1);
-        self.emit_movr(0, 3);             // R0 = saved value
+        self.emit_movr(0, 3); // R0 = saved value
         self.emit_mov32(1, 10);
-        self.emit_div_reg(0, 1);          // R0 = value / 10
+        self.emit_div_reg(0, 1); // R0 = value / 10
         self.emit_jmp(&ts_dig_loop);
         self.emit_label(&ts_done_dig);
 
@@ -970,7 +1003,7 @@ impl Compiler {
         self.emit_ldm32(1, RT_STR_TMP0); // R1 = sign flag
         self.emit_jz(1, &ts_ret);
         self.emit_ldm32(1, RT_STR_TMP3);
-        self.emit_mov32(2, 0x2D);         // '-'
+        self.emit_mov32(2, 0x2D); // '-'
         self.emit_stmi(1, 2);
         self.emit_mov(2, 1);
         self.emit_subr(1, 2);
@@ -979,7 +1012,7 @@ impl Compiler {
         self.emit_label(&ts_ret);
         self.emit_ldm32(0, RT_STR_TMP3);
         self.emit_mov(1, 1);
-        self.emit_addr(0, 1);             // return write_pos + 1
+        self.emit_addr(0, 1); // return write_pos + 1
         self.emit_pop(3);
         self.code.push(OP_RET);
     }
@@ -1019,9 +1052,11 @@ impl Compiler {
         self.code.push(OP_CPY);
         self.emit_addr16(STRING_POOL_BASE);
         self.cpy_src_patch = self.code.len();
-        self.code.push(0); self.code.push(0); // src — patched
+        self.code.push(0);
+        self.code.push(0); // src — patched
         self.cpy_len_patch = self.code.len();
-        self.code.push(0); self.code.push(0); // len — patched
+        self.code.push(0);
+        self.code.push(0); // len — patched
 
         // Initialize heap top
         self.emit_mov32(0, HEAP_BASE);
@@ -1082,7 +1117,12 @@ impl Compiler {
     // Emit a closure body at the current code position.
     // Calling convention: param[0] = env_ptr (hidden), param[1..] = user args.
     // env_ptr points to upval array: [upval[0](u32), upval[1](u32), ...]
-    fn compile_closure_fn(&mut self, params: &[String], body: &[Stmt], upvals: Vec<String>) -> Result<()> {
+    fn compile_closure_fn(
+        &mut self,
+        params: &[String],
+        body: &[Stmt],
+        upvals: Vec<String>,
+    ) -> Result<()> {
         self.emit_push(3);
         self.emit_getsp(3);
 
@@ -1117,9 +1157,9 @@ impl Compiler {
         // R0 = env_ptr = closure_ptr + 8
         self.emit_mov(2, 8);
         self.emit_addr(0, 2);
-        self.emit_push(0);             // push env_ptr (becomes param[0] of closure)
-        self.emit_jreg(1);             // jump to code_ptr; pushes 2-byte return addr
-        // Cleanup: pop env_ptr + all args
+        self.emit_push(0); // push env_ptr (becomes param[0] of closure)
+        self.emit_jreg(1); // jump to code_ptr; pushes 2-byte return addr
+                           // Cleanup: pop env_ptr + all args
         let total = (args.len() + 1) * 4;
         if total > 0 {
             self.emit_getsp(1);
@@ -1152,11 +1192,19 @@ impl Compiler {
 
     fn stmt_line(stmt: &Stmt) -> usize {
         match stmt {
-            Stmt::Local { line, .. } | Stmt::Assign { line, .. } | Stmt::Do { line, .. }
-            | Stmt::While { line, .. } | Stmt::Repeat { line, .. } | Stmt::If { line, .. }
-            | Stmt::NumericFor { line, .. } | Stmt::Return { line, .. } | Stmt::Break { line }
-            | Stmt::ExprStmt { line, .. } | Stmt::SetField { line, .. }
-            | Stmt::SetIndex { line, .. } | Stmt::GenericFor { line, .. } => *line,
+            Stmt::Local { line, .. }
+            | Stmt::Assign { line, .. }
+            | Stmt::Do { line, .. }
+            | Stmt::While { line, .. }
+            | Stmt::Repeat { line, .. }
+            | Stmt::If { line, .. }
+            | Stmt::NumericFor { line, .. }
+            | Stmt::Return { line, .. }
+            | Stmt::Break { line }
+            | Stmt::ExprStmt { line, .. }
+            | Stmt::SetField { line, .. }
+            | Stmt::SetIndex { line, .. }
+            | Stmt::GenericFor { line, .. } => *line,
         }
     }
 
@@ -1167,14 +1215,23 @@ impl Compiler {
             Stmt::ExprStmt { expr, .. } => {
                 self.lower_expr_r0(expr)?;
             }
-            Stmt::Assign { target, value, line } => {
+            Stmt::Assign {
+                target,
+                value,
+                line,
+            } => {
                 self.lower_expr_r0(value)?;
-                match self.lookup_var(target).ok_or_else(|| LangError::UndefinedVariable {
-                    line: *line,
-                    name: target.clone(),
-                })? {
+                match self
+                    .lookup_var(target)
+                    .ok_or_else(|| LangError::UndefinedVariable {
+                        line: *line,
+                        name: target.clone(),
+                    })? {
                     VarLoc::Const(_) => {
-                        return Err(LangError::UndefinedVariable { line: *line, name: target.clone() });
+                        return Err(LangError::UndefinedVariable {
+                            line: *line,
+                            name: target.clone(),
+                        });
                     }
                     VarLoc::Global(addr) => {
                         self.emit_stm32(addr, 0);
@@ -1213,7 +1270,13 @@ impl Compiler {
                     }
                 }
             }
-            Stmt::If { cond, then_block, elseif_clauses, else_block, .. } => {
+            Stmt::If {
+                cond,
+                then_block,
+                elseif_clauses,
+                else_block,
+                ..
+            } => {
                 let end_label = self.fresh_label("if_end");
                 let mut next_label = self.fresh_label("if_else");
 
@@ -1253,9 +1316,15 @@ impl Compiler {
 
                 let slots_at_entry = self.fn_ctx.as_ref().map(|c| c.next_slot).unwrap_or(0);
                 if let Some(ctx) = &mut self.fn_ctx {
-                    ctx.break_targets.push(BreakTarget { end_label: end_label.clone(), slots_at_entry });
+                    ctx.break_targets.push(BreakTarget {
+                        end_label: end_label.clone(),
+                        slots_at_entry,
+                    });
                 } else {
-                    self.top_break_targets.push(BreakTarget { end_label: end_label.clone(), slots_at_entry: 0 });
+                    self.top_break_targets.push(BreakTarget {
+                        end_label: end_label.clone(),
+                        slots_at_entry: 0,
+                    });
                 }
 
                 self.emit_label(&loop_label);
@@ -1280,9 +1349,15 @@ impl Compiler {
 
                 let slots_at_entry = self.fn_ctx.as_ref().map(|c| c.next_slot).unwrap_or(0);
                 if let Some(ctx) = &mut self.fn_ctx {
-                    ctx.break_targets.push(BreakTarget { end_label: end_label.clone(), slots_at_entry });
+                    ctx.break_targets.push(BreakTarget {
+                        end_label: end_label.clone(),
+                        slots_at_entry,
+                    });
                 } else {
-                    self.top_break_targets.push(BreakTarget { end_label: end_label.clone(), slots_at_entry: 0 });
+                    self.top_break_targets.push(BreakTarget {
+                        end_label: end_label.clone(),
+                        slots_at_entry: 0,
+                    });
                 }
 
                 self.emit_label(&loop_label);
@@ -1299,11 +1374,18 @@ impl Compiler {
                     self.top_break_targets.pop();
                 }
             }
-            Stmt::NumericFor { var, start, stop, step, body, line } => {
+            Stmt::NumericFor {
+                var,
+                start,
+                stop,
+                step,
+                body,
+                line,
+            } => {
                 // for var = start, stop [, step] do body end
                 let loop_label = self.fresh_label("nfor_loop");
-                let end_label  = self.fresh_label("nfor_end");
-                let step_val = step.clone().unwrap_or_else(|| Expr::Number(1, *line));
+                let end_label = self.fresh_label("nfor_end");
+                let step_val = step.clone().unwrap_or(Expr::Number(1, *line));
 
                 // Detect step sign at compile time so we emit the correct condition.
                 // Positive (default): exit when var > stop  (SLTS R2, stop, var)
@@ -1314,21 +1396,46 @@ impl Compiler {
                 if self.fn_ctx.is_some() {
                     // ── inside a function: use stack locals ──────────────────
                     let slots_at_entry = self.fn_ctx.as_ref().unwrap().next_slot;
-                    self.fn_ctx.as_mut().unwrap().break_targets.push(
-                        BreakTarget { end_label: end_label.clone(), slots_at_entry }
-                    );
+                    self.fn_ctx
+                        .as_mut()
+                        .unwrap()
+                        .break_targets
+                        .push(BreakTarget {
+                            end_label: end_label.clone(),
+                            slots_at_entry,
+                        });
                     self.fn_ctx.as_mut().unwrap().push_scope();
 
                     let start = start.clone();
                     self.lower_expr_r0(&start)?;
-                    let var_slot = { let s = self.fn_ctx.as_mut().unwrap().alloc_local(var.clone()); self.emit_push(0); s };
+                    let var_slot = {
+                        let s = self.fn_ctx.as_mut().unwrap().alloc_local(var.clone());
+                        self.emit_push(0);
+                        s
+                    };
 
                     let stop = stop.clone();
                     self.lower_expr_r0(&stop)?;
-                    let stop_slot = { let s = self.fn_ctx.as_mut().unwrap().alloc_local("__nfor_stop".to_string()); self.emit_push(0); s };
+                    let stop_slot = {
+                        let s = self
+                            .fn_ctx
+                            .as_mut()
+                            .unwrap()
+                            .alloc_local("__nfor_stop".to_string());
+                        self.emit_push(0);
+                        s
+                    };
 
                     self.lower_expr_r0(&step_val)?;
-                    let step_slot = { let s = self.fn_ctx.as_mut().unwrap().alloc_local("__nfor_step".to_string()); self.emit_push(0); s };
+                    let step_slot = {
+                        let s = self
+                            .fn_ctx
+                            .as_mut()
+                            .unwrap()
+                            .alloc_local("__nfor_step".to_string());
+                        self.emit_push(0);
+                        s
+                    };
 
                     self.emit_label(&loop_label);
 
@@ -1342,8 +1449,13 @@ impl Compiler {
                     //            negative step → exit when var  < stop (R0 < R1)
                     self.code.push(OP_SLTS);
                     self.code.push(2);
-                    if neg_step { self.code.push(0); self.code.push(1); }
-                    else        { self.code.push(1); self.code.push(0); }
+                    if neg_step {
+                        self.code.push(0);
+                        self.code.push(1);
+                    } else {
+                        self.code.push(1);
+                        self.code.push(0);
+                    }
                     self.emit_jnz(2, &end_label);
 
                     let body = body.clone();
@@ -1372,11 +1484,11 @@ impl Compiler {
                 } else {
                     // ── top-level: use global memory slots ──────────────────
                     let uid = self.fresh_label("nfor");
-                    let var_name  = format!("__nfor_v_{}", uid);
+                    let var_name = format!("__nfor_v_{}", uid);
                     let stop_name = format!("__nfor_s_{}", uid);
                     let step_name = format!("__nfor_t_{}", uid);
 
-                    let var_addr  = self.alloc_global(&var_name);
+                    let var_addr = self.alloc_global(&var_name);
                     let stop_addr = self.alloc_global(&stop_name);
                     let step_addr = self.alloc_global(&step_name);
                     // Make loop var visible by name so body can reference it
@@ -1401,8 +1513,13 @@ impl Compiler {
                     // Condition: same sign logic as function path
                     self.code.push(OP_SLTS);
                     self.code.push(2);
-                    if neg_step { self.code.push(0); self.code.push(1); }
-                    else        { self.code.push(1); self.code.push(0); }
+                    if neg_step {
+                        self.code.push(0);
+                        self.code.push(1);
+                    } else {
+                        self.code.push(1);
+                        self.code.push(0);
+                    }
                     self.emit_jnz(2, &end_label);
 
                     let body = body.clone();
@@ -1459,99 +1576,145 @@ impl Compiler {
                 }
                 self.emit_jmp(&end_label);
             }
-            Stmt::SetField { table, name, value, .. } => {
+            Stmt::SetField {
+                table, name, value, ..
+            } => {
                 let table = table.clone();
                 let value = value.clone();
                 let key_ptr = self.intern_string(name);
                 self.lower_expr_r0(&table)?;
-                self.emit_push(0);             // push ptr (value eval may clobber scratch)
+                self.emit_push(0); // push ptr (value eval may clobber scratch)
                 self.lower_expr_r0(&value)?;
                 self.emit_stm32(SCRATCH_BASE, 0); // save val
-                self.emit_pop(0);              // R0 = ptr
+                self.emit_pop(0); // R0 = ptr
                 self.emit_mov(1, key_ptr);
                 self.emit_ldm32(2, SCRATCH_BASE);
                 self.emit_jsr("__rt_settab");
             }
-            Stmt::SetIndex { table, key, value, .. } => {
+            Stmt::SetIndex {
+                table, key, value, ..
+            } => {
                 let table = table.clone();
                 let key = key.clone();
                 let value = value.clone();
                 self.lower_expr_r0(&table)?;
-                self.emit_push(0);  // push ptr
+                self.emit_push(0); // push ptr
                 self.lower_expr_r0(&key)?;
-                self.emit_push(0);  // push key
+                self.emit_push(0); // push key
                 self.lower_expr_r0(&value)?;
                 // R0=val, stack=[ptr, key(top)]
                 self.emit_movr(2, 0); // R2 = val
-                self.emit_pop(1);     // R1 = key
-                self.emit_pop(0);     // R0 = ptr
+                self.emit_pop(1); // R1 = key
+                self.emit_pop(0); // R0 = ptr
                 self.emit_jsr("__rt_settab");
             }
-            Stmt::GenericFor { key_var, val_var, table, body, line: _ } => {
+            Stmt::GenericFor {
+                key_var,
+                val_var,
+                table,
+                body,
+                line: _,
+            } => {
                 // for key_var [, val_var] in table do body end
                 // Iterates TABLE_CAP slots linearly, skipping sentinel (0xFFFF_FFFF) keys.
                 // Table layout: ptr+0=cap, ptr+4=count, ptr+8+i*8=key, ptr+12+i*8=val
                 let key_var = key_var.clone();
                 let val_var = val_var.clone();
-                let table   = table.clone();
-                let body    = body.clone();
+                let table = table.clone();
+                let body = body.clone();
                 let loop_label = self.fresh_label("gfor_loop");
-                let end_label  = self.fresh_label("gfor_end");
+                let end_label = self.fresh_label("gfor_end");
                 let skip_label = self.fresh_label("gfor_skip");
 
-                if let Some(_) = &self.fn_ctx {
+                if self.fn_ctx.is_some() {
                     // ── inside function: use stack locals ────────────────────────
 
                     let slots_at_entry = self.fn_ctx.as_ref().unwrap().next_slot;
-                    self.fn_ctx.as_mut().unwrap().break_targets.push(
-                        BreakTarget { end_label: end_label.clone(), slots_at_entry });
+                    self.fn_ctx
+                        .as_mut()
+                        .unwrap()
+                        .break_targets
+                        .push(BreakTarget {
+                            end_label: end_label.clone(),
+                            slots_at_entry,
+                        });
 
                     self.lower_expr_r0(&table)?;
                     self.fn_ctx.as_mut().unwrap().push_scope();
 
-                    let ptr_slot = { let s = self.fn_ctx.as_mut().unwrap().alloc_local("__iter_ptr".to_string()); self.emit_push(0); s };
+                    let ptr_slot = {
+                        let s = self
+                            .fn_ctx
+                            .as_mut()
+                            .unwrap()
+                            .alloc_local("__iter_ptr".to_string());
+                        self.emit_push(0);
+                        s
+                    };
                     self.emit_mov(0, 0);
-                    let idx_slot = { let s = self.fn_ctx.as_mut().unwrap().alloc_local("__iter_idx".to_string()); self.emit_push(0); s };
+                    let idx_slot = {
+                        let s = self
+                            .fn_ctx
+                            .as_mut()
+                            .unwrap()
+                            .alloc_local("__iter_idx".to_string());
+                        self.emit_push(0);
+                        s
+                    };
 
                     self.emit_label(&loop_label);
 
                     // if idx >= TABLE_CAP → end
                     self.emit_load_local(idx_slot);
                     self.emit_mov32(1, TABLE_CAP);
-                    self.code.push(OP_SLTS); self.code.push(2); self.code.push(0); self.code.push(1);
+                    self.code.push(OP_SLTS);
+                    self.code.push(2);
+                    self.code.push(0);
+                    self.code.push(1);
                     self.emit_jz(2, &end_label);
 
                     // R0 = entry_addr = iter_ptr + HDR_SZ + idx * ENTRY_SZ
                     self.emit_load_local(idx_slot);
                     self.emit_mov32(1, TABLE_ENTRY_SZ);
-                    self.emit_mul_reg(0, 1);         // R0 = idx * 8
+                    self.emit_mul_reg(0, 1); // R0 = idx * 8
                     self.emit_mov32(1, TABLE_HDR_SZ);
                     self.emit_addr(0, 1);
-                    self.emit_movr(2, 0);            // R2 = offset
-                    self.emit_load_local(ptr_slot);  // R0 = iter_ptr
-                    self.emit_addr(0, 2);            // R0 = entry_addr
+                    self.emit_movr(2, 0); // R2 = offset
+                    self.emit_load_local(ptr_slot); // R0 = iter_ptr
+                    self.emit_addr(0, 2); // R0 = entry_addr
 
                     // key = mem32[entry_addr]; save entry_addr in R2
                     self.emit_movr(2, 0);
-                    self.emit_ldm32i(0, 0);          // R0 = key
+                    self.emit_ldm32i(0, 0); // R0 = key
 
                     // if sentinel → skip
                     self.emit_mov32(1, TABLE_SENTINEL);
-                    self.code.push(OP_EQ); self.code.push(1); self.code.push(0); self.code.push(1);
+                    self.code.push(OP_EQ);
+                    self.code.push(1);
+                    self.code.push(0);
+                    self.code.push(1);
                     self.emit_jnz(1, &skip_label);
 
                     // val = mem32[entry_addr + 4]; R2 = entry_addr
-                    self.emit_push(0);               // save key
+                    self.emit_push(0); // save key
                     self.emit_mov32(1, 4);
-                    self.emit_addr(2, 1);            // R2 = entry_addr + 4
-                    self.emit_ldm32i(1, 2);          // R1 = val
-                    self.emit_pop(0);                // R0 = key
+                    self.emit_addr(2, 1); // R2 = entry_addr + 4
+                    self.emit_ldm32i(1, 2); // R1 = val
+                    self.emit_pop(0); // R0 = key
 
                     // bind key_var and val_var in inner scope
                     self.fn_ctx.as_mut().unwrap().push_scope();
-                    let _ = { let s = self.fn_ctx.as_mut().unwrap().alloc_local(key_var.clone()); self.emit_push(0); s };
+                    let _ = {
+                        let s = self.fn_ctx.as_mut().unwrap().alloc_local(key_var.clone());
+                        self.emit_push(0);
+                        s
+                    };
                     self.emit_movr(0, 1);
-                    let _ = { let s = self.fn_ctx.as_mut().unwrap().alloc_local(val_var.clone()); self.emit_push(0); s };
+                    let _ = {
+                        let s = self.fn_ctx.as_mut().unwrap().alloc_local(val_var.clone());
+                        self.emit_push(0);
+                        s
+                    };
 
                     self.compile_block(&body)?;
 
@@ -1579,11 +1742,13 @@ impl Compiler {
                         self.emit_setsp(1);
                     }
                     self.fn_ctx.as_mut().unwrap().break_targets.pop();
-
                 } else {
                     // ── top-level (init/loop block): use globals ─────────────────
 
-                    self.top_break_targets.push(BreakTarget { end_label: end_label.clone(), slots_at_entry: 0 });
+                    self.top_break_targets.push(BreakTarget {
+                        end_label: end_label.clone(),
+                        slots_at_entry: 0,
+                    });
 
                     // Alloc anonymous globals for iter state
                     let lc = self.label_counter;
@@ -1593,49 +1758,61 @@ impl Compiler {
                     let idx_addr = self.alloc_global(&idx_name);
 
                     // Alloc globals for key_var and val_var (so body lookups find them)
-                    let key_addr = if let Some(&a) = self.globals.get(&key_var) { a }
-                                   else { self.alloc_global(&key_var) };
-                    let val_addr = if let Some(&a) = self.globals.get(&val_var) { a }
-                                   else { self.alloc_global(&val_var) };
+                    let key_addr = if let Some(&a) = self.globals.get(&key_var) {
+                        a
+                    } else {
+                        self.alloc_global(&key_var)
+                    };
+                    let val_addr = if let Some(&a) = self.globals.get(&val_var) {
+                        a
+                    } else {
+                        self.alloc_global(&val_var)
+                    };
 
                     self.lower_expr_r0(&table)?;
-                    self.emit_stm32(ptr_addr, 0);       // iter_ptr = table
+                    self.emit_stm32(ptr_addr, 0); // iter_ptr = table
                     self.emit_mov(0, 0);
-                    self.emit_stm32(idx_addr, 0);       // iter_idx = 0
+                    self.emit_stm32(idx_addr, 0); // iter_idx = 0
 
                     self.emit_label(&loop_label);
 
                     // if idx >= TABLE_CAP → end
                     self.emit_ldm32(0, idx_addr);
                     self.emit_mov32(1, TABLE_CAP);
-                    self.code.push(OP_SLTS); self.code.push(2); self.code.push(0); self.code.push(1);
+                    self.code.push(OP_SLTS);
+                    self.code.push(2);
+                    self.code.push(0);
+                    self.code.push(1);
                     self.emit_jz(2, &end_label);
 
                     // R0 = entry_addr = iter_ptr + HDR_SZ + idx * ENTRY_SZ
                     self.emit_ldm32(0, idx_addr);
                     self.emit_mov32(1, TABLE_ENTRY_SZ);
-                    self.emit_mul_reg(0, 1);             // R0 = idx * 8
+                    self.emit_mul_reg(0, 1); // R0 = idx * 8
                     self.emit_mov32(1, TABLE_HDR_SZ);
                     self.emit_addr(0, 1);
-                    self.emit_movr(2, 0);               // R2 = offset
-                    self.emit_ldm32(0, ptr_addr);       // R0 = iter_ptr
-                    self.emit_addr(0, 2);               // R0 = entry_addr
+                    self.emit_movr(2, 0); // R2 = offset
+                    self.emit_ldm32(0, ptr_addr); // R0 = iter_ptr
+                    self.emit_addr(0, 2); // R0 = entry_addr
 
                     // key = mem32[entry_addr]
-                    self.emit_movr(2, 0);               // R2 = entry_addr
-                    self.emit_ldm32i(0, 0);             // R0 = key
+                    self.emit_movr(2, 0); // R2 = entry_addr
+                    self.emit_ldm32i(0, 0); // R0 = key
 
                     // if sentinel → skip
                     self.emit_mov32(1, TABLE_SENTINEL);
-                    self.code.push(OP_EQ); self.code.push(1); self.code.push(0); self.code.push(1);
+                    self.code.push(OP_EQ);
+                    self.code.push(1);
+                    self.code.push(0);
+                    self.code.push(1);
                     self.emit_jnz(1, &skip_label);
 
                     // store key, load val
-                    self.emit_stm32(key_addr, 0);       // key_var = key
+                    self.emit_stm32(key_addr, 0); // key_var = key
                     self.emit_mov32(1, 4);
-                    self.emit_addr(2, 1);               // R2 = entry_addr + 4
-                    self.emit_ldm32i(0, 2);             // R0 = val
-                    self.emit_stm32(val_addr, 0);       // val_var = val
+                    self.emit_addr(2, 1); // R2 = entry_addr + 4
+                    self.emit_ldm32i(0, 2); // R0 = val
+                    self.emit_stm32(val_addr, 0); // val_var = val
 
                     self.compile_block(&body)?;
 
@@ -1671,27 +1848,42 @@ impl Compiler {
                 let ptr = self.intern_string(s);
                 self.emit_mov(0, ptr);
             }
-            Expr::Var(name, line) => {
-                match self.lookup_var(name) {
-                    None => return Err(LangError::UndefinedVariable { line: *line, name: name.clone() }),
-                    Some(VarLoc::Const(v)) => { self.emit_mov_r0_imm(v); }
-                    Some(VarLoc::Global(addr)) => { self.emit_ldm32(0, addr); }
-                    Some(VarLoc::Local(slot)) => { self.emit_load_local(slot); }
-                    Some(VarLoc::Param(idx)) => { self.emit_load_param(idx); }
-                    Some(VarLoc::Upvalue(i)) => { self.emit_load_upval(i); }
+            Expr::Var(name, line) => match self.lookup_var(name) {
+                None => {
+                    return Err(LangError::UndefinedVariable {
+                        line: *line,
+                        name: name.clone(),
+                    })
                 }
-            }
+                Some(VarLoc::Const(v)) => {
+                    self.emit_mov_r0_imm(v);
+                }
+                Some(VarLoc::Global(addr)) => {
+                    self.emit_ldm32(0, addr);
+                }
+                Some(VarLoc::Local(slot)) => {
+                    self.emit_load_local(slot);
+                }
+                Some(VarLoc::Param(idx)) => {
+                    self.emit_load_param(idx);
+                }
+                Some(VarLoc::Upvalue(i)) => {
+                    self.emit_load_upval(i);
+                }
+            },
             Expr::UnOp { op, expr, line: _ } => {
                 let inner = expr.as_ref().clone();
                 match op {
                     UnOp::Len => {
                         match &inner {
-                            Expr::Str(s, _) => { self.emit_mov_r0_imm(s.len() as u32); }
+                            Expr::Str(s, _) => {
+                                self.emit_mov_r0_imm(s.len() as u32);
+                            }
                             _ => {
                                 // Table ptr in R0; count is at ptr+4 (TABLE_HDR_SZ offset)
                                 self.lower_expr_r0(&inner)?;
                                 self.emit_mov(1, 4);
-                                self.emit_addr(0, 1);  // R0 = ptr + 4
+                                self.emit_addr(0, 1); // R0 = ptr + 4
                                 self.emit_ldm32i(0, 0); // R0 = mem32[ptr+4] = count
                             }
                         }
@@ -1699,18 +1891,28 @@ impl Compiler {
                     _ => {
                         self.lower_expr_r0(&inner)?;
                         match op {
-                            UnOp::Neg => { self.code.push(OP_NEG); self.code.push(0); }
+                            UnOp::Neg => {
+                                self.code.push(OP_NEG);
+                                self.code.push(0);
+                            }
                             UnOp::Not => {
                                 self.emit_mov(1, 0);
                                 self.code.push(OP_EQ);
-                                self.code.push(0); self.code.push(0); self.code.push(1);
+                                self.code.push(0);
+                                self.code.push(0);
+                                self.code.push(1);
                             }
                             UnOp::Len => unreachable!(),
                         }
                     }
                 }
             }
-            Expr::BinOp { op, left, right, line } => {
+            Expr::BinOp {
+                op,
+                left,
+                right,
+                line,
+            } => {
                 let left = left.as_ref().clone();
                 let right = right.as_ref().clone();
                 match op {
@@ -1758,7 +1960,10 @@ impl Compiler {
                         }
                     }
                     BinOp::Pow => {
-                        return Err(LangError::NotImplemented { line: *line, feature: "^".to_string() });
+                        return Err(LangError::NotImplemented {
+                            line: *line,
+                            feature: "^".to_string(),
+                        });
                     }
                     _ => {
                         // General: eval left → push; eval right → R1; pop R0; op R0, R1
@@ -1770,37 +1975,76 @@ impl Compiler {
                         match op {
                             BinOp::Add => self.emit_addr(0, 1),
                             BinOp::Sub => self.emit_subr(0, 1),
-                            BinOp::Mul => { self.code.push(OP_MUL); self.code.push(0); self.code.push(1); }
-                            BinOp::Div => { self.code.push(OP_DIV); self.code.push(0); self.code.push(1); }
-                            BinOp::Mod => { self.code.push(OP_MOD); self.code.push(0); self.code.push(1); }
+                            BinOp::Mul => {
+                                self.code.push(OP_MUL);
+                                self.code.push(0);
+                                self.code.push(1);
+                            }
+                            BinOp::Div => {
+                                self.code.push(OP_DIV);
+                                self.code.push(0);
+                                self.code.push(1);
+                            }
+                            BinOp::Mod => {
+                                self.code.push(OP_MOD);
+                                self.code.push(0);
+                                self.code.push(1);
+                            }
                             BinOp::Eq => {
-                                self.code.push(OP_EQ); self.code.push(0); self.code.push(0); self.code.push(1);
+                                self.code.push(OP_EQ);
+                                self.code.push(0);
+                                self.code.push(0);
+                                self.code.push(1);
                             }
                             BinOp::NotEq => {
-                                self.code.push(OP_EQ); self.code.push(0); self.code.push(0); self.code.push(1);
+                                self.code.push(OP_EQ);
+                                self.code.push(0);
+                                self.code.push(0);
+                                self.code.push(1);
                                 // invert: R1 = 0; EQ R0, R0, R1
                                 self.emit_mov(1, 0);
-                                self.code.push(OP_EQ); self.code.push(0); self.code.push(0); self.code.push(1);
+                                self.code.push(OP_EQ);
+                                self.code.push(0);
+                                self.code.push(0);
+                                self.code.push(1);
                             }
                             BinOp::Lt => {
                                 // SLTS R0, R0, R1
-                                self.code.push(OP_SLTS); self.code.push(0); self.code.push(0); self.code.push(1);
+                                self.code.push(OP_SLTS);
+                                self.code.push(0);
+                                self.code.push(0);
+                                self.code.push(1);
                             }
                             BinOp::Gt => {
                                 // R0 > R1 ↔ R1 < R0 → SLTS R0, R1, R0
-                                self.code.push(OP_SLTS); self.code.push(0); self.code.push(1); self.code.push(0);
+                                self.code.push(OP_SLTS);
+                                self.code.push(0);
+                                self.code.push(1);
+                                self.code.push(0);
                             }
                             BinOp::LtEq => {
                                 // R0 <= R1 ↔ !(R0 > R1) ↔ !(R1 < R0)
-                                self.code.push(OP_SLTS); self.code.push(0); self.code.push(1); self.code.push(0);
+                                self.code.push(OP_SLTS);
+                                self.code.push(0);
+                                self.code.push(1);
+                                self.code.push(0);
                                 self.emit_mov(1, 0);
-                                self.code.push(OP_EQ); self.code.push(0); self.code.push(0); self.code.push(1);
+                                self.code.push(OP_EQ);
+                                self.code.push(0);
+                                self.code.push(0);
+                                self.code.push(1);
                             }
                             BinOp::GtEq => {
                                 // R0 >= R1 ↔ !(R0 < R1)
-                                self.code.push(OP_SLTS); self.code.push(0); self.code.push(0); self.code.push(1);
+                                self.code.push(OP_SLTS);
+                                self.code.push(0);
+                                self.code.push(0);
+                                self.code.push(1);
                                 self.emit_mov(1, 0);
-                                self.code.push(OP_EQ); self.code.push(0); self.code.push(0); self.code.push(1);
+                                self.code.push(OP_EQ);
+                                self.code.push(0);
+                                self.code.push(0);
+                                self.code.push(1);
                             }
                             _ => unreachable!(),
                         }
@@ -1820,37 +2064,37 @@ impl Compiler {
                     match field {
                         TableField::NameField { name, value } => {
                             let key_ptr = self.intern_string(&name);
-                            self.emit_push(0);              // push ptr
+                            self.emit_push(0); // push ptr
                             self.lower_expr_r0(&value)?;
                             self.emit_stm32(SCRATCH_BASE, 0); // save val (no nested eval after)
-                            self.emit_pop(0);               // R0 = ptr
+                            self.emit_pop(0); // R0 = ptr
                             self.emit_mov(1, key_ptr);
                             self.emit_ldm32(2, SCRATCH_BASE);
                             self.emit_jsr("__rt_settab");
-                            self.emit_ldm32(0, RT_TMP0);    // recover ptr for next iteration
+                            self.emit_ldm32(0, RT_TMP0); // recover ptr for next iteration
                         }
                         TableField::IndexField { key, value } => {
-                            self.emit_push(0);              // push ptr
+                            self.emit_push(0); // push ptr
                             self.lower_expr_r0(&key)?;
-                            self.emit_push(0);              // push key
+                            self.emit_push(0); // push key
                             self.lower_expr_r0(&value)?;
-                            self.emit_movr(2, 0);           // R2 = val
-                            self.emit_pop(1);               // R1 = key
-                            self.emit_pop(0);               // R0 = ptr
+                            self.emit_movr(2, 0); // R2 = val
+                            self.emit_pop(1); // R1 = key
+                            self.emit_pop(0); // R0 = ptr
                             self.emit_jsr("__rt_settab");
-                            self.emit_ldm32(0, RT_TMP0);    // recover ptr
+                            self.emit_ldm32(0, RT_TMP0); // recover ptr
                         }
                         TableField::ValueField { value } => {
                             let key = array_idx;
                             array_idx += 1;
-                            self.emit_push(0);              // push ptr
+                            self.emit_push(0); // push ptr
                             self.lower_expr_r0(&value)?;
                             self.emit_stm32(SCRATCH_BASE, 0);
-                            self.emit_pop(0);               // R0 = ptr
+                            self.emit_pop(0); // R0 = ptr
                             self.emit_mov32(1, key);
                             self.emit_ldm32(2, SCRATCH_BASE);
                             self.emit_jsr("__rt_settab");
-                            self.emit_ldm32(0, RT_TMP0);    // recover ptr
+                            self.emit_ldm32(0, RT_TMP0); // recover ptr
                         }
                     }
                 }
@@ -1867,27 +2111,27 @@ impl Compiler {
                 let n = upvals.len();
                 let alloc_size = (8 + n * 4) as u32;
                 // R0 = heap_top (closure_ptr); advance heap_top
-                self.emit_ldm32(0, HEAP_TOP_ADDR);           // R0 = closure_ptr
-                self.emit_push(0);                            // save closure_ptr
+                self.emit_ldm32(0, HEAP_TOP_ADDR); // R0 = closure_ptr
+                self.emit_push(0); // save closure_ptr
                 self.emit_mov32(1, alloc_size);
                 self.emit_addr(0, 1);
-                self.emit_stm32(HEAP_TOP_ADDR, 0);           // heap_top += alloc_size
-                self.emit_pop(0);                             // R0 = closure_ptr
+                self.emit_stm32(HEAP_TOP_ADDR, 0); // heap_top += alloc_size
+                self.emit_pop(0); // R0 = closure_ptr
 
                 // Store code_ptr (patched label) at [closure_ptr]
                 let fn_label = format!("__closure_{}_{}", self.code.len(), line);
-                self.emit_push(0);                            // save closure_ptr
-                self.emit_mov_label(1, &fn_label);            // R1 = code_ptr (patched)
-                self.emit_pop(0);                             // R0 = closure_ptr
-                self.emit_stm32i(0, 1);                       // mem32[closure_ptr] = code_ptr
-                // Store n_upvals at [closure_ptr+4]
-                // Store n_upvals at [closure_ptr+4]: R0 = closure_ptr
-                self.emit_push(0);                            // save closure_ptr
-                self.emit_mov32(1, n as u32);                 // R1 = n
-                self.emit_mov(2, 4);                          // R2 = 4
-                self.emit_addr(0, 2);                         // R0 = closure_ptr+4
-                self.emit_stm32i(0, 1);                       // mem32[closure_ptr+4] = n
-                self.emit_pop(0);                             // R0 = closure_ptr (restore)
+                self.emit_push(0); // save closure_ptr
+                self.emit_mov_label(1, &fn_label); // R1 = code_ptr (patched)
+                self.emit_pop(0); // R0 = closure_ptr
+                self.emit_stm32i(0, 1); // mem32[closure_ptr] = code_ptr
+                                        // Store n_upvals at [closure_ptr+4]
+                                        // Store n_upvals at [closure_ptr+4]: R0 = closure_ptr
+                self.emit_push(0); // save closure_ptr
+                self.emit_mov32(1, n as u32); // R1 = n
+                self.emit_mov(2, 4); // R2 = 4
+                self.emit_addr(0, 2); // R0 = closure_ptr+4
+                self.emit_stm32i(0, 1); // mem32[closure_ptr+4] = n
+                self.emit_pop(0); // R0 = closure_ptr (restore)
 
                 // Store each upval: mem32[closure_ptr + 8 + i*4] = value
                 let upvals_clone = upvals.clone();
@@ -1904,22 +2148,22 @@ impl Compiler {
                         VarLoc::Global(addr) => self.emit_ldm32(0, addr),
                         VarLoc::Const(v) => self.emit_mov32(0, v),
                     }
-                    self.emit_push(0);                        // save upval value
-                    // R0 = closure_ptr (need to reload)
-                    self.emit_ldm32(0, HEAP_TOP_ADDR);        // current heap_top
+                    self.emit_push(0); // save upval value
+                                       // R0 = closure_ptr (need to reload)
+                    self.emit_ldm32(0, HEAP_TOP_ADDR); // current heap_top
                     self.emit_mov32(1, alloc_size);
-                    self.emit_subr(0, 1);                     // R0 = closure_ptr = heap_top - alloc_size
+                    self.emit_subr(0, 1); // R0 = closure_ptr = heap_top - alloc_size
                     self.emit_mov32(1, (8 + i * 4) as u32);
-                    self.emit_addr(0, 1);                     // R0 = &upval[i]
-                    self.emit_movr(1, 0);                     // R1 = address
-                    self.emit_pop(0);                         // R0 = upval value
-                    self.emit_stm32i(1, 0);                   // mem32[&upval[i]] = value
+                    self.emit_addr(0, 1); // R0 = &upval[i]
+                    self.emit_movr(1, 0); // R1 = address
+                    self.emit_pop(0); // R0 = upval value
+                    self.emit_stm32i(1, 0); // mem32[&upval[i]] = value
                 }
 
                 // Result = closure_ptr: reload
                 self.emit_ldm32(0, HEAP_TOP_ADDR);
                 self.emit_mov32(1, alloc_size);
-                self.emit_subr(0, 1);                         // R0 = closure_ptr
+                self.emit_subr(0, 1); // R0 = closure_ptr
 
                 // Emit closure body after a JMP to skip it
                 let after_label = format!("__closure_after_{}_{}", self.code.len(), line);
@@ -1929,17 +2173,25 @@ impl Compiler {
                 self.emit_label(&after_label);
                 let _ = line;
             }
-            Expr::Index { table, key, line: _ } => {
+            Expr::Index {
+                table,
+                key,
+                line: _,
+            } => {
                 let key = key.as_ref().clone();
                 let table = table.as_ref().clone();
                 self.lower_expr_r0(&table)?;
-                self.emit_push(0);              // push ptr (key eval may clobber scratch)
+                self.emit_push(0); // push ptr (key eval may clobber scratch)
                 self.lower_expr_r0(&key)?;
-                self.emit_movr(1, 0);           // R1 = key
-                self.emit_pop(0);               // R0 = ptr
+                self.emit_movr(1, 0); // R1 = key
+                self.emit_pop(0); // R0 = ptr
                 self.emit_jsr("__rt_gettab");
             }
-            Expr::Field { table, name, line: _ } => {
+            Expr::Field {
+                table,
+                name,
+                line: _,
+            } => {
                 let table = table.as_ref().clone();
                 let key_ptr = self.intern_string(name);
                 self.lower_expr_r0(&table)?;
@@ -1965,19 +2217,34 @@ impl Compiler {
         match name.as_str() {
             "cls" => {
                 if !args.is_empty() {
-                    return Err(LangError::ArgCount { line, name, expected: 0, got: args.len() });
+                    return Err(LangError::ArgCount {
+                        line,
+                        name,
+                        expected: 0,
+                        got: args.len(),
+                    });
                 }
                 self.code.push(OP_CLS);
             }
             "wait" => {
                 if !args.is_empty() {
-                    return Err(LangError::ArgCount { line, name, expected: 0, got: args.len() });
+                    return Err(LangError::ArgCount {
+                        line,
+                        name,
+                        expected: 0,
+                        got: args.len(),
+                    });
                 }
                 self.code.push(OP_WAIT);
             }
             "key" | "btn" => {
                 if args.len() != 1 {
-                    return Err(LangError::ArgCount { line, name, expected: 1, got: args.len() });
+                    return Err(LangError::ArgCount {
+                        line,
+                        name,
+                        expected: 1,
+                        got: args.len(),
+                    });
                 }
                 let key = self.require_literal_u8(&args[0], line, &name)?;
                 self.code.push(OP_IN);
@@ -1989,7 +2256,12 @@ impl Compiler {
                 // Actually we need SPT (sprite tile) or DPXR.
                 // spr(x, y, tile_addr) — use SPT R_x, R_y, R_addr
                 if args.len() != 3 {
-                    return Err(LangError::ArgCount { line, name, expected: 3, got: args.len() });
+                    return Err(LangError::ArgCount {
+                        line,
+                        name,
+                        expected: 3,
+                        got: args.len(),
+                    });
                 }
                 // Load x→scratch0, y→scratch1, addr→scratch2
                 self.lower_expr_r0(&args[0])?;
@@ -2011,12 +2283,17 @@ impl Compiler {
             "pal" => {
                 // pal(idx, r, g, b) → PAL idx r g b
                 if args.len() != 4 {
-                    return Err(LangError::ArgCount { line, name, expected: 4, got: args.len() });
+                    return Err(LangError::ArgCount {
+                        line,
+                        name,
+                        expected: 4,
+                        got: args.len(),
+                    });
                 }
                 let idx = self.require_literal_u8(&args[0], line, &name)?;
-                let r   = self.require_literal_u8(&args[1], line, &name)?;
-                let g   = self.require_literal_u8(&args[2], line, &name)?;
-                let b   = self.require_literal_u8(&args[3], line, &name)?;
+                let r = self.require_literal_u8(&args[1], line, &name)?;
+                let g = self.require_literal_u8(&args[2], line, &name)?;
+                let b = self.require_literal_u8(&args[3], line, &name)?;
                 self.code.push(OP_PAL);
                 self.code.push(idx);
                 self.code.push(r);
@@ -2025,7 +2302,12 @@ impl Compiler {
             }
             "cls_col" | "fill" => {
                 if args.len() != 1 {
-                    return Err(LangError::ArgCount { line, name, expected: 1, got: args.len() });
+                    return Err(LangError::ArgCount {
+                        line,
+                        name,
+                        expected: 1,
+                        got: args.len(),
+                    });
                 }
                 let col = self.require_literal_u8(&args[0], line, &name)?;
                 self.code.push(OP_FILL);
@@ -2033,7 +2315,12 @@ impl Compiler {
             }
             "sfx" => {
                 if args.len() != 1 {
-                    return Err(LangError::ArgCount { line, name, expected: 1, got: args.len() });
+                    return Err(LangError::ArgCount {
+                        line,
+                        name,
+                        expected: 1,
+                        got: args.len(),
+                    });
                 }
                 let id = self.require_literal_u8(&args[0], line, &name)?;
                 self.code.push(OP_SFX);
@@ -2041,7 +2328,12 @@ impl Compiler {
             }
             "music" => {
                 if args.len() != 1 {
-                    return Err(LangError::ArgCount { line, name, expected: 1, got: args.len() });
+                    return Err(LangError::ArgCount {
+                        line,
+                        name,
+                        expected: 1,
+                        got: args.len(),
+                    });
                 }
                 let id = self.require_literal_u8(&args[0], line, &name)?;
                 self.code.push(OP_MUS);
@@ -2049,18 +2341,23 @@ impl Compiler {
             }
             "nomusic" => {
                 if !args.is_empty() {
-                    return Err(LangError::ArgCount { line, name, expected: 0, got: args.len() });
+                    return Err(LangError::ArgCount {
+                        line,
+                        name,
+                        expected: 0,
+                        got: args.len(),
+                    });
                 }
                 self.code.push(OP_NOMUS);
             }
             "pset" | "dpx" => {
                 // pset(x, y, color_idx, palette) or dpx(x, y, r, g, b)
                 if args.len() == 5 {
-                    let x   = self.require_literal_u8(&args[0], line, &name)?;
-                    let y   = self.require_literal_u8(&args[1], line, &name)?;
-                    let r   = self.require_literal_u8(&args[2], line, &name)?;
-                    let g   = self.require_literal_u8(&args[3], line, &name)?;
-                    let b   = self.require_literal_u8(&args[4], line, &name)?;
+                    let x = self.require_literal_u8(&args[0], line, &name)?;
+                    let y = self.require_literal_u8(&args[1], line, &name)?;
+                    let r = self.require_literal_u8(&args[2], line, &name)?;
+                    let g = self.require_literal_u8(&args[3], line, &name)?;
+                    let b = self.require_literal_u8(&args[4], line, &name)?;
                     self.code.push(OP_DPX);
                     self.code.push(x);
                     self.code.push(y);
@@ -2068,7 +2365,12 @@ impl Compiler {
                     self.code.push(g);
                     self.code.push(b);
                 } else {
-                    return Err(LangError::ArgCount { line, name, expected: 5, got: args.len() });
+                    return Err(LangError::ArgCount {
+                        line,
+                        name,
+                        expected: 5,
+                        got: args.len(),
+                    });
                 }
             }
             "txt" => {
@@ -2076,7 +2378,12 @@ impl Compiler {
                 // Literal string: TXT opcode with compile-time length.
                 // Dynamic expression: TXTZ opcode (null-terminated, no length byte).
                 if args.len() != 4 {
-                    return Err(LangError::ArgCount { line, name, expected: 4, got: args.len() });
+                    return Err(LangError::ArgCount {
+                        line,
+                        name,
+                        expected: 4,
+                        got: args.len(),
+                    });
                 }
                 let str_len = Self::literal_str(&args[2]).map(|s| s.len());
                 self.save_fp_if_needed();
@@ -2112,7 +2419,12 @@ impl Compiler {
             }
             "num" => {
                 if args.len() != 4 {
-                    return Err(LangError::ArgCount { line, name, expected: 4, got: args.len() });
+                    return Err(LangError::ArgCount {
+                        line,
+                        name,
+                        expected: 4,
+                        got: args.len(),
+                    });
                 }
                 self.save_fp_if_needed();
                 self.lower_expr_r0(&args[0])?;
@@ -2137,7 +2449,12 @@ impl Compiler {
             "til" => {
                 // til(R0, R1, R2, R3, flags, scale)
                 if args.len() < 4 {
-                    return Err(LangError::ArgCount { line, name, expected: 6, got: args.len() });
+                    return Err(LangError::ArgCount {
+                        line,
+                        name,
+                        expected: 6,
+                        got: args.len(),
+                    });
                 }
                 self.save_fp_if_needed();
                 self.lower_expr_r0(&args[0])?;
@@ -2148,8 +2465,16 @@ impl Compiler {
                 self.emit_stm32(SCRATCH_BASE + SCRATCH_STEP * 2, 0);
                 self.lower_expr_r0(&args[3])?;
                 self.emit_stm32(SCRATCH_BASE + SCRATCH_STEP * 3, 0);
-                let flags = if args.len() > 4 { self.require_literal_u8(&args[4], line, &name)? } else { 0 };
-                let scale = if args.len() > 5 { self.require_literal_u8(&args[5], line, &name)? } else { 1 };
+                let flags = if args.len() > 4 {
+                    self.require_literal_u8(&args[4], line, &name)?
+                } else {
+                    0
+                };
+                let scale = if args.len() > 5 {
+                    self.require_literal_u8(&args[5], line, &name)?
+                } else {
+                    1
+                };
                 self.emit_ldm32(0, SCRATCH_BASE);
                 self.emit_ldm32(1, SCRATCH_BASE + SCRATCH_STEP);
                 self.emit_ldm32(2, SCRATCH_BASE + SCRATCH_STEP * 2);
@@ -2165,15 +2490,20 @@ impl Compiler {
             }
             "sin" | "cos" | "abs" | "flr" | "sqrt" => {
                 if args.len() != 1 {
-                    return Err(LangError::ArgCount { line, name: name.clone(), expected: 1, got: args.len() });
+                    return Err(LangError::ArgCount {
+                        line,
+                        name: name.clone(),
+                        expected: 1,
+                        got: args.len(),
+                    });
                 }
                 let kind: u8 = match name.as_str() {
-                    "sin"  => 0,
-                    "cos"  => 1,
-                    "abs"  => 2,
-                    "flr"  => 3,
+                    "sin" => 0,
+                    "cos" => 1,
+                    "abs" => 2,
+                    "flr" => 3,
                     "sqrt" => 4,
-                    _      => unreachable!(),
+                    _ => unreachable!(),
                 };
                 self.lower_expr_r0(&args[0])?;
                 self.emit_movr(1, 0);
@@ -2184,12 +2514,17 @@ impl Compiler {
             }
             "max" | "min" => {
                 if args.len() != 2 {
-                    return Err(LangError::ArgCount { line, name: name.clone(), expected: 2, got: args.len() });
+                    return Err(LangError::ArgCount {
+                        line,
+                        name: name.clone(),
+                        expected: 2,
+                        got: args.len(),
+                    });
                 }
                 self.lower_expr_r0(&args[0])?;
-                self.emit_push(0);              // save arg0 — R1 may be clobbered by arg1 eval
-                self.lower_expr_r0(&args[1])?;  // arg1 → R0
-                self.emit_pop(1);               // arg0 → R1
+                self.emit_push(0); // save arg0 — R1 may be clobbered by arg1 eval
+                self.lower_expr_r0(&args[1])?; // arg1 → R0
+                self.emit_pop(1); // arg0 → R1
                 let op = if name == "max" { OP_MAX } else { OP_MIN };
                 self.code.push(op);
                 self.code.push(0);
@@ -2197,7 +2532,12 @@ impl Compiler {
             }
             "rnd" => {
                 if args.len() != 1 {
-                    return Err(LangError::ArgCount { line, name, expected: 1, got: args.len() });
+                    return Err(LangError::ArgCount {
+                        line,
+                        name,
+                        expected: 1,
+                        got: args.len(),
+                    });
                 }
                 let max = self.require_literal_u16(&args[0], line, &name)?;
                 self.code.push(OP_RND);
@@ -2206,14 +2546,24 @@ impl Compiler {
             }
             "strlen" => {
                 if args.len() != 1 {
-                    return Err(LangError::ArgCount { line, name, expected: 1, got: args.len() });
+                    return Err(LangError::ArgCount {
+                        line,
+                        name,
+                        expected: 1,
+                        got: args.len(),
+                    });
                 }
                 self.lower_expr_r0(&args[0])?;
                 self.emit_jsr("__rt_strlen");
             }
             "tostring" => {
                 if args.len() != 1 {
-                    return Err(LangError::ArgCount { line, name, expected: 1, got: args.len() });
+                    return Err(LangError::ArgCount {
+                        line,
+                        name,
+                        expected: 1,
+                        got: args.len(),
+                    });
                 }
                 self.lower_expr_r0(&args[0])?;
                 self.emit_jsr("__rt_tostr");
@@ -2227,7 +2577,10 @@ impl Compiler {
                 if !is_static_fn {
                     if let Some(loc) = self.lookup_var(&name) {
                         match loc {
-                            VarLoc::Local(_) | VarLoc::Param(_) | VarLoc::Upvalue(_) | VarLoc::Global(_) => {
+                            VarLoc::Local(_)
+                            | VarLoc::Param(_)
+                            | VarLoc::Upvalue(_)
+                            | VarLoc::Global(_) => {
                                 let func_expr = Expr::Var(name.clone(), line);
                                 return self.emit_dynamic_call(&func_expr, args, line);
                             }
@@ -2259,7 +2612,12 @@ impl Compiler {
     fn literal_str(expr: &Expr) -> Option<String> {
         match expr {
             Expr::Str(s, _) => Some(s.clone()),
-            Expr::BinOp { op: BinOp::Concat, left, right, .. } => {
+            Expr::BinOp {
+                op: BinOp::Concat,
+                left,
+                right,
+                ..
+            } => {
                 let l = Self::literal_str(left)?;
                 let r = Self::literal_str(right)?;
                 Some(format!("{}{}", l, r))
@@ -2271,7 +2629,10 @@ impl Compiler {
     fn require_literal_u8(&self, expr: &Expr, line: usize, name: &str) -> Result<u8> {
         let v = self.require_literal_u32(expr, line, name)?;
         if v > 255 {
-            Err(LangError::RequiresLiteral { line, name: name.to_string() })
+            Err(LangError::RequiresLiteral {
+                line,
+                name: name.to_string(),
+            })
         } else {
             Ok(v as u8)
         }
@@ -2280,7 +2641,10 @@ impl Compiler {
     fn require_literal_u16(&self, expr: &Expr, line: usize, name: &str) -> Result<u16> {
         let v = self.require_literal_u32(expr, line, name)?;
         if v > 0xFFFF {
-            Err(LangError::RequiresLiteral { line, name: name.to_string() })
+            Err(LangError::RequiresLiteral {
+                line,
+                name: name.to_string(),
+            })
         } else {
             Ok(v as u16)
         }
@@ -2293,10 +2657,16 @@ impl Compiler {
                 if let Some(&v) = self.consts.get(vname) {
                     Ok(v)
                 } else {
-                    Err(LangError::RequiresLiteral { line, name: name.to_string() })
+                    Err(LangError::RequiresLiteral {
+                        line,
+                        name: name.to_string(),
+                    })
                 }
             }
-            _ => Err(LangError::RequiresLiteral { line, name: name.to_string() }),
+            _ => Err(LangError::RequiresLiteral {
+                line,
+                name: name.to_string(),
+            }),
         }
     }
 }
@@ -2306,7 +2676,9 @@ where
     F: FnMut(&str) -> Option<VarLoc>,
 {
     let mut refs: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut collect = |s: String| { refs.insert(s); };
+    let mut collect = |s: String| {
+        refs.insert(s);
+    };
     for stmt in body {
         refs_stmt_owned(stmt, &mut collect);
     }
@@ -2335,54 +2707,90 @@ fn refs_stmt_owned(stmt: &Stmt, out: &mut dyn FnMut(String)) {
             refs_expr_owned(value, out);
         }
         Stmt::Local { inits, .. } => {
-            for e in inits { refs_expr_owned(e, out); }
+            for e in inits {
+                refs_expr_owned(e, out);
+            }
         }
         Stmt::ExprStmt { expr, .. } => {
             refs_expr_owned(expr, out);
         }
-        Stmt::If { cond, then_block, elseif_clauses, else_block, .. } => {
+        Stmt::If {
+            cond,
+            then_block,
+            elseif_clauses,
+            else_block,
+            ..
+        } => {
             refs_expr_owned(cond, out);
-            for s in then_block { refs_stmt_owned(s, out); }
+            for s in then_block {
+                refs_stmt_owned(s, out);
+            }
             for (e, b) in elseif_clauses {
                 refs_expr_owned(e, out);
-                for s in b { refs_stmt_owned(s, out); }
+                for s in b {
+                    refs_stmt_owned(s, out);
+                }
             }
             if let Some(b) = else_block {
-                for s in b { refs_stmt_owned(s, out); }
+                for s in b {
+                    refs_stmt_owned(s, out);
+                }
             }
         }
         Stmt::While { cond, body, .. } => {
             refs_expr_owned(cond, out);
-            for s in body { refs_stmt_owned(s, out); }
+            for s in body {
+                refs_stmt_owned(s, out);
+            }
         }
         Stmt::Repeat { body, cond, .. } => {
-            for s in body { refs_stmt_owned(s, out); }
+            for s in body {
+                refs_stmt_owned(s, out);
+            }
             refs_expr_owned(cond, out);
         }
-        Stmt::NumericFor { start, stop, step, body, .. } => {
+        Stmt::NumericFor {
+            start,
+            stop,
+            step,
+            body,
+            ..
+        } => {
             refs_expr_owned(start, out);
             refs_expr_owned(stop, out);
-            if let Some(e) = step { refs_expr_owned(e, out); }
-            for s in body { refs_stmt_owned(s, out); }
+            if let Some(e) = step {
+                refs_expr_owned(e, out);
+            }
+            for s in body {
+                refs_stmt_owned(s, out);
+            }
         }
         Stmt::Return { values, .. } => {
-            for e in values { refs_expr_owned(e, out); }
+            for e in values {
+                refs_expr_owned(e, out);
+            }
         }
         Stmt::Do { body, .. } => {
-            for s in body { refs_stmt_owned(s, out); }
+            for s in body {
+                refs_stmt_owned(s, out);
+            }
         }
         Stmt::SetField { table, value, .. } => {
             refs_expr_owned(table, out);
             refs_expr_owned(value, out);
         }
-        Stmt::SetIndex { table, key, value, .. } => {
+        Stmt::SetIndex {
+            table, key, value, ..
+        } => {
             refs_expr_owned(table, out);
             refs_expr_owned(key, out);
             refs_expr_owned(value, out);
         }
         Stmt::GenericFor { table, body, .. } => {
             refs_expr_owned(table, out);
-            for s in body { refs_stmt_owned(s, out); }
+            for s in body {
+                refs_stmt_owned(s, out);
+            }
         }
         Stmt::Break { .. } => {}
     }
@@ -2398,7 +2806,9 @@ fn refs_expr_owned(expr: &Expr, out: &mut dyn FnMut(String)) {
         }
         Expr::Call { func, args, .. } => {
             refs_expr_owned(func, out);
-            for a in args { refs_expr_owned(a, out); }
+            for a in args {
+                refs_expr_owned(a, out);
+            }
         }
         Expr::Index { table, key, .. } => {
             refs_expr_owned(table, out);
@@ -2419,11 +2829,20 @@ fn refs_expr_owned(expr: &Expr, out: &mut dyn FnMut(String)) {
         }
         Expr::Func { params, body, .. } => {
             // Body refs minus inner params (they shadow outer)
-            let mut inner_refs: std::collections::HashSet<String> = std::collections::HashSet::new();
-            let mut collect = |s: String| { inner_refs.insert(s); };
-            for s in body { refs_stmt_owned(s, &mut collect); }
-            for p in params { inner_refs.remove(p); }
-            for r in inner_refs { out(r); }
+            let mut inner_refs: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+            let mut collect = |s: String| {
+                inner_refs.insert(s);
+            };
+            for s in body {
+                refs_stmt_owned(s, &mut collect);
+            }
+            for p in params {
+                inner_refs.remove(p);
+            }
+            for r in inner_refs {
+                out(r);
+            }
         }
         _ => {}
     }

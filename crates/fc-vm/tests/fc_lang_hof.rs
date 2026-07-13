@@ -1,7 +1,7 @@
 use fc_lang::compile;
-use fc_vm::{Vm, VmConfig, default_instruction_set};
 use fc_vm::input::Input;
 use fc_vm::rendering::font::Font;
+use fc_vm::{Vm, VmConfig, default_instruction_set};
 use std::sync::Arc;
 
 fn make_vm() -> Vm {
@@ -15,7 +15,9 @@ fn run_fc(src: &str) -> Vm {
     let input = Input::new();
     let font = Font::empty();
     for _ in 0..200_000 {
-        if vm.is_waiting() { break; }
+        if vm.is_waiting() {
+            break;
+        }
         vm.step(&input, &font);
     }
     assert!(vm.get_fault().is_none(), "vm fault: {:?}", vm.get_fault());
@@ -40,7 +42,8 @@ const G3: usize = 0x000C;
 #[test]
 fn named_fn_returns_closure() {
     // make_adder(n) returns a closure that adds n to its arg
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 fn make_adder(n)
   return fn(x) return n + x end
 end
@@ -50,7 +53,8 @@ loop:
   add5 = make_adder(5)
   result = add5(3)
   wait()
-"#);
+"#,
+    );
     // add5=G0=ptr, result=G1=8
     assert_eq!(read_u32(&vm, G1), 8, "make_adder(5)(3) should be 8");
 }
@@ -60,14 +64,16 @@ loop:
 #[test]
 fn closure_returns_closure() {
     // outer is a closure that returns an inner closure
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 let result = 0
 loop:
   local outer = fn(a) return fn(b) return a + b end end
   local inner = outer(10)
   result = inner(7)
   wait()
-"#);
+"#,
+    );
     assert_eq!(read_u32(&vm, G0), 17, "outer(10)(7) should be 17");
 }
 
@@ -75,7 +81,8 @@ loop:
 
 #[test]
 fn counter_mutable_upval() {
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 fn make_counter()
   local count = 0
   return fn()
@@ -93,7 +100,8 @@ loop:
   r2 = c()
   r3 = c()
   wait()
-"#);
+"#,
+    );
     // c=G0, r1=G1=1, r2=G2=2, r3=G3=3
     assert_eq!(read_u32(&vm, G1), 1, "first call should return 1");
     assert_eq!(read_u32(&vm, G2), 2, "second call should return 2");
@@ -105,7 +113,8 @@ loop:
 #[test]
 fn triple_nested_closure() {
     // fn(a) -> fn(b) -> fn(c) -> a+b+c
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 let result = 0
 loop:
   local f = fn(a) return fn(b) return fn(c) return a + b + c end end end
@@ -113,7 +122,8 @@ loop:
   local h = g(2)
   result = h(3)
   wait()
-"#);
+"#,
+    );
     assert_eq!(read_u32(&vm, G0), 6, "f(1)(2)(3) should be 6");
 }
 
@@ -121,7 +131,8 @@ loop:
 
 #[test]
 fn independent_factory_instances() {
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 fn make_adder(n)
   return fn(x) return n + x end
 end
@@ -135,7 +146,8 @@ loop:
   r1 = add2(10)
   r2 = add7(10)
   wait()
-"#);
+"#,
+    );
     // add2=G0, add7=G1, r1=G2=12, r2=G3=17
     assert_eq!(read_u32(&vm, G2), 12, "add2(10) should be 12");
     assert_eq!(read_u32(&vm, G3), 17, "add7(10) should be 17");
@@ -146,14 +158,16 @@ loop:
 #[test]
 fn closure_captures_closure() {
     // inner closure captures outer closure var (also a closure ptr)
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 let result = 0
 loop:
   local inc = fn(x) return x + 1 end
   local apply_twice = fn(x) return inc(inc(x)) end
   result = apply_twice(5)
   wait()
-"#);
+"#,
+    );
     assert_eq!(read_u32(&vm, G0), 7, "apply_twice(5) should be 7");
 }
 
@@ -163,7 +177,8 @@ loop:
 fn partial_application() {
     // curry(f, a) returns fn(b) return f(a, b) end
     // then partial-apply an adder
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 fn add(a, b) return a + b end
 fn curry2(a)
   return fn(b) return add(a, b) end
@@ -176,7 +191,8 @@ loop:
   r1 = add10(3)
   r2 = add10(99)
   wait()
-"#);
+"#,
+    );
     // add10=G0, r1=G1=13, r2=G2=109
     assert_eq!(read_u32(&vm, G1), 13, "add10(3) should be 13");
     assert_eq!(read_u32(&vm, G2), 109, "add10(99) should be 109");
@@ -188,7 +204,8 @@ loop:
 fn upval_outlives_outer_scope() {
     // The closure is returned before local `base` goes out of scope;
     // it should still hold the captured value after return.
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 fn make_fn(base)
   local extra = 100
   return fn(x) return base + extra + x end
@@ -199,7 +216,8 @@ loop:
   f = make_fn(5)
   result = f(1)
   wait()
-"#);
+"#,
+    );
     // f=G0, result=G1 = 5+100+1 = 106
     assert_eq!(read_u32(&vm, G1), 106, "upval should survive outer scope");
 }
@@ -209,7 +227,8 @@ loop:
 #[test]
 fn deep_upval_chain() {
     // Each level adds 1 to accumulated sum across 4 levels
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 let result = 0
 loop:
   local f1 = fn(a)
@@ -221,6 +240,7 @@ loop:
   end
   result = f1(1)(2)(3)(4)
   wait()
-"#);
+"#,
+    );
     assert_eq!(read_u32(&vm, G0), 10, "1+2+3+4 should be 10");
 }

@@ -67,13 +67,13 @@ impl Assembler {
     pub fn assemble_file_with_sections(&self, path: &Path) -> Result<AssemblerOutput, AsmError> {
         let mut pp = Preprocessor::new();
         let lines = pp.process_file(path)?;
-        self.assemble_inner(&lines, pp.constants)
+        self.assemble_inner(&lines, pp.into_constants())
     }
 
     fn assemble_with_sections_str(&self, source: &str) -> Result<AssemblerOutput, AsmError> {
         let mut pp = Preprocessor::new();
         let lines = pp.process_str(source)?;
-        self.assemble_inner(&lines, pp.constants)
+        self.assemble_inner(&lines, pp.into_constants())
     }
 
     pub fn generate_source_map(&self, bytecode: &[u8]) -> SourceMap {
@@ -228,7 +228,7 @@ impl Assembler {
                     current_pc
                 } as u16;
                 let data = (directive.emit)(&refs, symbols, emit_pc)
-                    .map_err(|e| AsmError::syntax(line_number, text, e))?;
+                    .map_err(|e| AsmError::syntax(line_number, text, e.to_string()))?;
                 if sl.section == LineSection::Program {
                     source_map.insert_item(
                         current_pc,
@@ -345,7 +345,7 @@ impl Assembler {
 
     fn eval_u8(&self, s: &str, symbols: &HashMap<String, u16>, scope: &str) -> Result<u8, String> {
         let resolved = resolve_local_refs(s, scope);
-        let val = eval_expr(&resolved, symbols)?;
+        let val = eval_expr(&resolved, symbols).map_err(|e| e.to_string())?;
         if val > 255 {
             return Err(format!("value {} out of u8 range", val));
         }
@@ -362,17 +362,29 @@ impl Assembler {
         eval_expr(&resolved, symbols).map_err(|e| format!("invalid address '{}': {}", s, e))
     }
 
-    fn eval_dword(&self, s: &str, symbols: &HashMap<String, u16>, scope: &str) -> Result<u32, String> {
+    fn eval_dword(
+        &self,
+        s: &str,
+        symbols: &HashMap<String, u16>,
+        scope: &str,
+    ) -> Result<u32, String> {
         let resolved = resolve_local_refs(s, scope);
         let t = resolved.trim();
         if t.starts_with("0x") || t.starts_with("0X") {
             u32::from_str_radix(&t[2..], 16).map_err(|e| e.to_string())
         } else if t.starts_with("0b") || t.starts_with("0B") {
             u32::from_str_radix(&t[2..], 2).map_err(|e| e.to_string())
-        } else if t.chars().next().map_or(false, |c| c.is_ascii_digit() || c == '-') {
-            t.parse::<i32>().map(|v| v as u32).map_err(|e| e.to_string())
+        } else if t
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_digit() || c == '-')
+        {
+            t.parse::<i32>()
+                .map(|v| v as u32)
+                .map_err(|e| e.to_string())
         } else {
-            eval_expr(t, symbols).map(|v| v as u32)
+            eval_expr(t, symbols)
+                .map(|v| v as u32)
                 .map_err(|e| format!("invalid dword '{}': {}", s, e))
         }
     }

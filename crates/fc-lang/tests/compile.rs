@@ -6,7 +6,8 @@ fn compiles(src: &str) {
 
 #[test]
 fn movement_fc() {
-    compiles(r#"
+    compiles(
+        r#"
 const SPR0 = 0x4000
 const SPEED = 2
 let x = 60
@@ -29,48 +30,56 @@ loop:
   end
   spr(x, y, SPR0)
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn while_loop() {
-    compiles(r#"
+    compiles(
+        r#"
 let i = 0
 loop:
   while i < 10 do
     i += 1
   end
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn repeat_until() {
-    compiles(r#"
+    compiles(
+        r#"
 let i = 0
 loop:
   repeat
     i += 1
   until i >= 5
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn local_vars() {
-    compiles(r#"
+    compiles(
+        r#"
 fn add(a, b)
   local result = a + b
   return result
 end
 loop:
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn numeric_for() {
-    compiles(r#"
+    compiles(
+        r#"
 fn sum10()
   local s = 0
   for i = 1, 10 do
@@ -80,12 +89,14 @@ fn sum10()
 end
 loop:
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn elseif_chain() {
-    compiles(r#"
+    compiles(
+        r#"
 let x = 5
 loop:
   if x < 0 then
@@ -96,12 +107,14 @@ loop:
     x += 1
   end
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn logical_ops() {
-    compiles(r#"
+    compiles(
+        r#"
 let a = 1
 let b = 0
 let c = 0
@@ -110,12 +123,14 @@ loop:
   c = a or b
   c = not a
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn break_from_loop() {
-    compiles(r#"
+    compiles(
+        r#"
 let i = 0
 loop:
   while i < 100 do
@@ -125,178 +140,210 @@ loop:
     end
   end
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn string_literal_txt() {
-    compiles(r#"
+    compiles(
+        r#"
 loop:
   txt(10, 20, "hello", 7)
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn string_concat_literals() {
-    compiles(r#"
+    compiles(
+        r#"
 loop:
   txt(0, 0, "foo" .. "bar", 7)
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn string_len_literal() {
-    compiles(r#"
+    compiles(
+        r#"
 let n = 0
 loop:
   n = #"hello"
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn string_dedup() {
     // Same literal used twice should not error
-    compiles(r#"
+    compiles(
+        r#"
 loop:
   txt(0, 0, "hi", 7)
   txt(0, 8, "hi", 7)
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn table_empty() {
-    compiles(r#"
+    compiles(
+        r#"
 let t = 0
 loop:
   t = {}
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn table_value_fields() {
-    compiles(r#"
+    compiles(
+        r#"
 let t = 0
 loop:
   t = {10, 20, 30}
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn table_name_fields() {
-    compiles(r#"
+    compiles(
+        r#"
 let t = 0
 loop:
   t = {x=5, y=10}
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn table_index_read() {
-    compiles(r#"
+    compiles(
+        r#"
 let t = 0
 let v = 0
 loop:
   t = {100, 200}
   v = t[1]
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn table_field_read() {
-    compiles(r#"
+    compiles(
+        r#"
 let t = 0
 let v = 0
 loop:
   t = {hp=42}
   v = t.hp
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn table_index_write() {
-    compiles(r#"
+    compiles(
+        r#"
 let t = 0
 loop:
   t = {0}
   t[1] = 99
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn table_field_write() {
-    compiles(r#"
+    compiles(
+        r#"
 let t = 0
 loop:
   t = {score=0}
   t.score = 1
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn table_field_compound_assign() {
-    compiles(r#"
+    compiles(
+        r#"
 let t = 0
 loop:
   t = {x=0, y=0}
   t.x += 1
   t.y -= 2
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn table_index_compound_assign() {
-    compiles(r#"
+    compiles(
+        r#"
 let t = 0
 loop:
   t = {10, 20}
   t[1] += 5
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn smoke_tables_strings() {
-    let src = std::fs::read_to_string("../../games/fc/demo_smoke.fc")
-        .expect("demo_smoke.fc not found");
+    let src =
+        std::fs::read_to_string("../../games/fc/demo_smoke.fc").expect("demo_smoke.fc not found");
     compiles(&src);
 }
 
 #[test]
 fn closure_no_upvals() {
-    compiles(r#"
+    compiles(
+        r#"
 let f = 0
 loop:
   f = fn(x) return x end
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn closure_with_upval() {
-    compiles(r#"
+    compiles(
+        r#"
 let f = 0
 let base = 10
 loop:
   f = fn(x) return base + x end
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn closure_call_via_var() {
-    compiles(r#"
+    compiles(
+        r#"
 let f = 0
 let result = 0
 let base = 5
@@ -304,12 +351,14 @@ loop:
   f = fn(x) return base + x end
   result = f(3)
   wait()
-"#);
+"#,
+    );
 }
 
 #[test]
 fn closure_as_fn_arg() {
-    compiles(r#"
+    compiles(
+        r#"
 fn apply(cb, val)
   return cb(val)
 end
@@ -320,5 +369,6 @@ loop:
   f = fn(x) return offset + x end
   result = apply(f, 2)
   wait()
-"#);
+"#,
+    );
 }

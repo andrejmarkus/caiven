@@ -50,8 +50,8 @@ impl RomHeader {
         let mut author_field = [0u8; 32];
         title_field.copy_from_slice(&buf[0..32]);
         author_field.copy_from_slice(&buf[32..64]);
-        let entry_point = u32::from_le_bytes(buf[64..68].try_into().unwrap());
-        let flags = u32::from_le_bytes(buf[68..72].try_into().unwrap());
+        let entry_point = u32::from_le_bytes([buf[64], buf[65], buf[66], buf[67]]);
+        let flags = u32::from_le_bytes([buf[68], buf[69], buf[70], buf[71]]);
         Self {
             title: field_to_str(&title_field),
             author: field_to_str(&author_field),

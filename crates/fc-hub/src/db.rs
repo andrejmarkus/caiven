@@ -1,21 +1,30 @@
 use anyhow::Result;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, DatabaseConnection, EntityTrait,
-    PaginatorTrait, QueryFilter, QueryOrder, Set,
-    sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, Condition, DatabaseConnection, EntityTrait, PaginatorTrait,
+    QueryFilter, QueryOrder, Set, sea_query::Expr,
 };
 
 use crate::entities::carts::{self, ActiveModel, Entity as CartEntity};
 use crate::models::{Cart, CartMeta};
 
-pub async fn insert(db: &DatabaseConnection, id: &str, meta: &CartMeta, rom_size: usize) -> Result<()> {
+pub async fn insert(
+    db: &DatabaseConnection,
+    id: &str,
+    meta: &CartMeta,
+    rom_size: usize,
+) -> Result<()> {
     let now = chrono::Utc::now().to_rfc3339();
     ActiveModel {
         id: Set(id.to_string()),
         title: Set(meta.title.clone()),
         author: Set(meta.author.clone()),
         description: Set(meta.description.clone()),
-        tags: Set(meta.tags.iter().map(|t| t.replace(',', " ")).collect::<Vec<_>>().join(",")),
+        tags: Set(meta
+            .tags
+            .iter()
+            .map(|t| t.replace(',', " "))
+            .collect::<Vec<_>>()
+            .join(",")),
         uploaded_at: Set(now),
         downloads: Set(0),
         has_screenshot: Set(false),

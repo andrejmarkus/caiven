@@ -1,6 +1,9 @@
 use crate::cart_save::{CartMeta, SectionLayout};
 use crate::debugger::{DebugClickAction, DebugMode, Debugger};
-use crate::editors::{BrowserEditor, CodeEditor, CodeEditorAction, Editor, MapEditor, MetaEditor, MusicEditor, PaletteEditor, SfxEditor, SpriteEditor};
+use crate::editors::{
+    BrowserEditor, CodeEditor, CodeEditorAction, Editor, MapEditor, MetaEditor, MusicEditor,
+    PaletteEditor, SfxEditor, SpriteEditor,
+};
 use crate::hot_reload::HotReload;
 use crate::tabs;
 use anyhow::{Context, Result};
@@ -51,7 +54,10 @@ pub enum AppMode {
 }
 
 #[derive(Parser)]
-#[command(name = "fc-engine", about = "Fantasy Console — development environment")]
+#[command(
+    name = "fc-engine",
+    about = "Fantasy Console — development environment"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -227,7 +233,8 @@ impl App {
         for section in &rom.sections {
             match section.kind {
                 SectionKind::SpriteSheet => {
-                    self.vm.load_section_to_ram(SPRITE_SHEET_RAM_BASE, &section.data);
+                    self.vm
+                        .load_section_to_ram(SPRITE_SHEET_RAM_BASE, &section.data);
                     sections.push(SectionLayout {
                         kind: SectionKind::SpriteSheet,
                         ram_base: SPRITE_SHEET_RAM_BASE,
@@ -246,7 +253,11 @@ impl App {
                         ram_base: MAP_RAM_BASE,
                         len: section.data.len(),
                     });
-                    info!("Map loaded to RAM at 0x{:04X} ({} bytes)", MAP_RAM_BASE, section.data.len());
+                    info!(
+                        "Map loaded to RAM at 0x{:04X} ({} bytes)",
+                        MAP_RAM_BASE,
+                        section.data.len()
+                    );
                 }
                 SectionKind::Palette => {
                     self.vm.load_section_to_ram(PALETTE_RAM_BASE, &section.data);
@@ -256,7 +267,11 @@ impl App {
                         ram_base: PALETTE_RAM_BASE,
                         len: section.data.len(),
                     });
-                    info!("Palette loaded to RAM at 0x{:04X} ({} bytes)", PALETTE_RAM_BASE, section.data.len());
+                    info!(
+                        "Palette loaded to RAM at 0x{:04X} ({} bytes)",
+                        PALETTE_RAM_BASE,
+                        section.data.len()
+                    );
                 }
                 SectionKind::SfxBank => {
                     self.vm.load_section_to_ram(SFX_RAM_BASE, &section.data);
@@ -265,7 +280,11 @@ impl App {
                         ram_base: SFX_RAM_BASE,
                         len: section.data.len(),
                     });
-                    info!("SfxBank loaded to RAM at 0x{:04X} ({} bytes)", SFX_RAM_BASE, section.data.len());
+                    info!(
+                        "SfxBank loaded to RAM at 0x{:04X} ({} bytes)",
+                        SFX_RAM_BASE,
+                        section.data.len()
+                    );
                 }
                 SectionKind::MusicBank => {
                     self.vm.load_section_to_ram(MUSIC_RAM_BASE, &section.data);
@@ -274,7 +293,11 @@ impl App {
                         ram_base: MUSIC_RAM_BASE,
                         len: section.data.len(),
                     });
-                    info!("MusicBank loaded to RAM at 0x{:04X} ({} bytes)", MUSIC_RAM_BASE, section.data.len());
+                    info!(
+                        "MusicBank loaded to RAM at 0x{:04X} ({} bytes)",
+                        MUSIC_RAM_BASE,
+                        section.data.len()
+                    );
                 }
                 _ => {}
             }
@@ -288,7 +311,8 @@ impl App {
                 .iter()
                 .flat_map(|c| [c.get_r(), c.get_g(), c.get_b()])
                 .collect();
-            self.vm.load_section_to_ram(PALETTE_RAM_BASE, &palette_bytes);
+            self.vm
+                .load_section_to_ram(PALETTE_RAM_BASE, &palette_bytes);
             sections.push(SectionLayout {
                 kind: SectionKind::Palette,
                 ram_base: PALETTE_RAM_BASE,
@@ -352,14 +376,16 @@ impl App {
         if ext == "fc" {
             let out = fc_lang::compile(&source)
                 .map_err(|e| anyhow::anyhow!("compile error in {}: {}", path.display(), e))?;
-            self.vm.load_rom_with_source_map(out.program, out.source_map);
+            self.vm
+                .load_rom_with_source_map(out.program, out.source_map);
             self.vm.set_fc_source(&source);
             self.code_editor.set_source_path(path.to_path_buf());
             info!("fc-lang compiled from {}", path.display());
         } else {
             let out = fc_asm::assemble_with_sections(&source)
                 .with_context(|| format!("failed to assemble {}", path.display()))?;
-            self.vm.load_rom_with_source_map(out.program, out.source_map);
+            self.vm
+                .load_rom_with_source_map(out.program, out.source_map);
             for (wire_id, data) in &out.extra_sections {
                 if *wire_id == fc_rom::SectionKind::SpriteSheet.to_u16() {
                     self.vm.load_section_to_ram(SPRITE_SHEET_RAM_BASE, data);
@@ -533,7 +559,8 @@ impl App {
                 let source = self.code_editor.get_source();
                 match fc_lang::compile(&source) {
                     Ok(out) => {
-                        self.vm.load_rom_with_source_map(out.program, out.source_map);
+                        self.vm
+                            .load_rom_with_source_map(out.program, out.source_map);
                         self.vm.set_fc_source(&source);
                         if let Some(path) = &self.code_editor.source_path {
                             let _ = std::fs::write(path, &source);
@@ -630,16 +657,14 @@ impl ApplicationHandler for App {
                     AppMode::Code => {
                         self.code_editor.render(debug_layer, vm, font, cursor);
                     }
-                    AppMode::Run => {
-                        match self.debugger.get_mode() {
-                            DebugMode::Paused | DebugMode::Step => {
-                                self.debugger.draw_overlay(debug_layer, vm, font);
-                            }
-                            DebugMode::Running => {
-                                self.debugger.draw_status_bar(debug_layer, vm, font);
-                            }
+                    AppMode::Run => match self.debugger.get_mode() {
+                        DebugMode::Paused | DebugMode::Step => {
+                            self.debugger.draw_overlay(debug_layer, vm, font);
                         }
-                    }
+                        DebugMode::Running => {
+                            self.debugger.draw_status_bar(debug_layer, vm, font);
+                        }
+                    },
                     AppMode::Browser => {
                         self.browser_editor.render(debug_layer, vm, font, cursor);
                     }
@@ -668,19 +693,23 @@ impl ApplicationHandler for App {
                     self.dispatch_editor_right_drag(sx, sy);
                 }
                 // Debugger timeline drag (Run mode)
-                if self.mouse_left && self.mode == AppMode::Run && self.debugger.is_enabled() {
-                    if let DebugClickAction::RestoreScrub = self.debugger.handle_click(sx, sy, &self.vm) {
-                        if let Some(state) = self.debugger.current_scrub_snapshot() {
-                            self.vm.restore(&state);
-                        }
-                    }
+                if self.mouse_left
+                    && self.mode == AppMode::Run
+                    && self.debugger.is_enabled()
+                    && let DebugClickAction::RestoreScrub =
+                        self.debugger.handle_click(sx, sy, &self.vm)
+                    && let Some(state) = self.debugger.current_scrub_snapshot()
+                {
+                    self.vm.restore(&state);
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 if self.mode != AppMode::Run {
                     let (dx, dy) = match delta {
                         MouseScrollDelta::LineDelta(x, y) => (x, y),
-                        MouseScrollDelta::PixelDelta(pos) => (pos.x as f32 / 20.0, pos.y as f32 / 20.0),
+                        MouseScrollDelta::PixelDelta(pos) => {
+                            (pos.x as f32 / 20.0, pos.y as f32 / 20.0)
+                        }
                     };
                     self.dispatch_editor_scroll(dx, dy);
                 }
@@ -703,7 +732,8 @@ impl ApplicationHandler for App {
                                     DebugClickAction::TogglePause => self.debugger.toggle_pause(pc),
                                     DebugClickAction::Step => self.debugger.step(),
                                     DebugClickAction::RestoreScrub => {
-                                        if let Some(state) = self.debugger.current_scrub_snapshot() {
+                                        if let Some(state) = self.debugger.current_scrub_snapshot()
+                                        {
                                             self.vm.restore(&state);
                                         }
                                     }
@@ -743,15 +773,42 @@ impl ApplicationHandler for App {
                                 return;
                             }
                             // Tab-bar mode switches (F1–F7, F8=browser)
-                            KeyCode::F1 => { self.mode = AppMode::Run; return; }
-                            KeyCode::F2 => { self.mode = AppMode::Sprite; return; }
-                            KeyCode::F3 => { self.mode = AppMode::Map; return; }
-                            KeyCode::F4 => { self.mode = AppMode::Sfx; return; }
-                            KeyCode::F5 => { self.mode = AppMode::Music; return; }
-                            KeyCode::F6 => { self.mode = AppMode::Palette; return; }
-                            KeyCode::F7 => { self.mode = AppMode::Meta; return; }
-                            KeyCode::F8 => { self.mode = AppMode::Browser; return; }
-                            KeyCode::F9 => { self.mode = AppMode::Code; return; }
+                            KeyCode::F1 => {
+                                self.mode = AppMode::Run;
+                                return;
+                            }
+                            KeyCode::F2 => {
+                                self.mode = AppMode::Sprite;
+                                return;
+                            }
+                            KeyCode::F3 => {
+                                self.mode = AppMode::Map;
+                                return;
+                            }
+                            KeyCode::F4 => {
+                                self.mode = AppMode::Sfx;
+                                return;
+                            }
+                            KeyCode::F5 => {
+                                self.mode = AppMode::Music;
+                                return;
+                            }
+                            KeyCode::F6 => {
+                                self.mode = AppMode::Palette;
+                                return;
+                            }
+                            KeyCode::F7 => {
+                                self.mode = AppMode::Meta;
+                                return;
+                            }
+                            KeyCode::F8 => {
+                                self.mode = AppMode::Browser;
+                                return;
+                            }
+                            KeyCode::F9 => {
+                                self.mode = AppMode::Code;
+                                return;
+                            }
                             _ => {}
                         }
                     }
@@ -868,7 +925,9 @@ fn build_multipart(boundary: &str, parts: &[(&str, Option<&str>, &str, &[u8])]) 
     for (name, filename, content_type, data) in parts {
         body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
         let cd = match filename {
-            Some(fname) => format!("Content-Disposition: form-data; name=\"{name}\"; filename=\"{fname}\"\r\n"),
+            Some(fname) => {
+                format!("Content-Disposition: form-data; name=\"{name}\"; filename=\"{fname}\"\r\n")
+            }
             None => format!("Content-Disposition: form-data; name=\"{name}\"\r\n"),
         };
         body.extend_from_slice(cd.as_bytes());
@@ -887,7 +946,9 @@ fn capture_screenshot(rom: &fc_rom::Rom, config: VmConfig, frames: u32) -> Resul
     vm.load_rom(rom.program.clone());
     for section in &rom.sections {
         match section.kind {
-            SectionKind::SpriteSheet => vm.load_section_to_ram(SPRITE_SHEET_RAM_BASE, &section.data),
+            SectionKind::SpriteSheet => {
+                vm.load_section_to_ram(SPRITE_SHEET_RAM_BASE, &section.data)
+            }
             SectionKind::Map => vm.load_section_to_ram(MAP_RAM_BASE, &section.data),
             SectionKind::Palette => {
                 vm.load_section_to_ram(PALETTE_RAM_BASE, &section.data);
@@ -921,22 +982,38 @@ fn capture_screenshot(rom: &fc_rom::Rom, config: VmConfig, frames: u32) -> Resul
     let img = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(config.width, config.height, rgba)
         .context("failed to create image buffer")?;
     let mut png_bytes = Vec::new();
-    img.write_to(&mut std::io::Cursor::new(&mut png_bytes), image::ImageFormat::Png)
-        .context("failed to encode screenshot PNG")?;
+    img.write_to(
+        &mut std::io::Cursor::new(&mut png_bytes),
+        image::ImageFormat::Png,
+    )
+    .context("failed to encode screenshot PNG")?;
     Ok(png_bytes)
 }
 
-fn publish_cart(
-    rom_path: &Path,
-    hub_url: &str,
-    api_key: &str,
-    title: Option<&str>,
-    author: Option<&str>,
-    description: &str,
-    tags: &str,
+struct PublishArgs<'a> {
+    rom_path: &'a Path,
+    hub_url: &'a str,
+    api_key: &'a str,
+    title: Option<&'a str>,
+    author: Option<&'a str>,
+    description: &'a str,
+    tags: &'a str,
     frames: u32,
     no_screenshot: bool,
-) -> Result<()> {
+}
+
+fn publish_cart(args: PublishArgs) -> Result<()> {
+    let PublishArgs {
+        rom_path,
+        hub_url,
+        api_key,
+        title,
+        author,
+        description,
+        tags,
+        frames,
+        no_screenshot,
+    } = args;
     let rom = fc_rom::load(rom_path)
         .with_context(|| format!("failed to load ROM from {}", rom_path.display()))?;
 
@@ -955,13 +1032,21 @@ fn publish_cart(
         .with_context(|| format!("failed to read ROM bytes from {}", rom_path.display()))?;
 
     let boundary = "----FcHubBoundary7x3k9p";
-    let filename = rom_path.file_name().and_then(|n| n.to_str()).unwrap_or("cart.rom");
+    let filename = rom_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("cart.rom");
 
     let body = build_multipart(
         boundary,
         &[
             ("meta", None, "application/json", meta_str.as_bytes()),
-            ("rom", Some(filename), "application/octet-stream", &rom_bytes),
+            (
+                "rom",
+                Some(filename),
+                "application/octet-stream",
+                &rom_bytes,
+            ),
         ],
     );
 
@@ -977,7 +1062,10 @@ fn publish_cart(
     let cart_id: String = {
         let val: serde_json::Value = serde_json::from_reader(response.into_reader())
             .context("failed to parse upload response")?;
-        val["id"].as_str().context("upload response missing 'id'")?.to_string()
+        val["id"]
+            .as_str()
+            .context("upload response missing 'id'")?
+            .to_string()
     };
 
     println!("published: {hub_url}/api/carts/{cart_id}");
@@ -989,7 +1077,12 @@ fn publish_cart(
         let boundary2 = "----FcHubScreenshotBoundary";
         let screenshot_body = build_multipart(
             boundary2,
-            &[("screenshot", Some("screenshot.png"), "image/png", &png_bytes)],
+            &[(
+                "screenshot",
+                Some("screenshot.png"),
+                "image/png",
+                &png_bytes,
+            )],
         );
         let ct2 = format!("multipart/form-data; boundary={boundary2}");
         let screenshot_url = format!("{hub_url}/api/carts/{cart_id}/screenshot");
@@ -1054,8 +1147,28 @@ pub fn run() -> Result<()> {
             }
             return Ok(());
         }
-        Some(Command::Publish { rom, url, api_key, title, author, description, tags, frames, no_screenshot }) => {
-            publish_cart(rom, url, api_key, title.as_deref(), author.as_deref(), description, tags, *frames, *no_screenshot)?;
+        Some(Command::Publish {
+            rom,
+            url,
+            api_key,
+            title,
+            author,
+            description,
+            tags,
+            frames,
+            no_screenshot,
+        }) => {
+            publish_cart(PublishArgs {
+                rom_path: rom,
+                hub_url: url,
+                api_key,
+                title: title.as_deref(),
+                author: author.as_deref(),
+                description,
+                tags,
+                frames: *frames,
+                no_screenshot: *no_screenshot,
+            })?;
             return Ok(());
         }
         _ => {}
@@ -1078,7 +1191,9 @@ pub fn run() -> Result<()> {
         None => {
             info!("no file specified — open a .asm or .rom file with: fc-engine run <file>");
         }
-        Some(Command::Build { .. }) | Some(Command::Inspect { .. }) | Some(Command::Publish { .. }) => unreachable!(),
+        Some(Command::Build { .. })
+        | Some(Command::Inspect { .. })
+        | Some(Command::Publish { .. }) => unreachable!(),
     }
 
     let event_loop = EventLoop::new().context("failed to create event loop")?;

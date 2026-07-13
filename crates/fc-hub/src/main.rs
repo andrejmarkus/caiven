@@ -2,9 +2,9 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
+use migration::MigratorTrait;
 use rocket::data::{Limits, ToByteUnit};
 use sea_orm::Database;
-use migration::MigratorTrait;
 
 mod db;
 mod entities;

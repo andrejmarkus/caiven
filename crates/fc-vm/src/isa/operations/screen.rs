@@ -40,8 +40,8 @@ pub fn draw_pixel(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
 }
 
 pub fn draw_pixel_from_register(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
-    let x = ctx.read_register_value()? as u32;
-    let y = ctx.read_register_value()? as u32;
+    let x = ctx.read_register_value()?;
+    let y = ctx.read_register_value()?;
     let r = ctx.read_byte()?;
     let g = ctx.read_byte()?;
     let b = ctx.read_byte()?;
@@ -71,8 +71,8 @@ pub fn palette(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
 }
 
 pub fn sprite(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
-    let x0 = ctx.read_register_value()? as u32;
-    let y0 = ctx.read_register_value()? as u32;
+    let x0 = ctx.read_register_value()?;
+    let y0 = ctx.read_register_value()?;
     let base = ctx.read_register_value()? as usize;
 
     debug!(
@@ -104,8 +104,8 @@ pub fn sprite(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
 }
 
 pub fn print(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
-    let x = ctx.read_register_value()? as u32;
-    let y = ctx.read_register_value()? as u32;
+    let x = ctx.read_register_value()?;
+    let y = ctx.read_register_value()?;
     let color_idx = ctx.read_register_value()? as usize;
     let base = ctx.read_register_value()? as usize;
 
@@ -127,8 +127,8 @@ pub fn print(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
 }
 
 pub fn tilemap(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
-    let x0 = ctx.read_register_value()? as u32;
-    let y0 = ctx.read_register_value()? as u32;
+    let x0 = ctx.read_register_value()?;
+    let y0 = ctx.read_register_value()?;
     let tiles_base = ctx.read_register_value()? as usize;
     let map_base = ctx.read_register_value()? as usize;
     let w = ctx.read_byte()? as u32;
@@ -174,8 +174,8 @@ pub fn tilemap(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
 
 pub fn tile_at(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let rdest = ctx.read_register_index()?;
-    let x = ctx.read_register_value()? as u32;
-    let y = ctx.read_register_value()? as u32;
+    let x = ctx.read_register_value()?;
+    let y = ctx.read_register_value()?;
     let map_base = ctx.read_register_value()? as usize;
     let w = ctx.read_byte()? as u32;
 
@@ -212,8 +212,8 @@ pub fn tile_solid(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
 }
 
 pub fn text(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
-    let x0 = ctx.read_register_value()? as u32;
-    let y = ctx.read_register_value()? as u32;
+    let x0 = ctx.read_register_value()?;
+    let y = ctx.read_register_value()?;
     let color_idx = ctx.read_register_value()? as usize;
     let base = ctx.read_register_value()? as usize;
     let len = ctx.read_byte()? as usize;
@@ -241,8 +241,8 @@ pub fn text(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
 }
 
 pub fn text_nullterm(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
-    let x0 = ctx.read_register_value()? as u32;
-    let y = ctx.read_register_value()? as u32;
+    let x0 = ctx.read_register_value()?;
+    let y = ctx.read_register_value()?;
     let color_idx = ctx.read_register_value()? as usize;
     let base = ctx.read_register_value()? as usize;
 
@@ -253,7 +253,9 @@ pub fn text_nullterm(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
 
     loop {
         let byte = ctx.mem.read(base + i)?;
-        if byte == 0 || i >= 256 { break; }
+        if byte == 0 || i >= 256 {
+            break;
+        }
         if let Some(glyph) = font.get_glyph(byte as char) {
             for gy in 0..font.get_height() {
                 for gx in 0..font.get_width() {
@@ -271,8 +273,8 @@ pub fn text_nullterm(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
 }
 
 pub fn draw_number(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
-    let x0 = ctx.read_register_value()? as u32;
-    let y = ctx.read_register_value()? as u32;
+    let x0 = ctx.read_register_value()?;
+    let y = ctx.read_register_value()?;
     let color_idx = ctx.read_register_value()? as usize;
     let value = ctx.read_register_value()?;
 

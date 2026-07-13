@@ -1,7 +1,7 @@
 use fc_lang::compile;
-use fc_vm::{Vm, VmConfig, default_instruction_set};
 use fc_vm::input::Input;
 use fc_vm::rendering::font::Font;
+use fc_vm::{Vm, VmConfig, default_instruction_set};
 use std::sync::Arc;
 
 fn make_vm() -> Vm {
@@ -15,7 +15,9 @@ fn run_fc(src: &str) -> Vm {
     let input = Input::new();
     let font = Font::empty();
     for _ in 0..200_000 {
-        if vm.is_waiting() { break; }
+        if vm.is_waiting() {
+            break;
+        }
         vm.step(&input, &font);
     }
     assert!(vm.get_fault().is_none(), "vm fault: {:?}", vm.get_fault());
@@ -38,7 +40,8 @@ const G1: usize = 0x0004;
 #[test]
 fn numeric_for_sum() {
     // sum 1..10 = 55
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 let result = 0
 loop:
   local s = 0
@@ -47,14 +50,16 @@ loop:
   end
   result = s
   wait()
-"#);
+"#,
+    );
     assert_eq!(read_u32(&vm, G0), 55);
 }
 
 #[test]
 fn numeric_for_step() {
     // sum even numbers 2,4,6,8,10 = 30
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 let result = 0
 loop:
   local s = 0
@@ -63,14 +68,16 @@ loop:
   end
   result = s
   wait()
-"#);
+"#,
+    );
     assert_eq!(read_u32(&vm, G0), 30);
 }
 
 #[test]
 fn numeric_for_count_down() {
     // count down 5,4,3,2,1 → 5 iterations, sum = 15
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 let result = 0
 loop:
   local s = 0
@@ -79,21 +86,24 @@ loop:
   end
   result = s
   wait()
-"#);
+"#,
+    );
     assert_eq!(read_u32(&vm, G0), 15);
 }
 
 #[test]
 fn numeric_for_zero_iterations() {
     // start > stop with positive step → body never runs
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 let result = 99
 loop:
   for i = 5, 1 do
     result = 0
   end
   wait()
-"#);
+"#,
+    );
     assert_eq!(read_u32(&vm, G0), 99);
 }
 
@@ -102,7 +112,8 @@ loop:
 #[test]
 fn forin_sum_values() {
     // Build a table {1=10, 2=20, 3=30}, iterate summing values.
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 let result = 0
 loop:
   local t = {}
@@ -115,13 +126,15 @@ loop:
   end
   result = sum
   wait()
-"#);
+"#,
+    );
     assert_eq!(read_u32(&vm, G0), 60);
 }
 
 #[test]
 fn forin_count_entries() {
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 let result = 0
 loop:
   local t = {}
@@ -133,14 +146,16 @@ loop:
   end
   result = count
   wait()
-"#);
+"#,
+    );
     assert_eq!(read_u32(&vm, G0), 2);
 }
 
 #[test]
 fn forin_empty_table() {
     // Empty table: loop body never runs, result stays 0.
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 let result = 0
 loop:
   local t = {}
@@ -148,14 +163,16 @@ loop:
     result = 99
   end
   wait()
-"#);
+"#,
+    );
     assert_eq!(read_u32(&vm, G0), 0);
 }
 
 #[test]
 fn forin_key_and_val() {
     // Sum keys and vals separately to verify both bindings are correct.
-    let vm = run_fc(r#"
+    let vm = run_fc(
+        r#"
 let key_sum = 0
 let val_sum = 0
 loop:
@@ -171,7 +188,8 @@ loop:
   key_sum = ks
   val_sum = vs
   wait()
-"#);
-    assert_eq!(read_u32(&vm, G0), 30);  // 10+20
+"#,
+    );
+    assert_eq!(read_u32(&vm, G0), 30); // 10+20
     assert_eq!(read_u32(&vm, G1), 300); // 100+200
 }

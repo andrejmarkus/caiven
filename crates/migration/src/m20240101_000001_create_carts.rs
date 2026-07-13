@@ -39,12 +39,7 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(""),
                     )
-                    .col(
-                        ColumnDef::new(Carts::Tags)
-                            .string()
-                            .not_null()
-                            .default(""),
-                    )
+                    .col(ColumnDef::new(Carts::Tags).string().not_null().default(""))
                     .col(ColumnDef::new(Carts::UploadedAt).string().not_null())
                     .col(
                         ColumnDef::new(Carts::Downloads)
