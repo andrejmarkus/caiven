@@ -5,6 +5,7 @@ use fc_vm::vm::Vm;
 use std::path::PathBuf;
 use winit::keyboard::KeyCode;
 
+use super::util::{clear_panel, fill_rect, key_to_char};
 use super::{Editor, button_hit, draw_button};
 
 const VISIBLE_ROWS: usize = 13;
@@ -332,18 +333,10 @@ impl Editor for CodeEditor {
         let col_red = Color::new_rgb(240, 60, 60);
 
         // Fill code area background
-        for y in 0..120u32 {
-            for x in 0..128u32 {
-                layer.set_pixel(Vec2::new(x, y), col_bg);
-            }
-        }
+        clear_panel(layer, col_bg);
 
         // Header row background (y=0..7)
-        for x in 0..128u32 {
-            for dy in 0..8u32 {
-                layer.set_pixel(Vec2::new(x, dy), col_hdr_bg);
-            }
-        }
+        fill_rect(layer, 0, 0, 128, 8, col_hdr_bg);
 
         // Filename
         let name = self
@@ -363,11 +356,7 @@ impl Editor for CodeEditor {
         draw_button(layer, font, 112, 0, "RUN", false);
 
         // Info / error bar (y=112..119)
-        for x in 0..128u32 {
-            for dy in 0..8u32 {
-                layer.set_pixel(Vec2::new(x, INFO_Y + dy), col_info_bg);
-            }
-        }
+        fill_rect(layer, 0, INFO_Y, 128, 8, col_info_bg);
         if let Some(ref err) = self.error_msg {
             let err_up: String = err
                 .chars()
@@ -386,11 +375,7 @@ impl Editor for CodeEditor {
             let y = CODE_Y + row as u32 * 8;
 
             // Gutter background
-            for x in 0..GUTTER_W {
-                for dy in 0..8u32 {
-                    layer.set_pixel(Vec2::new(x, y + dy), col_gutter_bg);
-                }
-            }
+            fill_rect(layer, 0, y, GUTTER_W, 8, col_gutter_bg);
 
             if line_idx >= self.lines.len() {
                 continue;
@@ -402,11 +387,7 @@ impl Editor for CodeEditor {
 
             // Highlight current line background
             if line_idx == self.cursor_line {
-                for x in GUTTER_W..128u32 {
-                    for dy in 0..8u32 {
-                        layer.set_pixel(Vec2::new(x, y + dy), col_curline);
-                    }
-                }
+                fill_rect(layer, GUTTER_W, y, 128 - GUTTER_W, 8, col_curline);
             }
 
             // Syntax-highlighted code text
@@ -457,105 +438,4 @@ impl Editor for CodeEditor {
             self.scroll_line = (self.scroll_line + 3).min(max_scroll);
         }
     }
-}
-
-fn key_to_char(key: KeyCode, shift: bool) -> Option<char> {
-    Some(match (key, shift) {
-        (KeyCode::Space, _) => ' ',
-        (KeyCode::KeyA, false) => 'a',
-        (KeyCode::KeyA, true) => 'A',
-        (KeyCode::KeyB, false) => 'b',
-        (KeyCode::KeyB, true) => 'B',
-        (KeyCode::KeyC, false) => 'c',
-        (KeyCode::KeyC, true) => 'C',
-        (KeyCode::KeyD, false) => 'd',
-        (KeyCode::KeyD, true) => 'D',
-        (KeyCode::KeyE, false) => 'e',
-        (KeyCode::KeyE, true) => 'E',
-        (KeyCode::KeyF, false) => 'f',
-        (KeyCode::KeyF, true) => 'F',
-        (KeyCode::KeyG, false) => 'g',
-        (KeyCode::KeyG, true) => 'G',
-        (KeyCode::KeyH, false) => 'h',
-        (KeyCode::KeyH, true) => 'H',
-        (KeyCode::KeyI, false) => 'i',
-        (KeyCode::KeyI, true) => 'I',
-        (KeyCode::KeyJ, false) => 'j',
-        (KeyCode::KeyJ, true) => 'J',
-        (KeyCode::KeyK, false) => 'k',
-        (KeyCode::KeyK, true) => 'K',
-        (KeyCode::KeyL, false) => 'l',
-        (KeyCode::KeyL, true) => 'L',
-        (KeyCode::KeyM, false) => 'm',
-        (KeyCode::KeyM, true) => 'M',
-        (KeyCode::KeyN, false) => 'n',
-        (KeyCode::KeyN, true) => 'N',
-        (KeyCode::KeyO, false) => 'o',
-        (KeyCode::KeyO, true) => 'O',
-        (KeyCode::KeyP, false) => 'p',
-        (KeyCode::KeyP, true) => 'P',
-        (KeyCode::KeyQ, false) => 'q',
-        (KeyCode::KeyQ, true) => 'Q',
-        (KeyCode::KeyR, false) => 'r',
-        (KeyCode::KeyR, true) => 'R',
-        (KeyCode::KeyS, false) => 's',
-        (KeyCode::KeyS, true) => 'S',
-        (KeyCode::KeyT, false) => 't',
-        (KeyCode::KeyT, true) => 'T',
-        (KeyCode::KeyU, false) => 'u',
-        (KeyCode::KeyU, true) => 'U',
-        (KeyCode::KeyV, false) => 'v',
-        (KeyCode::KeyV, true) => 'V',
-        (KeyCode::KeyW, false) => 'w',
-        (KeyCode::KeyW, true) => 'W',
-        (KeyCode::KeyX, false) => 'x',
-        (KeyCode::KeyX, true) => 'X',
-        (KeyCode::KeyY, false) => 'y',
-        (KeyCode::KeyY, true) => 'Y',
-        (KeyCode::KeyZ, false) => 'z',
-        (KeyCode::KeyZ, true) => 'Z',
-        (KeyCode::Digit0, false) => '0',
-        (KeyCode::Digit0, true) => ')',
-        (KeyCode::Digit1, false) => '1',
-        (KeyCode::Digit1, true) => '!',
-        (KeyCode::Digit2, false) => '2',
-        (KeyCode::Digit2, true) => '@',
-        (KeyCode::Digit3, false) => '3',
-        (KeyCode::Digit3, true) => '#',
-        (KeyCode::Digit4, false) => '4',
-        (KeyCode::Digit4, true) => '$',
-        (KeyCode::Digit5, false) => '5',
-        (KeyCode::Digit5, true) => '%',
-        (KeyCode::Digit6, false) => '6',
-        (KeyCode::Digit6, true) => '^',
-        (KeyCode::Digit7, false) => '7',
-        (KeyCode::Digit7, true) => '&',
-        (KeyCode::Digit8, false) => '8',
-        (KeyCode::Digit8, true) => '*',
-        (KeyCode::Digit9, false) => '9',
-        (KeyCode::Digit9, true) => '(',
-        (KeyCode::Minus, false) => '-',
-        (KeyCode::Minus, true) => '_',
-        (KeyCode::Equal, false) => '=',
-        (KeyCode::Equal, true) => '+',
-        (KeyCode::BracketLeft, false) => '[',
-        (KeyCode::BracketLeft, true) => '{',
-        (KeyCode::BracketRight, false) => ']',
-        (KeyCode::BracketRight, true) => '}',
-        (KeyCode::Semicolon, false) => ';',
-        (KeyCode::Semicolon, true) => ':',
-        (KeyCode::Quote, false) => '\'',
-        (KeyCode::Quote, true) => '"',
-        (KeyCode::Backquote, false) => '`',
-        (KeyCode::Backquote, true) => '~',
-        (KeyCode::Backslash, false) => '\\',
-        (KeyCode::Backslash, true) => '|',
-        (KeyCode::Slash, false) => '/',
-        (KeyCode::Slash, true) => '?',
-        (KeyCode::Period, false) => '.',
-        (KeyCode::Period, true) => '>',
-        (KeyCode::Comma, false) => ',',
-        (KeyCode::Comma, true) => '<',
-        _ => return None,
-    })
 }

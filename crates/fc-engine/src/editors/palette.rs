@@ -5,8 +5,12 @@ use fc_vm::vm::Vm;
 use winit::keyboard::KeyCode;
 
 use super::Editor;
+use super::util::{Grid, clear_panel, fill_rect, rect_border, theme};
 
 const NUM_COLORS: usize = 16;
+
+/// Swatch row: 16 colors as 8x8 squares across the top.
+const SWATCH_GRID: Grid = Grid::new(0, 0, 8, 8, NUM_COLORS as u32, 1);
 
 // Layout (128×120 usable area above tab bar):
 //   y=0..7:   16 color swatches (each 8×8)
@@ -55,62 +59,38 @@ impl PaletteEditor {
         };
         let filled = (value as u32 * track_w) / 255;
 
-        for dy in 0..8u32 {
-            for dx in 0..track_w {
-                let c = if dx < filled { fill_color } else { track_color };
-                layer.set_pixel(Vec2::new(track_x + dx, y + dy), c);
-            }
-        }
+        fill_rect(layer, track_x, y, filled, 8, fill_color);
+        fill_rect(layer, track_x + filled, y, track_w - filled, 8, track_color);
         // Thumb
         if filled < track_w {
-            for dy in 0..8u32 {
-                layer.set_pixel(
-                    Vec2::new(track_x + filled, y + dy),
-                    Color::new_rgb(255, 255, 255),
-                );
-            }
+            fill_rect(
+                layer,
+                track_x + filled,
+                y,
+                1,
+                8,
+                Color::new_rgb(255, 255, 255),
+            );
         }
     }
 }
 
 impl Editor for PaletteEditor {
     fn render(&self, layer: &mut ScreenLayer, vm: &Vm, font: &Font, _cursor: (u32, u32)) {
-        // Clear
-        let bg = Color::new_rgb(15, 15, 15);
-        for y in 0..120u32 {
-            for x in 0..128u32 {
-                layer.set_pixel(Vec2::new(x, y), bg);
-            }
-        }
+        clear_panel(layer, theme::BG);
 
         // Swatch row (y=0..7)
         for i in 0..NUM_COLORS {
             let (r, g, b) = Self::read_color(vm, i);
-            let c = Color::new_rgb(r, g, b);
-            for dy in 0..8u32 {
-                for dx in 0..8u32 {
-                    layer.set_pixel(Vec2::new(i as u32 * 8 + dx, dy), c);
-                }
-            }
+            fill_rect(layer, i as u32 * 8, 0, 8, 8, Color::new_rgb(r, g, b));
             if i == self.active_slot {
-                let sel = Color::new_rgb(255, 255, 255);
-                for d in 0..8u32 {
-                    layer.set_pixel(Vec2::new(i as u32 * 8 + d, 0), sel);
-                    layer.set_pixel(Vec2::new(i as u32 * 8 + d, 7), sel);
-                    layer.set_pixel(Vec2::new(i as u32 * 8, d), sel);
-                    layer.set_pixel(Vec2::new(i as u32 * 8 + 7, d), sel);
-                }
+                rect_border(layer, i as u32 * 8, 0, 8, 8, Color::new_rgb(255, 255, 255));
             }
         }
 
         // Active color preview (x=0..31, y=8..39)
         let (r, g, b) = Self::read_color(vm, self.active_slot);
-        let preview = Color::new_rgb(r, g, b);
-        for dy in 0..32u32 {
-            for dx in 0..32u32 {
-                layer.set_pixel(Vec2::new(dx, 8 + dy), preview);
-            }
-        }
+        fill_rect(layer, 0, 8, 32, 32, Color::new_rgb(r, g, b));
 
         // RGB sliders (x=32..127, y=8/16/24)
         Self::draw_slider(layer, 8, r, self.active_channel == 0);
@@ -155,9 +135,9 @@ impl Editor for PaletteEditor {
     }
 
     fn handle_click(&mut self, x: u32, y: u32, vm: &mut Vm) {
-        if y < 8 {
+        if let Some((col, _)) = SWATCH_GRID.cell_at(x, y) {
             // Swatch row: select slot
-            self.active_slot = (x / 8) as usize;
+            self.active_slot = col;
         } else if y < 40 && x >= 32 {
             // Slider click: set channel value
             let ch = ((y - 8) / 8) as usize;

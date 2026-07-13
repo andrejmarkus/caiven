@@ -4,6 +4,7 @@ use fc_vm::rendering::{font::Font, screen::ScreenLayer, text::draw_text};
 use fc_vm::vm::Vm;
 use winit::keyboard::KeyCode;
 
+use super::util::{Grid, fill_rect, rect_border};
 use super::{Editor, button_hit, draw_button};
 
 const MAP_W: usize = 64;
@@ -17,6 +18,16 @@ const MAP_AREA_W: u32 = (VIEW_TILES_W * SPRITE_SIZE) as u32; // 96
 const PICKER_X: u32 = 96;
 const PICKER_COLS: usize = 4;
 const PICKER_ROWS: usize = 8;
+
+/// Sprite picker: 4x8 sprites in the right sidebar.
+const PICKER_GRID: Grid = Grid::new(
+    PICKER_X,
+    0,
+    SPRITE_SIZE as u32,
+    SPRITE_SIZE as u32,
+    PICKER_COLS as u32,
+    PICKER_ROWS as u32,
+);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum MapEditorMode {
@@ -155,36 +166,12 @@ impl MapEditor {
             }
         }
     }
-
-    fn draw_rect_border(layer: &mut ScreenLayer, x: u32, y: u32, w: u32, h: u32, color: Color) {
-        for dx in 0..w {
-            if x + dx < 128 {
-                layer.set_pixel(Vec2::new(x + dx, y), color);
-                if y + h > 0 {
-                    layer.set_pixel(Vec2::new(x + dx, y + h - 1), color);
-                }
-            }
-        }
-        for dy in 0..h {
-            if y + dy < 128 {
-                layer.set_pixel(Vec2::new(x, y + dy), color);
-                if x + w > 0 {
-                    layer.set_pixel(Vec2::new(x + w - 1, y + dy), color);
-                }
-            }
-        }
-    }
 }
 
 impl Editor for MapEditor {
     fn render(&self, layer: &mut ScreenLayer, vm: &Vm, font: &Font, cursor: (u32, u32)) {
         // Map viewport background
-        let bg = Color::new_rgb(10, 10, 10);
-        for y in 0..120u32 {
-            for x in 0..MAP_AREA_W {
-                layer.set_pixel(Vec2::new(x, y), bg);
-            }
-        }
+        fill_rect(layer, 0, 0, MAP_AREA_W, 120, Color::new_rgb(10, 10, 10));
 
         // Draw visible tiles
         for ty in 0..VIEW_TILES_H {
@@ -238,7 +225,7 @@ impl Editor for MapEditor {
                 let sy = (vy0 - self.view_y) as u32 * SPRITE_SIZE as u32;
                 let sw = (vx1 - vx0 + 1) as u32 * SPRITE_SIZE as u32;
                 let sh = (vy1 - vy0 + 1) as u32 * SPRITE_SIZE as u32;
-                Self::draw_rect_border(layer, sx, sy, sw, sh, sel_color);
+                rect_border(layer, sx, sy, sw, sh, sel_color);
             }
         }
 
@@ -252,16 +239,18 @@ impl Editor for MapEditor {
         {
             let pw = cb.w as u32 * SPRITE_SIZE as u32;
             let ph = cb.h as u32 * SPRITE_SIZE as u32;
-            Self::draw_rect_border(layer, sx, sy, pw, ph, Color::new_rgb(0, 255, 128));
+            rect_border(layer, sx, sy, pw, ph, Color::new_rgb(0, 255, 128));
         }
 
         // Sprite picker background
-        let picker_bg = Color::new_rgb(20, 20, 20);
-        for y in 0..120u32 {
-            for x in PICKER_X..128u32 {
-                layer.set_pixel(Vec2::new(x, y), picker_bg);
-            }
-        }
+        fill_rect(
+            layer,
+            PICKER_X,
+            0,
+            128 - PICKER_X,
+            120,
+            Color::new_rgb(20, 20, 20),
+        );
 
         // Draw sprite picker (4 cols × 8 rows = 32 sprites), paged by active_sprite
         let picker_base = (self.active_sprite as usize / 32) * 32;
@@ -272,13 +261,8 @@ impl Editor for MapEditor {
                 let by = row as u32 * SPRITE_SIZE as u32;
                 Self::draw_sprite(layer, vm, idx, bx, by);
                 if idx == self.active_sprite as usize {
-                    let sel = Color::new_rgb(255, 255, 0);
-                    for d in 0..SPRITE_SIZE as u32 {
-                        layer.set_pixel(Vec2::new(bx + d, by), sel);
-                        layer.set_pixel(Vec2::new(bx + d, by + SPRITE_SIZE as u32 - 1), sel);
-                        layer.set_pixel(Vec2::new(bx, by + d), sel);
-                        layer.set_pixel(Vec2::new(bx + SPRITE_SIZE as u32 - 1, by + d), sel);
-                    }
+                    let s = SPRITE_SIZE as u32;
+                    rect_border(layer, bx, by, s, s, Color::new_rgb(255, 255, 0));
                 }
             }
         }
@@ -417,9 +401,7 @@ impl Editor for MapEditor {
                     if let Some((tx, ty)) = self.screen_to_map_tile(x, y) {
                         vm.poke_memory(MAP_RAM_BASE + ty * MAP_W + tx, self.active_sprite);
                     }
-                } else if x >= PICKER_X && y < (PICKER_ROWS * SPRITE_SIZE) as u32 {
-                    let col = ((x - PICKER_X) / SPRITE_SIZE as u32) as usize;
-                    let row = (y / SPRITE_SIZE as u32) as usize;
+                } else if let Some((col, row)) = PICKER_GRID.cell_at(x, y) {
                     let picker_base = (self.active_sprite as usize / 32) * 32;
                     let idx = picker_base + row * PICKER_COLS + col;
                     if idx < 256 {

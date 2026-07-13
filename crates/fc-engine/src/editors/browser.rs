@@ -3,12 +3,13 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 
 use chrono::{DateTime, Local};
-use fc_core::{Color, Vec2};
+use fc_core::Vec2;
 use fc_vm::rendering::{font::Font, screen::ScreenLayer, text::draw_text};
 use fc_vm::vm::Vm;
 use winit::keyboard::KeyCode;
 
 use super::Editor;
+use super::util::{fill_rect, theme};
 
 const LIST_TOP: u32 = 10;
 const ROW_H: u32 = 8;
@@ -32,25 +33,6 @@ struct RomEntry {
     path: PathBuf,
     title: String,
     date: String, // "MM-DD" from mtime
-}
-
-fn c_selected_bg() -> Color {
-    Color::new_rgb(30, 50, 90)
-}
-fn c_selected() -> Color {
-    Color::new_rgb(80, 140, 220)
-}
-fn c_normal() -> Color {
-    Color::new_rgb(160, 160, 160)
-}
-fn c_empty() -> Color {
-    Color::new_rgb(80, 80, 80)
-}
-fn c_hint() -> Color {
-    Color::new_rgb(100, 100, 100)
-}
-fn c_error() -> Color {
-    Color::new_rgb(200, 80, 80)
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -282,11 +264,7 @@ impl BrowserEditor {
     }
 
     fn draw_selected_row(layer: &mut ScreenLayer, y: u32) {
-        for px in 0..127u32 {
-            for dy in 0..(ROW_H - 1) {
-                layer.set_pixel(Vec2::new(px, y + dy), c_selected_bg());
-            }
-        }
+        fill_rect(layer, 0, y, 127, ROW_H - 1, theme::SEL_BG);
     }
 
     fn draw_scroll_thumb(layer: &mut ScreenLayer, scroll: usize, total: usize) {
@@ -297,7 +275,7 @@ impl BrowserEditor {
         let thumb_y = LIST_TOP as usize + scroll * track_h / total;
         let thumb_h = (VISIBLE_ROWS * track_h / total).max(2);
         for dy in 0..thumb_h as u32 {
-            layer.set_pixel(Vec2::new(127, thumb_y as u32 + dy), c_normal());
+            layer.set_pixel(Vec2::new(127, thumb_y as u32 + dy), theme::DIM);
         }
     }
 
@@ -308,21 +286,21 @@ impl BrowserEditor {
                 layer,
                 "NO ROM FILES FOUND",
                 Vec2::new(1, LIST_TOP),
-                c_empty(),
+                theme::EMPTY,
             );
             draw_text(
                 font,
                 layer,
                 "PLACE .ROM FILES IN CURRENT DIR",
                 Vec2::new(1, LIST_TOP + ROW_H),
-                c_empty(),
+                theme::EMPTY,
             );
             draw_text(
                 font,
                 layer,
                 "PRESS R TO RESCAN",
                 Vec2::new(1, LIST_TOP + ROW_H * 3),
-                c_hint(),
+                theme::HINT,
             );
             return;
         }
@@ -342,10 +320,10 @@ impl BrowserEditor {
                 layer,
                 &display,
                 Vec2::new(2, y + 1),
-                if is_sel { c_selected() } else { c_normal() },
+                if is_sel { theme::SELECTED } else { theme::DIM },
             );
             if !date.is_empty() {
-                draw_text(font, layer, &date, Vec2::new(92, y + 1), c_hint());
+                draw_text(font, layer, &date, Vec2::new(92, y + 1), theme::HINT);
             }
         }
 
@@ -356,7 +334,7 @@ impl BrowserEditor {
             layer,
             "ENTER=LOAD  R=RESCAN",
             Vec2::new(1, hint_y),
-            c_hint(),
+            theme::HINT,
         );
     }
 
@@ -367,7 +345,7 @@ impl BrowserEditor {
                 layer,
                 "DOWNLOADING...",
                 Vec2::new(1, LIST_TOP),
-                c_normal(),
+                theme::DIM,
             );
             return;
         }
@@ -379,21 +357,21 @@ impl BrowserEditor {
                     layer,
                     "PRESS R TO BROWSE HUB",
                     Vec2::new(1, LIST_TOP),
-                    c_empty(),
+                    theme::EMPTY,
                 );
                 draw_text(
                     font,
                     layer,
                     "SET FC-HUB-URL ENV VAR",
                     Vec2::new(1, LIST_TOP + ROW_H),
-                    c_hint(),
+                    theme::HINT,
                 );
                 draw_text(
                     font,
                     layer,
                     "DEFAULT: LOCALHOST:8080",
                     Vec2::new(1, LIST_TOP + ROW_H * 2),
-                    c_hint(),
+                    theme::HINT,
                 );
             }
             OnlineState::Fetching => {
@@ -402,19 +380,25 @@ impl BrowserEditor {
                     layer,
                     "LOADING...",
                     Vec2::new(1, LIST_TOP),
-                    c_normal(),
+                    theme::DIM,
                 );
             }
             OnlineState::Error(e) => {
-                draw_text(font, layer, "ERROR:", Vec2::new(1, LIST_TOP), c_error());
+                draw_text(font, layer, "ERROR:", Vec2::new(1, LIST_TOP), theme::ERROR);
                 let msg = to_display(e, 26);
-                draw_text(font, layer, &msg, Vec2::new(1, LIST_TOP + ROW_H), c_error());
+                draw_text(
+                    font,
+                    layer,
+                    &msg,
+                    Vec2::new(1, LIST_TOP + ROW_H),
+                    theme::ERROR,
+                );
                 draw_text(
                     font,
                     layer,
                     "PRESS R TO RETRY",
                     Vec2::new(1, LIST_TOP + ROW_H * 3),
-                    c_hint(),
+                    theme::HINT,
                 );
             }
             OnlineState::Loaded { carts, total, page } => {
@@ -431,7 +415,7 @@ impl BrowserEditor {
                         layer,
                         &title,
                         Vec2::new(2, y + 1),
-                        if is_sel { c_selected() } else { c_normal() },
+                        if is_sel { theme::SELECTED } else { theme::DIM },
                     );
                 }
 
@@ -449,7 +433,7 @@ impl BrowserEditor {
                         page + 1,
                         total_pages.max(1)
                     );
-                    draw_text(font, layer, &hint, Vec2::new(1, hint_y), c_hint());
+                    draw_text(font, layer, &hint, Vec2::new(1, hint_y), theme::HINT);
                 }
             }
         }
@@ -500,14 +484,14 @@ impl Editor for BrowserEditor {
     fn render(&self, layer: &mut ScreenLayer, _vm: &Vm, font: &Font, _cursor: (u32, u32)) {
         // Sub-tab header: "LOCAL" at x=1, "ONLINE" at x=29 (gap of 8px between them)
         let local_col = if self.tab == BrowserTab::Local {
-            c_selected()
+            theme::SELECTED
         } else {
-            c_hint()
+            theme::HINT
         };
         let online_col = if self.tab == BrowserTab::Online {
-            c_selected()
+            theme::SELECTED
         } else {
-            c_hint()
+            theme::HINT
         };
         draw_text(font, layer, "LOCAL", Vec2::new(1, 1), local_col);
         draw_text(font, layer, "ONLINE", Vec2::new(29, 1), online_col);

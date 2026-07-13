@@ -1,10 +1,11 @@
+use fc_core::Vec2;
 use fc_core::memory::SFX_RAM_BASE as SFX_BANK_BASE;
-use fc_core::{Color, Vec2};
 use fc_vm::rendering::{font::Font, screen::ScreenLayer, text::draw_text};
 use fc_vm::vm::Vm;
 use fc_vm::vm::sfx::note_name;
 use winit::keyboard::KeyCode;
 
+use super::util::{Grid, clear_panel, fill_rect, rect_border, theme};
 use super::{Editor, draw_button};
 
 const STEPS: u8 = 16;
@@ -26,24 +27,10 @@ const SELECTOR_H: u32 = 8;
 const ROW_H: u32 = 7;
 const GRID_TOP: u32 = 9;
 
-fn c_active() -> Color {
-    Color::new_rgb(255, 220, 60)
-}
-fn c_dim() -> Color {
-    Color::new_rgb(160, 160, 160)
-}
-fn c_header() -> Color {
-    Color::new_rgb(200, 200, 200)
-}
-fn c_bar() -> Color {
-    Color::new_rgb(60, 180, 80)
-}
-fn c_sel_bg() -> Color {
-    Color::new_rgb(30, 50, 90)
-}
-fn c_sel_param() -> Color {
-    Color::new_rgb(80, 140, 220)
-}
+/// SFX selector strip: 16 boxes of 8px across the top.
+const SELECTOR_GRID: Grid = Grid::new(0, 0, 8, SELECTOR_H, 16, 1);
+/// Step rows below the column headers.
+const STEP_GRID: Grid = Grid::new(0, GRID_TOP, 128, ROW_H, 1, STEPS as u32);
 
 fn step_base(sfx_id: u8, step: u8) -> usize {
     SFX_BANK_BASE + (sfx_id as usize) * BYTES_PER_SFX + (step as usize) * BYTES_PER_STEP
@@ -81,40 +68,28 @@ impl SfxEditor {
 
 impl Editor for SfxEditor {
     fn render(&self, layer: &mut ScreenLayer, vm: &Vm, font: &Font, _cursor: (u32, u32)) {
-        let bg = Color::new_rgb(15, 15, 15);
-        for y in 0..120u32 {
-            for x in 0..128u32 {
-                layer.set_pixel(Vec2::new(x, y), bg);
-            }
-        }
+        clear_panel(layer, theme::BG);
 
         // SFX selector strip (16 × 8px boxes)
         for id in 0u8..16 {
             let x = id as u32 * 8;
             let col = if id == self.sfx_id {
-                c_active()
+                theme::ACTIVE
             } else {
-                c_dim()
+                theme::DIM
             };
-            for dx in 0..7u32 {
-                layer.set_pixel(Vec2::new(x + dx, 0), col);
-                layer.set_pixel(Vec2::new(x + dx, 6), col);
-            }
-            for dy in 1..6u32 {
-                layer.set_pixel(Vec2::new(x, dy), col);
-                layer.set_pixel(Vec2::new(x + 6, dy), col);
-            }
+            rect_border(layer, x, 0, 7, 7, col);
             let label = format!("{:X}", id);
             draw_text(font, layer, &label, Vec2::new(x + 2, 1), col);
         }
 
         // Column headers at y=8
         let hy = SELECTOR_H;
-        draw_text(font, layer, "ST", Vec2::new(COL_STEP, hy), c_header());
-        draw_text(font, layer, "NOTE", Vec2::new(COL_NOTE, hy), c_header());
-        draw_text(font, layer, "VOL", Vec2::new(COL_VOL, hy), c_header());
-        draw_text(font, layer, "W", Vec2::new(COL_WAVE, hy), c_header());
-        draw_text(font, layer, "FX", Vec2::new(COL_FX, hy), c_header());
+        draw_text(font, layer, "ST", Vec2::new(COL_STEP, hy), theme::HEADER);
+        draw_text(font, layer, "NOTE", Vec2::new(COL_NOTE, hy), theme::HEADER);
+        draw_text(font, layer, "VOL", Vec2::new(COL_VOL, hy), theme::HEADER);
+        draw_text(font, layer, "W", Vec2::new(COL_WAVE, hy), theme::HEADER);
+        draw_text(font, layer, "FX", Vec2::new(COL_FX, hy), theme::HEADER);
 
         // Step rows
         for s in 0..STEPS {
@@ -123,14 +98,10 @@ impl Editor for SfxEditor {
             let is_cur = s == self.step;
 
             if is_cur {
-                for px in 0..128u32 {
-                    for dy in 0..5u32 {
-                        layer.set_pixel(Vec2::new(px, y + dy), c_sel_bg());
-                    }
-                }
+                fill_rect(layer, 0, y, 128, 5, theme::SEL_BG);
             }
 
-            let base_col = if is_cur { c_active() } else { c_dim() };
+            let base_col = if is_cur { theme::ACTIVE } else { theme::DIM };
 
             // Step number
             draw_text(
@@ -143,7 +114,7 @@ impl Editor for SfxEditor {
 
             // Note
             let note_col = if is_cur && self.param == PARAM_NOTE {
-                c_sel_param()
+                theme::SELECTED
             } else {
                 base_col
             };
@@ -157,22 +128,18 @@ impl Editor for SfxEditor {
 
             // Volume bar (max 30px wide = vol * 2)
             let vol_col = if is_cur && self.param == PARAM_VOL {
-                c_sel_param()
+                theme::SELECTED
             } else {
-                c_bar()
+                theme::BAR
             };
             let bar_w = (vol as u32 * 2).min(30);
-            for bx in 0..bar_w {
-                for dy in 1..4u32 {
-                    layer.set_pixel(Vec2::new(COL_VOL + bx, y + dy), vol_col);
-                }
-            }
+            fill_rect(layer, COL_VOL, y + 1, bar_w, 3, vol_col);
             let vol_label = format!("{:X}", vol);
             draw_text(font, layer, &vol_label, Vec2::new(COL_VOL + 32, y), vol_col);
 
             // Wave
             let wave_col = if is_cur && self.param == PARAM_WAVE {
-                c_sel_param()
+                theme::SELECTED
             } else {
                 base_col
             };
@@ -186,7 +153,7 @@ impl Editor for SfxEditor {
 
             // FX
             let fx_col = if is_cur && self.param == PARAM_FX {
-                c_sel_param()
+                theme::SELECTED
             } else {
                 base_col
             };
@@ -224,22 +191,19 @@ impl Editor for SfxEditor {
                 return;
             }
         }
-        if y < SELECTOR_H {
-            self.sfx_id = (x / 8).min(15) as u8;
-        } else if y >= GRID_TOP {
-            let row = (y - GRID_TOP) / ROW_H;
-            if row < STEPS as u32 {
-                self.step = row as u8;
-                self.param = if x >= COL_FX {
-                    PARAM_FX
-                } else if x >= COL_WAVE {
-                    PARAM_WAVE
-                } else if x >= COL_VOL {
-                    PARAM_VOL
-                } else {
-                    PARAM_NOTE
-                };
-            }
+        if let Some((col, _)) = SELECTOR_GRID.cell_at(x, y) {
+            self.sfx_id = col as u8;
+        } else if let Some((_, row)) = STEP_GRID.cell_at(x, y) {
+            self.step = row as u8;
+            self.param = if x >= COL_FX {
+                PARAM_FX
+            } else if x >= COL_WAVE {
+                PARAM_WAVE
+            } else if x >= COL_VOL {
+                PARAM_VOL
+            } else {
+                PARAM_NOTE
+            };
         }
     }
 

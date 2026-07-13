@@ -4,9 +4,17 @@ use fc_vm::rendering::{font::Font, screen::ScreenLayer, text::draw_text};
 use fc_vm::vm::Vm;
 use winit::keyboard::KeyCode;
 
+use super::util::{Grid, clear_panel, fill_rect, rect_border, theme};
 use super::{Editor, button_hit, draw_button};
 
 const SPRITE_SIZE: usize = 8;
+
+/// Zoomed edit canvas: 8x8 sprite pixels at 8x zoom in [0..63, 0..63].
+const CANVAS_GRID: Grid = Grid::new(0, 0, 8, 8, 8, 8);
+/// Sprite picker: 8x8 sprites in [64..127, 0..63].
+const PICKER_GRID: Grid = Grid::new(64, 0, 8, 8, 8, 8);
+/// Palette row: 16 colors as 8x8 squares in [0..127, 64..71].
+const PALETTE_GRID: Grid = Grid::new(0, 64, 8, 8, 16, 1);
 
 // Layout (128x128 screen):
 //   [0..63, 0..63]    — zoomed edit canvas (active sprite, 8x8 at 8x zoom)
@@ -64,41 +72,24 @@ impl SpriteEditor {
     }
 
     fn handle_click_inner(&mut self, x: u32, y: u32, vm: &mut Vm) {
-        if y < 64 {
-            if x < 64 {
-                // Edit canvas — 8x8 sprite at 8x zoom in [0..63, 0..63]
-                let px = (x / 8) as usize;
-                let py = (y / 8) as usize;
-                let base = SPRITE_SHEET_BASE + self.active_sprite * SPRITE_SIZE * SPRITE_SIZE;
-                if self.fill_mode {
-                    let target = vm.peek_memory(base + py * SPRITE_SIZE + px);
-                    Self::flood_fill(vm, base, px, py, target, self.active_color);
-                } else {
-                    vm.poke_memory(base + py * SPRITE_SIZE + px, self.active_color);
-                }
+        if let Some((px, py)) = CANVAS_GRID.cell_at(x, y) {
+            let base = SPRITE_SHEET_BASE + self.active_sprite * SPRITE_SIZE * SPRITE_SIZE;
+            if self.fill_mode {
+                let target = vm.peek_memory(base + py * SPRITE_SIZE + px);
+                Self::flood_fill(vm, base, px, py, target, self.active_color);
             } else {
-                // Sprite picker — [64..127, 0..63], 8 sprites wide × 8 sprites tall
-                let col = ((x - 64) / 8) as usize;
-                let row = (y / 8) as usize;
-                let picker_base = (self.active_sprite / 64) * 64;
-                self.active_sprite = picker_base + row * 8 + col;
+                vm.poke_memory(base + py * SPRITE_SIZE + px, self.active_color);
             }
-        } else if y < 72 {
-            // Palette row — 16 colors as 8x8 squares across full width
-            let col = (x / 8) as usize;
-            if col < 16 {
-                self.active_color = col as u8;
-            }
+        } else if let Some((col, row)) = PICKER_GRID.cell_at(x, y) {
+            let picker_base = (self.active_sprite / 64) * 64;
+            self.active_sprite = picker_base + row * 8 + col;
+        } else if let Some((col, _)) = PALETTE_GRID.cell_at(x, y) {
+            self.active_color = col as u8;
         }
     }
 
     fn render_inner(&self, screen: &mut ScreenLayer, vm: &Vm, font: &Font, cursor: (u32, u32)) {
-        let bg = Color::new_rgb(15, 15, 15);
-        for y in 0..120u32 {
-            for x in 0..128u32 {
-                screen.set_pixel(Vec2::new(x, y), bg);
-            }
-        }
+        clear_panel(screen, theme::BG);
 
         let palette = vm.get_palette();
 
@@ -114,11 +105,7 @@ impl SpriteEditor {
                     .get(color_idx)
                     .copied()
                     .unwrap_or(Color::new_rgb(0, 0, 0));
-                for dy in 0..8u32 {
-                    for dx in 0..8u32 {
-                        screen.set_pixel(Vec2::new(px as u32 * 8 + dx, py as u32 * 8 + dy), color);
-                    }
-                }
+                fill_rect(screen, px as u32 * 8, py as u32 * 8, 8, 8, color);
             }
         }
 
@@ -141,12 +128,7 @@ impl SpriteEditor {
             } else {
                 Color::new_rgb(255, 255, 255)
             };
-            for d in 0..8u32 {
-                screen.set_pixel(Vec2::new(cell_x + d, cell_y), hi);
-                screen.set_pixel(Vec2::new(cell_x + d, cell_y + 7), hi);
-                screen.set_pixel(Vec2::new(cell_x, cell_y + d), hi);
-                screen.set_pixel(Vec2::new(cell_x + 7, cell_y + d), hi);
-            }
+            rect_border(screen, cell_x, cell_y, 8, 8, hi);
         }
 
         // Sprite picker ([64..127, 0..63] — 8 wide × 8 tall), paged by active_sprite
@@ -171,13 +153,7 @@ impl SpriteEditor {
                     }
                 }
                 if idx == self.active_sprite {
-                    let sel = Color::new_rgb(255, 255, 0);
-                    for d in 0..8u32 {
-                        screen.set_pixel(Vec2::new(base_x + d, base_y), sel);
-                        screen.set_pixel(Vec2::new(base_x + d, base_y + 7), sel);
-                        screen.set_pixel(Vec2::new(base_x, base_y + d), sel);
-                        screen.set_pixel(Vec2::new(base_x + 7, base_y + d), sel);
-                    }
+                    rect_border(screen, base_x, base_y, 8, 8, Color::new_rgb(255, 255, 0));
                 }
             }
         }
@@ -185,19 +161,16 @@ impl SpriteEditor {
         // Palette row ([0..127, 64..71])
         for i in 0..16usize {
             let color = palette.get(i).copied().unwrap_or(Color::new_rgb(0, 0, 0));
-            for dy in 0..8u32 {
-                for dx in 0..8u32 {
-                    screen.set_pixel(Vec2::new(i as u32 * 8 + dx, 64 + dy), color);
-                }
-            }
+            fill_rect(screen, i as u32 * 8, 64, 8, 8, color);
             if i == self.active_color as usize {
-                let sel = Color::new_rgb(255, 255, 255);
-                for d in 0..8u32 {
-                    screen.set_pixel(Vec2::new(i as u32 * 8 + d, 64), sel);
-                    screen.set_pixel(Vec2::new(i as u32 * 8 + d, 71), sel);
-                    screen.set_pixel(Vec2::new(i as u32 * 8, 64 + d), sel);
-                    screen.set_pixel(Vec2::new(i as u32 * 8 + 7, 64 + d), sel);
-                }
+                rect_border(
+                    screen,
+                    i as u32 * 8,
+                    64,
+                    8,
+                    8,
+                    Color::new_rgb(255, 255, 255),
+                );
             }
         }
 
@@ -272,9 +245,7 @@ impl Editor for SpriteEditor {
 
     fn handle_right_click(&mut self, x: u32, y: u32, vm: &mut Vm) {
         // Erase: paint color 0 on canvas
-        if x < 64 && y < 64 {
-            let px = (x / 8) as usize;
-            let py = (y / 8) as usize;
+        if let Some((px, py)) = CANVAS_GRID.cell_at(x, y) {
             let base = SPRITE_SHEET_BASE + self.active_sprite * SPRITE_SIZE * SPRITE_SIZE;
             vm.poke_memory(base + py * SPRITE_SIZE + px, 0);
         }

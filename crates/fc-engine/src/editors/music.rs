@@ -1,9 +1,10 @@
-use fc_core::{Color, Vec2};
+use fc_core::Vec2;
 use fc_vm::rendering::{font::Font, screen::ScreenLayer, text::draw_text};
 use fc_vm::vm::Vm;
 use fc_vm::vm::sfx::MUSIC_BANK_BASE;
 use winit::keyboard::KeyCode;
 
+use super::util::{Grid, clear_panel, fill_rect, rect_border, theme};
 use super::{Editor, draw_button};
 
 const PATTERNS: u8 = 8;
@@ -17,24 +18,10 @@ const COL_ROW: u32 = 1;
 const COL_CH0: u32 = 18;
 const COL_CH1: u32 = 72;
 
-fn c_active() -> Color {
-    Color::new_rgb(255, 220, 60)
-}
-fn c_dim() -> Color {
-    Color::new_rgb(160, 160, 160)
-}
-fn c_header() -> Color {
-    Color::new_rgb(200, 200, 200)
-}
-fn c_sel_bg() -> Color {
-    Color::new_rgb(30, 50, 90)
-}
-fn c_sel_cell() -> Color {
-    Color::new_rgb(80, 140, 220)
-}
-fn c_empty() -> Color {
-    Color::new_rgb(80, 80, 80)
-}
+/// Pattern selector strip: 8 boxes of 16px across the top.
+const SELECTOR_GRID: Grid = Grid::new(0, 0, 16, SELECTOR_H, PATTERNS as u32, 1);
+/// Pattern rows below the column headers.
+const ROW_GRID: Grid = Grid::new(0, GRID_TOP, 128, ROW_H, 1, ROWS as u32);
 
 fn pattern_row_base(pattern_id: u8, row: u8) -> usize {
     MUSIC_BANK_BASE + (pattern_id as usize) * (ROWS as usize * 2) + (row as usize) * 2
@@ -76,48 +63,36 @@ impl MusicEditor {
 
 impl Editor for MusicEditor {
     fn render(&self, layer: &mut ScreenLayer, vm: &Vm, font: &Font, _cursor: (u32, u32)) {
-        let bg = Color::new_rgb(15, 15, 15);
-        for y in 0..120u32 {
-            for x in 0..128u32 {
-                layer.set_pixel(Vec2::new(x, y), bg);
-            }
-        }
+        clear_panel(layer, theme::BG);
 
         // Pattern selector strip (8 × 16px boxes)
         for pid in 0u8..PATTERNS {
             let x = pid as u32 * 16;
             let col = if pid == self.pattern_id {
-                c_active()
+                theme::ACTIVE
             } else {
-                c_dim()
+                theme::DIM
             };
-            for dx in 0..15u32 {
-                layer.set_pixel(Vec2::new(x + dx, 0), col);
-                layer.set_pixel(Vec2::new(x + dx, 6), col);
-            }
-            for dy in 1..6u32 {
-                layer.set_pixel(Vec2::new(x, dy), col);
-                layer.set_pixel(Vec2::new(x + 14, dy), col);
-            }
+            rect_border(layer, x, 0, 15, 7, col);
             draw_text(font, layer, &format!("{}", pid), Vec2::new(x + 5, 1), col);
         }
 
         // Column headers
         let hy = SELECTOR_H;
-        draw_text(font, layer, "RW", Vec2::new(COL_ROW, hy), c_header());
+        draw_text(font, layer, "RW", Vec2::new(COL_ROW, hy), theme::HEADER);
         draw_text(
             font,
             layer,
             "SQ CHANNEL",
             Vec2::new(COL_CH0, hy),
-            c_header(),
+            theme::HEADER,
         );
         draw_text(
             font,
             layer,
             "NS CHANNEL",
             Vec2::new(COL_CH1, hy),
-            c_header(),
+            theme::HEADER,
         );
 
         // Row grid
@@ -127,14 +102,10 @@ impl Editor for MusicEditor {
             let is_cur = r == self.row;
 
             if is_cur {
-                for px in 0..128u32 {
-                    for dy in 0..5u32 {
-                        layer.set_pixel(Vec2::new(px, y + dy), c_sel_bg());
-                    }
-                }
+                fill_rect(layer, 0, y, 128, 5, theme::SEL_BG);
             }
 
-            let base_col = if is_cur { c_active() } else { c_dim() };
+            let base_col = if is_cur { theme::ACTIVE } else { theme::DIM };
 
             draw_text(
                 font,
@@ -145,18 +116,18 @@ impl Editor for MusicEditor {
             );
 
             let ch0_col = if is_cur && self.channel == 0 {
-                c_sel_cell()
+                theme::SELECTED
             } else if ch0 == 0 {
-                c_empty()
+                theme::EMPTY
             } else {
                 base_col
             };
             draw_text(font, layer, &sfx_label(ch0), Vec2::new(COL_CH0, y), ch0_col);
 
             let ch1_col = if is_cur && self.channel == 1 {
-                c_sel_cell()
+                theme::SELECTED
             } else if ch1 == 0 {
-                c_empty()
+                theme::EMPTY
             } else {
                 base_col
             };
@@ -188,11 +159,10 @@ impl Editor for MusicEditor {
                 return;
             }
         }
-        if y < SELECTOR_H {
-            self.pattern_id = (x / 16).min(PATTERNS as u32 - 1) as u8;
-        } else if y >= GRID_TOP {
-            let r = ((y - GRID_TOP) / ROW_H).min(ROWS as u32 - 1) as u8;
-            self.row = r;
+        if let Some((col, _)) = SELECTOR_GRID.cell_at(x, y) {
+            self.pattern_id = col as u8;
+        } else if let Some((_, row)) = ROW_GRID.cell_at(x, y) {
+            self.row = row as u8;
             self.channel = if x >= COL_CH1 { 1 } else { 0 };
         }
     }

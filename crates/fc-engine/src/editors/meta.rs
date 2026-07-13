@@ -4,54 +4,15 @@ use fc_vm::vm::Vm;
 use winit::keyboard::KeyCode;
 
 use super::Editor;
+use super::util::{clear_panel, key_to_char, theme};
 
 const MAX_LEN: usize = 32;
 
-fn key_to_char(key: KeyCode) -> Option<char> {
-    match key {
-        KeyCode::KeyA => Some('A'),
-        KeyCode::KeyB => Some('B'),
-        KeyCode::KeyC => Some('C'),
-        KeyCode::KeyD => Some('D'),
-        KeyCode::KeyE => Some('E'),
-        KeyCode::KeyF => Some('F'),
-        KeyCode::KeyG => Some('G'),
-        KeyCode::KeyH => Some('H'),
-        KeyCode::KeyI => Some('I'),
-        KeyCode::KeyJ => Some('J'),
-        KeyCode::KeyK => Some('K'),
-        KeyCode::KeyL => Some('L'),
-        KeyCode::KeyM => Some('M'),
-        KeyCode::KeyN => Some('N'),
-        KeyCode::KeyO => Some('O'),
-        KeyCode::KeyP => Some('P'),
-        KeyCode::KeyQ => Some('Q'),
-        KeyCode::KeyR => Some('R'),
-        KeyCode::KeyS => Some('S'),
-        KeyCode::KeyT => Some('T'),
-        KeyCode::KeyU => Some('U'),
-        KeyCode::KeyV => Some('V'),
-        KeyCode::KeyW => Some('W'),
-        KeyCode::KeyX => Some('X'),
-        KeyCode::KeyY => Some('Y'),
-        KeyCode::KeyZ => Some('Z'),
-        KeyCode::Digit0 => Some('0'),
-        KeyCode::Digit1 => Some('1'),
-        KeyCode::Digit2 => Some('2'),
-        KeyCode::Digit3 => Some('3'),
-        KeyCode::Digit4 => Some('4'),
-        KeyCode::Digit5 => Some('5'),
-        KeyCode::Digit6 => Some('6'),
-        KeyCode::Digit7 => Some('7'),
-        KeyCode::Digit8 => Some('8'),
-        KeyCode::Digit9 => Some('9'),
-        KeyCode::Space => Some(' '),
-        KeyCode::Minus => Some('-'),
-        KeyCode::Period => Some('.'),
-        KeyCode::Comma => Some(','),
-        KeyCode::Quote => Some('\''),
-        _ => None,
-    }
+/// Chars accepted in title/author fields (subset renderable by the 4px font).
+fn field_char(key: KeyCode) -> Option<char> {
+    key_to_char(key, false)
+        .map(|c| c.to_ascii_uppercase())
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '.' | ',' | '\''))
 }
 
 pub struct MetaEditor {
@@ -93,12 +54,7 @@ impl MetaEditor {
 
 impl Editor for MetaEditor {
     fn render(&self, layer: &mut ScreenLayer, _vm: &Vm, font: &Font, _cursor: (u32, u32)) {
-        let bg = Color::new_rgb(15, 15, 15);
-        for y in 0..120u32 {
-            for x in 0..128u32 {
-                layer.set_pixel(Vec2::new(x, y), bg);
-            }
-        }
+        clear_panel(layer, theme::BG);
 
         let label_c = Color::new_rgb(140, 140, 140);
         let active_c = Color::new_rgb(255, 220, 80);
@@ -187,7 +143,7 @@ impl Editor for MetaEditor {
                 }
             }
             _ => {
-                if let Some(c) = key_to_char(key) {
+                if let Some(c) = field_char(key) {
                     let field = if self.focused == 0 {
                         &mut self.title
                     } else {
