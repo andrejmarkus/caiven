@@ -194,6 +194,7 @@ impl Vm {
         let mut ctx = ExecutionContext {
             cpu: &mut self.cpu,
             mem: &mut self.memory,
+            tables: &mut self.tables,
             palette: &mut self.palette,
             camera: &mut self.camera,
             sound: &mut sound_guard,

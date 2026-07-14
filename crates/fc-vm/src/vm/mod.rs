@@ -30,10 +30,16 @@ use fc_core::{Color, Vec2};
 use log::error;
 use std::sync::{Arc, Mutex};
 
+/// Native table storage: table id-1 indexes the outer Vec; each table is an
+/// insertion-ordered association list of (key, value). Lives outside guest
+/// RAM so tables can grow without a fixed cap.
+pub type TableStore = Vec<Vec<(u32, u32)>>;
+
 pub struct Vm {
     cpu: Cpu,
     program: Vec<u8>,
     memory: Memory,
+    tables: TableStore,
     camera: Camera,
     palette: Palette,
     instructions: Arc<InstructionSet>,
@@ -59,6 +65,7 @@ impl Vm {
             cpu,
             program: Vec::new(),
             memory: Memory::new(config.memory_size),
+            tables: Vec::new(),
             camera: Camera::new(Vec2::new(0, 0)),
             palette: Palette::new(config.palette_size),
             instructions: instructions.clone(),
@@ -114,6 +121,7 @@ impl Vm {
         self.source_map = source_map;
         self.cpu.set_pc(0);
         self.frame_count = 0;
+        self.tables.clear();
         self.peripherals.init_all(&mut self.memory);
         Ok(())
     }
@@ -124,6 +132,7 @@ impl Vm {
         self.fc_source_lines.clear();
         self.cpu.set_pc(0);
         self.frame_count = 0;
+        self.tables.clear();
         self.peripherals.init_all(&mut self.memory);
     }
 
@@ -133,6 +142,7 @@ impl Vm {
         self.fc_source_lines.clear();
         self.cpu.set_pc(0);
         self.frame_count = 0;
+        self.tables.clear();
         self.peripherals.init_all(&mut self.memory);
     }
 

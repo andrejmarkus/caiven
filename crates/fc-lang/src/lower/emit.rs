@@ -205,18 +205,6 @@ impl Compiler {
         self.emit_stm32i(1, 0); // mem32[address] = value
     }
 
-    pub(super) fn emit_mul_reg(&mut self, rd: u8, rs: u8) {
-        self.code.push(OP_MUL);
-        self.code.push(rd);
-        self.code.push(rs);
-    }
-
-    pub(super) fn emit_and_reg(&mut self, rd: u8, rs: u8) {
-        self.code.push(OP_AND);
-        self.code.push(rd);
-        self.code.push(rs);
-    }
-
     // Load local slot i into R0: R0 = mem[FP - (slot+1)*4]
     // slot 0 → FP-4, slot 1 → FP-8, ...
     pub(super) fn emit_load_local(&mut self, slot: usize) {
@@ -265,6 +253,80 @@ impl Compiler {
         self.emit_addr(1, 2);
         // mem[R1] = R0
         self.emit_stm32i(1, 0);
+    }
+
+    // ── Native table ops ─────────────────────────────────────────────
+
+    pub(super) fn emit_tget(&mut self, rdest: u8, rtab: u8, rkey: u8) {
+        self.code.push(OP_TGET);
+        self.code.push(rdest);
+        self.code.push(rtab);
+        self.code.push(rkey);
+    }
+
+    pub(super) fn emit_tset(&mut self, rtab: u8, rkey: u8, rval: u8) {
+        self.code.push(OP_TSET);
+        self.code.push(rtab);
+        self.code.push(rkey);
+        self.code.push(rval);
+    }
+
+    pub(super) fn emit_tlen(&mut self, rdest: u8, rtab: u8) {
+        self.code.push(OP_TLEN);
+        self.code.push(rdest);
+        self.code.push(rtab);
+    }
+
+    pub(super) fn emit_tidx(&mut self, rkey: u8, rval: u8, rtab: u8, ridx: u8) {
+        self.code.push(OP_TIDX);
+        self.code.push(rkey);
+        self.code.push(rval);
+        self.code.push(rtab);
+        self.code.push(ridx);
+    }
+
+    // ── Builtin call plumbing ────────────────────────────────────────
+
+    // Evaluate args left-to-right on the stack, then pop them into
+    // R(start)..R(start+n-1). Stack staging keeps nested builtin calls
+    // (e.g. `spr(mget(x, y), px, py)`) from clobbering each other.
+    pub(super) fn stage_args_at(&mut self, args: &[Expr], start: u8) -> Result<()> {
+        for arg in args {
+            self.lower_expr_r0(arg)?;
+            self.emit_push(0);
+        }
+        for i in (0..args.len()).rev() {
+            self.emit_pop(start + i as u8);
+        }
+        Ok(())
+    }
+
+    // Emit a builtin backed by an all-register instruction. With `has_dest`
+    // the result register R0 is prepended and args occupy R1..; FP (R3) is
+    // saved around the call whenever staging would clobber it.
+    pub(super) fn emit_builtin_op(
+        &mut self,
+        opcode: u8,
+        has_dest: bool,
+        args: &[Expr],
+    ) -> Result<()> {
+        let start: u8 = if has_dest { 1 } else { 0 };
+        let needs_fp = start as usize + args.len() > 3;
+        if needs_fp {
+            self.save_fp_if_needed();
+        }
+        self.stage_args_at(args, start)?;
+        self.code.push(opcode);
+        if has_dest {
+            self.code.push(0);
+        }
+        for i in 0..args.len() as u8 {
+            self.code.push(start + i);
+        }
+        if needs_fp {
+            self.restore_fp_if_needed();
+        }
+        Ok(())
     }
 
     pub(super) fn lookup_var(&self, name: &str) -> Option<VarLoc> {

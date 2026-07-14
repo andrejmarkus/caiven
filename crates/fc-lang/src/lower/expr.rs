@@ -90,11 +90,9 @@ impl Compiler {
                                 self.emit_mov_r0_imm(s.len() as u32);
                             }
                             _ => {
-                                // Table ptr in R0; count is at ptr+4 (TABLE_HDR_SZ offset)
+                                // Table id in R0 → entry count
                                 self.lower_expr_r0(&inner)?;
-                                self.emit_mov(1, 4);
-                                self.emit_addr(0, 1); // R0 = ptr + 4
-                                self.emit_ldm32i(0, 0); // R0 = mem32[ptr+4] = count
+                                self.emit_tlen(0, 0);
                             }
                         }
                     }
@@ -265,50 +263,45 @@ impl Compiler {
                 self.lower_call(func, args, *line)?;
             }
             Expr::Table { fields, line: _ } => {
-                // Call __rt_newtable → R0 = ptr
-                self.emit_jsr("__rt_newtable");
+                // TNEW → R0 = table id; id survives value evals on the stack.
+                self.code.push(OP_TNEW);
+                self.code.push(0);
                 let mut array_idx: u32 = 1;
                 for field in fields {
                     let field = field.clone();
-                    // ptr in R0 at top of each iteration; push to survive value eval
                     match field {
                         TableField::NameField { name, value } => {
                             let key_ptr = self.intern_string(&name);
-                            self.emit_push(0); // push ptr
+                            self.emit_push(0); // save table id
                             self.lower_expr_r0(&value)?;
-                            self.emit_stm32(SCRATCH_BASE, 0); // save val (no nested eval after)
-                            self.emit_pop(0); // R0 = ptr
-                            self.emit_mov(1, key_ptr);
-                            self.emit_ldm32(2, SCRATCH_BASE);
-                            self.emit_jsr("__rt_settab");
-                            self.emit_ldm32(0, RT_TMP0); // recover ptr for next iteration
+                            self.emit_movr(2, 0); // R2 = val
+                            self.emit_mov(1, key_ptr); // R1 = key
+                            self.emit_pop(0); // R0 = table id
+                            self.emit_tset(0, 1, 2);
                         }
                         TableField::IndexField { key, value } => {
-                            self.emit_push(0); // push ptr
+                            self.emit_push(0); // save table id
                             self.lower_expr_r0(&key)?;
-                            self.emit_push(0); // push key
+                            self.emit_push(0); // save key
                             self.lower_expr_r0(&value)?;
                             self.emit_movr(2, 0); // R2 = val
                             self.emit_pop(1); // R1 = key
-                            self.emit_pop(0); // R0 = ptr
-                            self.emit_jsr("__rt_settab");
-                            self.emit_ldm32(0, RT_TMP0); // recover ptr
+                            self.emit_pop(0); // R0 = table id
+                            self.emit_tset(0, 1, 2);
                         }
                         TableField::ValueField { value } => {
                             let key = array_idx;
                             array_idx += 1;
-                            self.emit_push(0); // push ptr
+                            self.emit_push(0); // save table id
                             self.lower_expr_r0(&value)?;
-                            self.emit_stm32(SCRATCH_BASE, 0);
-                            self.emit_pop(0); // R0 = ptr
-                            self.emit_mov32(1, key);
-                            self.emit_ldm32(2, SCRATCH_BASE);
-                            self.emit_jsr("__rt_settab");
-                            self.emit_ldm32(0, RT_TMP0); // recover ptr
+                            self.emit_movr(2, 0); // R2 = val
+                            self.emit_mov32(1, key); // R1 = key
+                            self.emit_pop(0); // R0 = table id
+                            self.emit_tset(0, 1, 2);
                         }
                     }
                 }
-                // R0 = table ptr (already set by last settab / newtable if no fields)
+                // R0 = table id
             }
             Expr::Func { params, body, line } => {
                 let params = params.clone();
@@ -391,11 +384,11 @@ impl Compiler {
                 let key = key.as_ref().clone();
                 let table = table.as_ref().clone();
                 self.lower_expr_r0(&table)?;
-                self.emit_push(0); // push ptr (key eval may clobber scratch)
+                self.emit_push(0); // save table id (key eval may clobber regs)
                 self.lower_expr_r0(&key)?;
                 self.emit_movr(1, 0); // R1 = key
-                self.emit_pop(0); // R0 = ptr
-                self.emit_jsr("__rt_gettab");
+                self.emit_pop(0); // R0 = table id
+                self.emit_tget(0, 0, 1);
             }
             Expr::Field {
                 table,
@@ -405,9 +398,8 @@ impl Compiler {
                 let table = table.as_ref().clone();
                 let key_ptr = self.intern_string(name);
                 self.lower_expr_r0(&table)?;
-                // R0 = ptr; no nested eval, so no scratch collision risk
                 self.emit_mov(1, key_ptr);
-                self.emit_jsr("__rt_gettab");
+                self.emit_tget(0, 0, 1);
             }
         }
         Ok(())
@@ -423,6 +415,12 @@ impl Compiler {
             Expr::Var(n, _) => n.clone(),
             _ => unreachable!(),
         };
+
+        // User-defined functions and callable variables shadow builtins
+        // (Lua-style): a game may freely define its own `add` or `map`.
+        if self.fn_names.contains(&name) || self.lookup_var(&name).is_some() {
+            return self.emit_named_call(&name, args, line);
+        }
 
         match name.as_str() {
             "cls" => {
@@ -447,25 +445,20 @@ impl Compiler {
                 }
                 self.code.push(OP_WAIT);
             }
+            // ── Input ────────────────────────────────────────────────
             "key" | "btn" => {
-                if args.len() != 1 {
-                    return Err(LangError::ArgCount {
-                        line,
-                        name,
-                        expected: 1,
-                        got: args.len(),
-                    });
-                }
-                let key = self.require_literal_u8(&args[0], line, &name)?;
-                self.code.push(OP_IN);
-                self.code.push(0);
-                self.code.push(key);
+                self.check_args(&name, line, args, 1)?;
+                self.emit_builtin_op(OP_INR, true, args)?;
             }
+            "keyp" | "btnp" => {
+                self.check_args(&name, line, args, 1)?;
+                self.emit_builtin_op(OP_INPR, true, args)?;
+            }
+            // ── Sprites / map ────────────────────────────────────────
             "spr" => {
-                // spr(x, y, addr) → DPXR R0, R1, sprite_w=8, sprite_h=8, palette=0
-                // Actually we need SPT (sprite tile) or DPXR.
-                // spr(x, y, tile_addr) — use SPT R_x, R_y, R_addr
-                if args.len() != 3 {
+                // spr(id, x, y [, flip]) — sprite by id, optional flip
+                // flags (bit 0 = horizontal, bit 1 = vertical).
+                if args.len() != 3 && args.len() != 4 {
                     return Err(LangError::ArgCount {
                         line,
                         name,
@@ -473,229 +466,135 @@ impl Compiler {
                         got: args.len(),
                     });
                 }
-                // Load x→scratch0, y→scratch1, addr→scratch2
-                self.lower_expr_r0(&args[0])?;
-                self.emit_stm32(SCRATCH_BASE, 0);
-                self.lower_expr_r0(&args[1])?;
-                self.emit_stm32(SCRATCH_BASE + SCRATCH_STEP, 0);
-                self.lower_expr_r0(&args[2])?;
-                self.emit_stm32(SCRATCH_BASE + SCRATCH_STEP * 2, 0);
-
-                self.emit_ldm32(0, SCRATCH_BASE);
-                self.emit_ldm32(1, SCRATCH_BASE + SCRATCH_STEP);
-                self.emit_ldm32(2, SCRATCH_BASE + SCRATCH_STEP * 2);
-                // SPT R0, R1, R2
-                self.code.push(OP_SPT);
+                self.save_fp_if_needed();
+                self.stage_args_at(args, 0)?;
+                if args.len() == 3 {
+                    self.emit_mov(3, 0); // no flip
+                }
+                self.code.push(OP_SPR);
                 self.code.push(0);
                 self.code.push(1);
                 self.code.push(2);
+                self.code.push(3);
+                self.restore_fp_if_needed();
             }
-            "pal" => {
-                // pal(idx, r, g, b) → PAL idx r g b
-                if args.len() != 4 {
-                    return Err(LangError::ArgCount {
-                        line,
-                        name,
-                        expected: 4,
-                        got: args.len(),
-                    });
+            "map" => {
+                // map(cel_x, cel_y, sx, sy, w, h)
+                self.check_args(&name, line, args, 6)?;
+                self.emit_builtin_op(OP_MAPD, false, args)?;
+            }
+            "mget" => {
+                self.check_args(&name, line, args, 2)?;
+                self.emit_builtin_op(OP_MGET, true, args)?;
+            }
+            "mset" => {
+                self.check_args(&name, line, args, 3)?;
+                self.emit_builtin_op(OP_MSET, false, args)?;
+            }
+            "fget" => {
+                self.check_args(&name, line, args, 1)?;
+                self.emit_builtin_op(OP_FGET, true, args)?;
+            }
+            "fset" => {
+                self.check_args(&name, line, args, 2)?;
+                self.emit_builtin_op(OP_FSET, false, args)?;
+            }
+            // ── Camera ───────────────────────────────────────────────
+            "camera" => {
+                // camera(x, y) or camera() to reset.
+                if args.is_empty() {
+                    self.emit_mov(0, 0);
+                    self.emit_mov(1, 0);
+                    self.code.push(OP_POSC);
+                    self.code.push(0);
+                    self.code.push(1);
+                } else {
+                    self.check_args(&name, line, args, 2)?;
+                    self.emit_builtin_op(OP_POSC, false, args)?;
                 }
-                let idx = self.require_literal_u8(&args[0], line, &name)?;
-                let r = self.require_literal_u8(&args[1], line, &name)?;
-                let g = self.require_literal_u8(&args[2], line, &name)?;
-                let b = self.require_literal_u8(&args[3], line, &name)?;
-                self.code.push(OP_PAL);
-                self.code.push(idx);
-                self.code.push(r);
-                self.code.push(g);
-                self.code.push(b);
+            }
+            // ── Drawing ──────────────────────────────────────────────
+            "pal" => {
+                self.check_args(&name, line, args, 4)?;
+                self.emit_builtin_op(OP_PALR, false, args)?;
             }
             "cls_col" | "fill" => {
-                if args.len() != 1 {
-                    return Err(LangError::ArgCount {
-                        line,
-                        name,
-                        expected: 1,
-                        got: args.len(),
-                    });
-                }
-                let col = self.require_literal_u8(&args[0], line, &name)?;
-                self.code.push(OP_FILL);
-                self.code.push(col);
+                self.check_args(&name, line, args, 1)?;
+                self.emit_builtin_op(OP_FILLR, false, args)?;
             }
+            "pset" => {
+                // pset(x, y, color) — palette color pixel.
+                self.check_args(&name, line, args, 3)?;
+                self.emit_builtin_op(OP_PSET, false, args)?;
+            }
+            "line" => {
+                self.check_args(&name, line, args, 5)?;
+                self.emit_builtin_op(OP_LINE, false, args)?;
+            }
+            "rect" => {
+                self.check_args(&name, line, args, 5)?;
+                self.emit_builtin_op(OP_RECT, false, args)?;
+            }
+            "rectfill" => {
+                self.check_args(&name, line, args, 5)?;
+                self.emit_builtin_op(OP_RECTF, false, args)?;
+            }
+            "circ" => {
+                self.check_args(&name, line, args, 4)?;
+                self.emit_builtin_op(OP_CIRC, false, args)?;
+            }
+            "circfill" => {
+                self.check_args(&name, line, args, 4)?;
+                self.emit_builtin_op(OP_CIRCF, false, args)?;
+            }
+            // ── Audio ────────────────────────────────────────────────
             "sfx" => {
-                if args.len() != 1 {
-                    return Err(LangError::ArgCount {
-                        line,
-                        name,
-                        expected: 1,
-                        got: args.len(),
-                    });
-                }
-                let id = self.require_literal_u8(&args[0], line, &name)?;
-                self.code.push(OP_SFX);
-                self.code.push(id);
+                self.check_args(&name, line, args, 1)?;
+                self.emit_builtin_op(OP_SFXR, false, args)?;
             }
-            "music" => {
-                if args.len() != 1 {
-                    return Err(LangError::ArgCount {
-                        line,
-                        name,
-                        expected: 1,
-                        got: args.len(),
-                    });
-                }
-                let id = self.require_literal_u8(&args[0], line, &name)?;
-                self.code.push(OP_MUS);
-                self.code.push(id);
+            "music" | "mus" => {
+                self.check_args(&name, line, args, 1)?;
+                self.emit_builtin_op(OP_MUSR, false, args)?;
             }
-            "nomusic" => {
-                if !args.is_empty() {
-                    return Err(LangError::ArgCount {
-                        line,
-                        name,
-                        expected: 0,
-                        got: args.len(),
-                    });
-                }
+            "nomusic" | "nomus" => {
+                self.check_args(&name, line, args, 0)?;
                 self.code.push(OP_NOMUS);
             }
-            "pset" | "dpx" => {
-                // pset(x, y, color_idx, palette) or dpx(x, y, r, g, b)
-                if args.len() == 5 {
-                    let x = self.require_literal_u8(&args[0], line, &name)?;
-                    let y = self.require_literal_u8(&args[1], line, &name)?;
-                    let r = self.require_literal_u8(&args[2], line, &name)?;
-                    let g = self.require_literal_u8(&args[3], line, &name)?;
-                    let b = self.require_literal_u8(&args[4], line, &name)?;
-                    self.code.push(OP_DPX);
-                    self.code.push(x);
-                    self.code.push(y);
-                    self.code.push(r);
-                    self.code.push(g);
-                    self.code.push(b);
-                } else {
-                    return Err(LangError::ArgCount {
-                        line,
-                        name,
-                        expected: 5,
-                        got: args.len(),
-                    });
-                }
-            }
-            "txt" => {
-                // txt(x, y, str, color)
+            // ── Text ─────────────────────────────────────────────────
+            "print" | "txt" => {
+                // print(str, x, y, color)
                 // Literal string: TXT opcode with compile-time length.
-                // Dynamic expression: TXTZ opcode (null-terminated, no length byte).
-                if args.len() != 4 {
-                    return Err(LangError::ArgCount {
-                        line,
-                        name,
-                        expected: 4,
-                        got: args.len(),
-                    });
-                }
-                let str_len = Self::literal_str(&args[2]).map(|s| s.len());
+                // Dynamic expression: TXTZ opcode (null-terminated).
+                self.check_args(&name, line, args, 4)?;
+                let str_len = Self::literal_str(&args[0]).map(|s| s.len());
                 self.save_fp_if_needed();
-                // x → scratch[0], y → scratch[1], str_ptr → scratch[2], color → scratch[3]
-                self.lower_expr_r0(&args[0])?;
-                self.emit_stm32(SCRATCH_BASE, 0);
-                self.lower_expr_r0(&args[1])?;
-                self.emit_stm32(SCRATCH_BASE + SCRATCH_STEP, 0);
-                self.lower_expr_r0(&args[2])?;
-                self.emit_stm32(SCRATCH_BASE + SCRATCH_STEP * 2, 0);
-                self.lower_expr_r0(&args[3])?;
-                self.emit_stm32(SCRATCH_BASE + SCRATCH_STEP * 3, 0);
-                // Load: R0=x, R1=y, R2=color, R3=str_ptr
-                self.emit_ldm32(0, SCRATCH_BASE);
-                self.emit_ldm32(1, SCRATCH_BASE + SCRATCH_STEP);
-                self.emit_ldm32(2, SCRATCH_BASE + SCRATCH_STEP * 3);
-                self.emit_ldm32(3, SCRATCH_BASE + SCRATCH_STEP * 2);
+                self.stage_args_at(args, 0)?; // R0=str, R1=x, R2=y, R3=color
                 if let Some(len) = str_len {
                     self.code.push(OP_TXT);
-                    self.code.push(0); // Rx
-                    self.code.push(1); // Ry
-                    self.code.push(2); // Rcolor
-                    self.code.push(3); // Rbase
+                    self.code.push(1); // Rx
+                    self.code.push(2); // Ry
+                    self.code.push(3); // Rcolor
+                    self.code.push(0); // Rbase
                     self.code.push(len as u8);
                 } else {
                     self.code.push(OP_TXTZ);
-                    self.code.push(0); // Rx
-                    self.code.push(1); // Ry
-                    self.code.push(2); // Rcolor
-                    self.code.push(3); // Rbase
+                    self.code.push(1); // Rx
+                    self.code.push(2); // Ry
+                    self.code.push(3); // Rcolor
+                    self.code.push(0); // Rbase
                 }
                 self.restore_fp_if_needed();
             }
             "num" => {
-                if args.len() != 4 {
-                    return Err(LangError::ArgCount {
-                        line,
-                        name,
-                        expected: 4,
-                        got: args.len(),
-                    });
-                }
+                // num(value, x, y, color)
+                self.check_args(&name, line, args, 4)?;
                 self.save_fp_if_needed();
-                self.lower_expr_r0(&args[0])?;
-                self.emit_stm32(SCRATCH_BASE, 0);
-                self.lower_expr_r0(&args[1])?;
-                self.emit_stm32(SCRATCH_BASE + SCRATCH_STEP, 0);
-                self.lower_expr_r0(&args[2])?;
-                self.emit_stm32(SCRATCH_BASE + SCRATCH_STEP * 2, 0);
-                self.lower_expr_r0(&args[3])?;
-                self.emit_stm32(SCRATCH_BASE + SCRATCH_STEP * 3, 0);
-                self.emit_ldm32(0, SCRATCH_BASE);
-                self.emit_ldm32(1, SCRATCH_BASE + SCRATCH_STEP);
-                self.emit_ldm32(2, SCRATCH_BASE + SCRATCH_STEP * 2);
-                self.emit_ldm32(3, SCRATCH_BASE + SCRATCH_STEP * 3);
+                self.stage_args_at(args, 0)?; // R0=value, R1=x, R2=y, R3=color
                 self.code.push(OP_NUM);
-                self.code.push(0);
-                self.code.push(1);
-                self.code.push(2);
-                self.code.push(3);
-                self.restore_fp_if_needed();
-            }
-            "til" => {
-                // til(R0, R1, R2, R3, flags, scale)
-                if args.len() < 4 {
-                    return Err(LangError::ArgCount {
-                        line,
-                        name,
-                        expected: 6,
-                        got: args.len(),
-                    });
-                }
-                self.save_fp_if_needed();
-                self.lower_expr_r0(&args[0])?;
-                self.emit_stm32(SCRATCH_BASE, 0);
-                self.lower_expr_r0(&args[1])?;
-                self.emit_stm32(SCRATCH_BASE + SCRATCH_STEP, 0);
-                self.lower_expr_r0(&args[2])?;
-                self.emit_stm32(SCRATCH_BASE + SCRATCH_STEP * 2, 0);
-                self.lower_expr_r0(&args[3])?;
-                self.emit_stm32(SCRATCH_BASE + SCRATCH_STEP * 3, 0);
-                let flags = if args.len() > 4 {
-                    self.require_literal_u8(&args[4], line, &name)?
-                } else {
-                    0
-                };
-                let scale = if args.len() > 5 {
-                    self.require_literal_u8(&args[5], line, &name)?
-                } else {
-                    1
-                };
-                self.emit_ldm32(0, SCRATCH_BASE);
-                self.emit_ldm32(1, SCRATCH_BASE + SCRATCH_STEP);
-                self.emit_ldm32(2, SCRATCH_BASE + SCRATCH_STEP * 2);
-                self.emit_ldm32(3, SCRATCH_BASE + SCRATCH_STEP * 3);
-                self.code.push(OP_TIL);
-                self.code.push(0);
-                self.code.push(1);
-                self.code.push(2);
-                self.code.push(3);
-                self.code.push(flags);
-                self.code.push(scale);
+                self.code.push(1); // Rx
+                self.code.push(2); // Ry
+                self.code.push(3); // Rcolor
+                self.code.push(0); // Rvalue
                 self.restore_fp_if_needed();
             }
             "sin" | "cos" | "abs" | "flr" | "sqrt" => {
@@ -741,18 +640,29 @@ impl Compiler {
                 self.code.push(1);
             }
             "rnd" => {
-                if args.len() != 1 {
-                    return Err(LangError::ArgCount {
-                        line,
-                        name,
-                        expected: 1,
-                        got: args.len(),
-                    });
-                }
-                let max = self.require_literal_u16(&args[0], line, &name)?;
-                self.code.push(OP_RND);
-                self.code.push(0);
-                self.emit_addr16(max);
+                self.check_args(&name, line, args, 1)?;
+                self.emit_builtin_op(OP_RNDR, true, args)?;
+            }
+            // ── Tables ───────────────────────────────────────────────
+            "len" => {
+                self.check_args(&name, line, args, 1)?;
+                self.emit_builtin_op(OP_TLEN, true, args)?;
+            }
+            "add" => {
+                // add(t, v) — append v at integer key len(t)+1.
+                self.check_args(&name, line, args, 2)?;
+                self.stage_args_at(args, 0)?; // R0 = table, R1 = value
+                self.emit_tlen(2, 0); // R2 = len
+                self.emit_mov(4, 1); // R4 = 1 (R3 is FP — leave it alone)
+                self.emit_addr(2, 4); // R2 = len + 1
+                self.emit_tset(0, 2, 1);
+            }
+            // ── Strings ──────────────────────────────────────────────
+            "sub" => {
+                // sub(s, i, j) — 1-based inclusive substring.
+                self.check_args(&name, line, args, 3)?;
+                self.stage_args_at(args, 0)?; // R0 = ptr, R1 = i, R2 = j
+                self.emit_jsr("__rt_substr");
             }
             "strlen" => {
                 if args.len() != 1 {
@@ -779,40 +689,54 @@ impl Compiler {
                 self.emit_jsr("__rt_tostr");
             }
             _ => {
-                // If name resolves to a runtime value (local/param/upvalue/global variable
-                // holding a closure ptr), dispatch dynamically via JREG.
-                // Named top-level functions use direct JSR.
-                let is_static_fn = self.fn_names.contains(&name)
-                    || matches!(self.lookup_var(&name), None | Some(VarLoc::Const(_)));
-                if !is_static_fn && let Some(loc) = self.lookup_var(&name) {
-                    match loc {
-                        VarLoc::Local(_)
-                        | VarLoc::Param(_)
-                        | VarLoc::Upvalue(_)
-                        | VarLoc::Global(_) => {
-                            let func_expr = Expr::Var(name.clone(), line);
-                            return self.emit_dynamic_call(&func_expr, args, line);
-                        }
-                        VarLoc::Const(_) => {}
-                    }
-                }
-                // Static call to top-level named function
-                let args_clone: Vec<Expr> = args.to_vec();
-                for arg in args_clone.iter().rev() {
-                    self.lower_expr_r0(arg)?;
-                    self.emit_push(0);
-                }
-                self.emit_jsr(&name);
-                // Clean up args: SP += nargs * 4
-                let n = args.len();
-                if n > 0 {
-                    self.emit_getsp(1);
-                    self.emit_mov(2, (n * 4) as u16);
-                    self.emit_addr(1, 2);
-                    self.emit_setsp(1);
-                }
-                // Result in R0
+                self.emit_named_call(&name, args, line)?;
             }
+        }
+        Ok(())
+    }
+
+    // Call a user-defined function or callable variable by name. Runtime
+    // values (local/param/upvalue/global holding a closure ptr) dispatch
+    // dynamically via JREG; named top-level functions use direct JSR.
+    fn emit_named_call(&mut self, name: &str, args: &[Expr], line: usize) -> Result<()> {
+        let is_static_fn = self.fn_names.contains(name)
+            || matches!(self.lookup_var(name), None | Some(VarLoc::Const(_)));
+        if !is_static_fn && let Some(loc) = self.lookup_var(name) {
+            match loc {
+                VarLoc::Local(_) | VarLoc::Param(_) | VarLoc::Upvalue(_) | VarLoc::Global(_) => {
+                    let func_expr = Expr::Var(name.to_string(), line);
+                    return self.emit_dynamic_call(&func_expr, args, line);
+                }
+                VarLoc::Const(_) => {}
+            }
+        }
+        // Static call to top-level named function
+        let args_clone: Vec<Expr> = args.to_vec();
+        for arg in args_clone.iter().rev() {
+            self.lower_expr_r0(arg)?;
+            self.emit_push(0);
+        }
+        self.emit_jsr(name);
+        // Clean up args: SP += nargs * 4
+        let n = args.len();
+        if n > 0 {
+            self.emit_getsp(1);
+            self.emit_mov(2, (n * 4) as u16);
+            self.emit_addr(1, 2);
+            self.emit_setsp(1);
+        }
+        // Result in R0
+        Ok(())
+    }
+
+    fn check_args(&self, name: &str, line: usize, args: &[Expr], expected: usize) -> Result<()> {
+        if args.len() != expected {
+            return Err(LangError::ArgCount {
+                line,
+                name: name.to_string(),
+                expected,
+                got: args.len(),
+            });
         }
         Ok(())
     }
@@ -834,47 +758,4 @@ impl Compiler {
         }
     }
 
-    pub(super) fn require_literal_u8(&self, expr: &Expr, line: usize, name: &str) -> Result<u8> {
-        let v = self.require_literal_u32(expr, line, name)?;
-        if v > 255 {
-            Err(LangError::RequiresLiteral {
-                line,
-                name: name.to_string(),
-            })
-        } else {
-            Ok(v as u8)
-        }
-    }
-
-    pub(super) fn require_literal_u16(&self, expr: &Expr, line: usize, name: &str) -> Result<u16> {
-        let v = self.require_literal_u32(expr, line, name)?;
-        if v > 0xFFFF {
-            Err(LangError::RequiresLiteral {
-                line,
-                name: name.to_string(),
-            })
-        } else {
-            Ok(v as u16)
-        }
-    }
-
-    pub(super) fn require_literal_u32(&self, expr: &Expr, line: usize, name: &str) -> Result<u32> {
-        match expr {
-            Expr::Number(n, _) => Ok(*n),
-            Expr::Var(vname, _) => {
-                if let Some(&v) = self.consts.get(vname) {
-                    Ok(v)
-                } else {
-                    Err(LangError::RequiresLiteral {
-                        line,
-                        name: name.to_string(),
-                    })
-                }
-            }
-            _ => Err(LangError::RequiresLiteral {
-                line,
-                name: name.to_string(),
-            }),
-        }
-    }
 }

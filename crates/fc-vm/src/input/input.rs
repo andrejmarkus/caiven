@@ -1,13 +1,13 @@
 use crate::input::button::Button;
 
+const BUTTON_COUNT: usize = 6;
+
+/// Current and previous-frame button state. `end_frame` must be called once
+/// per VM frame so `just_pressed` (btnp) can detect edges.
 #[derive(Default, Clone, Copy)]
 pub struct Input {
-    pub up: bool,
-    pub down: bool,
-    pub left: bool,
-    pub right: bool,
-    pub a: bool,
-    pub b: bool,
+    cur: [bool; BUTTON_COUNT],
+    prev: [bool; BUTTON_COUNT],
 }
 
 impl Input {
@@ -16,24 +16,20 @@ impl Input {
     }
 
     pub fn is_pressed(&self, button: Button) -> bool {
-        match button {
-            Button::Up => self.up,
-            Button::Down => self.down,
-            Button::Left => self.left,
-            Button::Right => self.right,
-            Button::A => self.a,
-            Button::B => self.b,
-        }
+        self.cur[button as usize]
+    }
+
+    /// True only on the first frame the button is held (edge trigger).
+    pub fn just_pressed(&self, button: Button) -> bool {
+        self.cur[button as usize] && !self.prev[button as usize]
     }
 
     pub fn set_button(&mut self, button: Button, pressed: bool) {
-        match button {
-            Button::Up => self.up = pressed,
-            Button::Down => self.down = pressed,
-            Button::Left => self.left = pressed,
-            Button::Right => self.right = pressed,
-            Button::A => self.a = pressed,
-            Button::B => self.b = pressed,
-        }
+        self.cur[button as usize] = pressed;
+    }
+
+    /// Latches current state as previous; call after each completed frame.
+    pub fn end_frame(&mut self) {
+        self.prev = self.cur;
     }
 }

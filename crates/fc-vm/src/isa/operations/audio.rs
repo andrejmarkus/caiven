@@ -16,6 +16,18 @@ pub fn play_music(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     Ok(())
 }
 
+pub fn play_sfx_reg(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let id = ctx.read_register_value()? as u8;
+    ctx.sfx_player.start(id);
+    Ok(())
+}
+
+pub fn play_music_reg(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let id = ctx.read_register_value()? as u8;
+    ctx.music_player.start(id);
+    Ok(())
+}
+
 pub fn stop_music_opcode(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     debug!("NOMUS");
     ctx.music_player.stop();

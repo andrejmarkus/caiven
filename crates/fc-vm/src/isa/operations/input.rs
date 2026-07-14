@@ -17,3 +17,33 @@ pub fn input(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     ctx.cpu.set_register(reg_index, if pressed { 1 } else { 0 });
     Ok(())
 }
+
+pub fn input_reg(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let reg_index = ctx.read_register_index()?;
+    let button_code = ctx.read_register_value()? as u8;
+    let pressed = Button::from_u8(button_code)
+        .map(|btn| ctx.input.is_pressed(btn))
+        .unwrap_or(false);
+    ctx.cpu.set_register(reg_index, if pressed { 1 } else { 0 });
+    Ok(())
+}
+
+pub fn input_pressed(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let reg_index = ctx.read_register_index()?;
+    let button_code = ctx.read_byte()?;
+    let pressed = Button::from_u8(button_code)
+        .map(|btn| ctx.input.just_pressed(btn))
+        .unwrap_or(false);
+    ctx.cpu.set_register(reg_index, if pressed { 1 } else { 0 });
+    Ok(())
+}
+
+pub fn input_pressed_reg(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let reg_index = ctx.read_register_index()?;
+    let button_code = ctx.read_register_value()? as u8;
+    let pressed = Button::from_u8(button_code)
+        .map(|btn| ctx.input.just_pressed(btn))
+        .unwrap_or(false);
+    ctx.cpu.set_register(reg_index, if pressed { 1 } else { 0 });
+    Ok(())
+}

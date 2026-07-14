@@ -89,6 +89,14 @@ pub fn random_value(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     Ok(())
 }
 
+pub fn random_value_reg(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let reg_index = ctx.read_register_index()?;
+    let max = ctx.read_register_value()?;
+    let value = if max == 0 { 0 } else { noise_rnd() % max };
+    ctx.cpu.set_register(reg_index, value);
+    Ok(())
+}
+
 pub fn set_less_than(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let dest_index = ctx.read_register_index()?;
     let src1_index = ctx.read_register_index()?;

@@ -83,9 +83,11 @@ impl ConsoleCore {
         self.timing.tick(dt)
     }
 
-    /// Runs one VM frame with the current input state.
+    /// Runs one VM frame with the current input state, then latches it so
+    /// edge-triggered input (INP/INPR, `btnp`) sees per-frame transitions.
     pub fn run_frame(&mut self) {
         self.vm.run_frame(&self.input, &self.font);
+        self.input.end_frame();
     }
 
     /// Executes a single VM instruction with the current input state.

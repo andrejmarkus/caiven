@@ -1363,6 +1363,7 @@ name = "fc-lang"
 version = "0.1.0"
 dependencies = [
  "fc-asm",
+ "fc-core",
  "thiserror 2.0.18",
 ]
 

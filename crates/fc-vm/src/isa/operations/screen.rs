@@ -103,6 +103,59 @@ pub fn sprite(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     Ok(())
 }
 
+/// Flag bit 0 flips horizontally, bit 1 vertically.
+pub fn sprite_by_id(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let id = ctx.read_register_value()? as usize & 0xFF;
+    let x0 = ctx.read_register_value()? as i32 as i64;
+    let y0 = ctx.read_register_value()? as i32 as i64;
+    let flags = ctx.read_register_value()? as u8;
+    let flip_x = flags & 1 != 0;
+    let flip_y = flags & 2 != 0;
+
+    let base = fc_core::memory::SPRITE_SHEET_RAM_BASE + id * fc_core::memory::SPRITE_BYTES;
+    let cam_x = ctx.camera.get_x() as i32 as i64;
+    let cam_y = ctx.camera.get_y() as i32 as i64;
+
+    let ss = ctx.config.sprite_size as i64;
+    for sy in 0..ss {
+        for sx in 0..ss {
+            let src_x = if flip_x { ss - 1 - sx } else { sx };
+            let src_y = if flip_y { ss - 1 - sy } else { sy };
+            let pixel = ctx.mem.read(base + (src_y * ss + src_x) as usize)?;
+            if pixel == 0 {
+                continue;
+            }
+            let (dx, dy) = (x0 + sx - cam_x, y0 + sy - cam_y);
+            if dx < 0 || dy < 0 {
+                continue;
+            }
+            let color = ctx.palette.get_color(pixel as usize);
+            ctx.world.set_pixel(Vec2::new(dx as u32, dy as u32), color);
+        }
+    }
+    Ok(())
+}
+
+pub fn fill_screen_reg(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let color_idx = ctx.read_register_value()? as usize;
+    let color = ctx.palette.get_color(color_idx);
+    for y in 0..ctx.config.height {
+        for x in 0..ctx.config.width {
+            ctx.world.set_pixel(Vec2::new(x, y), color);
+        }
+    }
+    Ok(())
+}
+
+pub fn palette_reg(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let index = ctx.read_register_value()? as usize;
+    let r = ctx.read_register_value()? as u8;
+    let g = ctx.read_register_value()? as u8;
+    let b = ctx.read_register_value()? as u8;
+    ctx.palette.set_color(index, Color::new_rgb(r, g, b));
+    Ok(())
+}
+
 pub fn print(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let x = ctx.read_register_value()?;
     let y = ctx.read_register_value()?;

@@ -261,3 +261,22 @@ loop:
     );
     let _ = vm;
 }
+
+// ─── sub() substring builtin ─────────────────────────────────────────────────
+
+#[test]
+fn sub_extracts_substring() {
+    let vm = run_fc(
+        r#"
+let r0 = 0
+let r1 = 0
+loop:
+  local s = "HELLO"
+  r0 = strlen(sub(s, 2, 4))
+  r1 = strlen(sub(s, 4, 99))
+  wait()
+"#,
+    );
+    assert_eq!(read_u32(&vm, G0), 3, "sub(s,2,4) is ELL (len 3)");
+    assert_eq!(read_u32(&vm, G1), 2, "sub clamps j to len: LO (len 2)");
+}

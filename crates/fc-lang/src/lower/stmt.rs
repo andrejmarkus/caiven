@@ -417,13 +417,12 @@ impl Compiler {
                 let value = value.clone();
                 let key_ptr = self.intern_string(name);
                 self.lower_expr_r0(&table)?;
-                self.emit_push(0); // push ptr (value eval may clobber scratch)
+                self.emit_push(0); // save table id (value eval may clobber regs)
                 self.lower_expr_r0(&value)?;
-                self.emit_stm32(SCRATCH_BASE, 0); // save val
-                self.emit_pop(0); // R0 = ptr
+                self.emit_movr(2, 0); // R2 = val
                 self.emit_mov(1, key_ptr);
-                self.emit_ldm32(2, SCRATCH_BASE);
-                self.emit_jsr("__rt_settab");
+                self.emit_pop(0); // R0 = table id
+                self.emit_tset(0, 1, 2);
             }
             Stmt::SetIndex {
                 table, key, value, ..
@@ -432,15 +431,15 @@ impl Compiler {
                 let key = key.clone();
                 let value = value.clone();
                 self.lower_expr_r0(&table)?;
-                self.emit_push(0); // push ptr
+                self.emit_push(0); // save table id
                 self.lower_expr_r0(&key)?;
-                self.emit_push(0); // push key
+                self.emit_push(0); // save key
                 self.lower_expr_r0(&value)?;
-                // R0=val, stack=[ptr, key(top)]
+                // R0=val, stack=[id, key(top)]
                 self.emit_movr(2, 0); // R2 = val
                 self.emit_pop(1); // R1 = key
-                self.emit_pop(0); // R0 = ptr
-                self.emit_jsr("__rt_settab");
+                self.emit_pop(0); // R0 = table id
+                self.emit_tset(0, 1, 2);
             }
             Stmt::GenericFor {
                 key_var,
@@ -450,15 +449,14 @@ impl Compiler {
                 line: _,
             } => {
                 // for key_var [, val_var] in table do body end
-                // Iterates TABLE_CAP slots linearly, skipping sentinel (0xFFFF_FFFF) keys.
-                // Table layout: ptr+0=cap, ptr+4=count, ptr+8+i*8=key, ptr+12+i*8=val
+                // Walks entries by insertion index via TIDX until the key
+                // register comes back as the iteration-end sentinel.
                 let key_var = key_var.clone();
                 let val_var = val_var.clone();
                 let table = table.clone();
                 let body = body.clone();
                 let loop_label = self.fresh_label("gfor_loop");
                 let end_label = self.fresh_label("gfor_end");
-                let skip_label = self.fresh_label("gfor_skip");
 
                 if self.fn_ctx.is_some() {
                     // ── inside function: use stack locals ────────────────────────
@@ -498,43 +496,21 @@ impl Compiler {
 
                     self.emit_label(&loop_label);
 
-                    // if idx >= TABLE_CAP → end
+                    // R0 = key, R1 = val ← TIDX(table, idx)
+                    self.emit_load_local(ptr_slot);
+                    self.emit_push(0); // save table id
                     self.emit_load_local(idx_slot);
-                    self.emit_mov32(1, TABLE_CAP);
-                    self.code.push(OP_SLTS);
+                    self.emit_movr(2, 0); // R2 = idx
+                    self.emit_pop(1); // R1 = table id
+                    self.emit_tidx(0, 1, 1, 2);
+
+                    // key == iteration-end sentinel → end
+                    self.emit_mov32(2, TABLE_SENTINEL);
+                    self.code.push(OP_EQ);
                     self.code.push(2);
                     self.code.push(0);
-                    self.code.push(1);
-                    self.emit_jz(2, &end_label);
-
-                    // R0 = entry_addr = iter_ptr + HDR_SZ + idx * ENTRY_SZ
-                    self.emit_load_local(idx_slot);
-                    self.emit_mov32(1, TABLE_ENTRY_SZ);
-                    self.emit_mul_reg(0, 1); // R0 = idx * 8
-                    self.emit_mov32(1, TABLE_HDR_SZ);
-                    self.emit_addr(0, 1);
-                    self.emit_movr(2, 0); // R2 = offset
-                    self.emit_load_local(ptr_slot); // R0 = iter_ptr
-                    self.emit_addr(0, 2); // R0 = entry_addr
-
-                    // key = mem32[entry_addr]; save entry_addr in R2
-                    self.emit_movr(2, 0);
-                    self.emit_ldm32i(0, 0); // R0 = key
-
-                    // if sentinel → skip
-                    self.emit_mov32(1, TABLE_SENTINEL);
-                    self.code.push(OP_EQ);
-                    self.code.push(1);
-                    self.code.push(0);
-                    self.code.push(1);
-                    self.emit_jnz(1, &skip_label);
-
-                    // val = mem32[entry_addr + 4]; R2 = entry_addr
-                    self.emit_push(0); // save key
-                    self.emit_mov32(1, 4);
-                    self.emit_addr(2, 1); // R2 = entry_addr + 4
-                    self.emit_ldm32i(1, 2); // R1 = val
-                    self.emit_pop(0); // R0 = key
+                    self.code.push(2);
+                    self.emit_jnz(2, &end_label);
 
                     // bind key_var and val_var in inner scope
                     self.fn_ctx.as_mut().unwrap().push_scope();
@@ -560,7 +536,6 @@ impl Compiler {
                         self.emit_setsp(1);
                     }
 
-                    self.emit_label(&skip_label);
                     self.emit_load_local(idx_slot);
                     self.emit_mov(1, 1);
                     self.emit_addr(0, 1);
@@ -604,53 +579,30 @@ impl Compiler {
                     };
 
                     self.lower_expr_r0(&table)?;
-                    self.emit_stm32(ptr_addr, 0); // iter_ptr = table
+                    self.emit_stm32(ptr_addr, 0); // iter table id
                     self.emit_mov(0, 0);
                     self.emit_stm32(idx_addr, 0); // iter_idx = 0
 
                     self.emit_label(&loop_label);
 
-                    // if idx >= TABLE_CAP → end
-                    self.emit_ldm32(0, idx_addr);
-                    self.emit_mov32(1, TABLE_CAP);
-                    self.code.push(OP_SLTS);
+                    // R0 = key, R1 = val ← TIDX(table, idx)
+                    self.emit_ldm32(1, ptr_addr);
+                    self.emit_ldm32(2, idx_addr);
+                    self.emit_tidx(0, 1, 1, 2);
+
+                    // key == iteration-end sentinel → end
+                    self.emit_mov32(2, TABLE_SENTINEL);
+                    self.code.push(OP_EQ);
                     self.code.push(2);
                     self.code.push(0);
-                    self.code.push(1);
-                    self.emit_jz(2, &end_label);
+                    self.code.push(2);
+                    self.emit_jnz(2, &end_label);
 
-                    // R0 = entry_addr = iter_ptr + HDR_SZ + idx * ENTRY_SZ
-                    self.emit_ldm32(0, idx_addr);
-                    self.emit_mov32(1, TABLE_ENTRY_SZ);
-                    self.emit_mul_reg(0, 1); // R0 = idx * 8
-                    self.emit_mov32(1, TABLE_HDR_SZ);
-                    self.emit_addr(0, 1);
-                    self.emit_movr(2, 0); // R2 = offset
-                    self.emit_ldm32(0, ptr_addr); // R0 = iter_ptr
-                    self.emit_addr(0, 2); // R0 = entry_addr
-
-                    // key = mem32[entry_addr]
-                    self.emit_movr(2, 0); // R2 = entry_addr
-                    self.emit_ldm32i(0, 0); // R0 = key
-
-                    // if sentinel → skip
-                    self.emit_mov32(1, TABLE_SENTINEL);
-                    self.code.push(OP_EQ);
-                    self.code.push(1);
-                    self.code.push(0);
-                    self.code.push(1);
-                    self.emit_jnz(1, &skip_label);
-
-                    // store key, load val
                     self.emit_stm32(key_addr, 0); // key_var = key
-                    self.emit_mov32(1, 4);
-                    self.emit_addr(2, 1); // R2 = entry_addr + 4
-                    self.emit_ldm32i(0, 2); // R0 = val
-                    self.emit_stm32(val_addr, 0); // val_var = val
+                    self.emit_stm32(val_addr, 1); // val_var = val
 
                     self.compile_block(&body)?;
 
-                    self.emit_label(&skip_label);
                     self.emit_ldm32(0, idx_addr);
                     self.emit_mov(1, 1);
                     self.emit_addr(0, 1);

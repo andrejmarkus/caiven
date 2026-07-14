@@ -13,6 +13,7 @@ use crate::rendering::screen::ScreenLayer;
 pub struct ExecutionContext<'a> {
     pub cpu: &'a mut Cpu,
     pub mem: &'a mut Memory,
+    pub tables: &'a mut super::TableStore,
     pub palette: &'a mut Palette,
     pub camera: &'a mut Camera,
     pub sound: &'a mut Sound,

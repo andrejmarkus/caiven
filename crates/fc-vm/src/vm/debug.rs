@@ -59,6 +59,7 @@ impl Vm {
             pc: self.cpu.get_pc(),
             registers: self.cpu.get_registers().to_vec(),
             memory: self.memory.get_ram().to_vec(),
+            tables: self.tables.clone(),
             camera_x: self.camera.get_x(),
             camera_y: self.camera.get_y(),
             palette: self.palette.get_colors().to_vec(),
@@ -78,6 +79,7 @@ impl Vm {
             self.cpu.set_register(i, *val);
         }
         self.memory.set_ram(snapshot.memory.clone());
+        self.tables = snapshot.tables.clone();
         self.camera
             .set_position(snapshot.camera_x, snapshot.camera_y);
         self.palette.set_colors(snapshot.palette.clone());
@@ -96,6 +98,7 @@ pub struct VmSnapshot {
     pub pc: usize,
     pub registers: Vec<u32>,
     pub memory: Vec<u8>,
+    pub tables: super::TableStore,
     pub camera_x: u32,
     pub camera_y: u32,
     pub palette: Vec<Color>,

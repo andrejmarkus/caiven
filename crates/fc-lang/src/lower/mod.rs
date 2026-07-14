@@ -15,33 +15,24 @@ mod runtime;
 mod stmt;
 
 const GLOBALS_BASE: u16 = 0x0000;
-const SCRATCH_BASE: u16 = 0x3FF0;
-const SCRATCH_STEP: u16 = 4;
 const FP_SAVE_ADDR: u16 = 0x3FEC;
 const STRING_POOL_BASE: u16 = 0x3800;
 
-// Heap allocator (bump pointer)
-const HEAP_BASE: u32 = 0x6000;
-const HEAP_TOP_ADDR: u16 = 0x5000; // u32 at 0x5000: current heap top
-// Runtime scratch (non-reentrant; table ops don't nest)
-const RT_TMP0: u16 = 0x5004;
-const RT_TMP1: u16 = 0x5008;
-const RT_TMP2: u16 = 0x500C;
-const RT_TMP3: u16 = 0x5010;
-const RT_TMP4: u16 = 0x5014; // iteration counter for __rt_settab probe loop
+// Heap allocator (bump pointer). Heap lives above the asset banks and grows
+// up; the stack grows down from the top of RAM.
+const HEAP_BASE: u32 = fc_core::memory::HEAP_RAM_BASE as u32;
+// Compiler runtime scratch lives at the top of the general-purpose region,
+// just below FP_SAVE_ADDR/SCRATCH_BASE — it must never overlap asset banks.
+const HEAP_TOP_ADDR: u16 = 0x3F80; // u32: current heap top
 // String runtime scratch (non-reentrant; string ops don't nest)
-const RT_STR_TMP0: u16 = 0x5018;
-const RT_STR_TMP1: u16 = 0x501C;
-const RT_STR_TMP2: u16 = 0x5020;
-const RT_STR_TMP3: u16 = 0x5024;
-const RT_STR_TMP4: u16 = 0x5028;
-const RT_STR_TMP5: u16 = 0x502C;
-// Table layout constants
-const TABLE_CAP: u32 = 8; // fixed capacity (power-of-2 → bitmask works)
-const TABLE_ENTRY_SZ: u32 = 8; // key(u32) + val(u32)
-const TABLE_HDR_SZ: u32 = 8; // cap(u32) + count(u32)
-const TABLE_ALLOC_SZ: u32 = TABLE_HDR_SZ + TABLE_CAP * TABLE_ENTRY_SZ; // 72
-const TABLE_SENTINEL: u32 = 0xFFFFFFFF; // marks empty slot key
+const RT_STR_TMP0: u16 = 0x3F98;
+const RT_STR_TMP1: u16 = 0x3F9C;
+const RT_STR_TMP2: u16 = 0x3FA0;
+const RT_STR_TMP3: u16 = 0x3FA4;
+const RT_STR_TMP4: u16 = 0x3FA8;
+const RT_STR_TMP5: u16 = 0x3FAC;
+// Key value TIDX reports past the end of a table (see fc-vm TABLE_ITER_END)
+const TABLE_SENTINEL: u32 = 0xFFFFFFFF;
 
 #[derive(Clone, Debug)]
 enum VarLoc {
@@ -219,8 +210,7 @@ impl Compiler {
         // Emit: JMP __start_
         self.emit_jmp("__start_");
 
-        // Emit RT helpers (newtable / gettab / settab / strlen / strcat / tostr)
-        self.emit_rt_helpers();
+        // Emit RT helpers (strlen / strcat / tostr / substr)
         self.emit_str_helpers();
 
         // Populate fn_names for static-vs-dynamic call dispatch

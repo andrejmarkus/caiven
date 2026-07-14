@@ -213,3 +213,63 @@ loop:
     );
     assert_eq!(read_u32(&vm, G0), 60);
 }
+
+// ─── tables grow past the legacy 8-entry cap ─────────────────────────────────
+
+#[test]
+fn table_grows_past_eight_entries() {
+    let vm = run_fc(
+        r#"
+let count = 0
+let sum = 0
+loop:
+  local a = {}
+  local i = 1
+  while i <= 100 do
+    a[i] = i
+    i = i + 1
+  end
+  count = #a
+  sum = a[1] + a[50] + a[100]
+  wait()
+"#,
+    );
+    assert_eq!(read_u32(&vm, G0), 100, "table should hold 100 entries");
+    assert_eq!(read_u32(&vm, G1), 151, "1 + 50 + 100");
+}
+
+// ─── len() and add() builtins ────────────────────────────────────────────────
+
+#[test]
+fn len_and_add_builtins() {
+    let vm = run_fc(
+        r#"
+let r0 = 0
+let r1 = 0
+loop:
+  local a = {5, 6}
+  add(a, 7)
+  r0 = len(a)
+  r1 = a[3]
+  wait()
+"#,
+    );
+    assert_eq!(read_u32(&vm, G0), 3, "len after add should be 3");
+    assert_eq!(read_u32(&vm, G1), 7, "add should append at index 3");
+}
+
+// ─── user-defined add() shadows the builtin ──────────────────────────────────
+
+#[test]
+fn user_fn_shadows_builtin() {
+    let vm = run_fc(
+        r#"
+fn add(a, b) return a + b end
+let result = 0
+loop:
+  result = add(2, 3)
+  wait()
+"#,
+    );
+    assert_eq!(read_u32(&vm, G0), 5, "user add() should shadow builtin");
+}
