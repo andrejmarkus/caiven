@@ -31,11 +31,7 @@ impl Vm {
                         if let Some(instr) = instruction {
                             let end = (pc + size).min(program.len());
                             let bytes = &program[pc..end];
-                            if bytes.len() < *size {
-                                info_parts.push(format!("{} (INCOMPLETE)", instr.name));
-                            } else {
-                                info_parts.push((instr.debug_info)(bytes));
-                            }
+                            info_parts.push(instr.spec.format(bytes));
                         } else {
                             info_parts.push(format!("UNKNOWN OPCODE: 0X{:02X}", opcode));
                         }

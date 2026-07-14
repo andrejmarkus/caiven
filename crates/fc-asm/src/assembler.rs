@@ -87,10 +87,10 @@ impl Assembler {
                     ItemInfo::Instruction {
                         name: spec.name.to_string(),
                         opcode: spec.opcode,
-                        size: spec.size,
+                        size: spec.size(),
                     },
                 );
-                pc += spec.size;
+                pc += spec.size();
             } else {
                 pc += 1;
             }
@@ -168,7 +168,7 @@ impl Assembler {
                         format!("unknown instruction {}", name_upper),
                     )
                 })?;
-                *pc += spec.size as u16;
+                *pc += spec.size() as u16;
             }
         }
         Ok(labels)
@@ -253,7 +253,7 @@ impl Assembler {
                         ItemInfo::Instruction {
                             name: name_upper.clone(),
                             opcode: spec.opcode,
-                            size: spec.size,
+                            size: spec.size(),
                         },
                     );
                 }

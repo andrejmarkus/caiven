@@ -11,7 +11,7 @@ pub use assembler::{Assembler, AssemblerOutput};
 pub use directive::DirectiveError;
 pub use error::AsmError;
 pub use expr::EvalError;
-pub use isa::{ArgType, IsaTable, OpcodeSpec};
+pub use isa::{ArgType, IsaTable, OpcodeSpec, default_isa, default_specs};
 pub use preprocess::{MacroDef, Preprocessor, SourceLine};
 pub use source_map::{AddressInfo, ItemInfo, SourceMap};
 

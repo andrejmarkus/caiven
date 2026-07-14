@@ -76,3 +76,22 @@ fn wrong_arg_count_is_syntax_error() {
 fn undefined_symbol_is_error() {
     assert!(assemble("MOV R0 NOPE").is_err());
 }
+
+#[test]
+fn logv_encodes_16bit_operand() {
+    // LOGV = 0x71 with a u16 LE operand — the VM reads a full word, so the
+    // encoded size must be 3 bytes (regression test for the old size/args
+    // mismatch that desynced label addresses).
+    assert_eq!(assemble("LOGV 300").unwrap(), vec![0x71, 0x2C, 0x01]);
+    let bytes = assemble("LOGV 1\nend:\nJMP end").unwrap();
+    assert_eq!(bytes, vec![0x71, 0x01, 0x00, 0x10, 0x03, 0x00]);
+}
+
+#[test]
+fn txtz_is_assemblable() {
+    // TXTZ = 0x3B, four register operands (previously VM-only).
+    assert_eq!(
+        assemble("TXTZ R1 R2 R3 R4").unwrap(),
+        vec![0x3B, 1, 2, 3, 4]
+    );
+}

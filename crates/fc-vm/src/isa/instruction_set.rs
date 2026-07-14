@@ -1,13 +1,12 @@
 use crate::vm::{ExecutionContext, VmFault};
+use fc_asm::OpcodeSpec;
 
 pub type InstructionHandler = fn(ctx: &mut ExecutionContext) -> Result<(), VmFault>;
-pub type InstructionDebugHandler = fn(bytes: &[u8]) -> String;
 
 pub struct Instruction {
-    pub name: &'static str,
-    pub opcode: u8,
+    /// Shape (mnemonic, opcode, operand types) from the shared fc-asm ISA table.
+    pub spec: OpcodeSpec,
     pub execute: InstructionHandler,
-    pub debug_info: InstructionDebugHandler,
 }
 
 pub struct InstructionSet {
@@ -30,7 +29,7 @@ impl InstructionSet {
     }
 
     pub fn register(&mut self, instruction: Instruction) {
-        let opcode = instruction.opcode as usize;
+        let opcode = instruction.spec.opcode as usize;
         let idx = self.instructions.len();
         self.instructions.push(instruction);
         self.by_opcode[opcode] = Some(idx);

@@ -1,4 +1,6 @@
+use crate::opcodes::*;
 use std::collections::HashMap;
+use std::fmt::Write;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArgType {
@@ -8,11 +10,62 @@ pub enum ArgType {
     Dword,
 }
 
+impl ArgType {
+    /// Encoded operand width in bytes.
+    pub const fn width(self) -> usize {
+        match self {
+            ArgType::Register | ArgType::Value => 1,
+            ArgType::Address => 2,
+            ArgType::Dword => 4,
+        }
+    }
+}
+
 pub struct OpcodeSpec {
     pub name: &'static str,
     pub opcode: u8,
-    pub size: usize,
     pub args: Vec<ArgType>,
+}
+
+impl OpcodeSpec {
+    /// Total encoded size: opcode byte plus operand widths. Derived from
+    /// `args` so the two can never disagree.
+    pub fn size(&self) -> usize {
+        1 + self.args.iter().map(|a| a.width()).sum::<usize>()
+    }
+
+    /// Format an encoded instruction (`bytes[0]` is the opcode) as debugger
+    /// text, e.g. `MOV R1, 0x0005`. Returns an `(INCOMPLETE)` marker when
+    /// fewer than `size()` bytes are supplied.
+    pub fn format(&self, bytes: &[u8]) -> String {
+        if bytes.len() < self.size() {
+            return format!("{} (INCOMPLETE)", self.name);
+        }
+        let mut out = self.name.to_string();
+        let mut off = 1;
+        for (i, arg) in self.args.iter().enumerate() {
+            out.push_str(if i == 0 { " " } else { ", " });
+            let _ = match arg {
+                ArgType::Register => write!(out, "R{}", bytes[off]),
+                ArgType::Value => write!(out, "{}", bytes[off]),
+                ArgType::Address => {
+                    let v = u16::from_le_bytes([bytes[off], bytes[off + 1]]);
+                    write!(out, "0x{v:04X}")
+                }
+                ArgType::Dword => {
+                    let v = u32::from_le_bytes([
+                        bytes[off],
+                        bytes[off + 1],
+                        bytes[off + 2],
+                        bytes[off + 3],
+                    ]);
+                    write!(out, "0x{v:08X}")
+                }
+            };
+            off += arg.width();
+        }
+        out
+    }
 }
 
 pub struct IsaTable {
@@ -45,470 +98,161 @@ impl IsaTable {
     }
 }
 
-pub fn default_isa() -> IsaTable {
+fn op(name: &'static str, opcode: u8, args: &[ArgType]) -> OpcodeSpec {
+    OpcodeSpec {
+        name,
+        opcode,
+        args: args.to_vec(),
+    }
+}
+
+/// The full instruction-set shape (mnemonic, opcode, operand types) — the
+/// single source of truth shared by the assembler and the fc-vm interpreter.
+pub fn default_specs() -> Vec<OpcodeSpec> {
     use ArgType::*;
-    IsaTable::new(vec![
-        OpcodeSpec {
-            name: "CLS",
-            opcode: 0x00,
-            size: 1,
-            args: vec![],
-        },
-        OpcodeSpec {
-            name: "MOV",
-            opcode: 0x01,
-            size: 4,
-            args: vec![Register, Address],
-        },
-        OpcodeSpec {
-            name: "ADD",
-            opcode: 0x02,
-            size: 4,
-            args: vec![Register, Address],
-        },
-        OpcodeSpec {
-            name: "DEC",
-            opcode: 0x03,
-            size: 2,
-            args: vec![Register],
-        },
-        OpcodeSpec {
-            name: "DPX",
-            opcode: 0x04,
-            size: 6,
-            args: vec![Value, Value, Value, Value, Value],
-        },
-        OpcodeSpec {
-            name: "DPXR",
-            opcode: 0x05,
-            size: 6,
-            args: vec![Register, Register, Value, Value, Value],
-        },
-        OpcodeSpec {
-            name: "SPT",
-            opcode: 0x06,
-            size: 4,
-            args: vec![Register, Register, Register],
-        },
-        OpcodeSpec {
-            name: "PAL",
-            opcode: 0x07,
-            size: 5,
-            args: vec![Value, Value, Value, Value],
-        },
-        OpcodeSpec {
-            name: "TIL",
-            opcode: 0x08,
-            size: 7,
-            args: vec![Register, Register, Register, Register, Value, Value],
-        },
-        OpcodeSpec {
-            name: "PRN",
-            opcode: 0x09,
-            size: 5,
-            args: vec![Register, Register, Register, Register],
-        },
-        OpcodeSpec {
-            name: "SUB",
-            opcode: 0x0A,
-            size: 4,
-            args: vec![Register, Address],
-        },
-        OpcodeSpec {
-            name: "RND",
-            opcode: 0x0B,
-            size: 4,
-            args: vec![Register, Address],
-        },
-        OpcodeSpec {
-            name: "MOVR",
-            opcode: 0x0C,
-            size: 3,
-            args: vec![Register, Register],
-        },
-        OpcodeSpec {
-            name: "SLT",
-            opcode: 0x0D,
-            size: 4,
-            args: vec![Register, Register, Register],
-        },
-        OpcodeSpec {
-            name: "FILL",
-            opcode: 0x0E,
-            size: 2,
-            args: vec![Value],
-        },
-        OpcodeSpec {
-            name: "JMP",
-            opcode: 0x10,
-            size: 3,
-            args: vec![Address],
-        },
-        OpcodeSpec {
-            name: "JNZ",
-            opcode: 0x11,
-            size: 4,
-            args: vec![Register, Address],
-        },
-        OpcodeSpec {
-            name: "JZ",
-            opcode: 0x12,
-            size: 4,
-            args: vec![Register, Address],
-        },
-        OpcodeSpec {
-            name: "JSR",
-            opcode: 0x13,
-            size: 3,
-            args: vec![Address],
-        },
-        OpcodeSpec {
-            name: "RET",
-            opcode: 0x14,
-            size: 1,
-            args: vec![],
-        },
-        OpcodeSpec {
-            name: "ADDR",
-            opcode: 0x15,
-            size: 3,
-            args: vec![Register, Register],
-        },
-        OpcodeSpec {
-            name: "SUBR",
-            opcode: 0x16,
-            size: 3,
-            args: vec![Register, Register],
-        },
-        OpcodeSpec {
-            name: "PUSH",
-            opcode: 0x17,
-            size: 2,
-            args: vec![Register],
-        },
-        OpcodeSpec {
-            name: "POP",
-            opcode: 0x18,
-            size: 2,
-            args: vec![Register],
-        },
-        OpcodeSpec {
-            name: "GETSP",
-            opcode: 0x19,
-            size: 2,
-            args: vec![Register],
-        },
-        OpcodeSpec {
-            name: "SETSP",
-            opcode: 0x1A,
-            size: 2,
-            args: vec![Register],
-        },
-        OpcodeSpec {
-            name: "MUL",
-            opcode: 0x1B,
-            size: 3,
-            args: vec![Register, Register],
-        },
-        OpcodeSpec {
-            name: "DIV",
-            opcode: 0x1C,
-            size: 3,
-            args: vec![Register, Register],
-        },
-        OpcodeSpec {
-            name: "MOD",
-            opcode: 0x1D,
-            size: 3,
-            args: vec![Register, Register],
-        },
-        OpcodeSpec {
-            name: "FMUL",
-            opcode: 0x1E,
-            size: 3,
-            args: vec![Register, Register],
-        },
-        OpcodeSpec {
-            name: "FDIV",
-            opcode: 0x1F,
-            size: 3,
-            args: vec![Register, Register],
-        },
-        OpcodeSpec {
-            name: "AND",
-            opcode: 0x21,
-            size: 3,
-            args: vec![Register, Register],
-        },
-        OpcodeSpec {
-            name: "OR",
-            opcode: 0x22,
-            size: 3,
-            args: vec![Register, Register],
-        },
-        OpcodeSpec {
-            name: "XOR",
-            opcode: 0x23,
-            size: 3,
-            args: vec![Register, Register],
-        },
-        OpcodeSpec {
-            name: "NOT",
-            opcode: 0x24,
-            size: 2,
-            args: vec![Register],
-        },
-        OpcodeSpec {
-            name: "SHL",
-            opcode: 0x25,
-            size: 3,
-            args: vec![Register, Value],
-        },
-        OpcodeSpec {
-            name: "SHR",
-            opcode: 0x26,
-            size: 3,
-            args: vec![Register, Value],
-        },
-        OpcodeSpec {
-            name: "SAR",
-            opcode: 0x27,
-            size: 3,
-            args: vec![Register, Value],
-        },
-        OpcodeSpec {
-            name: "NEG",
-            opcode: 0x28,
-            size: 2,
-            args: vec![Register],
-        },
-        OpcodeSpec {
-            name: "SLTS",
-            opcode: 0x29,
-            size: 4,
-            args: vec![Register, Register, Register],
-        },
-        OpcodeSpec {
-            name: "EQ",
-            opcode: 0x2A,
-            size: 4,
-            args: vec![Register, Register, Register],
-        },
-        OpcodeSpec {
-            name: "LDM32",
-            opcode: 0x2B,
-            size: 4,
-            args: vec![Register, Address],
-        },
-        OpcodeSpec {
-            name: "STM32",
-            opcode: 0x2C,
-            size: 4,
-            args: vec![Address, Register],
-        },
-        OpcodeSpec {
-            name: "LDM32I",
-            opcode: 0x2D,
-            size: 3,
-            args: vec![Register, Register],
-        },
-        OpcodeSpec {
-            name: "STM32I",
-            opcode: 0x2E,
-            size: 3,
-            args: vec![Register, Register],
-        },
-        OpcodeSpec {
-            name: "MOV32",
-            opcode: 0x2F,
-            size: 6,
-            args: vec![Register, Dword],
-        },
-        OpcodeSpec {
-            name: "SFX",
-            opcode: 0x87,
-            size: 2,
-            args: vec![Value],
-        },
-        OpcodeSpec {
-            name: "MUS",
-            opcode: 0x88,
-            size: 2,
-            args: vec![Value],
-        },
-        OpcodeSpec {
-            name: "NOMUS",
-            opcode: 0x89,
-            size: 1,
-            args: vec![],
-        },
-        OpcodeSpec {
-            name: "IN",
-            opcode: 0x20,
-            size: 3,
-            args: vec![Register, Value],
-        },
-        OpcodeSpec {
-            name: "LDM",
-            opcode: 0x30,
-            size: 4,
-            args: vec![Register, Address],
-        },
-        OpcodeSpec {
-            name: "STM",
-            opcode: 0x31,
-            size: 4,
-            args: vec![Address, Register],
-        },
-        OpcodeSpec {
-            name: "LDMI",
-            opcode: 0x32,
-            size: 3,
-            args: vec![Register, Register],
-        },
-        OpcodeSpec {
-            name: "STMI",
-            opcode: 0x33,
-            size: 3,
-            args: vec![Register, Register],
-        },
-        OpcodeSpec {
-            name: "CPY",
-            opcode: 0x34,
-            size: 7,
-            args: vec![Address, Address, Address],
-        },
-        OpcodeSpec {
-            name: "LDMW",
-            opcode: 0x35,
-            size: 4,
-            args: vec![Register, Address],
-        },
-        OpcodeSpec {
-            name: "STMW",
-            opcode: 0x36,
-            size: 4,
-            args: vec![Address, Register],
-        },
-        OpcodeSpec {
-            name: "MATH1",
-            opcode: 0x37,
-            size: 4,
-            args: vec![Register, Register, Value],
-        },
-        OpcodeSpec {
-            name: "MAX",
-            opcode: 0x38,
-            size: 3,
-            args: vec![Register, Register],
-        },
-        OpcodeSpec {
-            name: "MIN",
-            opcode: 0x39,
-            size: 3,
-            args: vec![Register, Register],
-        },
-        OpcodeSpec {
-            name: "JREG",
-            opcode: 0x3A,
-            size: 2,
-            args: vec![Register],
-        },
-        OpcodeSpec {
-            name: "TAT",
-            opcode: 0x40,
-            size: 6,
-            args: vec![Register, Register, Register, Register, Value],
-        },
-        OpcodeSpec {
-            name: "TSD",
-            opcode: 0x41,
-            size: 4,
-            args: vec![Register, Register, Register],
-        },
-        OpcodeSpec {
-            name: "TXT",
-            opcode: 0x42,
-            size: 6,
-            args: vec![Register, Register, Register, Register, Value],
-        },
-        OpcodeSpec {
-            name: "NUM",
-            opcode: 0x43,
-            size: 5,
-            args: vec![Register, Register, Register, Register],
-        },
-        OpcodeSpec {
-            name: "POSC",
-            opcode: 0x60,
-            size: 3,
-            args: vec![Register, Register],
-        },
-        OpcodeSpec {
-            name: "MOVC",
-            opcode: 0x61,
-            size: 3,
-            args: vec![Register, Register],
-        },
-        OpcodeSpec {
-            name: "LOGR",
-            opcode: 0x70,
-            size: 2,
-            args: vec![Register],
-        },
-        OpcodeSpec {
-            name: "LOGV",
-            opcode: 0x71,
-            size: 3,
-            args: vec![Value],
-        },
-        OpcodeSpec {
-            name: "SND",
-            opcode: 0x80,
-            size: 4,
-            args: vec![Register, Register, Register],
-        },
-        OpcodeSpec {
-            name: "SNDV",
-            opcode: 0x81,
-            size: 5,
-            args: vec![Address, Value, Value],
-        },
-        OpcodeSpec {
-            name: "NOSND",
-            opcode: 0x82,
-            size: 1,
-            args: vec![],
-        },
-        OpcodeSpec {
-            name: "NSND",
-            opcode: 0x83,
-            size: 4,
-            args: vec![Register, Register, Register],
-        },
-        OpcodeSpec {
-            name: "NSNDV",
-            opcode: 0x84,
-            size: 5,
-            args: vec![Address, Value, Value],
-        },
-        OpcodeSpec {
-            name: "SSTOP",
-            opcode: 0x85,
-            size: 1,
-            args: vec![],
-        },
-        OpcodeSpec {
-            name: "NSTOP",
-            opcode: 0x86,
-            size: 1,
-            args: vec![],
-        },
-        OpcodeSpec {
-            name: "WAIT",
-            opcode: 0xFF,
-            size: 1,
-            args: vec![],
-        },
-    ])
+    vec![
+        op("CLS", OP_CLS, &[]),
+        op("MOV", OP_MOV, &[Register, Address]),
+        op("ADD", OP_ADD, &[Register, Address]),
+        op("DEC", OP_DEC, &[Register]),
+        op("DPX", OP_DPX, &[Value, Value, Value, Value, Value]),
+        op("DPXR", OP_DPXR, &[Register, Register, Value, Value, Value]),
+        op("SPT", OP_SPT, &[Register, Register, Register]),
+        op("PAL", OP_PAL, &[Value, Value, Value, Value]),
+        op(
+            "TIL",
+            OP_TIL,
+            &[Register, Register, Register, Register, Value, Value],
+        ),
+        op("PRN", OP_PRN, &[Register, Register, Register, Register]),
+        op("SUB", OP_SUB, &[Register, Address]),
+        op("RND", OP_RND, &[Register, Address]),
+        op("MOVR", OP_MOVR, &[Register, Register]),
+        op("SLT", OP_SLT, &[Register, Register, Register]),
+        op("FILL", OP_FILL, &[Value]),
+        op("JMP", OP_JMP, &[Address]),
+        op("JNZ", OP_JNZ, &[Register, Address]),
+        op("JZ", OP_JZ, &[Register, Address]),
+        op("JSR", OP_JSR, &[Address]),
+        op("RET", OP_RET, &[]),
+        op("ADDR", OP_ADDR, &[Register, Register]),
+        op("SUBR", OP_SUBR, &[Register, Register]),
+        op("PUSH", OP_PUSH, &[Register]),
+        op("POP", OP_POP, &[Register]),
+        op("GETSP", OP_GETSP, &[Register]),
+        op("SETSP", OP_SETSP, &[Register]),
+        op("MUL", OP_MUL, &[Register, Register]),
+        op("DIV", OP_DIV, &[Register, Register]),
+        op("MOD", OP_MOD, &[Register, Register]),
+        op("FMUL", OP_FMUL, &[Register, Register]),
+        op("FDIV", OP_FDIV, &[Register, Register]),
+        op("IN", OP_IN, &[Register, Value]),
+        op("AND", OP_AND, &[Register, Register]),
+        op("OR", OP_OR, &[Register, Register]),
+        op("XOR", OP_XOR, &[Register, Register]),
+        op("NOT", OP_NOT, &[Register]),
+        op("SHL", OP_SHL, &[Register, Value]),
+        op("SHR", OP_SHR, &[Register, Value]),
+        op("SAR", OP_SAR, &[Register, Value]),
+        op("NEG", OP_NEG, &[Register]),
+        op("SLTS", OP_SLTS, &[Register, Register, Register]),
+        op("EQ", OP_EQ, &[Register, Register, Register]),
+        op("LDM32", OP_LDM32, &[Register, Address]),
+        op("STM32", OP_STM32, &[Address, Register]),
+        op("LDM32I", OP_LDM32I, &[Register, Register]),
+        op("STM32I", OP_STM32I, &[Register, Register]),
+        op("MOV32", OP_MOV32, &[Register, Dword]),
+        op("LDM", OP_LDM, &[Register, Address]),
+        op("STM", OP_STM, &[Address, Register]),
+        op("LDMI", OP_LDMI, &[Register, Register]),
+        op("STMI", OP_STMI, &[Register, Register]),
+        op("CPY", OP_CPY, &[Address, Address, Address]),
+        op("LDMW", OP_LDMW, &[Register, Address]),
+        op("STMW", OP_STMW, &[Address, Register]),
+        op("MATH1", OP_MATH1, &[Register, Register, Value]),
+        op("MAX", OP_MAX, &[Register, Register]),
+        op("MIN", OP_MIN, &[Register, Register]),
+        op("JREG", OP_JREG, &[Register]),
+        op("TXTZ", OP_TXTZ, &[Register, Register, Register, Register]),
+        op(
+            "TAT",
+            OP_TAT,
+            &[Register, Register, Register, Register, Value],
+        ),
+        op("TSD", OP_TSD, &[Register, Register, Register]),
+        op(
+            "TXT",
+            OP_TXT,
+            &[Register, Register, Register, Register, Value],
+        ),
+        op("NUM", OP_NUM, &[Register, Register, Register, Register]),
+        op("POSC", OP_POSC, &[Register, Register]),
+        op("MOVC", OP_MOVC, &[Register, Register]),
+        op("LOGR", OP_LOGR, &[Register]),
+        op("LOGV", OP_LOGV, &[Address]),
+        op("SND", OP_SND, &[Register, Register, Register]),
+        op("SNDV", OP_SNDV, &[Address, Value, Value]),
+        op("NOSND", OP_NOSND, &[]),
+        op("NSND", OP_NSND, &[Register, Register, Register]),
+        op("NSNDV", OP_NSNDV, &[Address, Value, Value]),
+        op("SSTOP", OP_SSTOP, &[]),
+        op("NSTOP", OP_NSTOP, &[]),
+        op("SFX", OP_SFX, &[Value]),
+        op("MUS", OP_MUS, &[Value]),
+        op("NOMUS", OP_NOMUS, &[]),
+        op("WAIT", OP_WAIT, &[]),
+    ]
+}
+
+pub fn default_isa() -> IsaTable {
+    IsaTable::new(default_specs())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_duplicate_opcodes_or_names() {
+        let specs = default_specs();
+        let mut seen_op = [false; 256];
+        let mut seen_name = std::collections::HashSet::new();
+        for spec in &specs {
+            assert!(
+                !seen_op[spec.opcode as usize],
+                "duplicate opcode 0x{:02X}",
+                spec.opcode
+            );
+            seen_op[spec.opcode as usize] = true;
+            assert!(seen_name.insert(spec.name), "duplicate name {}", spec.name);
+        }
+    }
+
+    #[test]
+    fn size_derived_from_args() {
+        let isa = default_isa();
+        let mov = isa.get_by_name("MOV").expect("MOV spec");
+        assert_eq!(mov.size(), 4);
+        let mov32 = isa.get_by_name("MOV32").expect("MOV32 spec");
+        assert_eq!(mov32.size(), 6);
+        let cls = isa.get_by_name("CLS").expect("CLS spec");
+        assert_eq!(cls.size(), 1);
+    }
+
+    #[test]
+    fn format_renders_operand_types() {
+        let isa = default_isa();
+        let mov = isa.get_by_name("MOV").expect("MOV spec");
+        assert_eq!(mov.format(&[OP_MOV, 1, 0x34, 0x12]), "MOV R1, 0x1234");
+        let fill = isa.get_by_name("FILL").expect("FILL spec");
+        assert_eq!(fill.format(&[OP_FILL, 7]), "FILL 7");
+        let mov32 = isa.get_by_name("MOV32").expect("MOV32 spec");
+        assert_eq!(
+            mov32.format(&[OP_MOV32, 2, 0x78, 0x56, 0x34, 0x12]),
+            "MOV32 R2, 0x12345678"
+        );
+        let cls = isa.get_by_name("CLS").expect("CLS spec");
+        assert_eq!(cls.format(&[OP_CLS]), "CLS");
+        assert_eq!(mov.format(&[OP_MOV, 1]), "MOV (INCOMPLETE)");
+    }
 }
