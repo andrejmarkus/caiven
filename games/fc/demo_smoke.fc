@@ -45,14 +45,14 @@ loop:
     hi = score
   end
 
-  -- draw ball (x, y, sprite_addr)
-  spr(ball.x, ball.y, 0x4000)
+  -- draw ball (sprite 0)
+  spr(0, ball.x, ball.y)
 
   -- draw hud
-  txt(2, 2, "SCORE:", 7)
-  num(44, 2, score, 7)
-  txt(2, 10, "HI:", 7)
-  num(44, 10, hi, 5)
+  txt("SCORE:", 2, 2, 7)
+  num(score, 44, 2, 7)
+  txt("HI:", 2, 10, 7)
+  num(hi, 44, 10, 5)
 
   frame += 1
   wait()

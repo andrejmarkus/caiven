@@ -19,10 +19,11 @@ loop:
     CLS
     FILL 0
 
-    MOV R0, SPR_X
-    MOV R1, SPR_Y
-    MOV R2, sprite_a
-    SPT R0 R1 R2
+    MOV R0, 0            ; sprite id 0
+    MOV R1, SPR_X
+    MOV R2, SPR_Y
+    MOV R3, 0            ; no flip
+    SPR R0 R1 R2 R3
 
     WAIT
     JMP loop

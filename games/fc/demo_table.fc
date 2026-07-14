@@ -30,5 +30,5 @@ loop:
 
   score += 1
 
-  num(2, 2, score, 7)
+  num(score, 2, 2, 7)
   wait()

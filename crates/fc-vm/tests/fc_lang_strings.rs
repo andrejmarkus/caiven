@@ -220,12 +220,12 @@ loop:
 
 #[test]
 fn txt_dynamic_tostring_no_fault() {
-    // txt(x, y, tostring(n), color) — TXTZ opcode path, no compile-time length
+    // txt(tostring(n), x, y, color) — TXTZ opcode path, no compile-time length
     let vm = run_fc(
         r#"
 let n = 42
 loop:
-  txt(0, 0, tostring(n), 7)
+  txt(tostring(n), 0, 0, 7)
   wait()
 "#,
     );
@@ -241,7 +241,7 @@ fn txt_concat_no_fault() {
         r#"
 loop:
   local label = "score: " .. tostring(99)
-  txt(0, 0, label, 7)
+  txt(label, 0, 0, 7)
   wait()
 "#,
     );
@@ -255,7 +255,7 @@ fn txt_literal_no_fault() {
     let vm = run_fc(
         r#"
 loop:
-  txt(0, 0, "hello", 7)
+  txt("hello", 0, 0, 7)
   wait()
 "#,
     );

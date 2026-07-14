@@ -100,17 +100,19 @@ loop:
     LDMW R3, TIMER
     NUM R0 R1 R2 R3
 
-    ; Draw player (player_sprite label resolves to SpriteSheet RAM address)
-    LOAD_BYTE R0, PLAYER_X
-    LOAD_BYTE R1, PLAYER_Y
-    MOV R2, player_sprite
-    SPT R0 R1 R2
+    ; Draw player (sprite id 0)
+    MOV R0, 0
+    LOAD_BYTE R1, PLAYER_X
+    LOAD_BYTE R2, PLAYER_Y
+    MOV R3, 0
+    SPR R0 R1 R2 R3
 
-    ; Draw fruit
-    LOAD_BYTE R0, FRUIT_X
-    LOAD_BYTE R1, FRUIT_Y
-    MOV R2, fruit_sprite
-    SPT R0 R1 R2
+    ; Draw fruit (sprite id 1)
+    MOV R0, 1
+    LOAD_BYTE R1, FRUIT_X
+    LOAD_BYTE R2, FRUIT_Y
+    MOV R3, 0
+    SPR R0 R1 R2 R3
 
     ; Input: LEFT
     IN R0, 2

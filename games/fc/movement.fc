@@ -1,5 +1,5 @@
 -- Simple movement demo in fc-lang
-const SPR0 = 0x4000
+-- Draw sprite 0 in the sprite editor (F2) to see the player
 const SPEED = 2
 
 let x = 60
@@ -10,17 +10,17 @@ init:
 
 loop:
   cls()
-  if key(0) then
+  if btn(0) then
     y -= SPEED
   end
-  if key(1) then
+  if btn(1) then
     y += SPEED
   end
-  if key(2) then
+  if btn(2) then
     x -= SPEED
   end
-  if key(3) then
+  if btn(3) then
     x += SPEED
   end
-  spr(x, y, SPR0)
+  spr(0, x, y)
   wait()

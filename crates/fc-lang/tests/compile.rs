@@ -8,7 +8,6 @@ fn compiles(src: &str) {
 fn movement_fc() {
     compiles(
         r#"
-const SPR0 = 0x4000
 const SPEED = 2
 let x = 60
 let y = 60
@@ -16,19 +15,19 @@ init:
   pal(0, 10, 10, 30)
 loop:
   cls()
-  if key(0) then
+  if btn(0) then
     y -= SPEED
   end
-  if key(1) then
+  if btn(1) then
     y += SPEED
   end
-  if key(2) then
+  if btn(2) then
     x -= SPEED
   end
-  if key(3) then
+  if btn(3) then
     x += SPEED
   end
-  spr(x, y, SPR0)
+  spr(0, x, y)
   wait()
 "#,
     );
@@ -149,7 +148,7 @@ fn string_literal_txt() {
     compiles(
         r#"
 loop:
-  txt(10, 20, "hello", 7)
+  txt("hello", 10, 20, 7)
   wait()
 "#,
     );
@@ -160,7 +159,7 @@ fn string_concat_literals() {
     compiles(
         r#"
 loop:
-  txt(0, 0, "foo" .. "bar", 7)
+  txt("foo" .. "bar", 0, 0, 7)
   wait()
 "#,
     );
@@ -184,8 +183,8 @@ fn string_dedup() {
     compiles(
         r#"
 loop:
-  txt(0, 0, "hi", 7)
-  txt(0, 8, "hi", 7)
+  txt("hi", 0, 0, 7)
+  txt("hi", 0, 8, 7)
   wait()
 "#,
     );
@@ -309,10 +308,19 @@ loop:
 }
 
 #[test]
-fn smoke_tables_strings() {
-    let src =
-        std::fs::read_to_string("../../games/fc/demo_smoke.fc").expect("demo_smoke.fc not found");
-    compiles(&src);
+fn all_fc_demos_compile() {
+    let dir = std::path::Path::new("../../games/fc");
+    let mut count = 0;
+    for entry in std::fs::read_dir(dir).expect("games/fc not found") {
+        let path = entry.expect("dir entry").path();
+        if path.extension().and_then(|e| e.to_str()) == Some("fc") {
+            let src = std::fs::read_to_string(&path).expect("read .fc source");
+            compile(&src)
+                .unwrap_or_else(|e| panic!("compile failed for {}: {}", path.display(), e));
+            count += 1;
+        }
+    }
+    assert!(count >= 4, "expected at least 4 .fc demos, found {count}");
 }
 
 #[test]

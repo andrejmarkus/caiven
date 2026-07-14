@@ -48,10 +48,11 @@ loop:
     STM PX, R1
 
 @draw:
-    LDM R0, PX
-    LDM R1, PY
-    MOV R2, player_sprite
-    SPT R0 R1 R2
+    MOV R0, 0            ; sprite id 0
+    LDM R1, PX
+    LDM R2, PY
+    MOV R3, 0            ; no flip
+    SPR R0 R1 R2 R3
 
     WAIT
     JMP loop
