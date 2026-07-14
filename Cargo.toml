@@ -11,6 +11,9 @@ chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
 cpal = "0.17.1"
 crc32fast = "1"
+eframe = "0.32"
+egui = "0.32"
+egui_extras = "0.32"
 env_logger = "0.11"
 fc-asm = { path = "crates/fc-asm" }
 fc-lang = { path = "crates/fc-lang" }

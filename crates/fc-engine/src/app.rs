@@ -1,6 +1,6 @@
 mod cli;
 mod input_router;
-mod rom_io;
+pub(crate) mod rom_io;
 mod run_loop;
 
 pub use cli::run;

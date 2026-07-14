@@ -27,7 +27,7 @@ pub struct CartMeta {
 /// Reads each tracked RAM section from the VM and writes them back to the cart file.
 /// Only sections that were copied into RAM (e.g. SpriteSheet) are round-tripped.
 /// Other section kinds are not currently written back.
-fn save(vm: &Vm, meta: &CartMeta) -> Result<()> {
+pub(crate) fn save(vm: &Vm, meta: &CartMeta) -> Result<()> {
     let extra: Vec<(SectionKind, Vec<u8>)> = meta
         .sections
         .iter()

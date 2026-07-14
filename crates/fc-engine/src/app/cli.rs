@@ -49,6 +49,11 @@ enum Command {
         /// Path to .asm source (hot reload) or .rom file
         file: PathBuf,
     },
+    /// Open FC Studio, the desktop editor suite
+    Edit {
+        /// Optional .rom or .fc file to open
+        file: Option<PathBuf>,
+    },
     /// Publish a .rom file to a cart sharing hub
     Publish {
         /// Path to the .rom file
@@ -349,6 +354,12 @@ pub fn run() -> Result<()> {
             })?;
             return Ok(());
         }
+        Some(Command::Edit { file }) => {
+            return crate::studio::run_studio(file.clone());
+        }
+        None => {
+            return crate::studio::run_studio(None);
+        }
         _ => {}
     }
 
@@ -366,12 +377,11 @@ pub fn run() -> Result<()> {
                 app.watch_source(file)?;
             }
         }
-        None => {
-            info!("no file specified — open a .asm or .rom file with: fc-engine run <file>");
-        }
-        Some(Command::Build { .. })
+        None
+        | Some(Command::Build { .. })
         | Some(Command::Inspect { .. })
-        | Some(Command::Publish { .. }) => unreachable!(),
+        | Some(Command::Publish { .. })
+        | Some(Command::Edit { .. }) => unreachable!(),
     }
 
     let event_loop = EventLoop::new().context("failed to create event loop")?;

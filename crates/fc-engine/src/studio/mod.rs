@@ -1,0 +1,34 @@
+//! FC Studio: desktop egui editor suite. The console runs headless inside
+//! [`fc_vm::runtime::ConsoleCore`]; its 128x128 output is shown as a
+//! nearest-neighbor texture while editors mutate cart RAM directly.
+
+mod app;
+mod cart;
+mod game_panel;
+mod theme;
+mod toolbar;
+
+use anyhow::Result;
+use std::path::PathBuf;
+
+pub fn run_studio(file: Option<PathBuf>) -> Result<()> {
+    let native_options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_title("FC Studio")
+            .with_inner_size([1280.0, 760.0])
+            .with_min_inner_size([960.0, 600.0]),
+        vsync: true,
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "fc-studio",
+        native_options,
+        Box::new(move |cc| {
+            app::StudioApp::new(cc, file)
+                .map(|a| Box::new(a) as Box<dyn eframe::App>)
+                .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })
+        }),
+    )
+    .map_err(|e| anyhow::anyhow!("eframe error: {e}"))
+}
