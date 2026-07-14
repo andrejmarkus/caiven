@@ -4,6 +4,7 @@
 
 mod app;
 mod cart;
+mod code_panel;
 mod game_panel;
 mod theme;
 mod toolbar;

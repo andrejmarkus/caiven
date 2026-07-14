@@ -86,12 +86,24 @@ pub fn load_rom(vm: &mut Vm, path: &Path) -> Result<CartMeta> {
     })
 }
 
+/// Compile failure with the 1-based source line (when known) so the code
+/// editor can highlight and jump to it.
+pub struct CompileError {
+    pub line: Option<usize>,
+    pub message: String,
+}
+
 /// Compiles `.fc` source and loads it into the VM with its source map.
-pub fn load_fc_source(vm: &mut Vm, path: &Path, source: &str) -> Result<()> {
-    let out = fc_lang::compile(source).map_err(|e| {
-        anyhow::anyhow!("compile error in {}:\n{}", path.display(), e.render(source))
-    })?;
-    vm.load_rom_with_source_map(out.program, out.source_map);
-    vm.set_fc_source(source);
-    Ok(())
+pub fn compile_into_vm(vm: &mut Vm, source: &str) -> std::result::Result<(), CompileError> {
+    match fc_lang::compile(source) {
+        Ok(out) => {
+            vm.load_rom_with_source_map(out.program, out.source_map);
+            vm.set_fc_source(source);
+            Ok(())
+        }
+        Err(e) => Err(CompileError {
+            line: e.line(),
+            message: e.render(source),
+        }),
+    }
 }

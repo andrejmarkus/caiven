@@ -1,7 +1,7 @@
 //! StudioApp: eframe application state — headless console core, cart state,
 //! tab selection and per-frame VM stepping + framebuffer texture upload.
 
-use super::{cart, game_panel, theme, toolbar};
+use super::{cart, code_panel, game_panel, theme, toolbar};
 use crate::app::rom_io::{self, CartMeta};
 use anyhow::Result;
 use fc_vm::input::Button;
@@ -58,6 +58,7 @@ pub enum RunState {
 pub struct SourceFile {
     pub path: PathBuf,
     pub text: String,
+    pub dirty: bool,
 }
 
 pub struct StudioApp {
@@ -70,6 +71,7 @@ pub struct StudioApp {
     compose_buf: Vec<u8>,
     status: String,
     status_is_error: bool,
+    code: code_panel::CodeState,
 }
 
 impl StudioApp {
@@ -86,15 +88,12 @@ impl StudioApp {
             compose_buf: Vec::new(),
             status: "no cart loaded — fc-engine edit <file.rom|file.fc>".into(),
             status_is_error: false,
+            code: code_panel::CodeState::default(),
         };
 
         if let Some(path) = file {
-            match app.open_file(&path) {
-                Ok(()) => {
-                    app.run_state = RunState::Running;
-                    app.set_status(format!("loaded {}", path.display()), false);
-                }
-                Err(e) => app.set_status(format!("{e:#}"), true),
+            if let Err(e) = app.open_file(&path) {
+                app.set_status(format!("{e:#}"), true);
             }
         }
 
@@ -106,6 +105,9 @@ impl StudioApp {
         self.status_is_error = is_error;
     }
 
+    /// Opens a cart file. Returns `Err` only for hard failures (I/O, bad ROM);
+    /// a `.fc` file that fails to compile still opens in the editor with the
+    /// error shown, so it can be fixed in place.
     fn open_file(&mut self, path: &std::path::Path) -> Result<()> {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
         match ext {
@@ -114,53 +116,84 @@ impl StudioApp {
                 info!("studio: ROM loaded from {}", path.display());
                 self.cart = Some(meta);
                 self.source = None;
+                self.code.error = None;
+                self.run_state = RunState::Running;
+                self.set_status(format!("loaded {}", path.display()), false);
             }
             "fc" => {
                 let text = std::fs::read_to_string(path)?;
-                cart::load_fc_source(&mut self.core.vm, path, &text)?;
                 info!("studio: fc source loaded from {}", path.display());
                 self.source = Some(SourceFile {
                     path: path.to_path_buf(),
                     text,
+                    dirty: false,
                 });
                 self.cart = None;
+                self.run_source();
             }
             _ => anyhow::bail!("unsupported file type: {} (expected .rom or .fc)", ext),
         }
         Ok(())
     }
 
+    /// Compiles the current editor buffer and (re)starts the game.
+    fn run_source(&mut self) {
+        let Some(src) = &self.source else {
+            self.set_status("no .fc source loaded", true);
+            return;
+        };
+        match cart::compile_into_vm(&mut self.core.vm, &src.text) {
+            Ok(()) => {
+                let name = src.path.display().to_string();
+                self.code.error = None;
+                self.run_state = RunState::Running;
+                self.set_status(format!("compiled {name}"), false);
+            }
+            Err(e) => {
+                let first = e.message.lines().next().unwrap_or("compile error").to_string();
+                self.code.error = Some(e);
+                self.run_state = RunState::Stopped;
+                self.set_status(format!("compile error: {first}"), true);
+            }
+        }
+    }
+
     fn reset(&mut self) {
-        let path = self
-            .cart
-            .as_ref()
-            .map(|c| c.path.clone())
-            .or_else(|| self.source.as_ref().map(|s| s.path.clone()));
-        let Some(path) = path else {
+        if self.source.is_some() {
+            self.run_source();
+            return;
+        }
+        let Some(path) = self.cart.as_ref().map(|c| c.path.clone()) else {
             self.set_status("nothing to reset", true);
             return;
         };
         match self.open_file(&path) {
-            Ok(()) => {
-                self.run_state = RunState::Running;
-                self.set_status(format!("reset {}", path.display()), false);
-            }
+            Ok(()) => self.set_status(format!("reset {}", path.display()), false),
             Err(e) => self.set_status(format!("{e:#}"), true),
         }
     }
 
     fn save(&mut self) {
-        match (&self.cart, &self.source) {
-            (Some(meta), _) => match rom_io::save(&self.core.vm, meta) {
+        if let Some(meta) = &self.cart {
+            match rom_io::save(&self.core.vm, meta) {
                 Ok(()) => self.set_status(format!("saved {}", meta.path.display()), false),
                 Err(e) => self.set_status(format!("save failed: {e:#}"), true),
-            },
-            (None, Some(src)) => match std::fs::write(&src.path, &src.text) {
-                Ok(()) => self.set_status(format!("saved {}", src.path.display()), false),
-                Err(e) => self.set_status(format!("save failed: {e:#}"), true),
-            },
-            (None, None) => self.set_status("nothing to save", true),
+            }
+            return;
         }
+        if let Some(src) = &mut self.source {
+            let result = std::fs::write(&src.path, &src.text);
+            let path = src.path.display().to_string();
+            if result.is_ok() {
+                src.dirty = false;
+            }
+            match result {
+                Ok(()) => self.set_status(format!("saved {path}"), false),
+                Err(e) => self.set_status(format!("save failed: {e:#}"), true),
+            }
+            return;
+        }
+        self.set_status("nothing to save", true);
     }
 
     fn route_game_input(&mut self, ctx: &egui::Context) {
@@ -239,6 +272,12 @@ impl StudioApp {
         if save {
             self.save();
         }
+        let run = ctx.input_mut(|i| {
+            i.consume_key(egui::Modifiers::CTRL, egui::Key::R)
+        });
+        if run {
+            self.run_source();
+        }
 
         ctx.input(|i| {
             let f_keys = [
@@ -271,7 +310,11 @@ impl eframe::App for StudioApp {
         let action = toolbar::show(ctx, &self.cart_name(), self.run_state, fps);
         match action {
             toolbar::ToolbarAction::Run => {
-                if self.cart.is_some() || self.source.is_some() {
+                if self.source.is_some() && self.run_state == RunState::Stopped {
+                    // Stopped source means never compiled or compile failed —
+                    // recompile instead of resuming a stale program.
+                    self.run_source();
+                } else if self.cart.is_some() || self.source.is_some() {
                     self.run_state = RunState::Running;
                 } else {
                     self.set_status("no cart loaded", true);
@@ -313,10 +356,24 @@ impl eframe::App for StudioApp {
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
+            if self.tab == Tab::Code {
+                match &mut self.source {
+                    Some(src) => code_panel::show(ui, &mut self.code, src),
+                    None => {
+                        ui.add_space(8.0);
+                        ui.heading("CODE EDITOR");
+                        ui.colored_label(
+                            theme::DIM,
+                            "no .fc source open — fc-engine edit <file.fc>",
+                        );
+                    }
+                }
+                return;
+            }
             ui.add_space(8.0);
             ui.heading(format!("{} EDITOR", self.tab.label()));
             let phase = match self.tab {
-                Tab::Code => "P1",
+                Tab::Code => unreachable!(),
                 Tab::Sprite | Tab::Palette => "P2",
                 Tab::Map => "P3",
                 Tab::Sfx | Tab::Music => "P4",

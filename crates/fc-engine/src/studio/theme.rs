@@ -8,6 +8,15 @@ pub const ERROR: Color32 = Color32::from_rgb(235, 90, 90);
 pub const OK: Color32 = Color32::from_rgb(90, 200, 110);
 pub const DIM: Color32 = Color32::from_rgb(140, 140, 150);
 
+// Syntax highlighting
+pub const TEXT: Color32 = Color32::from_rgb(220, 220, 225);
+pub const KEYWORD: Color32 = ACCENT;
+pub const BUILTIN: Color32 = Color32::from_rgb(120, 180, 255);
+pub const STRING: Color32 = Color32::from_rgb(150, 210, 130);
+pub const NUMBER: Color32 = Color32::from_rgb(200, 140, 255);
+pub const COMMENT: Color32 = Color32::from_rgb(100, 105, 115);
+pub const ERROR_BG: Color32 = Color32::from_rgb(70, 25, 25);
+
 pub fn apply(ctx: &egui::Context) {
     let mut style = (*ctx.style()).clone();
 
