@@ -22,7 +22,8 @@ RUN mkdir -p /data/roms /data/screenshots
 VOLUME /data
 EXPOSE 8080
 
-ENV FC_HUB_API_KEY=changeme
+# FC_HUB_API_KEY must be provided at runtime; the release binary refuses the
+# default "changeme" key.
 
 ENTRYPOINT ["fc-hub"]
 CMD ["--data-dir", "/data", "--address", "0.0.0.0", "--port", "8080"]

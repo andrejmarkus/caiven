@@ -2,6 +2,9 @@
 members = ["crates/fc-core", "crates/fc-rom", "crates/fc-asm", "crates/fc-host", "crates/fc-vm", "crates/fc-engine", "crates/fc-lang", "crates/fc-hub", "crates/migration"]
 resolver = "2"
 
+[workspace.lints.clippy]
+unwrap_used = "warn"
+
 [workspace.dependencies]
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }

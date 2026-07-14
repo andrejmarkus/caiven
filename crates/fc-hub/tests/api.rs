@@ -1,6 +1,8 @@
 //! API integration tests: in-memory SQLite + rocket local client, exercising
 //! auth, upload validation and the download roundtrip.
 
+#![allow(clippy::unwrap_used)]
+
 use fc_hub::{HubState, build_rocket};
 use migration::MigratorTrait;
 use rocket::data::{Limits, ToByteUnit};

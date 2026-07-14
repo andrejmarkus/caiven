@@ -339,6 +339,7 @@ fn unquote(s: &str) -> Option<String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

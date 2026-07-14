@@ -3,6 +3,9 @@ name = "fc-hub"
 version = "0.1.0"
 edition = "2024"
 
+[lints]
+workspace = true
+
 [[bin]]
 name = "fc-hub"
 path = "src/main.rs"

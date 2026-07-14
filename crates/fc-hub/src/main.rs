@@ -33,7 +33,14 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     if args.api_key == "changeme" {
-        eprintln!("WARNING: default API key in use — set --api-key or FC_HUB_API_KEY");
+        if cfg!(debug_assertions) {
+            eprintln!("WARNING: default API key in use — set --api-key or FC_HUB_API_KEY");
+        } else {
+            anyhow::bail!(
+                "refusing to start with the default API key in a release build — \
+                 set --api-key or FC_HUB_API_KEY"
+            );
+        }
     }
 
     tokio::fs::create_dir_all(args.data_dir.join("roms")).await?;

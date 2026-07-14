@@ -1,6 +1,8 @@
 //! Integration tests for the assembler: instruction encoding, label
 //! resolution, sections, macros, constants and error reporting.
 
+#![allow(clippy::unwrap_used)]
+
 use fc_asm::{AsmError, assemble, assemble_with_sections};
 
 #[test]

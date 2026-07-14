@@ -377,7 +377,7 @@ docker compose up
 | `GET` | `/gallery` | HTML gallery page |
 | `POST` | `/screenshot/:id` | Upload screenshot for cart |
 
-Configure via `FC_HUB_API_KEY` and `DATABASE_URL` environment variables.
+Configure via `FC_HUB_API_KEY` and `DATABASE_URL` environment variables. Release builds refuse to start with the default `changeme` API key — set a real one; debug builds only print a warning.
 
 ---
 

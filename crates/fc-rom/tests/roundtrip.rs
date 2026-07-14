@@ -1,6 +1,8 @@
 //! Integration tests for the ROM binary format: encode→decode roundtrip and
 //! rejection of corrupted inputs (bad magic, truncation, CRC mismatch).
 
+#![allow(clippy::unwrap_used)]
+
 use std::path::PathBuf;
 
 use fc_rom::{RomError, RomHeader, SectionKind, load, write};

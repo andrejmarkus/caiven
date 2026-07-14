@@ -3,6 +3,9 @@ name = "fc-vm"
 version = "0.1.0"
 edition = "2024"
 
+[lints]
+workspace = true
+
 [lib]
 name = "fc_vm"
 path = "src/lib.rs"

@@ -1,7 +1,11 @@
+// Internal invariants (fn_ctx present while lowering a function body); full
+// rewrite of this module is deliberately deferred.
+#![allow(clippy::unwrap_used)]
+
 use crate::ast::*;
 use crate::error::{LangError, Result};
-use fc_asm::opcodes::*;
 use fc_asm::SourceMap;
+use fc_asm::opcodes::*;
 use std::collections::HashMap;
 
 const GLOBALS_BASE: u16 = 0x0000;
@@ -13,13 +17,13 @@ const STRING_POOL_BASE: u16 = 0x3800;
 // Heap allocator (bump pointer)
 const HEAP_BASE: u32 = 0x6000;
 const HEAP_TOP_ADDR: u16 = 0x5000; // u32 at 0x5000: current heap top
-                                   // Runtime scratch (non-reentrant; table ops don't nest)
+// Runtime scratch (non-reentrant; table ops don't nest)
 const RT_TMP0: u16 = 0x5004;
 const RT_TMP1: u16 = 0x5008;
 const RT_TMP2: u16 = 0x500C;
 const RT_TMP3: u16 = 0x5010;
 const RT_TMP4: u16 = 0x5014; // iteration counter for __rt_settab probe loop
-                             // String runtime scratch (non-reentrant; string ops don't nest)
+// String runtime scratch (non-reentrant; string ops don't nest)
 const RT_STR_TMP0: u16 = 0x5018;
 const RT_STR_TMP1: u16 = 0x501C;
 const RT_STR_TMP2: u16 = 0x5020;
@@ -462,10 +466,10 @@ impl Compiler {
     }
 
     fn lookup_var(&self, name: &str) -> Option<VarLoc> {
-        if let Some(ctx) = &self.fn_ctx {
-            if let Some(loc) = ctx.lookup(name) {
-                return Some(loc);
-            }
+        if let Some(ctx) = &self.fn_ctx
+            && let Some(loc) = ctx.lookup(name)
+        {
+            return Some(loc);
         }
         if let Some(&val) = self.consts.get(name) {
             return Some(VarLoc::Const(val));
@@ -635,7 +639,7 @@ impl Compiler {
         self.emit_stm32(RT_TMP2, 0); // probe += 8
 
         self.emit_ldm32(1, RT_TMP3); // R1 = limit
-                                     // if probe >= limit: SLTS R2, probe, limit → R2 = (probe < limit)
+        // if probe >= limit: SLTS R2, probe, limit → R2 = (probe < limit)
         self.code.push(OP_SLTS);
         self.code.push(2);
         self.code.push(0);
@@ -1110,7 +1114,7 @@ impl Compiler {
         self.emit_addr(0, 2);
         self.emit_push(0); // push env_ptr (becomes param[0] of closure)
         self.emit_jreg(1); // jump to code_ptr; pushes 2-byte return addr
-                           // Cleanup: pop env_ptr + all args
+        // Cleanup: pop env_ptr + all args
         let total = (args.len() + 1) * 4;
         if total > 0 {
             self.emit_getsp(1);
@@ -1804,7 +1808,7 @@ impl Compiler {
                     return Err(LangError::UndefinedVariable {
                         line: *line,
                         name: name.clone(),
-                    })
+                    });
                 }
                 Some(VarLoc::Const(v)) => {
                     self.emit_mov_r0_imm(v);
@@ -2075,8 +2079,8 @@ impl Compiler {
                 self.emit_mov_label(1, &fn_label); // R1 = code_ptr (patched)
                 self.emit_pop(0); // R0 = closure_ptr
                 self.emit_stm32i(0, 1); // mem32[closure_ptr] = code_ptr
-                                        // Store n_upvals at [closure_ptr+4]
-                                        // Store n_upvals at [closure_ptr+4]: R0 = closure_ptr
+                // Store n_upvals at [closure_ptr+4]
+                // Store n_upvals at [closure_ptr+4]: R0 = closure_ptr
                 self.emit_push(0); // save closure_ptr
                 self.emit_mov32(1, n as u32); // R1 = n
                 self.emit_mov(2, 4); // R2 = 4
@@ -2100,7 +2104,7 @@ impl Compiler {
                         VarLoc::Const(v) => self.emit_mov32(0, v),
                     }
                     self.emit_push(0); // save upval value
-                                       // R0 = closure_ptr (need to reload)
+                    // R0 = closure_ptr (need to reload)
                     self.emit_ldm32(0, HEAP_TOP_ADDR); // current heap_top
                     self.emit_mov32(1, alloc_size);
                     self.emit_subr(0, 1); // R0 = closure_ptr = heap_top - alloc_size
@@ -2525,18 +2529,16 @@ impl Compiler {
                 // Named top-level functions use direct JSR.
                 let is_static_fn = self.fn_names.contains(&name)
                     || matches!(self.lookup_var(&name), None | Some(VarLoc::Const(_)));
-                if !is_static_fn {
-                    if let Some(loc) = self.lookup_var(&name) {
-                        match loc {
-                            VarLoc::Local(_)
-                            | VarLoc::Param(_)
-                            | VarLoc::Upvalue(_)
-                            | VarLoc::Global(_) => {
-                                let func_expr = Expr::Var(name.clone(), line);
-                                return self.emit_dynamic_call(&func_expr, args, line);
-                            }
-                            VarLoc::Const(_) => {}
+                if !is_static_fn && let Some(loc) = self.lookup_var(&name) {
+                    match loc {
+                        VarLoc::Local(_)
+                        | VarLoc::Param(_)
+                        | VarLoc::Upvalue(_)
+                        | VarLoc::Global(_) => {
+                            let func_expr = Expr::Var(name.clone(), line);
+                            return self.emit_dynamic_call(&func_expr, args, line);
                         }
+                        VarLoc::Const(_) => {}
                     }
                 }
                 // Static call to top-level named function
