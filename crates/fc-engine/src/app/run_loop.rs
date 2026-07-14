@@ -12,28 +12,24 @@ impl App {
         self.poll_hot_reload();
 
         if self.mode == AppMode::Run {
-            let now = Instant::now();
-            let dt = now.duration_since(self.last_tick);
-            self.last_tick = now;
-
+            let steps = self.core.frame_steps();
             match self.debugger.get_mode() {
                 DebugMode::Running => {
-                    let steps = self.timing.tick(dt);
                     for _ in 0..steps {
-                        self.vm.run_frame(&self.input, &self.font);
-                        self.debugger.push_state(self.vm.snapshot());
+                        self.core.run_frame();
+                        self.debugger.push_state(self.core.vm.snapshot());
                     }
                 }
                 DebugMode::Step => {
-                    self.vm.step(&self.input, &self.font);
-                    self.debugger.check_breakpoint(self.vm.get_pc());
-                    self.debugger.dump_state(&self.vm);
-                    self.debugger.pause(self.vm.get_pc());
+                    self.core.step();
+                    self.debugger.check_breakpoint(self.core.vm.get_pc());
+                    self.debugger.dump_state(&self.core.vm);
+                    self.debugger.pause(self.core.vm.get_pc());
                 }
                 DebugMode::Paused => {}
             }
         } else {
-            self.last_tick = Instant::now();
+            self.core.last_tick = Instant::now();
         }
     }
 }

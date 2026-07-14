@@ -15,5 +15,4 @@ fc-core = { workspace = true }
 fc-rom = { workspace = true }
 fc-vm = { workspace = true }
 log = { workspace = true }
-pixels = { workspace = true }
 winit = { workspace = true }

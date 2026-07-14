@@ -1317,7 +1317,6 @@ dependencies = [
  "fc-vm",
  "image",
  "log",
- "pixels",
  "serde",
  "serde_json",
  "toml",
@@ -1336,7 +1335,6 @@ dependencies = [
  "fc-rom",
  "fc-vm",
  "log",
- "pixels",
  "winit",
 ]
 
@@ -1388,6 +1386,7 @@ dependencies = [
  "fc-lang",
  "image",
  "log",
+ "pixels",
  "serde",
  "toml",
  "winit",

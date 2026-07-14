@@ -2,6 +2,7 @@ pub mod input;
 pub mod isa;
 pub mod peripheral;
 pub mod rendering;
+pub mod runtime;
 pub mod settings;
 pub mod timing;
 pub mod vm;

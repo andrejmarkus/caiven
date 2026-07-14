@@ -49,7 +49,7 @@ impl App {
         for section in &rom.sections {
             if section.kind == SectionKind::ModManifest {
                 let manifest = String::from_utf8_lossy(&section.data);
-                let registered = self.vm.registered_peripheral_names();
+                let registered = self.core.vm.registered_peripheral_names();
                 for required in manifest.lines().map(str::trim).filter(|s| !s.is_empty()) {
                     if !registered.contains(&required) {
                         anyhow::bail!("ROM requires mod '{}' but it is not loaded", required);
@@ -58,14 +58,15 @@ impl App {
             }
         }
 
-        self.vm.load_rom(rom.program.clone());
+        self.core.vm.load_rom(rom.program.clone());
         self.debugger.set_fcdbg_path(path.with_extension("fcdbg"));
 
         let mut sections: Vec<SectionLayout> = Vec::new();
         for section in &rom.sections {
             match section.kind {
                 SectionKind::SpriteSheet => {
-                    self.vm
+                    self.core
+                        .vm
                         .load_section_to_ram(SPRITE_SHEET_RAM_BASE, &section.data);
                     sections.push(SectionLayout {
                         kind: SectionKind::SpriteSheet,
@@ -79,7 +80,9 @@ impl App {
                     );
                 }
                 SectionKind::Map => {
-                    self.vm.load_section_to_ram(MAP_RAM_BASE, &section.data);
+                    self.core
+                        .vm
+                        .load_section_to_ram(MAP_RAM_BASE, &section.data);
                     sections.push(SectionLayout {
                         kind: SectionKind::Map,
                         ram_base: MAP_RAM_BASE,
@@ -92,8 +95,10 @@ impl App {
                     );
                 }
                 SectionKind::Palette => {
-                    self.vm.load_section_to_ram(PALETTE_RAM_BASE, &section.data);
-                    self.vm.set_palette_from_bytes(&section.data);
+                    self.core
+                        .vm
+                        .load_section_to_ram(PALETTE_RAM_BASE, &section.data);
+                    self.core.vm.set_palette_from_bytes(&section.data);
                     sections.push(SectionLayout {
                         kind: SectionKind::Palette,
                         ram_base: PALETTE_RAM_BASE,
@@ -106,7 +111,9 @@ impl App {
                     );
                 }
                 SectionKind::SfxBank => {
-                    self.vm.load_section_to_ram(SFX_RAM_BASE, &section.data);
+                    self.core
+                        .vm
+                        .load_section_to_ram(SFX_RAM_BASE, &section.data);
                     sections.push(SectionLayout {
                         kind: SectionKind::SfxBank,
                         ram_base: SFX_RAM_BASE,
@@ -119,7 +126,9 @@ impl App {
                     );
                 }
                 SectionKind::MusicBank => {
-                    self.vm.load_section_to_ram(MUSIC_RAM_BASE, &section.data);
+                    self.core
+                        .vm
+                        .load_section_to_ram(MUSIC_RAM_BASE, &section.data);
                     sections.push(SectionLayout {
                         kind: SectionKind::MusicBank,
                         ram_base: MUSIC_RAM_BASE,
@@ -138,12 +147,14 @@ impl App {
         // If no Palette section was in the ROM, sync VM's default palette to RAM
         if !sections.iter().any(|s| s.kind == SectionKind::Palette) {
             let palette_bytes: Vec<u8> = self
+                .core
                 .vm
                 .get_palette()
                 .iter()
                 .flat_map(|c| [c.get_r(), c.get_g(), c.get_b()])
                 .collect();
-            self.vm
+            self.core
+                .vm
                 .load_section_to_ram(PALETTE_RAM_BASE, &palette_bytes);
             sections.push(SectionLayout {
                 kind: SectionKind::Palette,
@@ -208,19 +219,23 @@ impl App {
         if ext == "fc" {
             let out = fc_lang::compile(&source)
                 .map_err(|e| anyhow::anyhow!("compile error in {}: {}", path.display(), e))?;
-            self.vm
+            self.core
+                .vm
                 .load_rom_with_source_map(out.program, out.source_map);
-            self.vm.set_fc_source(&source);
+            self.core.vm.set_fc_source(&source);
             self.code_editor.set_source_path(path.to_path_buf());
             info!("fc-lang compiled from {}", path.display());
         } else {
             let out = fc_asm::assemble_with_sections(&source)
                 .with_context(|| format!("failed to assemble {}", path.display()))?;
-            self.vm
+            self.core
+                .vm
                 .load_rom_with_source_map(out.program, out.source_map);
             for (wire_id, data) in &out.extra_sections {
                 if *wire_id == fc_rom::SectionKind::SpriteSheet.to_u16() {
-                    self.vm.load_section_to_ram(SPRITE_SHEET_RAM_BASE, data);
+                    self.core
+                        .vm
+                        .load_section_to_ram(SPRITE_SHEET_RAM_BASE, data);
                 }
             }
             info!("source assembled from {}", path.display());
@@ -252,7 +267,7 @@ impl App {
         };
         meta.header.title = self.meta_editor.title.clone();
         meta.header.author = self.meta_editor.author.clone();
-        match save(&self.vm, meta) {
+        match save(&self.core.vm, meta) {
             Ok(()) => info!("cart saved to {}", meta.path.display()),
             Err(e) => error!("cart save failed: {e}"),
         }

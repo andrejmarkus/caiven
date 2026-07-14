@@ -15,7 +15,7 @@ impl App {
             self.mode = new_mode;
             return;
         }
-        let vm = &mut self.vm;
+        let vm = &mut self.core.vm;
         match self.mode {
             AppMode::Sprite => self.sprite_editor.handle_click(x, y, vm),
             AppMode::Map => self.map_editor.handle_click(x, y, vm),
@@ -33,7 +33,7 @@ impl App {
         if tabs::hit_test(x, y).is_some() {
             return;
         }
-        let vm = &mut self.vm;
+        let vm = &mut self.core.vm;
         match self.mode {
             AppMode::Sprite => self.sprite_editor.handle_drag(x, y, vm),
             AppMode::Map => self.map_editor.handle_drag(x, y, vm),
@@ -48,7 +48,7 @@ impl App {
     }
 
     pub(super) fn dispatch_editor_mouse_up(&mut self, x: u32, y: u32) {
-        let vm = &mut self.vm;
+        let vm = &mut self.core.vm;
         match self.mode {
             AppMode::Sprite => self.sprite_editor.handle_mouse_up(x, y, vm),
             AppMode::Map => self.map_editor.handle_mouse_up(x, y, vm),
@@ -62,7 +62,7 @@ impl App {
     }
 
     pub(super) fn dispatch_editor_right_click(&mut self, x: u32, y: u32) {
-        let vm = &mut self.vm;
+        let vm = &mut self.core.vm;
         match self.mode {
             AppMode::Sprite => self.sprite_editor.handle_right_click(x, y, vm),
             AppMode::Map => self.map_editor.handle_right_click(x, y, vm),
@@ -71,7 +71,7 @@ impl App {
     }
 
     pub(super) fn dispatch_editor_right_drag(&mut self, x: u32, y: u32) {
-        let vm = &mut self.vm;
+        let vm = &mut self.core.vm;
         match self.mode {
             AppMode::Sprite => self.sprite_editor.handle_right_drag(x, y, vm),
             AppMode::Map => self.map_editor.handle_right_drag(x, y, vm),
@@ -80,7 +80,7 @@ impl App {
     }
 
     pub(super) fn dispatch_editor_scroll(&mut self, dx: f32, dy: f32) {
-        let vm = &mut self.vm;
+        let vm = &mut self.core.vm;
         match self.mode {
             AppMode::Sprite => self.sprite_editor.handle_scroll(dx, dy, vm),
             AppMode::Map => self.map_editor.handle_scroll(dx, dy, vm),
@@ -112,9 +112,10 @@ impl App {
                 let source = self.code_editor.get_source();
                 match fc_lang::compile(&source) {
                     Ok(out) => {
-                        self.vm
+                        self.core
+                            .vm
                             .load_rom_with_source_map(out.program, out.source_map);
-                        self.vm.set_fc_source(&source);
+                        self.core.vm.set_fc_source(&source);
                         if let Some(path) = &self.code_editor.source_path {
                             let _ = std::fs::write(path, &source);
                         }
@@ -136,8 +137,8 @@ impl App {
         let pressed = event.state.is_pressed();
 
         if let PhysicalKey::Code(code) = event.physical_key {
-            if let Some(button) = self.input_map.get_button(code) {
-                self.input.set_button(button, pressed);
+            if let Some(button) = self.core.input_map.get_button(code) {
+                self.core.input.set_button(button, pressed);
             }
 
             let ctrl = self.modifiers.state().control_key();
@@ -202,7 +203,7 @@ impl App {
                 let paused = self.debugger.get_mode() == DebugMode::Paused;
                 match code {
                     KeyCode::Space if pressed && !event.repeat => {
-                        self.debugger.toggle_pause(self.vm.get_pc());
+                        self.debugger.toggle_pause(self.core.vm.get_pc());
                     }
                     KeyCode::KeyC if pressed && !event.repeat => {
                         self.debugger.step();
@@ -214,21 +215,21 @@ impl App {
                         self.debugger.toggle_bp_at_cursor();
                     }
                     KeyCode::ArrowUp if pressed && paused => {
-                        self.debugger.cursor_up(&self.vm);
+                        self.debugger.cursor_up(&self.core.vm);
                     }
                     KeyCode::ArrowDown if pressed && paused => {
-                        self.debugger.cursor_down(&self.vm);
+                        self.debugger.cursor_down(&self.core.vm);
                     }
                     KeyCode::ArrowLeft if pressed && paused => {
                         self.debugger.scrub_back();
                         if let Some(state) = self.debugger.current_scrub_snapshot() {
-                            self.vm.restore(&state);
+                            self.core.vm.restore(&state);
                         }
                     }
                     KeyCode::ArrowRight if pressed && paused => {
                         self.debugger.scrub_forward();
                         if let Some(state) = self.debugger.current_scrub_snapshot() {
-                            self.vm.restore(&state);
+                            self.core.vm.restore(&state);
                         }
                     }
                     KeyCode::KeyN if pressed && !event.repeat => {
@@ -241,7 +242,7 @@ impl App {
                 }
             } else if pressed {
                 // Delegate key to active editor
-                let vm = &mut self.vm;
+                let vm = &mut self.core.vm;
                 match self.mode {
                     AppMode::Sprite => self.sprite_editor.handle_key(code, vm),
                     AppMode::Map => self.map_editor.handle_key(code, vm),

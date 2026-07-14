@@ -12,27 +12,11 @@ use crate::editors::{
 };
 use crate::hot_reload::HotReload;
 use crate::tabs;
-use anyhow::{Context, Result};
-use fc_vm::default_instruction_set;
-use fc_vm::input::{Input, InputMap};
-use fc_vm::rendering::font::Font;
-use fc_vm::rendering::screen::Screen;
-use fc_vm::settings::NAME;
-use fc_vm::timing::FixedTimestep;
-use fc_vm::vm::audio::{Audio, AudioPeripheral};
-use fc_vm::{Vm, VmConfig};
-use log::{error, info};
-use pixels::{Pixels, SurfaceTexture};
+use anyhow::Result;
+use fc_vm::runtime::{ConsoleCore, WINDOW_SCALE, WindowGfx};
 use rom_io::CartMeta;
-use std::sync::Arc;
-use std::time::Instant;
 use winit::event::{ElementState, Modifiers, MouseButton, MouseScrollDelta};
-use winit::{
-    application::ApplicationHandler,
-    dpi::LogicalSize,
-    event::WindowEvent,
-    window::{Window, WindowAttributes},
-};
+use winit::{application::ApplicationHandler, event::WindowEvent};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppMode {
@@ -48,19 +32,9 @@ pub enum AppMode {
 }
 
 pub struct App {
-    window: Option<Arc<Window>>,
-    pixels: Option<Pixels<'static>>,
-    screen: Screen,
-    input: Input,
-    input_map: InputMap,
-    vm: Vm,
-    font: Font,
-    config: VmConfig,
-    #[allow(dead_code)]
-    audio: Option<Audio>,
+    core: ConsoleCore,
+    gfx: WindowGfx,
     debugger: Debugger,
-    timing: FixedTimestep,
-    last_tick: Instant,
     hot_reload: HotReload,
     mode: AppMode,
     sprite_editor: SpriteEditor,
@@ -81,43 +55,10 @@ pub struct App {
 
 impl App {
     fn new() -> Result<Self> {
-        let font = Font::from_image(
-            "assets/font.png",
-            " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!?\"'()+-=.:,[]<>",
-            3,
-            5,
-        )
-        .context("failed to initialize font")?;
-
-        let config = VmConfig::default();
-        let instruction_set = Arc::new(default_instruction_set());
-        let mut vm = Vm::new(instruction_set, config);
-
-        let audio = match Audio::new(vm.get_sound_shared()) {
-            Ok(a) => Some(a),
-            Err(e) => {
-                error!("failed to initialize audio: {e}");
-                None
-            }
-        };
-
-        vm.register_peripheral(AudioPeripheral::new(vm.get_sound_shared()));
-
-        info!("fantasy console engine initialized");
-
         Ok(Self {
-            window: None,
-            pixels: None,
-            screen: Screen::new(config.width, config.height),
-            input: Input::new(),
-            input_map: InputMap::load("controls.toml"),
-            vm,
-            font,
-            config,
-            audio,
+            core: ConsoleCore::new()?,
+            gfx: WindowGfx::default(),
             debugger: Debugger::new(false),
-            timing: FixedTimestep::new(60),
-            last_tick: Instant::now(),
             hot_reload: HotReload::new(),
             mode: AppMode::Run,
             sprite_editor: SpriteEditor::new(),
@@ -142,7 +83,9 @@ impl App {
     }
 
     fn logical_mouse_pos(&self) -> (u32, u32) {
+        let config = &self.core.config;
         let (pw, ph) = self
+            .gfx
             .window
             .as_ref()
             .map(|w| {
@@ -150,48 +93,20 @@ impl App {
                 (s.width as f64, s.height as f64)
             })
             .unwrap_or((
-                (self.config.width * 4) as f64,
-                (self.config.height * 4) as f64,
+                (config.width * WINDOW_SCALE) as f64,
+                (config.height * WINDOW_SCALE) as f64,
             ));
-        let sx = (self.mouse_x / pw * self.config.width as f64)
-            .clamp(0.0, (self.config.width - 1) as f64) as u32;
-        let sy = (self.mouse_y / ph * self.config.height as f64)
-            .clamp(0.0, (self.config.height - 1) as f64) as u32;
+        let sx =
+            (self.mouse_x / pw * config.width as f64).clamp(0.0, (config.width - 1) as f64) as u32;
+        let sy = (self.mouse_y / ph * config.height as f64).clamp(0.0, (config.height - 1) as f64)
+            as u32;
         (sx, sy)
     }
 }
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        let screen_w = self.config.width * 4;
-        let screen_h = self.config.height * 4;
-        let window_attrs = WindowAttributes::default()
-            .with_title(NAME)
-            .with_inner_size(LogicalSize::new(screen_w as f64, screen_h as f64))
-            .with_resizable(false);
-
-        let window = match event_loop.create_window(window_attrs) {
-            Ok(w) => Arc::new(w),
-            Err(e) => {
-                error!("failed to create window: {e}");
-                event_loop.exit();
-                return;
-            }
-        };
-
-        let size = window.inner_size();
-        let surface = SurfaceTexture::new(size.width, size.height, window.clone());
-        let pixels = match Pixels::new(self.config.width, self.config.height, surface) {
-            Ok(p) => p,
-            Err(e) => {
-                error!("failed to create pixel buffer: {e}");
-                event_loop.exit();
-                return;
-            }
-        };
-
-        self.window = Some(window);
-        self.pixels = Some(pixels);
+        self.gfx.resume(event_loop, &self.core.config);
     }
 
     fn window_event(
@@ -205,16 +120,14 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::Resized(new_size) => {
-                if let Some(pixels) = self.pixels.as_mut() {
-                    let _ = pixels.resize_surface(new_size.width, new_size.height);
-                }
+                self.gfx.resize(new_size);
             }
             WindowEvent::RedrawRequested => {
-                self.screen.get_debug_layer().clear();
+                self.core.screen.get_debug_layer().clear();
                 let cursor = self.logical_mouse_pos();
-                let font = &self.font;
-                let vm = &self.vm;
-                let debug_layer = self.screen.get_debug_layer();
+                let font = &self.core.font;
+                let vm = &self.core.vm;
+                let debug_layer = self.core.screen.get_debug_layer();
 
                 match self.mode {
                     AppMode::Sprite => {
@@ -252,16 +165,13 @@ impl ApplicationHandler for App {
                 }
 
                 // Tab bar always visible
-                tabs::draw_tab_bar(self.screen.get_debug_layer(), &self.font, self.mode);
+                tabs::draw_tab_bar(
+                    self.core.screen.get_debug_layer(),
+                    &self.core.font,
+                    self.mode,
+                );
 
-                if let Some(pixels) = self.pixels.as_mut() {
-                    self.screen.construct(
-                        pixels.frame_mut(),
-                        self.vm.world_pixels(),
-                        self.vm.ui_pixels(),
-                    );
-                    let _ = pixels.render();
-                }
+                self.gfx.present(&self.core.screen, &self.core.vm);
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse_x = position.x;
@@ -278,10 +188,10 @@ impl ApplicationHandler for App {
                     && self.mode == AppMode::Run
                     && self.debugger.is_enabled()
                     && let DebugClickAction::RestoreScrub =
-                        self.debugger.handle_click(sx, sy, &self.vm)
+                        self.debugger.handle_click(sx, sy, &self.core.vm)
                     && let Some(state) = self.debugger.current_scrub_snapshot()
                 {
-                    self.vm.restore(&state);
+                    self.core.vm.restore(&state);
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -308,14 +218,14 @@ impl ApplicationHandler for App {
                             self.poll_code_editor_action();
                             // debugger overlay click (Run mode only)
                             if self.mode == AppMode::Run && self.debugger.is_enabled() {
-                                let pc = self.vm.get_pc();
-                                match self.debugger.handle_click(sx, sy, &self.vm) {
+                                let pc = self.core.vm.get_pc();
+                                match self.debugger.handle_click(sx, sy, &self.core.vm) {
                                     DebugClickAction::TogglePause => self.debugger.toggle_pause(pc),
                                     DebugClickAction::Step => self.debugger.step(),
                                     DebugClickAction::RestoreScrub => {
                                         if let Some(state) = self.debugger.current_scrub_snapshot()
                                         {
-                                            self.vm.restore(&state);
+                                            self.core.vm.restore(&state);
                                         }
                                     }
                                     DebugClickAction::None => {}
@@ -346,9 +256,6 @@ impl ApplicationHandler for App {
 
     fn about_to_wait(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
         self.update();
-
-        if let Some(window) = self.window.as_ref() {
-            window.request_redraw();
-        }
+        self.gfx.request_redraw();
     }
 }
