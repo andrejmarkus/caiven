@@ -24,7 +24,6 @@ use crate::isa::InstructionSet;
 use crate::peripheral::{Peripheral, PeripheralRegistry};
 use crate::rendering::screen::ScreenLayer;
 use crate::vm::Camera;
-use crate::vm::Palette;
 use crate::vm::audio::{NoiseChannel, Sound, SquareChannel};
 use fc_core::{Color, Vec2};
 use log::error;
