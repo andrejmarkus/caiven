@@ -11,12 +11,12 @@ pub struct VmConfig {
 impl Default for VmConfig {
     fn default() -> Self {
         Self {
-            width: 128,
-            height: 128,
-            sprite_size: 8,
-            memory_size: 32 * 1024,
-            register_count: 4,
-            palette_size: 16,
+            width: fc_core::memory::SCREEN_WIDTH,
+            height: fc_core::memory::SCREEN_HEIGHT,
+            sprite_size: fc_core::memory::SPRITE_SIZE,
+            memory_size: fc_core::memory::RAM_SIZE,
+            register_count: 8,
+            palette_size: fc_core::memory::PALETTE_SIZE,
         }
     }
 }

@@ -168,7 +168,7 @@ impl App {
             sections.push(SectionLayout {
                 kind: SectionKind::Map,
                 ram_base: MAP_RAM_BASE,
-                len: 64 * 32,
+                len: fc_core::memory::MAP_LEN,
             });
         }
 
