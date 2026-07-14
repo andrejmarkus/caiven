@@ -2,22 +2,10 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
+use fc_hub::{HubState, build_rocket};
 use migration::MigratorTrait;
 use rocket::data::{Limits, ToByteUnit};
 use sea_orm::Database;
-
-mod db;
-mod entities;
-mod error;
-mod gallery;
-mod handlers;
-mod models;
-
-pub struct HubState {
-    pub db: sea_orm::DatabaseConnection,
-    pub data_dir: PathBuf,
-    pub api_key: String,
-}
 
 #[derive(Parser)]
 #[command(name = "fc-hub", about = "Fantasy Console cart sharing hub")]
@@ -74,21 +62,7 @@ async fn main() -> Result<()> {
         api_key: args.api_key,
     };
 
-    rocket::custom(config)
-        .manage(state)
-        .mount(
-            "/",
-            rocket::routes![
-                handlers::gallery_page,
-                handlers::list_carts,
-                handlers::get_cart,
-                handlers::upload_cart,
-                handlers::download_rom,
-                handlers::upload_screenshot,
-                handlers::get_screenshot,
-            ],
-        )
-        .register("/", rocket::catchers![handlers::unauthorized])
+    build_rocket(config, state)
         .launch()
         .await
         .map_err(|e| anyhow::anyhow!(e))?;

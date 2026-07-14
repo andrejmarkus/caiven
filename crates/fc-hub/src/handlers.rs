@@ -92,7 +92,7 @@ fn validate_meta(meta: &CartMeta) -> Result<(), ApiError> {
 
 // ── custom binary responder ───────────────────────────────────────────────────
 
-pub(crate) struct BinaryFile {
+pub struct BinaryFile {
     bytes: Vec<u8>,
     content_type: &'static str,
     disposition: String,

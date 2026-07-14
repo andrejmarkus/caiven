@@ -1355,6 +1355,7 @@ dependencies = [
  "sea-orm-migration",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "uuid",
 ]
@@ -1372,6 +1373,7 @@ name = "fc-rom"
 version = "0.1.0"
 dependencies = [
  "crc32fast",
+ "tempfile",
  "thiserror 2.0.18",
 ]
 
