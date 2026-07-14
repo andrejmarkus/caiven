@@ -16,6 +16,10 @@ impl Parser {
         self.tokens.get(self.pos).map(|t| t.line).unwrap_or(0)
     }
 
+    fn col(&self) -> usize {
+        self.tokens.get(self.pos).map(|t| t.col).unwrap_or(0)
+    }
+
     fn peek(&self) -> &TokenKind {
         self.tokens
             .get(self.pos)
@@ -51,6 +55,7 @@ impl Parser {
         } else {
             Err(LangError::UnexpectedToken {
                 line,
+                col: self.col(),
                 got: self.peek().to_string(),
                 expected: expected.to_string(),
             })
@@ -67,6 +72,7 @@ impl Parser {
             }
             other => Err(LangError::UnexpectedToken {
                 line,
+                col: self.col(),
                 got: other.to_string(),
                 expected: "identifier".to_string(),
             }),
@@ -84,6 +90,7 @@ impl Parser {
             }
             other => Err(LangError::UnexpectedToken {
                 line,
+                col: self.col(),
                 got: other.to_string(),
                 expected: "number literal".to_string(),
             }),
@@ -151,6 +158,7 @@ impl Parser {
                     let line = self.line();
                     return Err(LangError::UnexpectedToken {
                         line,
+                        col: self.col(),
                         got: other.to_string(),
                         expected: "const / let / fn / function / init / loop".to_string(),
                     });
@@ -522,6 +530,7 @@ impl Parser {
                             _ => {
                                 return Err(LangError::UnexpectedToken {
                                     line,
+                                    col: self.col(),
                                     got: self.peek().to_string(),
                                     expected: "= / ( / . / [ / :".to_string(),
                                 });
@@ -582,6 +591,7 @@ impl Parser {
                         }
                         other => Err(LangError::UnexpectedToken {
                             line,
+                            col: self.col(),
                             got: other.to_string(),
                             expected: "= / += / -= / (".to_string(),
                         }),
@@ -590,6 +600,7 @@ impl Parser {
             }
             other => Err(LangError::UnexpectedToken {
                 line,
+                col: self.col(),
                 got: other.to_string(),
                 expected: "statement".to_string(),
             }),
@@ -879,6 +890,7 @@ impl Parser {
             }
             other => Err(LangError::UnexpectedToken {
                 line,
+                col: self.col(),
                 got: other.to_string(),
                 expected: "expression".to_string(),
             }),

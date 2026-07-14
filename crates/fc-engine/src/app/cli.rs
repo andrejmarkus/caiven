@@ -271,10 +271,28 @@ pub fn run() -> Result<()> {
         Some(Command::Build { source, output }) => {
             info!("building ROM: {} → {}", source.display(), output.display());
 
+            let stem = source.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+            let ext = source.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if ext == "fc" {
+                let src_text = std::fs::read_to_string(source)
+                    .with_context(|| format!("failed to read source {}", source.display()))?;
+                let out = fc_lang::compile(&src_text).map_err(|e| {
+                    anyhow::anyhow!(
+                        "compile error in {}:\n{}",
+                        source.display(),
+                        e.render(&src_text)
+                    )
+                })?;
+                let header = RomHeader::default_for(stem);
+                fc_rom::write(output, &header, &out.program, &[])
+                    .with_context(|| format!("cannot write ROM to {}", output.display()))?;
+                info!("ROM written to {}", output.display());
+                return Ok(());
+            }
+
             let out = fc_asm::assemble_file_with_sections(source)
                 .map_err(|e| anyhow::anyhow!("assembly failed: {e}"))?;
 
-            let stem = source.file_stem().and_then(|s| s.to_str()).unwrap_or("");
             let header = RomHeader::default_for(stem);
 
             let extra: Vec<(SectionKind, Vec<u8>)> = out

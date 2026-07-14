@@ -124,9 +124,11 @@ impl App {
                         info!("code editor: compiled and running");
                     }
                     Err(e) => {
-                        let msg = format!("{e}");
-                        warn!("code editor: compile error: {msg}");
-                        self.code_editor.error_msg = Some(msg);
+                        warn!("code editor: compile error:\n{}", e.render(&source));
+                        if let Some(line) = e.line() {
+                            self.code_editor.goto_line(line);
+                        }
+                        self.code_editor.error_msg = Some(format!("{e}"));
                     }
                 }
             }

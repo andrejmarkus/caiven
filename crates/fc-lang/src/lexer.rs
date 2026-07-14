@@ -140,12 +140,14 @@ impl std::fmt::Display for TokenKind {
 pub struct Token {
     pub kind: TokenKind,
     pub line: usize,
+    pub col: usize,
 }
 
 pub struct Lexer<'a> {
     src: &'a str,
     pos: usize,
     line: usize,
+    line_start: usize,
 }
 
 impl<'a> Lexer<'a> {
@@ -154,6 +156,7 @@ impl<'a> Lexer<'a> {
             src,
             pos: 0,
             line: 1,
+            line_start: 0,
         }
     }
 
@@ -200,12 +203,12 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_string(&mut self, quote: char) -> Result<String> {
+    fn read_string(&mut self, quote: char, col: usize) -> Result<String> {
         let line = self.line;
         let mut s = String::new();
         loop {
             match self.peek() {
-                None | Some('\n') => return Err(LangError::UnterminatedString { line }),
+                None | Some('\n') => return Err(LangError::UnterminatedString { line, col }),
                 Some(ch) if ch == quote => {
                     self.advance();
                     break;
@@ -223,7 +226,7 @@ impl<'a> Lexer<'a> {
                             s.push('\\');
                             s.push(c);
                         }
-                        None => return Err(LangError::UnterminatedString { line }),
+                        None => return Err(LangError::UnterminatedString { line, col }),
                     }
                 }
                 Some(ch) => {
@@ -243,6 +246,7 @@ impl<'a> Lexer<'a> {
                 Some('\n') => {
                     self.line += 1;
                     self.advance();
+                    self.line_start = self.pos;
                 }
                 Some(']') => {
                     self.advance();
@@ -263,20 +267,24 @@ impl<'a> Lexer<'a> {
         loop {
             self.skip_whitespace_inline();
             let line = self.line;
+            let col = self.pos - self.line_start + 1;
             match self.peek() {
                 None => {
                     tokens.push(Token {
                         kind: TokenKind::Eof,
                         line,
+                        col,
                     });
                     break;
                 }
                 Some('\n') => {
                     self.advance();
                     self.line += 1;
+                    self.line_start = self.pos;
                     tokens.push(Token {
                         kind: TokenKind::Newline,
                         line,
+                        col,
                     });
                 }
                 Some('-') => {
@@ -302,11 +310,13 @@ impl<'a> Lexer<'a> {
                         tokens.push(Token {
                             kind: TokenKind::MinusEq,
                             line,
+                            col,
                         });
                     } else {
                         tokens.push(Token {
                             kind: TokenKind::Minus,
                             line,
+                            col,
                         });
                     }
                 }
@@ -317,11 +327,13 @@ impl<'a> Lexer<'a> {
                         tokens.push(Token {
                             kind: TokenKind::PlusEq,
                             line,
+                            col,
                         });
                     } else {
                         tokens.push(Token {
                             kind: TokenKind::Plus,
                             line,
+                            col,
                         });
                     }
                 }
@@ -330,6 +342,7 @@ impl<'a> Lexer<'a> {
                     tokens.push(Token {
                         kind: TokenKind::Star,
                         line,
+                        col,
                     });
                 }
                 Some('/') => {
@@ -337,6 +350,7 @@ impl<'a> Lexer<'a> {
                     tokens.push(Token {
                         kind: TokenKind::Slash,
                         line,
+                        col,
                     });
                 }
                 Some('%') => {
@@ -344,6 +358,7 @@ impl<'a> Lexer<'a> {
                     tokens.push(Token {
                         kind: TokenKind::Percent,
                         line,
+                        col,
                     });
                 }
                 Some('^') => {
@@ -351,6 +366,7 @@ impl<'a> Lexer<'a> {
                     tokens.push(Token {
                         kind: TokenKind::Caret,
                         line,
+                        col,
                     });
                 }
                 Some('#') => {
@@ -358,6 +374,7 @@ impl<'a> Lexer<'a> {
                     tokens.push(Token {
                         kind: TokenKind::Hash,
                         line,
+                        col,
                     });
                 }
                 Some('(') => {
@@ -365,6 +382,7 @@ impl<'a> Lexer<'a> {
                     tokens.push(Token {
                         kind: TokenKind::LParen,
                         line,
+                        col,
                     });
                 }
                 Some(')') => {
@@ -372,6 +390,7 @@ impl<'a> Lexer<'a> {
                     tokens.push(Token {
                         kind: TokenKind::RParen,
                         line,
+                        col,
                     });
                 }
                 Some('{') => {
@@ -379,6 +398,7 @@ impl<'a> Lexer<'a> {
                     tokens.push(Token {
                         kind: TokenKind::LBrace,
                         line,
+                        col,
                     });
                 }
                 Some('}') => {
@@ -386,6 +406,7 @@ impl<'a> Lexer<'a> {
                     tokens.push(Token {
                         kind: TokenKind::RBrace,
                         line,
+                        col,
                     });
                 }
                 Some('[') => {
@@ -393,6 +414,7 @@ impl<'a> Lexer<'a> {
                     tokens.push(Token {
                         kind: TokenKind::LBracket,
                         line,
+                        col,
                     });
                 }
                 Some(']') => {
@@ -400,6 +422,7 @@ impl<'a> Lexer<'a> {
                     tokens.push(Token {
                         kind: TokenKind::RBracket,
                         line,
+                        col,
                     });
                 }
                 Some(',') => {
@@ -407,6 +430,7 @@ impl<'a> Lexer<'a> {
                     tokens.push(Token {
                         kind: TokenKind::Comma,
                         line,
+                        col,
                     });
                 }
                 Some(';') => {
@@ -414,6 +438,7 @@ impl<'a> Lexer<'a> {
                     tokens.push(Token {
                         kind: TokenKind::Semicolon,
                         line,
+                        col,
                     });
                 }
                 Some(':') => {
@@ -421,6 +446,7 @@ impl<'a> Lexer<'a> {
                     tokens.push(Token {
                         kind: TokenKind::Colon,
                         line,
+                        col,
                     });
                 }
                 Some('=') => {
@@ -430,11 +456,13 @@ impl<'a> Lexer<'a> {
                         tokens.push(Token {
                             kind: TokenKind::EqEq,
                             line,
+                            col,
                         });
                     } else {
                         tokens.push(Token {
                             kind: TokenKind::Eq,
                             line,
+                            col,
                         });
                     }
                 }
@@ -445,9 +473,10 @@ impl<'a> Lexer<'a> {
                         tokens.push(Token {
                             kind: TokenKind::NotEq,
                             line,
+                            col,
                         });
                     } else {
-                        return Err(LangError::UnexpectedChar { line, ch: '!' });
+                        return Err(LangError::UnexpectedChar { line, col, ch: '!' });
                     }
                 }
                 Some('~') => {
@@ -457,9 +486,10 @@ impl<'a> Lexer<'a> {
                         tokens.push(Token {
                             kind: TokenKind::TildeEq,
                             line,
+                            col,
                         });
                     } else {
-                        return Err(LangError::UnexpectedChar { line, ch: '~' });
+                        return Err(LangError::UnexpectedChar { line, col, ch: '~' });
                     }
                 }
                 Some('<') => {
@@ -469,11 +499,13 @@ impl<'a> Lexer<'a> {
                         tokens.push(Token {
                             kind: TokenKind::LtEq,
                             line,
+                            col,
                         });
                     } else {
                         tokens.push(Token {
                             kind: TokenKind::Lt,
                             line,
+                            col,
                         });
                     }
                 }
@@ -484,11 +516,13 @@ impl<'a> Lexer<'a> {
                         tokens.push(Token {
                             kind: TokenKind::GtEq,
                             line,
+                            col,
                         });
                     } else {
                         tokens.push(Token {
                             kind: TokenKind::Gt,
                             line,
+                            col,
                         });
                     }
                 }
@@ -501,34 +535,39 @@ impl<'a> Lexer<'a> {
                             tokens.push(Token {
                                 kind: TokenKind::DotDotDot,
                                 line,
+                                col,
                             });
                         } else {
                             tokens.push(Token {
                                 kind: TokenKind::DotDot,
                                 line,
+                                col,
                             });
                         }
                     } else {
                         tokens.push(Token {
                             kind: TokenKind::Dot,
                             line,
+                            col,
                         });
                     }
                 }
                 Some('"') => {
                     self.advance();
-                    let s = self.read_string('"')?;
+                    let s = self.read_string('"', col)?;
                     tokens.push(Token {
                         kind: TokenKind::StringLit(s),
                         line,
+                        col,
                     });
                 }
                 Some('\'') => {
                     self.advance();
-                    let s = self.read_string('\'')?;
+                    let s = self.read_string('\'', col)?;
                     tokens.push(Token {
                         kind: TokenKind::StringLit(s),
                         line,
+                        col,
                     });
                 }
                 Some(ch) if ch.is_ascii_digit() => {
@@ -536,6 +575,7 @@ impl<'a> Lexer<'a> {
                     tokens.push(Token {
                         kind: TokenKind::Number(n),
                         line,
+                        col,
                     });
                 }
                 Some(ch) if ch.is_ascii_alphabetic() || ch == '_' => {
@@ -545,10 +585,10 @@ impl<'a> Lexer<'a> {
                     }
                     let word = &self.src[start..self.pos];
                     let kind = keyword(word);
-                    tokens.push(Token { kind, line });
+                    tokens.push(Token { kind, line, col });
                 }
                 Some(ch) => {
-                    return Err(LangError::UnexpectedChar { line, ch });
+                    return Err(LangError::UnexpectedChar { line, col, ch });
                 }
             }
         }

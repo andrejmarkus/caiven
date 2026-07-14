@@ -6,6 +6,7 @@ pub mod parser;
 
 use fc_asm::SourceMap;
 
+#[derive(Debug)]
 pub struct CompilerOutput {
     pub program: Vec<u8>,
     pub source_map: SourceMap,

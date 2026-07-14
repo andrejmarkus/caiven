@@ -217,8 +217,9 @@ impl App {
             .with_context(|| format!("failed to read source {}", path.display()))?;
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
         if ext == "fc" {
-            let out = fc_lang::compile(&source)
-                .map_err(|e| anyhow::anyhow!("compile error in {}: {}", path.display(), e))?;
+            let out = fc_lang::compile(&source).map_err(|e| {
+                anyhow::anyhow!("compile error in {}:\n{}", path.display(), e.render(&source))
+            })?;
             self.core
                 .vm
                 .load_rom_with_source_map(out.program, out.source_map);

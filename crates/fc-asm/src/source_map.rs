@@ -20,6 +20,7 @@ pub struct AddressInfo {
     pub src_line: Option<usize>,
 }
 
+#[derive(Debug)]
 pub struct SourceMap {
     map: HashMap<usize, AddressInfo>,
 }

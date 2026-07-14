@@ -73,6 +73,13 @@ impl CodeEditor {
         self.lines.join("\n")
     }
 
+    /// Jump the cursor to a 1-based source line (e.g. from a compile error).
+    pub fn goto_line(&mut self, line: usize) {
+        self.cursor_line = line.saturating_sub(1).min(self.lines.len().saturating_sub(1));
+        self.cursor_col = 0;
+        self.scroll_to_cursor();
+    }
+
     pub fn save(&self) -> bool {
         if let Some(path) = &self.source_path {
             return std::fs::write(path, self.get_source()).is_ok();
