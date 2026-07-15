@@ -1,26 +1,26 @@
 use rocket::{
     FromForm, State,
     data::Capped,
+    delete,
     form::Form,
     fs::TempFile,
-    get, post,
-    response::content::RawHtml,
+    get, patch, post,
     serde::json::Json,
 };
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
-use super::{BinaryFile, move_file, safe_filename, valid_id};
+use super::{move_file, valid_id};
 use crate::{
     HubState,
     auth::AuthUser,
     db,
+    entities::carts,
     error::ApiError,
-    gallery,
-    models::{Cart, CartList, CartMeta},
+    models::{Cart, CartDetail, CartList, CartMeta, CartPatch, CartVersionInfo},
 };
 
-fn validate_meta(meta: &CartMeta) -> Result<(), ApiError> {
+pub(crate) fn validate_meta(meta: &CartMeta) -> Result<(), ApiError> {
     if meta.title.trim().is_empty() {
         return Err(ApiError::bad_request("title required"));
     }
@@ -39,47 +39,12 @@ fn validate_meta(meta: &CartMeta) -> Result<(), ApiError> {
     Ok(())
 }
 
-#[get("/?<page>&<q>")]
-pub async fn gallery_page(
-    state: &State<HubState>,
-    page: Option<u32>,
-    q: Option<String>,
-) -> RawHtml<String> {
-    let p = page.unwrap_or(0);
-    let (carts, total) = db::list(&state.db, p, 24, q.as_deref())
-        .await
-        .inspect_err(|e| log::error!("gallery DB error: {e}"))
-        .unwrap_or_default();
-    RawHtml(gallery::render(&carts, total, p, 24, q.as_deref()))
-}
-
-#[get("/api/carts?<page>&<per_page>&<q>")]
-pub async fn list_carts(
-    state: &State<HubState>,
-    page: Option<u32>,
-    per_page: Option<u32>,
-    q: Option<String>,
-) -> Result<Json<CartList>, ApiError> {
-    let page = page.unwrap_or(0);
-    let per_page = per_page.unwrap_or(20).min(100);
-    let (carts, total) = db::list(&state.db, page, per_page, q.as_deref()).await?;
-    Ok(Json(CartList {
-        carts,
-        total,
-        page,
-        per_page,
-    }))
-}
-
-#[get("/api/carts/<id>")]
-pub async fn get_cart(state: &State<HubState>, id: &str) -> Result<Json<Cart>, ApiError> {
-    if !valid_id(id) {
-        return Err(ApiError::bad_request("invalid id"));
+pub(crate) fn require_owner(user: &AuthUser, cart: &carts::Model) -> Result<(), ApiError> {
+    if cart.owner_id.as_deref() == Some(user.id.as_str()) || user.is_admin {
+        Ok(())
+    } else {
+        Err(ApiError::forbidden("not the owner of this cart"))
     }
-    db::get(&state.db, id)
-        .await?
-        .map(Json)
-        .ok_or_else(|| ApiError::not_found("cart not found"))
 }
 
 #[derive(FromForm)]
@@ -88,12 +53,13 @@ pub struct CartUpload<'v> {
     pub meta: String,
 }
 
-#[post("/api/carts", data = "<upload>")]
-pub async fn upload_cart(
-    _user: AuthUser,
-    state: &State<HubState>,
+/// Shared multipart rom+meta validation, used by both the `/api/v2/carts`
+/// and legacy `/api/carts` create routes.
+pub(crate) async fn create_cart_impl(
+    state: &HubState,
+    user: &AuthUser,
     upload: Form<CartUpload<'_>>,
-) -> Result<Json<Cart>, ApiError> {
+) -> Result<Cart, ApiError> {
     if !upload.rom.is_complete() {
         return Err(ApiError::PayloadTooLarge("ROM max 1MB".into()));
     }
@@ -125,123 +91,126 @@ pub async fn upload_cart(
     validate_meta(&meta)?;
 
     let id = Uuid::new_v4().to_string();
-    let dest = state.data_dir.join("roms").join(format!("{}.rom", id));
+    let dest = state.data_dir.join(db::rom_rel_path(&id, 1));
     move_file(tmp_path, &dest)
         .await
         .map_err(|e| ApiError::internal(e.to_string()))?;
 
-    if let Err(e) = db::insert(&state.db, &id, &meta, rom_len).await {
+    if let Err(e) = db::insert_cart(&state.db, &user.id, &id, &meta, rom_len).await {
         let _ = tokio::fs::remove_file(&dest).await;
         return Err(ApiError::from(e));
     }
-    let cart = db::get(&state.db, &id)
+    db::get(&state.db, &id)
         .await?
-        .ok_or_else(|| ApiError::internal("insert failed"))?;
-    Ok(Json(cart))
+        .ok_or_else(|| ApiError::internal("insert failed"))
 }
 
-#[get("/api/carts/<id>/rom")]
-pub async fn download_rom(state: &State<HubState>, id: &str) -> Result<BinaryFile, ApiError> {
+#[get("/api/v2/carts?<page>&<per_page>&<q>&<tag>&<author>&<sort>")]
+#[allow(clippy::too_many_arguments)]
+pub async fn list_carts(
+    state: &State<HubState>,
+    page: Option<u32>,
+    per_page: Option<u32>,
+    q: Option<String>,
+    tag: Option<String>,
+    author: Option<String>,
+    sort: Option<String>,
+) -> Result<Json<CartList>, ApiError> {
+    let page = page.unwrap_or(0);
+    let per_page = per_page.unwrap_or(20).min(100);
+    let (carts, total) = db::list(
+        &state.db,
+        page,
+        per_page,
+        q.as_deref(),
+        tag.as_deref(),
+        author.as_deref(),
+        db::Sort::parse(sort.as_deref()),
+    )
+    .await?;
+    Ok(Json(CartList {
+        carts,
+        total,
+        page,
+        per_page,
+    }))
+}
+
+#[get("/api/v2/carts/<id>")]
+pub async fn get_cart(state: &State<HubState>, id: &str) -> Result<Json<CartDetail>, ApiError> {
     if !valid_id(id) {
         return Err(ApiError::bad_request("invalid id"));
     }
-    let path = state.data_dir.join("roms").join(format!("{}.rom", id));
-    let bytes = tokio::fs::read(&path)
-        .await
-        .map_err(|_| ApiError::not_found("ROM not found"))?;
-
-    let title = db::get(&state.db, id)
-        .await
-        .ok()
-        .flatten()
-        .map(|c| c.title)
-        .unwrap_or_else(|| id.to_string());
-
-    let _ = db::increment_downloads(&state.db, id).await;
-
-    Ok(BinaryFile {
-        disposition: format!("attachment; filename=\"{}.rom\"", safe_filename(&title)),
-        content_type: "application/octet-stream",
-        cache: None,
-        bytes,
-    })
+    let cart = db::get(&state.db, id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("cart not found"))?;
+    let versions = db::list_versions(&state.db, id)
+        .await?
+        .into_iter()
+        .map(CartVersionInfo::from)
+        .collect();
+    Ok(Json(CartDetail { cart, versions }))
 }
 
-#[derive(FromForm)]
-pub struct ScreenshotUpload<'v> {
-    pub screenshot: Capped<TempFile<'v>>,
+#[post("/api/v2/carts", data = "<upload>")]
+pub async fn upload_cart(
+    user: AuthUser,
+    state: &State<HubState>,
+    upload: Form<CartUpload<'_>>,
+) -> Result<Json<Cart>, ApiError> {
+    Ok(Json(create_cart_impl(state, &user, upload).await?))
 }
 
-#[post("/api/carts/<id>/screenshot", data = "<upload>")]
-pub async fn upload_screenshot(
-    _user: AuthUser,
+#[patch("/api/v2/carts/<id>", data = "<patch>")]
+pub async fn update_cart(
+    user: AuthUser,
     state: &State<HubState>,
     id: &str,
-    upload: Form<ScreenshotUpload<'_>>,
+    patch: Json<CartPatch>,
+) -> Result<Json<Cart>, ApiError> {
+    if !valid_id(id) {
+        return Err(ApiError::bad_request("invalid id"));
+    }
+    if let Some(title) = &patch.title
+        && (title.trim().is_empty() || title.len() > 64)
+    {
+        return Err(ApiError::bad_request("title must be 1-64 chars"));
+    }
+    if let Some(description) = &patch.description
+        && description.len() > 512
+    {
+        return Err(ApiError::bad_request("description max 512 chars"));
+    }
+
+    let cart = db::get_cart_model(&state.db, id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("cart not found"))?;
+    require_owner(&user, &cart)?;
+
+    db::update_cart(&state.db, id, &patch).await?;
+    Ok(Json(db::get(&state.db, id).await?.expect("just updated")))
+}
+
+#[delete("/api/v2/carts/<id>")]
+pub async fn delete_cart(
+    user: AuthUser,
+    state: &State<HubState>,
+    id: &str,
 ) -> Result<(), ApiError> {
     if !valid_id(id) {
         return Err(ApiError::bad_request("invalid id"));
     }
-    db::get(&state.db, id)
+    let cart = db::get_cart_model(&state.db, id)
         .await?
         .ok_or_else(|| ApiError::not_found("cart not found"))?;
+    require_owner(&user, &cart)?;
 
-    if !upload.screenshot.is_complete() || upload.screenshot.n.written > 512 * 1024 {
-        return Err(ApiError::PayloadTooLarge("screenshot max 512KB".into()));
-    }
-
-    let tmp_path = upload
-        .screenshot
-        .value
-        .path()
-        .ok_or_else(|| ApiError::internal("temp file unavailable"))?;
-
-    let mut f = tokio::fs::File::open(tmp_path)
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
-    let mut magic = [0u8; 8];
-    f.read_exact(&mut magic)
-        .await
-        .map_err(|_| ApiError::bad_request("file too small"))?;
-    drop(f);
-
-    if &magic != b"\x89PNG\r\n\x1a\n" {
-        return Err(ApiError::bad_request("must be a PNG"));
-    }
-
-    let dest = state
-        .data_dir
-        .join("screenshots")
-        .join(format!("{}.png", id));
-    move_file(tmp_path, &dest)
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
-
-    if let Err(e) = db::set_has_screenshot(&state.db, id).await {
-        let _ = tokio::fs::remove_file(&dest).await;
-        return Err(ApiError::from(e));
+    let files = db::delete_cart(&state.db, id).await?;
+    for (rom_path, screenshot_path) in files {
+        let _ = tokio::fs::remove_file(state.data_dir.join(rom_path)).await;
+        if let Some(p) = screenshot_path {
+            let _ = tokio::fs::remove_file(state.data_dir.join(p)).await;
+        }
     }
     Ok(())
-}
-
-#[get("/api/carts/<id>/screenshot")]
-pub async fn get_screenshot(state: &State<HubState>, id: &str) -> Result<BinaryFile, ApiError> {
-    if !valid_id(id) {
-        return Err(ApiError::bad_request("invalid id"));
-    }
-    let bytes = tokio::fs::read(
-        state
-            .data_dir
-            .join("screenshots")
-            .join(format!("{}.png", id)),
-    )
-    .await
-    .map_err(|_| ApiError::not_found("screenshot not found"))?;
-
-    Ok(BinaryFile {
-        content_type: "image/png",
-        disposition: "inline".into(),
-        cache: Some("public, max-age=86400"),
-        bytes,
-    })
 }

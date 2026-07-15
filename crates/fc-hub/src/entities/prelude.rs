@@ -3,6 +3,8 @@
 #[allow(unused_imports)]
 pub use super::api_tokens::Entity as ApiTokens;
 #[allow(unused_imports)]
+pub use super::cart_versions::Entity as CartVersions;
+#[allow(unused_imports)]
 pub use super::carts::Entity as Carts;
 #[allow(unused_imports)]
 pub use super::sessions::Entity as Sessions;

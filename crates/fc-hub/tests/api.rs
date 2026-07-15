@@ -8,6 +8,7 @@ use migration::MigratorTrait;
 use rocket::data::{Limits, ToByteUnit};
 use rocket::http::{ContentType, Header, Status};
 use rocket::local::asynchronous::Client;
+use sea_orm::ConnectionTrait;
 
 const BOUNDARY: &str = "X-FC-HUB-TEST-BOUNDARY";
 
@@ -86,6 +87,24 @@ fn sample_rom() -> Vec<u8> {
     let mut rom = b"SPEAR2".to_vec();
     rom.extend_from_slice(&[0u8; 64]);
     rom
+}
+
+/// Register a user, mint a token for it, then log out so the client's
+/// cookie jar (shared across all these helpers) doesn't leak that user's
+/// session into later requests authenticated by a *different* user's token.
+async fn register_get_token_and_logout(client: &Client, username: &str) -> String {
+    assert_eq!(register(client, username, "password123").await, Status::Ok);
+    let resp = client
+        .post("/api/v2/auth/tokens")
+        .header(ContentType::JSON)
+        .body(r#"{"name":"test"}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let token = body["token"].as_str().unwrap().to_string();
+    client.post("/api/v2/auth/logout").dispatch().await;
+    token
 }
 
 async fn upload<'c>(
@@ -318,4 +337,212 @@ async fn malformed_id_is_400_and_unknown_id_is_404() {
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::NotFound);
+}
+
+// ── carts v2: ownership + versioning + discovery ────────────────────────────
+
+#[rocket::async_test]
+async fn ownership_enforced_admin_can_override() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+
+    // First registered user becomes admin.
+    let admin_token = register_get_token_and_logout(&client, "admin").await;
+    let owner_token = register_get_token_and_logout(&client, "owner").await;
+    let other_token = register_get_token_and_logout(&client, "other").await;
+
+    let resp = upload(&client, &owner_token, &sample_rom(), r#"{"title":"Mine","author":"Owner"}"#).await;
+    assert_eq!(resp.status(), Status::Ok);
+    let cart: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let id = cart["id"].as_str().unwrap().to_string();
+
+    let resp = client
+        .patch(format!("/api/v2/carts/{id}"))
+        .header(Header::new("X-Api-Key", other_token.clone()))
+        .header(ContentType::JSON)
+        .body(r#"{"title":"Hacked"}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Forbidden);
+
+    let resp = client
+        .patch(format!("/api/v2/carts/{id}"))
+        .header(Header::new("X-Api-Key", owner_token.clone()))
+        .header(ContentType::JSON)
+        .body(r#"{"title":"Renamed"}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let updated: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(updated["title"], "Renamed");
+
+    let resp = client
+        .delete(format!("/api/v2/carts/{id}"))
+        .header(Header::new("X-Api-Key", other_token.clone()))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Forbidden);
+
+    let resp = client
+        .delete(format!("/api/v2/carts/{id}"))
+        .header(Header::new("X-Api-Key", admin_token.clone()))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+
+    let resp = client.get(format!("/api/v2/carts/{id}")).dispatch().await;
+    assert_eq!(resp.status(), Status::NotFound);
+}
+
+#[rocket::async_test]
+async fn versioning_upload_list_download_and_delete() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    let token = auth_token(&client).await;
+
+    let rom_v1 = sample_rom();
+    let resp = upload(&client, &token, &rom_v1, r#"{"title":"Game","author":"A"}"#).await;
+    assert_eq!(resp.status(), Status::Ok);
+    let cart: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let id = cart["id"].as_str().unwrap().to_string();
+
+    let mut rom_v2 = b"SPEAR2".to_vec();
+    rom_v2.extend_from_slice(&[1u8; 80]);
+    let resp = client
+        .post(format!("/api/v2/carts/{id}/versions"))
+        .header(Header::new("X-Api-Key", token.clone()))
+        .header(multipart_content_type())
+        .body(multipart_body(&rom_v2, r#"{"changelog":"fix bug"}"#))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let v2: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(v2["version"], 2);
+    assert_eq!(v2["changelog"], "fix bug");
+
+    let resp = client.get(format!("/api/v2/carts/{id}")).dispatch().await;
+    let detail: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(detail["versions"].as_array().unwrap().len(), 2);
+    assert_eq!(detail["latest_version"], 2);
+
+    let resp = client.get(format!("/api/v2/carts/{id}/rom")).dispatch().await;
+    assert_eq!(resp.into_bytes().await.unwrap(), rom_v2);
+
+    let resp = client
+        .get(format!("/api/v2/carts/{id}/rom?version=1"))
+        .dispatch()
+        .await;
+    assert_eq!(resp.into_bytes().await.unwrap(), rom_v1);
+
+    let resp = client
+        .delete(format!("/api/v2/carts/{id}"))
+        .header(Header::new("X-Api-Key", token.clone()))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+
+    let resp = client.get(format!("/api/v2/carts/{id}/rom")).dispatch().await;
+    assert_eq!(resp.status(), Status::NotFound);
+}
+
+#[rocket::async_test]
+async fn discovery_tag_author_filters_and_lookups() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    let token = auth_token(&client).await; // registers "tester"
+
+    let resp = upload(
+        &client,
+        &token,
+        &sample_rom(),
+        r#"{"title":"Alpha","author":"Zed","tags":["Arcade","Retro"]}"#,
+    )
+    .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let resp = upload(
+        &client,
+        &token,
+        &sample_rom(),
+        r#"{"title":"Beta","author":"Amy","tags":["Puzzle"]}"#,
+    )
+    .await;
+    assert_eq!(resp.status(), Status::Ok);
+
+    let resp = client.get("/api/v2/carts?tag=retro").dispatch().await;
+    let list: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(list["total"], 1);
+    assert_eq!(list["carts"][0]["title"], "Alpha");
+
+    let resp = client.get("/api/v2/carts?author=Amy").dispatch().await;
+    let list: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(list["total"], 1);
+    assert_eq!(list["carts"][0]["title"], "Beta");
+
+    let resp = client.get("/api/v2/tags").dispatch().await;
+    let tags: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let tag_names: Vec<&str> = tags.as_array().unwrap().iter().map(|t| t["tag"].as_str().unwrap()).collect();
+    assert!(tag_names.contains(&"retro"));
+    assert!(tag_names.contains(&"puzzle"));
+
+    let resp = client.get("/api/v2/users/tester").dispatch().await;
+    assert_eq!(resp.status(), Status::Ok);
+    let profile: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(profile["total"], 2);
+
+    let resp = client.get("/api/v2/users/nobody").dispatch().await;
+    assert_eq!(resp.status(), Status::NotFound);
+}
+
+#[rocket::async_test]
+async fn sort_popular_orders_by_downloads() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    let token = auth_token(&client).await;
+
+    let resp = upload(&client, &token, &sample_rom(), r#"{"title":"Quiet","author":"A"}"#).await;
+    let quiet: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let resp = upload(&client, &token, &sample_rom(), r#"{"title":"Popular","author":"A"}"#).await;
+    let popular: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+
+    for _ in 0..3 {
+        client
+            .get(format!("/api/v2/carts/{}/rom", popular["id"].as_str().unwrap()))
+            .dispatch()
+            .await;
+    }
+
+    let resp = client.get("/api/v2/carts?sort=popular").dispatch().await;
+    let list: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(list["carts"][0]["title"], "Popular");
+    assert_eq!(list["carts"][1]["title"], "Quiet");
+    let _ = quiet;
+}
+
+#[rocket::async_test]
+async fn legacy_carts_are_migrated_to_legacy_owner_with_v1() {
+    let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
+    // Apply only the pre-v2 schema (carts + auth tables).
+    migration::Migrator::up(&db, Some(2)).await.unwrap();
+
+    // Seed a cart row in the old shape, bypassing entities (which now expect
+    // the v2 schema) to simulate data uploaded before accounts existed.
+    db.execute_unprepared(
+        "INSERT INTO carts (id, title, author, description, tags, uploaded_at, downloads, has_screenshot, rom_size) \
+         VALUES ('11111111-1111-1111-1111-111111111111', 'Old Game', 'Retro Dev', '', '', \
+                 '2024-01-01T00:00:00Z', 3, 1, 512)",
+    )
+    .await
+    .unwrap();
+
+    // Now apply the v2 migration, which should adopt the row under `legacy`.
+    migration::Migrator::up(&db, None).await.unwrap();
+
+    let cart = fc_hub::db::get(&db, "11111111-1111-1111-1111-111111111111")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(cart.owner.as_deref(), Some("legacy"));
+    assert_eq!(cart.latest_version, 1);
+    assert_eq!(cart.rom_size, 512);
+    assert!(cart.has_screenshot);
 }
