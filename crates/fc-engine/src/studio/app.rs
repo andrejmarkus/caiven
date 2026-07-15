@@ -2,8 +2,8 @@
 //! tab selection and per-frame VM stepping + framebuffer texture upload.
 
 use super::{
-    cart, code_panel, game_panel, map_panel, music_panel, palette_panel, sfx_panel, sprite_panel,
-    theme, toolbar,
+    browser_panel, cart, code_panel, game_panel, map_panel, meta_panel, music_panel,
+    palette_panel, sfx_panel, sprite_panel, theme, toolbar,
 };
 use crate::app::rom_io::{self, CartMeta};
 use anyhow::Result;
@@ -79,6 +79,7 @@ pub struct StudioApp {
     palette: palette_panel::PaletteState,
     sfx: sfx_panel::SfxState,
     music: music_panel::MusicState,
+    browser: browser_panel::BrowserState,
 }
 
 impl StudioApp {
@@ -89,7 +90,11 @@ impl StudioApp {
             core: ConsoleCore::new()?,
             cart: None,
             source: None,
-            tab: Tab::Code,
+            tab: if file.is_some() {
+                Tab::Code
+            } else {
+                Tab::Browser
+            },
             run_state: RunState::Stopped,
             game_tex: None,
             compose_buf: Vec::new(),
@@ -101,6 +106,7 @@ impl StudioApp {
             palette: palette_panel::PaletteState::default(),
             sfx: sfx_panel::SfxState::default(),
             music: music_panel::MusicState::default(),
+            browser: browser_panel::BrowserState::default(),
         };
 
         if let Some(path) = file {
@@ -156,6 +162,9 @@ impl StudioApp {
                 self.run_source();
             }
             _ => anyhow::bail!("unsupported file type: {} (expected .rom or .fc)", ext),
+        }
+        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            self.browser.set_scan_dir(dir.to_path_buf());
         }
         Ok(())
     }
@@ -332,6 +341,13 @@ impl eframe::App for StudioApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.handle_shortcuts(ctx);
         self.route_game_input(ctx);
+        self.browser.poll();
+        if let Some(path) = self.browser.take_pending_load() {
+            match self.open_file(&path) {
+                Ok(()) => self.tab = Tab::Code,
+                Err(e) => self.set_status(format!("{e:#}"), true),
+            }
+        }
         self.step_vm();
         self.update_game_texture(ctx);
 
@@ -386,45 +402,39 @@ impl eframe::App for StudioApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             match self.tab {
-                Tab::Code => {
-                    match &mut self.source {
-                        Some(src) => code_panel::show(ui, &mut self.code, src),
-                        None => {
-                            ui.add_space(8.0);
-                            ui.heading("CODE EDITOR");
-                            ui.colored_label(
-                                theme::DIM,
-                                "no .fc source open — fc-engine edit <file.fc>",
-                            );
-                        }
+                Tab::Code => match &mut self.source {
+                    Some(src) => code_panel::show(ui, &mut self.code, src),
+                    None => {
+                        ui.add_space(8.0);
+                        ui.heading("CODE EDITOR");
+                        ui.colored_label(
+                            theme::DIM,
+                            "no .fc source open — fc-engine edit <file.fc>",
+                        );
                     }
-                    return;
-                }
+                },
                 Tab::Sprite => {
                     sprite_panel::show(ui, &mut self.sprite, &mut self.core.vm);
-                    return;
                 }
                 Tab::Map => {
                     map_panel::show(ui, &mut self.map, &mut self.core.vm);
-                    return;
                 }
                 Tab::Palette => {
                     palette_panel::show(ui, &mut self.palette, &mut self.core.vm);
-                    return;
                 }
                 Tab::Sfx => {
                     sfx_panel::show(ui, &mut self.sfx, &mut self.core.vm);
-                    return;
                 }
                 Tab::Music => {
                     music_panel::show(ui, &mut self.music, &mut self.core.vm);
-                    return;
                 }
-                _ => {}
+                Tab::Meta => {
+                    meta_panel::show(ui, self.cart.as_mut(), self.source.as_ref());
+                }
+                Tab::Browser => {
+                    browser_panel::show(ui, &mut self.browser);
+                }
             }
-            ui.add_space(8.0);
-            ui.heading(format!("{} EDITOR", self.tab.label()));
-            ui.colored_label(theme::DIM, "coming in phase P5");
         });
 
         ctx.request_repaint();
