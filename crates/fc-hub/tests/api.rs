@@ -15,6 +15,8 @@ const BOUNDARY: &str = "X-FC-HUB-TEST-BOUNDARY";
 async fn test_client(data_dir: &std::path::Path) -> Client {
     std::fs::create_dir_all(data_dir.join("roms")).unwrap();
     std::fs::create_dir_all(data_dir.join("screenshots")).unwrap();
+    let web_dir = data_dir.join("web");
+    std::fs::create_dir_all(&web_dir).unwrap();
 
     let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
     migration::Migrator::up(&db, None).await.unwrap();
@@ -31,6 +33,7 @@ async fn test_client(data_dir: &std::path::Path) -> Client {
         db,
         data_dir: data_dir.to_path_buf(),
         rate: RateLimiter::default(),
+        web_dir,
     };
     Client::tracked(build_rocket(config, state)).await.unwrap()
 }

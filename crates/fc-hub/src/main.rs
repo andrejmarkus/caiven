@@ -21,6 +21,10 @@ struct Args {
     /// Directory for database and uploaded files
     #[arg(long, default_value = "data")]
     data_dir: PathBuf,
+
+    /// Directory containing the built SPA (`npm run build` output)
+    #[arg(long, default_value = "crates/fc-hub/web/dist")]
+    web_dir: PathBuf,
 }
 
 #[rocket::main]
@@ -52,6 +56,7 @@ async fn main() -> Result<()> {
         db,
         data_dir: args.data_dir,
         rate: fc_hub::auth::RateLimiter::default(),
+        web_dir: args.web_dir,
     };
 
     build_rocket(config, state)

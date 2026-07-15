@@ -10,7 +10,6 @@ pub mod auth;
 pub mod db;
 pub mod entities;
 pub mod error;
-pub mod gallery;
 pub mod handlers;
 pub mod models;
 
@@ -18,16 +17,18 @@ pub struct HubState {
     pub db: sea_orm::DatabaseConnection,
     pub data_dir: PathBuf,
     pub rate: auth::RateLimiter,
+    pub web_dir: PathBuf,
 }
 
 /// Assemble the rocket with all routes and catchers mounted.
 pub fn build_rocket(config: rocket::Config, state: HubState) -> rocket::Rocket<rocket::Build> {
+    let web_dir = state.web_dir.clone();
     rocket::custom(config)
         .manage(state)
+        .mount("/", rocket::fs::FileServer::from(web_dir).rank(15))
         .mount(
             "/",
             rocket::routes![
-                handlers::legacy::gallery_page,
                 handlers::legacy::list_carts,
                 handlers::legacy::get_cart,
                 handlers::legacy::upload_cart,
@@ -57,6 +58,7 @@ pub fn build_rocket(config: rocket::Config, state: HubState) -> rocket::Rocket<r
                 handlers::social::list_comments,
                 handlers::social::add_comment,
                 handlers::social::delete_comment,
+                handlers::spa::fallback,
             ],
         )
         .register("/", rocket::catchers![handlers::unauthorized])

@@ -2,28 +2,12 @@
 //! and handler logic so existing `fc-engine publish` CLI/Studio builds keep
 //! working unchanged (same paths, same per-user `X-Api-Key` header).
 
-use rocket::{
-    State, form::Form, get, post, response::content::RawHtml, serde::json::Json,
-};
+use rocket::{State, form::Form, get, post, serde::json::Json};
 
 use super::{BinaryFile, valid_id};
 use super::carts::{CartUpload, create_cart_impl};
 use super::versions::{ScreenshotUpload, download_rom_impl, get_screenshot_impl, upload_screenshot_impl};
-use crate::{HubState, auth::AuthUser, db, error::ApiError, gallery, models::{Cart, CartList}};
-
-#[get("/?<page>&<q>")]
-pub async fn gallery_page(
-    state: &State<HubState>,
-    page: Option<u32>,
-    q: Option<String>,
-) -> RawHtml<String> {
-    let p = page.unwrap_or(0);
-    let (carts, total) = db::list(&state.db, p, 24, q.as_deref(), None, None, db::Sort::New)
-        .await
-        .inspect_err(|e| log::error!("gallery DB error: {e}"))
-        .unwrap_or_default();
-    RawHtml(gallery::render(&carts, total, p, 24, q.as_deref()))
-}
+use crate::{HubState, auth::AuthUser, db, error::ApiError, models::{Cart, CartList}};
 
 #[get("/api/carts?<page>&<per_page>&<q>")]
 pub async fn list_carts(
