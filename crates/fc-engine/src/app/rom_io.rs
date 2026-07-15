@@ -1,6 +1,6 @@
 //! ROM/cart loading, source (re)compilation and cart saving for [`App`].
 
-use super::{App, AppMode};
+use super::App;
 use anyhow::{Context, Result};
 use fc_core::memory::{
     MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE, PALETTE_RAM_BASE, SFX_BANK_LEN, SFX_RAM_BASE,
@@ -190,23 +190,12 @@ impl App {
             });
         }
 
-        self.meta_editor.set_header(
-            &rom.header.title,
-            &rom.header.author,
-            rom.header.entry_point,
-            rom.header.flags,
-        );
-
         self.cart_meta = Some(CartMeta {
             path: path.to_path_buf(),
             header: rom.header,
             program: rom.program,
             sections,
         });
-
-        if let Some(dir) = path.parent() {
-            self.browser_editor.set_scan_dir(dir.to_path_buf());
-        }
 
         info!("ROM loaded from {}", path.display());
         Ok(())
@@ -234,7 +223,6 @@ impl App {
                     }
                 }
             }
-            self.code_editor.set_source_path(path.to_path_buf());
             info!("fc-lang compiled from {}", path.display());
         } else {
             let out = fc_asm::assemble_with_sections(&source)
@@ -272,27 +260,13 @@ impl App {
     }
 
     pub(super) fn save_cart(&mut self) {
-        let Some(meta) = &mut self.cart_meta else {
+        let Some(meta) = &self.cart_meta else {
             warn!("Ctrl+S: no cart loaded");
             return;
         };
-        meta.header.title = self.meta_editor.title.clone();
-        meta.header.author = self.meta_editor.author.clone();
         match save(&self.core.vm, meta) {
             Ok(()) => info!("cart saved to {}", meta.path.display()),
             Err(e) => error!("cart save failed: {e}"),
-        }
-    }
-
-    pub(super) fn poll_browser_load(&mut self) {
-        if let Some(path) = self.browser_editor.take_pending_load() {
-            match self.load_rom(&path) {
-                Ok(()) => {
-                    self.mode = AppMode::Run;
-                    info!("browser: loaded {}", path.display());
-                }
-                Err(e) => error!("browser: load failed: {e}"),
-            }
         }
     }
 }
