@@ -30,24 +30,13 @@ const FX_LABELS: [&str; 4] = ["--", "SL", "VB", "DR"];
 
 type Snapshot = (usize, [u8; SFX_BYTES]);
 
+#[derive(Default)]
 pub struct SfxState {
     pub sfx: usize,
     clipboard: Option<[u8; SFX_BYTES]>,
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,
     stroke_before: Option<[u8; SFX_BYTES]>,
-}
-
-impl Default for SfxState {
-    fn default() -> Self {
-        Self {
-            sfx: 0,
-            clipboard: None,
-            undo: Vec::new(),
-            redo: Vec::new(),
-            stroke_before: None,
-        }
-    }
 }
 
 fn sfx_base(sfx: usize) -> usize {
@@ -87,14 +76,14 @@ impl SfxState {
     }
 
     fn end_stroke(&mut self, vm: &Vm) {
-        if let Some(before) = self.stroke_before.take() {
-            if before != read_sfx(vm, self.sfx) {
-                self.undo.push((self.sfx, before));
-                if self.undo.len() > UNDO_CAP {
-                    self.undo.remove(0);
-                }
-                self.redo.clear();
+        if let Some(before) = self.stroke_before.take()
+            && before != read_sfx(vm, self.sfx)
+        {
+            self.undo.push((self.sfx, before));
+            if self.undo.len() > UNDO_CAP {
+                self.undo.remove(0);
             }
+            self.redo.clear();
         }
     }
 
@@ -183,10 +172,8 @@ fn handle_shortcuts(ui: &mut egui::Ui, state: &mut SfxState, vm: &mut Vm) {
     if copy {
         state.clipboard = Some(read_sfx(vm, state.sfx));
     }
-    if paste {
-        if let Some(data) = state.clipboard {
-            state.apply_edit(vm, |vm, sfx| write_sfx(vm, sfx, &data));
-        }
+    if paste && let Some(data) = state.clipboard {
+        state.apply_edit(vm, |vm, sfx| write_sfx(vm, sfx, &data));
     }
     if play {
         vm.start_sfx(state.sfx as u8);
@@ -265,7 +252,11 @@ fn draw_step_grid(painter: &egui::Painter, rect: Rect, playhead: Option<usize>) 
 }
 
 fn wave_color(wave: u8) -> Color32 {
-    if wave == 0 { theme::ACCENT } else { theme::BUILTIN }
+    if wave == 0 {
+        theme::ACCENT
+    } else {
+        theme::BUILTIN
+    }
 }
 
 fn show_note_canvas(ui: &mut egui::Ui, state: &mut SfxState, vm: &mut Vm, playhead: Option<usize>) {
@@ -316,27 +307,27 @@ fn show_note_canvas(ui: &mut egui::Ui, state: &mut SfxState, vm: &mut Vm, playhe
     }
 
     // Hover readout
-    if let Some(pos) = resp.hover_pos() {
-        if let Some((step, _)) = cell_value(rect, pos, MAX_NOTE) {
-            let note = step_param(vm, state.sfx, step, PARAM_NOTE);
-            let vol = step_param(vm, state.sfx, step, PARAM_VOL);
-            painter.rect_stroke(
-                Rect::from_min_max(
-                    Pos2::new(step_x(rect, step), rect.min.y),
-                    Pos2::new(step_x(rect, step) + STEP_W, rect.max.y),
-                ),
-                0.0,
-                Stroke::new(1.0, theme::ACCENT),
-                StrokeKind::Inside,
-            );
-            painter.text(
-                rect.min + Vec2::new(4.0, 4.0),
-                egui::Align2::LEFT_TOP,
-                format!("step {step:02} · {} · vol {vol}", note_name(note)),
-                egui::FontId::monospace(12.0),
-                theme::TEXT,
-            );
-        }
+    if let Some(pos) = resp.hover_pos()
+        && let Some((step, _)) = cell_value(rect, pos, MAX_NOTE)
+    {
+        let note = step_param(vm, state.sfx, step, PARAM_NOTE);
+        let vol = step_param(vm, state.sfx, step, PARAM_VOL);
+        painter.rect_stroke(
+            Rect::from_min_max(
+                Pos2::new(step_x(rect, step), rect.min.y),
+                Pos2::new(step_x(rect, step) + STEP_W, rect.max.y),
+            ),
+            0.0,
+            Stroke::new(1.0, theme::ACCENT),
+            StrokeKind::Inside,
+        );
+        painter.text(
+            rect.min + Vec2::new(4.0, 4.0),
+            egui::Align2::LEFT_TOP,
+            format!("step {step:02} · {} · vol {vol}", note_name(note)),
+            egui::FontId::monospace(12.0),
+            theme::TEXT,
+        );
     }
 }
 
@@ -400,7 +391,9 @@ fn show_fx_row(ui: &mut egui::Ui, state: &mut SfxState, vm: &mut Vm) {
         for step in 0..STEPS {
             let fx = step_param(vm, state.sfx, step, PARAM_FX).min(3);
             let color = if fx == 0 { theme::DIM } else { theme::TEXT };
-            let label = RichText::new(FX_LABELS[fx as usize]).color(color).monospace();
+            let label = RichText::new(FX_LABELS[fx as usize])
+                .color(color)
+                .monospace();
             let btn = egui::Button::new(label).min_size(Vec2::new(STEP_W - 2.0, 18.0));
             if ui
                 .add(btn)

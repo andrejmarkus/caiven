@@ -49,7 +49,12 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(Ratings::Table)
                     .if_not_exists()
-                    .col(ColumnDef::new(Ratings::Id).string().not_null().primary_key())
+                    .col(
+                        ColumnDef::new(Ratings::Id)
+                            .string()
+                            .not_null()
+                            .primary_key(),
+                    )
                     .col(ColumnDef::new(Ratings::CartId).string().not_null())
                     .col(ColumnDef::new(Ratings::UserId).string().not_null())
                     .col(ColumnDef::new(Ratings::Score).integer().not_null())
@@ -91,7 +96,12 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(Comments::Table)
                     .if_not_exists()
-                    .col(ColumnDef::new(Comments::Id).string().not_null().primary_key())
+                    .col(
+                        ColumnDef::new(Comments::Id)
+                            .string()
+                            .not_null()
+                            .primary_key(),
+                    )
                     .col(ColumnDef::new(Comments::CartId).string().not_null())
                     .col(ColumnDef::new(Comments::UserId).string().not_null())
                     .col(ColumnDef::new(Comments::Body).string().not_null())

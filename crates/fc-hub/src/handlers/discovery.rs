@@ -1,6 +1,10 @@
 use rocket::{State, get, serde::json::Json};
 
-use crate::{HubState, db, error::ApiError, models::{TagCount, UserProfile}};
+use crate::{
+    HubState, db,
+    error::ApiError,
+    models::{TagCount, UserProfile},
+};
 
 #[get("/api/v2/tags")]
 pub async fn list_tags(state: &State<HubState>) -> Result<Json<Vec<TagCount>>, ApiError> {

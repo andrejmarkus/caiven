@@ -1,10 +1,5 @@
 use rocket::{
-    FromForm, State,
-    data::Capped,
-    form::Form,
-    fs::TempFile,
-    get, post,
-    serde::json::Json,
+    FromForm, State, data::Capped, form::Form, fs::TempFile, get, post, serde::json::Json,
 };
 use tokio::io::AsyncReadExt;
 
@@ -215,7 +210,10 @@ pub async fn create_version(
 }
 
 async fn latest_or_one(state: &HubState, id: &str) -> Result<i32, ApiError> {
-    Ok(db::latest_version(&state.db, id).await?.map(|v| v.version).unwrap_or(0))
+    Ok(db::latest_version(&state.db, id)
+        .await?
+        .map(|v| v.version)
+        .unwrap_or(0))
 }
 
 #[get("/api/v2/carts/<id>/rom?<version>")]

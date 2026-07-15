@@ -103,13 +103,19 @@ pub async fn create_token(
 }
 
 async fn user_for_session(db: &DatabaseConnection, session_id: &str) -> Option<users::Model> {
-    let session = sessions::Entity::find_by_id(session_id).one(db).await.ok()??;
+    let session = sessions::Entity::find_by_id(session_id)
+        .one(db)
+        .await
+        .ok()??;
     let expires = chrono::DateTime::parse_from_rfc3339(&session.expires_at).ok()?;
     if expires < chrono::Utc::now() {
         let _ = sessions::Entity::delete_by_id(session_id).exec(db).await;
         return None;
     }
-    users::Entity::find_by_id(&session.user_id).one(db).await.ok()?
+    users::Entity::find_by_id(&session.user_id)
+        .one(db)
+        .await
+        .ok()?
 }
 
 async fn user_for_token(db: &DatabaseConnection, token: &str) -> Option<users::Model> {

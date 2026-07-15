@@ -72,9 +72,7 @@ impl LangError {
     fn caret(&self) -> Option<(usize, usize)> {
         match self {
             LangError::UnexpectedChar { col, .. } => Some((*col, 1)),
-            LangError::UnexpectedToken { col, got, .. } => {
-                Some((*col, got.chars().count().max(1)))
-            }
+            LangError::UnexpectedToken { col, got, .. } => Some((*col, got.chars().count().max(1))),
             LangError::UnterminatedString { col, .. } => Some((*col, 1)),
             _ => None,
         }
@@ -127,6 +125,7 @@ impl LangError {
 pub type Result<T> = std::result::Result<T, LangError>;
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     #[test]
     fn caret_on_unexpected_token() {
@@ -169,9 +168,7 @@ mod tests {
 
     #[test]
     fn render_without_position_is_plain() {
-        let err = crate::error::LangError::UnresolvedLabel {
-            label: "x".into(),
-        };
+        let err = crate::error::LangError::UnresolvedLabel { label: "x".into() };
         assert_eq!(err.render("src"), "unresolved label 'x'");
     }
 }

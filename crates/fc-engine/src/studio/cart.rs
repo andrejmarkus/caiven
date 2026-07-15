@@ -60,9 +60,17 @@ pub fn load_rom(vm: &mut Vm, path: &Path) -> Result<CartMeta> {
         });
     }
     for (kind, ram_base, len) in [
-        (SectionKind::SpriteSheet, SPRITE_SHEET_RAM_BASE, SPRITE_SHEET_LEN),
+        (
+            SectionKind::SpriteSheet,
+            SPRITE_SHEET_RAM_BASE,
+            SPRITE_SHEET_LEN,
+        ),
         (SectionKind::Map, MAP_RAM_BASE, MAP_LEN),
-        (SectionKind::SpriteFlags, SPRITE_FLAGS_RAM_BASE, SPRITE_FLAGS_LEN),
+        (
+            SectionKind::SpriteFlags,
+            SPRITE_FLAGS_RAM_BASE,
+            SPRITE_FLAGS_LEN,
+        ),
         (SectionKind::SfxBank, SFX_RAM_BASE, SFX_BANK_LEN),
         (SectionKind::MusicBank, MUSIC_RAM_BASE, MUSIC_BANK_LEN),
     ] {
@@ -152,9 +160,17 @@ pub fn sync_palette_to_ram(vm: &mut Vm) {
 /// text on save. Empty (all-zero) regions are dropped by `join_source`.
 pub fn collect_ram_sections(vm: &Vm) -> Vec<(SectionKind, Vec<u8>)> {
     [
-        (SectionKind::SpriteSheet, SPRITE_SHEET_RAM_BASE, SPRITE_SHEET_LEN),
+        (
+            SectionKind::SpriteSheet,
+            SPRITE_SHEET_RAM_BASE,
+            SPRITE_SHEET_LEN,
+        ),
         (SectionKind::Map, MAP_RAM_BASE, MAP_LEN),
-        (SectionKind::SpriteFlags, SPRITE_FLAGS_RAM_BASE, SPRITE_FLAGS_LEN),
+        (
+            SectionKind::SpriteFlags,
+            SPRITE_FLAGS_RAM_BASE,
+            SPRITE_FLAGS_LEN,
+        ),
         (SectionKind::Palette, PALETTE_RAM_BASE, 16 * 3),
         (SectionKind::SfxBank, SFX_RAM_BASE, SFX_BANK_LEN),
         (SectionKind::MusicBank, MUSIC_RAM_BASE, MUSIC_BANK_LEN),

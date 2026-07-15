@@ -8,9 +8,8 @@ use super::theme;
 use egui::text::{CCursor, CCursorRange, LayoutJob, TextFormat};
 
 const KEYWORDS: &[&str] = &[
-    "and", "break", "const", "do", "else", "elseif", "end", "false", "fn", "for", "function",
-    "if", "in", "let", "local", "nil", "not", "or", "repeat", "return", "then", "true", "until",
-    "while",
+    "and", "break", "const", "do", "else", "elseif", "end", "false", "fn", "for", "function", "if",
+    "in", "let", "local", "nil", "not", "or", "repeat", "return", "then", "true", "until", "while",
 ];
 
 const BUILTINS: &[&str] = &[
@@ -44,8 +43,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut CodeState, source: &mut SourceFile) {
         state.find_open = true;
         state.find_focus = true;
     }
-    if state.find_open
-        && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+    if state.find_open && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
     {
         state.find_open = false;
     }
@@ -98,7 +96,10 @@ fn find_bar(ui: &mut egui::Ui, state: &mut CodeState, text: &str, editor_id: egu
         let submitted = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         let next = ui.button("next").clicked() || submitted;
 
-        ui.colored_label(theme::DIM, format!("{} found", count_matches(text, &state.query)));
+        ui.colored_label(
+            theme::DIM,
+            format!("{} found", count_matches(text, &state.query)),
+        );
         if ui.button("✕").clicked() {
             state.find_open = false;
         }
@@ -179,9 +180,7 @@ fn gutter(ui: &mut egui::Ui, text: &str, error_line: Option<usize>) {
     ui.vertical(|ui| {
         ui.add_space(2.0);
         ui.spacing_mut().item_spacing.y = 0.0;
-        let numbers: String = (1..=lines)
-            .map(|n| format!("{n:>digits$}\n"))
-            .collect();
+        let numbers: String = (1..=lines).map(|n| format!("{n:>digits$}\n")).collect();
         let mut job = LayoutJob::default();
         let font = egui::TextStyle::Monospace.resolve(ui.style());
         for (idx, chunk) in numbers.split_inclusive('\n').enumerate() {
@@ -383,5 +382,8 @@ fn next_token(rest: &str) -> (usize, TokenClass) {
             .unwrap_or(rest.len());
         return (len, TokenClass::Plain);
     }
-    (rest.chars().next().map(char::len_utf8).unwrap_or(1), TokenClass::Plain)
+    (
+        rest.chars().next().map(char::len_utf8).unwrap_or(1),
+        TokenClass::Plain,
+    )
 }

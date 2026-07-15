@@ -111,10 +111,10 @@ impl StudioApp {
             debug: debug_panel::DebugState::default(),
         };
 
-        if let Some(path) = file {
-            if let Err(e) = app.open_file(&path) {
-                app.set_status(format!("{e:#}"), true);
-            }
+        if let Some(path) = file
+            && let Err(e) = app.open_file(&path)
+        {
+            app.set_status(format!("{e:#}"), true);
         }
 
         Ok(app)
@@ -186,7 +186,12 @@ impl StudioApp {
                 self.set_status(format!("compiled {name}"), false);
             }
             Err(e) => {
-                let first = e.message.lines().next().unwrap_or("compile error").to_string();
+                let first = e
+                    .message
+                    .lines()
+                    .next()
+                    .unwrap_or("compile error")
+                    .to_string();
                 self.code.error = Some(e);
                 self.run_state = RunState::Stopped;
                 self.set_status(format!("compile error: {first}"), true);
@@ -325,15 +330,11 @@ impl StudioApp {
     }
 
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
-        let save = ctx.input_mut(|i| {
-            i.consume_key(egui::Modifiers::CTRL, egui::Key::S)
-        });
+        let save = ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::S));
         if save {
             self.save();
         }
-        let run = ctx.input_mut(|i| {
-            i.consume_key(egui::Modifiers::CTRL, egui::Key::R)
-        });
+        let run = ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::R));
         if run {
             self.run_source();
         }
@@ -433,40 +434,35 @@ impl eframe::App for StudioApp {
                 });
             });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            match self.tab {
-                Tab::Code => match &mut self.source {
-                    Some(src) => code_panel::show(ui, &mut self.code, src),
-                    None => {
-                        ui.add_space(8.0);
-                        ui.heading("CODE EDITOR");
-                        ui.colored_label(
-                            theme::DIM,
-                            "no .fc source open — fc-engine edit <file.fc>",
-                        );
-                    }
-                },
-                Tab::Sprite => {
-                    sprite_panel::show(ui, &mut self.sprite, &mut self.core.vm);
+        egui::CentralPanel::default().show(ctx, |ui| match self.tab {
+            Tab::Code => match &mut self.source {
+                Some(src) => code_panel::show(ui, &mut self.code, src),
+                None => {
+                    ui.add_space(8.0);
+                    ui.heading("CODE EDITOR");
+                    ui.colored_label(theme::DIM, "no .fc source open — fc-engine edit <file.fc>");
                 }
-                Tab::Map => {
-                    map_panel::show(ui, &mut self.map, &mut self.core.vm);
-                }
-                Tab::Palette => {
-                    palette_panel::show(ui, &mut self.palette, &mut self.core.vm);
-                }
-                Tab::Sfx => {
-                    sfx_panel::show(ui, &mut self.sfx, &mut self.core.vm);
-                }
-                Tab::Music => {
-                    music_panel::show(ui, &mut self.music, &mut self.core.vm);
-                }
-                Tab::Meta => {
-                    meta_panel::show(ui, self.cart.as_mut(), self.source.as_ref());
-                }
-                Tab::Browser => {
-                    browser_panel::show(ui, &mut self.browser, ctx, self.cart.as_ref());
-                }
+            },
+            Tab::Sprite => {
+                sprite_panel::show(ui, &mut self.sprite, &mut self.core.vm);
+            }
+            Tab::Map => {
+                map_panel::show(ui, &mut self.map, &mut self.core.vm);
+            }
+            Tab::Palette => {
+                palette_panel::show(ui, &mut self.palette, &mut self.core.vm);
+            }
+            Tab::Sfx => {
+                sfx_panel::show(ui, &mut self.sfx, &mut self.core.vm);
+            }
+            Tab::Music => {
+                music_panel::show(ui, &mut self.music, &mut self.core.vm);
+            }
+            Tab::Meta => {
+                meta_panel::show(ui, self.cart.as_mut(), self.source.as_ref());
+            }
+            Tab::Browser => {
+                browser_panel::show(ui, &mut self.browser, ctx, self.cart.as_ref());
             }
         });
 

@@ -60,7 +60,9 @@ impl Default for MapState {
 }
 
 fn read_map(vm: &Vm) -> Vec<u8> {
-    (0..MAP_LEN).map(|i| vm.peek_memory(MAP_RAM_BASE + i)).collect()
+    (0..MAP_LEN)
+        .map(|i| vm.peek_memory(MAP_RAM_BASE + i))
+        .collect()
 }
 
 fn write_map(vm: &mut Vm, data: &[u8]) {
@@ -85,14 +87,14 @@ impl MapState {
     }
 
     fn end_stroke(&mut self, vm: &Vm) {
-        if let Some(before) = self.stroke_before.take() {
-            if before != read_map(vm) {
-                self.undo.push(before);
-                if self.undo.len() > UNDO_CAP {
-                    self.undo.remove(0);
-                }
-                self.redo.clear();
+        if let Some(before) = self.stroke_before.take()
+            && before != read_map(vm)
+        {
+            self.undo.push(before);
+            if self.undo.len() > UNDO_CAP {
+                self.undo.remove(0);
             }
+            self.redo.clear();
         }
     }
 
@@ -169,7 +171,14 @@ pub fn show(ui: &mut egui::Ui, state: &mut MapState, vm: &mut Vm) {
         ui.add_space(12.0);
         ui.vertical(|ui| {
             ui.label(format!("TILE {:03}", state.tile));
-            sheet::show(ui, &mut state.sheet_tex, vm, &mut state.tile, 2.0, "map-sheet");
+            sheet::show(
+                ui,
+                &mut state.sheet_tex,
+                vm,
+                &mut state.tile,
+                2.0,
+                "map-sheet",
+            );
             ui.colored_label(theme::DIM, "RMB on map = pick tile");
             ui.colored_label(theme::DIM, "Ctrl+Z/Y undo/redo");
         });
@@ -210,16 +219,14 @@ fn show_tool_row(ui: &mut egui::Ui, state: &mut MapState) {
 fn build_map_image(vm: &Vm) -> egui::ColorImage {
     let w = MAP_W * TILE_PX;
     let h = MAP_H * TILE_PX;
-    let pal: [Color32; PALETTE_SIZE] =
-        std::array::from_fn(|i| sheet::palette_color32(vm, i as u8));
+    let pal: [Color32; PALETTE_SIZE] = std::array::from_fn(|i| sheet::palette_color32(vm, i as u8));
     let mut rgba = vec![0u8; w * h * 4];
     for ty in 0..MAP_H {
         for tx in 0..MAP_W {
             let base = sheet::sprite_base(tile_at(vm, tx, ty) as usize);
             for py in 0..TILE_PX {
                 for px in 0..TILE_PX {
-                    let c = pal[(vm.peek_memory(base + py * TILE_PX + px) as usize)
-                        % PALETTE_SIZE];
+                    let c = pal[(vm.peek_memory(base + py * TILE_PX + px) as usize) % PALETTE_SIZE];
                     let off = ((ty * TILE_PX + py) * w + tx * TILE_PX + px) * 4;
                     rgba[off..off + 4].copy_from_slice(&[c.r(), c.g(), c.b(), 255]);
                 }
@@ -285,9 +292,7 @@ fn show_canvas(ui: &mut egui::Ui, state: &mut MapState, vm: &mut Vm) {
 
             match state.tool {
                 Tool::Pencil => {
-                    if resp.is_pointer_button_down_on()
-                        && ui.input(|i| i.pointer.primary_down())
-                    {
+                    if resp.is_pointer_button_down_on() && ui.input(|i| i.pointer.primary_down()) {
                         if let Some((x, y)) = pointer_cell {
                             state.begin_stroke(vm);
                             set_tile(vm, x, y, state.tile as u8);
@@ -297,11 +302,11 @@ fn show_canvas(ui: &mut egui::Ui, state: &mut MapState, vm: &mut Vm) {
                     }
                 }
                 Tool::Fill => {
-                    if resp.clicked() {
-                        if let Some((x, y)) = pointer_cell {
-                            let tile = state.tile as u8;
-                            state.apply_edit(vm, |vm| flood_fill(vm, x, y, tile));
-                        }
+                    if resp.clicked()
+                        && let Some((x, y)) = pointer_cell
+                    {
+                        let tile = state.tile as u8;
+                        state.apply_edit(vm, |vm| flood_fill(vm, x, y, tile));
                     }
                 }
                 Tool::Rect => {
@@ -331,10 +336,10 @@ fn show_canvas(ui: &mut egui::Ui, state: &mut MapState, vm: &mut Vm) {
                 }
             }
 
-            if resp.secondary_clicked() {
-                if let Some((x, y)) = pointer_cell {
-                    state.tile = tile_at(vm, x, y) as usize;
-                }
+            if resp.secondary_clicked()
+                && let Some((x, y)) = pointer_cell
+            {
+                state.tile = tile_at(vm, x, y) as usize;
             }
 
             draw_grid(&painter, rect, cell_px, state.zoom);

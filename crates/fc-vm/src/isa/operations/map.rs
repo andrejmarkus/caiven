@@ -15,7 +15,8 @@ pub fn map_get(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     let y = ctx.read_register_value()? as i32;
 
     let tile = if (0..MAP_W as i32).contains(&x) && (0..MAP_H as i32).contains(&y) {
-        ctx.mem.read(MAP_RAM_BASE + y as usize * MAP_W + x as usize)?
+        ctx.mem
+            .read(MAP_RAM_BASE + y as usize * MAP_W + x as usize)?
     } else {
         0
     };

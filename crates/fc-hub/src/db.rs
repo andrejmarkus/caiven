@@ -108,7 +108,10 @@ pub async fn get_cart_model(db: &DatabaseConnection, id: &str) -> Result<Option<
     Ok(CartEntity::find_by_id(id).one(db).await?)
 }
 
-pub async fn owner_username(db: &DatabaseConnection, owner_id: Option<&str>) -> Result<Option<String>> {
+pub async fn owner_username(
+    db: &DatabaseConnection,
+    owner_id: Option<&str>,
+) -> Result<Option<String>> {
     let Some(owner_id) = owner_id else {
         return Ok(None);
     };
@@ -283,7 +286,10 @@ pub async fn update_cart(db: &DatabaseConnection, id: &str, patch: &CartPatch) -
 /// from disk. SQLite doesn't enforce the `ON DELETE CASCADE` on
 /// `cart_versions` unless foreign keys are pragma-enabled, so versions are
 /// deleted explicitly here rather than relied upon.
-pub async fn delete_cart(db: &DatabaseConnection, id: &str) -> Result<Vec<(String, Option<String>)>> {
+pub async fn delete_cart(
+    db: &DatabaseConnection,
+    id: &str,
+) -> Result<Vec<(String, Option<String>)>> {
     let versions = list_versions(db, id).await?;
     let paths = versions
         .iter()

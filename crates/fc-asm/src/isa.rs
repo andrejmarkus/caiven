@@ -224,11 +224,7 @@ pub fn default_specs() -> Vec<OpcodeSpec> {
         op("TGET", OP_TGET, &[Register, Register, Register]),
         op("TSET", OP_TSET, &[Register, Register, Register]),
         op("TLEN", OP_TLEN, &[Register, Register]),
-        op(
-            "TIDX",
-            OP_TIDX,
-            &[Register, Register, Register, Register],
-        ),
+        op("TIDX", OP_TIDX, &[Register, Register, Register, Register]),
         op("POSC", OP_POSC, &[Register, Register]),
         op("MOVC", OP_MOVC, &[Register, Register]),
         op("LOGR", OP_LOGR, &[Register]),

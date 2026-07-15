@@ -85,14 +85,14 @@ impl SpriteState {
     }
 
     fn end_stroke(&mut self, vm: &Vm) {
-        if let Some(before) = self.stroke_before.take() {
-            if before != read_sprite(vm, self.sprite) {
-                self.undo.push((self.sprite, before));
-                if self.undo.len() > UNDO_CAP {
-                    self.undo.remove(0);
-                }
-                self.redo.clear();
+        if let Some(before) = self.stroke_before.take()
+            && before != read_sprite(vm, self.sprite)
+        {
+            self.undo.push((self.sprite, before));
+            if self.undo.len() > UNDO_CAP {
+                self.undo.remove(0);
             }
+            self.redo.clear();
         }
     }
 
@@ -241,10 +241,8 @@ fn handle_shortcuts(ui: &mut egui::Ui, state: &mut SpriteState, vm: &mut Vm) {
     if copy {
         state.clipboard = Some(read_sprite(vm, state.sprite));
     }
-    if paste {
-        if let Some(data) = state.clipboard {
-            state.apply_edit(vm, |vm, sprite| write_sprite(vm, sprite, &data));
-        }
+    if paste && let Some(data) = state.clipboard {
+        state.apply_edit(vm, |vm, sprite| write_sprite(vm, sprite, &data));
     }
 }
 
@@ -291,9 +289,7 @@ fn show_canvas(ui: &mut egui::Ui, state: &mut SpriteState, vm: &mut Vm) {
     // Tool input
     match state.tool {
         Tool::Pencil => {
-            if resp.is_pointer_button_down_on()
-                && ui.input(|i| i.pointer.primary_down())
-            {
+            if resp.is_pointer_button_down_on() && ui.input(|i| i.pointer.primary_down()) {
                 if let Some((x, y)) = pointer_cell {
                     state.begin_stroke(vm);
                     vm.poke_memory(base + y * SPRITE_SIZE + x, state.color);
@@ -303,11 +299,11 @@ fn show_canvas(ui: &mut egui::Ui, state: &mut SpriteState, vm: &mut Vm) {
             }
         }
         Tool::Fill => {
-            if resp.clicked() {
-                if let Some((x, y)) = pointer_cell {
-                    let color = state.color;
-                    state.apply_edit(vm, |vm, sprite| flood_fill(vm, sprite, x, y, color));
-                }
+            if resp.clicked()
+                && let Some((x, y)) = pointer_cell
+            {
+                let color = state.color;
+                state.apply_edit(vm, |vm, sprite| flood_fill(vm, sprite, x, y, color));
             }
         }
         Tool::Line | Tool::Rect => {
@@ -344,10 +340,10 @@ fn show_canvas(ui: &mut egui::Ui, state: &mut SpriteState, vm: &mut Vm) {
     }
 
     // Eyedropper on right click
-    if resp.secondary_clicked() {
-        if let Some((x, y)) = pointer_cell {
-            state.color = vm.peek_memory(base + y * SPRITE_SIZE + x).min(15);
-        }
+    if resp.secondary_clicked()
+        && let Some((x, y)) = pointer_cell
+    {
+        state.color = vm.peek_memory(base + y * SPRITE_SIZE + x).min(15);
     }
 
     // Grid + hover highlight
@@ -390,12 +386,12 @@ fn show_palette_row(ui: &mut egui::Ui, state: &mut SpriteState, vm: &Vm) {
             painter.rect_stroke(r, 0.0, Stroke::new(2.0, Color32::WHITE), StrokeKind::Inside);
         }
     }
-    if resp.clicked() {
-        if let Some(pos) = resp.interact_pointer_pos() {
-            let i = ((pos.x - rect.min.x) / swatch) as usize;
-            if i < PALETTE_SIZE {
-                state.color = i as u8;
-            }
+    if resp.clicked()
+        && let Some(pos) = resp.interact_pointer_pos()
+    {
+        let i = ((pos.x - rect.min.x) / swatch) as usize;
+        if i < PALETTE_SIZE {
+            state.color = i as u8;
         }
     }
 }
@@ -419,4 +415,3 @@ fn show_flags_row(ui: &mut egui::Ui, state: &SpriteState, vm: &mut Vm) {
         }
     });
 }
-

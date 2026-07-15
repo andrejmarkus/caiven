@@ -39,12 +39,15 @@ fn marker_name(kind: SectionKind) -> Option<&'static str> {
     MARKERS.iter().find(|(_, k)| *k == kind).map(|(m, _)| *m)
 }
 
+/// A parsed asset section: its kind and raw decoded bytes.
+pub type Section = (SectionKind, Vec<u8>);
+
 /// Splits `.fc` source into the code part and any embedded asset sections.
 /// The code part keeps its trailing newline structure so compile-error line
 /// numbers match the file on disk.
-pub fn split_source(src: &str) -> Result<(String, Vec<(SectionKind, Vec<u8>)>), String> {
+pub fn split_source(src: &str) -> Result<(String, Vec<Section>), String> {
     let mut code_end: Option<usize> = None;
-    let mut sections: Vec<(SectionKind, Vec<u8>)> = Vec::new();
+    let mut sections: Vec<Section> = Vec::new();
     let mut current: Option<usize> = None;
 
     let mut offset = 0;
@@ -59,8 +62,9 @@ pub fn split_source(src: &str) -> Result<(String, Vec<(SectionKind, Vec<u8>)>), 
         } else if let Some(idx) = current {
             let hex = stripped.trim();
             if !hex.is_empty() {
-                decode_hex_line(hex, &mut sections[idx].1)
-                    .map_err(|e| format!("bad hex in {} block: {e}", marker_label(sections[idx].0)))?;
+                decode_hex_line(hex, &mut sections[idx].1).map_err(|e| {
+                    format!("bad hex in {} block: {e}", marker_label(sections[idx].0))
+                })?;
             }
         }
         offset += line.len();
@@ -76,12 +80,14 @@ fn marker_label(kind: SectionKind) -> &'static str {
 
 fn decode_hex_line(hex: &str, out: &mut Vec<u8>) -> Result<(), String> {
     let bytes = hex.as_bytes();
-    if bytes.len() % 2 != 0 {
+    if !bytes.len().is_multiple_of(2) {
         return Err(format!("odd number of hex digits in line '{hex}'"));
     }
     for pair in bytes.chunks_exact(2) {
-        let hi = hex_val(pair[0]).ok_or_else(|| format!("invalid hex digit '{}'", pair[0] as char))?;
-        let lo = hex_val(pair[1]).ok_or_else(|| format!("invalid hex digit '{}'", pair[1] as char))?;
+        let hi =
+            hex_val(pair[0]).ok_or_else(|| format!("invalid hex digit '{}'", pair[0] as char))?;
+        let lo =
+            hex_val(pair[1]).ok_or_else(|| format!("invalid hex digit '{}'", pair[1] as char))?;
         out.push((hi << 4) | lo);
     }
     Ok(())
@@ -130,6 +136,7 @@ fn trim_trailing_zeros(data: &[u8]) -> &[u8] {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

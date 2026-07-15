@@ -36,8 +36,7 @@ pub fn show(
     for py in 0..h {
         for px in 0..w {
             let sprite = (py / SPRITE_SIZE) * SHEET_COLS + px / SPRITE_SIZE;
-            let off =
-                sprite_base(sprite) + (py % SPRITE_SIZE) * SPRITE_SIZE + px % SPRITE_SIZE;
+            let off = sprite_base(sprite) + (py % SPRITE_SIZE) * SPRITE_SIZE + px % SPRITE_SIZE;
             let c = palette_color32(vm, vm.peek_memory(off));
             rgba.extend_from_slice(&[c.r(), c.g(), c.b(), 255]);
         }
@@ -67,14 +66,14 @@ pub fn show(
         Color32::WHITE,
     );
 
-    if resp.is_pointer_button_down_on() {
-        if let Some(pos) = resp.interact_pointer_pos() {
-            let cell_px = SPRITE_SIZE as f32 * scale;
-            let col = ((pos.x - rect.min.x) / cell_px) as usize;
-            let row = ((pos.y - rect.min.y) / cell_px) as usize;
-            if col < SHEET_COLS && row < rows {
-                *selected = row * SHEET_COLS + col;
-            }
+    if resp.is_pointer_button_down_on()
+        && let Some(pos) = resp.interact_pointer_pos()
+    {
+        let cell_px = SPRITE_SIZE as f32 * scale;
+        let col = ((pos.x - rect.min.x) / cell_px) as usize;
+        let row = ((pos.y - rect.min.y) / cell_px) as usize;
+        if col < SHEET_COLS && row < rows {
+            *selected = row * SHEET_COLS + col;
         }
     }
 
@@ -87,5 +86,10 @@ pub fn show(
             ),
         Vec2::splat(cell_px),
     );
-    painter.rect_stroke(sel, 0.0, Stroke::new(2.0, theme::ACCENT), StrokeKind::Outside);
+    painter.rect_stroke(
+        sel,
+        0.0,
+        Stroke::new(2.0, theme::ACCENT),
+        StrokeKind::Outside,
+    );
 }

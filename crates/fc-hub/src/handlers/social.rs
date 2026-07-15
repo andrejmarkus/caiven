@@ -27,9 +27,7 @@ pub async fn rate_cart(
         .ok_or_else(|| ApiError::not_found("cart not found"))?;
 
     db::upsert_rating(&state.db, id, &user.id, input.score).await?;
-    Ok(Json(
-        db::get(&state.db, id).await?.expect("just rated"),
-    ))
+    Ok(Json(db::get(&state.db, id).await?.expect("just rated")))
 }
 
 #[delete("/api/v2/carts/<id>/rating")]
@@ -46,9 +44,7 @@ pub async fn unrate_cart(
         .ok_or_else(|| ApiError::not_found("cart not found"))?;
 
     db::delete_rating(&state.db, id, &user.id).await?;
-    Ok(Json(
-        db::get(&state.db, id).await?.expect("just unrated"),
-    ))
+    Ok(Json(db::get(&state.db, id).await?.expect("just unrated")))
 }
 
 #[get("/api/v2/carts/<id>/comments")]

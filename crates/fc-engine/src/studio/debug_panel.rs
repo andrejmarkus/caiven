@@ -10,8 +10,8 @@ use fc_core::memory::{
     MAP_RAM_BASE, MUSIC_RAM_BASE, PALETTE_RAM_BASE, SFX_RAM_BASE, SPRITE_FLAGS_RAM_BASE,
     SPRITE_SHEET_RAM_BASE,
 };
-use fc_vm::runtime::ConsoleCore;
 use fc_vm::Vm;
+use fc_vm::runtime::ConsoleCore;
 use std::path::Path;
 
 const RAM_COLS: usize = 16;
@@ -207,7 +207,11 @@ fn disasm_row(ui: &mut egui::Ui, dbg: &mut Debugger, vm: &Vm, addr: usize, pc: u
             .monospace()
             .color(color);
         if ui
-            .add(egui::Label::new(line).truncate().sense(egui::Sense::click()))
+            .add(
+                egui::Label::new(line)
+                    .truncate()
+                    .sense(egui::Sense::click()),
+            )
             .clicked()
         {
             dbg.set_cursor_addr(addr);
@@ -249,10 +253,7 @@ fn ram_view(ui: &mut egui::Ui, state: &mut DebugState, core: &ConsoleCore) {
         if ui.small_button("<").clicked() {
             state.ram_page = (state.ram_page + pages - 1) % pages;
         }
-        ui.colored_label(
-            theme::TEXT,
-            format!("0x{:04X}", state.ram_page * RAM_PAGE),
-        );
+        ui.colored_label(theme::TEXT, format!("0x{:04X}", state.ram_page * RAM_PAGE));
         if ui.small_button(">").clicked() {
             state.ram_page = (state.ram_page + 1) % pages;
         }

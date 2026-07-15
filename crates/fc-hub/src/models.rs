@@ -23,7 +23,11 @@ pub struct Cart {
 }
 
 impl Cart {
-    pub fn from_model(m: carts::Model, owner: Option<String>, latest: Option<&cart_versions::Model>) -> Self {
+    pub fn from_model(
+        m: carts::Model,
+        owner: Option<String>,
+        latest: Option<&cart_versions::Model>,
+    ) -> Self {
         let rating_avg = if m.rating_count > 0 {
             m.rating_sum as f64 / m.rating_count as f64
         } else {

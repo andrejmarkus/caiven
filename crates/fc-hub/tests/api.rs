@@ -196,9 +196,18 @@ async fn invalid_username_and_short_password_are_400() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
 
-    assert_eq!(register(&client, "Bad Name", "password123").await, Status::BadRequest);
-    assert_eq!(register(&client, "ok", "password123").await, Status::BadRequest);
-    assert_eq!(register(&client, "goodname", "short").await, Status::BadRequest);
+    assert_eq!(
+        register(&client, "Bad Name", "password123").await,
+        Status::BadRequest
+    );
+    assert_eq!(
+        register(&client, "ok", "password123").await,
+        Status::BadRequest
+    );
+    assert_eq!(
+        register(&client, "goodname", "short").await,
+        Status::BadRequest
+    );
 }
 
 #[rocket::async_test]
@@ -222,7 +231,13 @@ async fn revoked_token_is_401() {
     let client = test_client(dir.path()).await;
     let token = auth_token(&client).await;
 
-    let resp = upload(&client, &token, &sample_rom(), r#"{"title":"T","author":"A"}"#).await;
+    let resp = upload(
+        &client,
+        &token,
+        &sample_rom(),
+        r#"{"title":"T","author":"A"}"#,
+    )
+    .await;
     assert_eq!(resp.status(), Status::Ok);
 
     let resp = client.get("/api/v2/auth/tokens").dispatch().await;
@@ -239,7 +254,13 @@ async fn revoked_token_is_401() {
     // Session cookie would still authenticate; check the token alone via a
     // fresh non-tracked request path: logout first, then try the token.
     client.post("/api/v2/auth/logout").dispatch().await;
-    let resp = upload(&client, &token, &sample_rom(), r#"{"title":"T","author":"A"}"#).await;
+    let resp = upload(
+        &client,
+        &token,
+        &sample_rom(),
+        r#"{"title":"T","author":"A"}"#,
+    )
+    .await;
     assert_eq!(resp.status(), Status::Unauthorized);
 }
 
@@ -301,7 +322,13 @@ async fn invalid_rom_magic_is_400() {
     let client = test_client(dir.path()).await;
     let token = auth_token(&client).await;
 
-    let resp = upload(&client, &token, b"NOTAROM-BYTES", r#"{"title":"T","author":"A"}"#).await;
+    let resp = upload(
+        &client,
+        &token,
+        b"NOTAROM-BYTES",
+        r#"{"title":"T","author":"A"}"#,
+    )
+    .await;
     assert_eq!(resp.status(), Status::BadRequest);
 }
 
@@ -311,7 +338,13 @@ async fn empty_title_is_400() {
     let client = test_client(dir.path()).await;
     let token = auth_token(&client).await;
 
-    let resp = upload(&client, &token, &sample_rom(), r#"{"title":"  ","author":"A"}"#).await;
+    let resp = upload(
+        &client,
+        &token,
+        &sample_rom(),
+        r#"{"title":"  ","author":"A"}"#,
+    )
+    .await;
     assert_eq!(resp.status(), Status::BadRequest);
 }
 
@@ -354,7 +387,13 @@ async fn ownership_enforced_admin_can_override() {
     let owner_token = register_get_token_and_logout(&client, "owner").await;
     let other_token = register_get_token_and_logout(&client, "other").await;
 
-    let resp = upload(&client, &owner_token, &sample_rom(), r#"{"title":"Mine","author":"Owner"}"#).await;
+    let resp = upload(
+        &client,
+        &owner_token,
+        &sample_rom(),
+        r#"{"title":"Mine","author":"Owner"}"#,
+    )
+    .await;
     assert_eq!(resp.status(), Status::Ok);
     let cart: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     let id = cart["id"].as_str().unwrap().to_string();
@@ -376,7 +415,8 @@ async fn ownership_enforced_admin_can_override() {
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok);
-    let updated: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let updated: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(updated["title"], "Renamed");
 
     let resp = client
@@ -424,11 +464,15 @@ async fn versioning_upload_list_download_and_delete() {
     assert_eq!(v2["changelog"], "fix bug");
 
     let resp = client.get(format!("/api/v2/carts/{id}")).dispatch().await;
-    let detail: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let detail: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(detail["versions"].as_array().unwrap().len(), 2);
     assert_eq!(detail["latest_version"], 2);
 
-    let resp = client.get(format!("/api/v2/carts/{id}/rom")).dispatch().await;
+    let resp = client
+        .get(format!("/api/v2/carts/{id}/rom"))
+        .dispatch()
+        .await;
     assert_eq!(resp.into_bytes().await.unwrap(), rom_v2);
 
     let resp = client
@@ -444,7 +488,10 @@ async fn versioning_upload_list_download_and_delete() {
         .await;
     assert_eq!(resp.status(), Status::Ok);
 
-    let resp = client.get(format!("/api/v2/carts/{id}/rom")).dispatch().await;
+    let resp = client
+        .get(format!("/api/v2/carts/{id}/rom"))
+        .dispatch()
+        .await;
     assert_eq!(resp.status(), Status::NotFound);
 }
 
@@ -483,13 +530,19 @@ async fn discovery_tag_author_filters_and_lookups() {
 
     let resp = client.get("/api/v2/tags").dispatch().await;
     let tags: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
-    let tag_names: Vec<&str> = tags.as_array().unwrap().iter().map(|t| t["tag"].as_str().unwrap()).collect();
+    let tag_names: Vec<&str> = tags
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["tag"].as_str().unwrap())
+        .collect();
     assert!(tag_names.contains(&"retro"));
     assert!(tag_names.contains(&"puzzle"));
 
     let resp = client.get("/api/v2/users/tester").dispatch().await;
     assert_eq!(resp.status(), Status::Ok);
-    let profile: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let profile: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(profile["total"], 2);
 
     let resp = client.get("/api/v2/users/nobody").dispatch().await;
@@ -502,14 +555,31 @@ async fn sort_popular_orders_by_downloads() {
     let client = test_client(dir.path()).await;
     let token = auth_token(&client).await;
 
-    let resp = upload(&client, &token, &sample_rom(), r#"{"title":"Quiet","author":"A"}"#).await;
-    let quiet: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
-    let resp = upload(&client, &token, &sample_rom(), r#"{"title":"Popular","author":"A"}"#).await;
-    let popular: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let resp = upload(
+        &client,
+        &token,
+        &sample_rom(),
+        r#"{"title":"Quiet","author":"A"}"#,
+    )
+    .await;
+    let quiet: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let resp = upload(
+        &client,
+        &token,
+        &sample_rom(),
+        r#"{"title":"Popular","author":"A"}"#,
+    )
+    .await;
+    let popular: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
 
     for _ in 0..3 {
         client
-            .get(format!("/api/v2/carts/{}/rom", popular["id"].as_str().unwrap()))
+            .get(format!(
+                "/api/v2/carts/{}/rom",
+                popular["id"].as_str().unwrap()
+            ))
             .dispatch()
             .await;
     }
@@ -532,7 +602,13 @@ async fn rating_upsert_is_one_per_user_and_averages() {
     let alice_token = register_get_token_and_logout(&client, "alice").await;
     let bob_token = register_get_token_and_logout(&client, "bob").await;
 
-    let resp = upload(&client, &owner_token, &sample_rom(), r#"{"title":"Game","author":"A"}"#).await;
+    let resp = upload(
+        &client,
+        &owner_token,
+        &sample_rom(),
+        r#"{"title":"Game","author":"A"}"#,
+    )
+    .await;
     let cart: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     let id = cart["id"].as_str().unwrap().to_string();
 
@@ -544,7 +620,8 @@ async fn rating_upsert_is_one_per_user_and_averages() {
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok);
-    let rated: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let rated: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(rated["rating_count"], 1);
     assert_eq!(rated["rating_avg"], 4.0);
 
@@ -555,7 +632,8 @@ async fn rating_upsert_is_one_per_user_and_averages() {
         .body(r#"{"score":2}"#)
         .dispatch()
         .await;
-    let rated: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let rated: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(rated["rating_count"], 2);
     assert_eq!(rated["rating_avg"], 3.0);
 
@@ -567,12 +645,14 @@ async fn rating_upsert_is_one_per_user_and_averages() {
         .body(r#"{"score":5}"#)
         .dispatch()
         .await;
-    let rated: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let rated: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(rated["rating_count"], 2);
     assert_eq!(rated["rating_avg"], 3.5);
 
     let resp = client.get(format!("/api/v2/carts/{id}")).dispatch().await;
-    let detail: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let detail: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(detail["own_rating"], serde_json::Value::Null);
 
     let resp = client
@@ -580,7 +660,8 @@ async fn rating_upsert_is_one_per_user_and_averages() {
         .header(Header::new("X-Api-Key", alice_token.clone()))
         .dispatch()
         .await;
-    let detail: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let detail: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(detail["own_rating"], 5);
 
     let resp = client
@@ -589,7 +670,8 @@ async fn rating_upsert_is_one_per_user_and_averages() {
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok);
-    let rated: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let rated: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(rated["rating_count"], 1);
     assert_eq!(rated["rating_avg"], 5.0);
 }
@@ -600,7 +682,13 @@ async fn rating_out_of_range_is_400_and_requires_auth() {
     let client = test_client(dir.path()).await;
     let token = register_get_token_and_logout(&client, "tester").await;
 
-    let resp = upload(&client, &token, &sample_rom(), r#"{"title":"Game","author":"A"}"#).await;
+    let resp = upload(
+        &client,
+        &token,
+        &sample_rom(),
+        r#"{"title":"Game","author":"A"}"#,
+    )
+    .await;
     let cart: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     let id = cart["id"].as_str().unwrap().to_string();
 
@@ -631,7 +719,13 @@ async fn comments_add_list_and_delete_permissions() {
     let commenter_token = register_get_token_and_logout(&client, "commenter").await;
     let stranger_token = register_get_token_and_logout(&client, "stranger").await;
 
-    let resp = upload(&client, &owner_token, &sample_rom(), r#"{"title":"Game","author":"A"}"#).await;
+    let resp = upload(
+        &client,
+        &owner_token,
+        &sample_rom(),
+        r#"{"title":"Game","author":"A"}"#,
+    )
+    .await;
     let cart: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     let id = cart["id"].as_str().unwrap().to_string();
 
@@ -643,7 +737,8 @@ async fn comments_add_list_and_delete_permissions() {
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok);
-    let comment: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let comment: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(comment["author"], "commenter");
     assert_eq!(comment["body"], "Great game!");
     let comment_id = comment["id"].as_str().unwrap().to_string();
@@ -665,7 +760,10 @@ async fn comments_add_list_and_delete_permissions() {
         .await;
     assert_eq!(resp.status(), Status::BadRequest);
 
-    let resp = client.get(format!("/api/v2/carts/{id}/comments")).dispatch().await;
+    let resp = client
+        .get(format!("/api/v2/carts/{id}/comments"))
+        .dispatch()
+        .await;
     let list: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(list.as_array().unwrap().len(), 1);
 
@@ -685,7 +783,10 @@ async fn comments_add_list_and_delete_permissions() {
         .await;
     assert_eq!(resp.status(), Status::Ok);
 
-    let resp = client.get(format!("/api/v2/carts/{id}/comments")).dispatch().await;
+    let resp = client
+        .get(format!("/api/v2/carts/{id}/comments"))
+        .dispatch()
+        .await;
     let list: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(list.as_array().unwrap().len(), 0);
 }

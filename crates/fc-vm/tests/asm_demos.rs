@@ -11,8 +11,8 @@ use std::sync::Arc;
 fn load_demo(name: &str) -> Vm {
     let path = format!("../../games/asm/{name}.asm");
     let source = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
-    let out = fc_asm::assemble_with_sections(&source)
-        .unwrap_or_else(|e| panic!("assemble {path}: {e}"));
+    let out =
+        fc_asm::assemble_with_sections(&source).unwrap_or_else(|e| panic!("assemble {path}: {e}"));
     let mut vm = Vm::new(Arc::new(default_instruction_set()), VmConfig::default());
     vm.load_rom(out.program);
     for (_, data) in &out.extra_sections {

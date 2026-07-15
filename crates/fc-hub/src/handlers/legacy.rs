@@ -4,10 +4,18 @@
 
 use rocket::{State, form::Form, get, post, serde::json::Json};
 
-use super::{BinaryFile, valid_id};
 use super::carts::{CartUpload, create_cart_impl};
-use super::versions::{ScreenshotUpload, download_rom_impl, get_screenshot_impl, upload_screenshot_impl};
-use crate::{HubState, auth::AuthUser, db, error::ApiError, models::{Cart, CartList}};
+use super::versions::{
+    ScreenshotUpload, download_rom_impl, get_screenshot_impl, upload_screenshot_impl,
+};
+use super::{BinaryFile, valid_id};
+use crate::{
+    HubState,
+    auth::AuthUser,
+    db,
+    error::ApiError,
+    models::{Cart, CartList},
+};
 
 #[get("/api/carts?<page>&<per_page>&<q>")]
 pub async fn list_carts(
@@ -18,7 +26,16 @@ pub async fn list_carts(
 ) -> Result<Json<CartList>, ApiError> {
     let page = page.unwrap_or(0);
     let per_page = per_page.unwrap_or(20).min(100);
-    let (carts, total) = db::list(&state.db, page, per_page, q.as_deref(), None, None, db::Sort::New).await?;
+    let (carts, total) = db::list(
+        &state.db,
+        page,
+        per_page,
+        q.as_deref(),
+        None,
+        None,
+        db::Sort::New,
+    )
+    .await?;
     Ok(Json(CartList {
         carts,
         total,

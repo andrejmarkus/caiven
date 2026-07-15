@@ -16,20 +16,11 @@ const UNDO_CAP: usize = 32;
 
 type Snapshot = (usize, [u8; PATTERN_BYTES]);
 
+#[derive(Default)]
 pub struct MusicState {
     pub pattern: usize,
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,
-}
-
-impl Default for MusicState {
-    fn default() -> Self {
-        Self {
-            pattern: 0,
-            undo: Vec::new(),
-            redo: Vec::new(),
-        }
-    }
 }
 
 fn pattern_base(pattern: usize) -> usize {
@@ -101,7 +92,8 @@ pub fn show(ui: &mut egui::Ui, state: &mut MusicState, vm: &mut Vm) {
     ui.add_space(4.0);
 
     let mp = vm.music_player();
-    let playhead = (mp.active && mp.pattern_id as usize == state.pattern).then_some(mp.row as usize);
+    let playhead =
+        (mp.active && mp.pattern_id as usize == state.pattern).then_some(mp.row as usize);
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         show_grid(ui, state, vm, playhead);

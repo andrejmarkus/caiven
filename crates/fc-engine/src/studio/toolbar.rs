@@ -12,12 +12,7 @@ pub enum ToolbarAction {
     Save,
 }
 
-pub fn show(
-    ctx: &egui::Context,
-    cart_name: &str,
-    run_state: RunState,
-    fps: f32,
-) -> ToolbarAction {
+pub fn show(ctx: &egui::Context, cart_name: &str, run_state: RunState, fps: f32) -> ToolbarAction {
     let mut action = ToolbarAction::None;
 
     egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {

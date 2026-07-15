@@ -1,10 +1,5 @@
 use rocket::{
-    FromForm, State,
-    data::Capped,
-    delete,
-    form::Form,
-    fs::TempFile,
-    get, patch, post,
+    FromForm, State, data::Capped, delete, form::Form, fs::TempFile, get, patch, post,
     serde::json::Json,
 };
 use tokio::io::AsyncReadExt;

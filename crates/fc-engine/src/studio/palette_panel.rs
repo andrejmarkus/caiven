@@ -54,12 +54,15 @@ pub fn show(ui: &mut egui::Ui, state: &mut PaletteState, vm: &mut Vm) {
     let painter = ui.painter_at(rect);
     for i in 0..PALETTE_SIZE {
         let r = Rect::from_min_size(
-            rect.min
-                + Vec2::new((i % cols) as f32 * swatch, (i / cols) as f32 * swatch),
+            rect.min + Vec2::new((i % cols) as f32 * swatch, (i / cols) as f32 * swatch),
             Vec2::splat(swatch),
         );
         let rgb = get_rgb(vm, i);
-        painter.rect_filled(r.shrink(1.0), 2.0, Color32::from_rgb(rgb[0], rgb[1], rgb[2]));
+        painter.rect_filled(
+            r.shrink(1.0),
+            2.0,
+            Color32::from_rgb(rgb[0], rgb[1], rgb[2]),
+        );
         if i == state.selected {
             painter.rect_stroke(
                 r.shrink(1.0),
@@ -69,13 +72,13 @@ pub fn show(ui: &mut egui::Ui, state: &mut PaletteState, vm: &mut Vm) {
             );
         }
     }
-    if resp.clicked() {
-        if let Some(pos) = resp.interact_pointer_pos() {
-            let col = ((pos.x - rect.min.x) / swatch) as usize;
-            let row = ((pos.y - rect.min.y) / swatch) as usize;
-            if col < cols && row < rows {
-                state.selected = row * cols + col;
-            }
+    if resp.clicked()
+        && let Some(pos) = resp.interact_pointer_pos()
+    {
+        let col = ((pos.x - rect.min.x) / swatch) as usize;
+        let row = ((pos.y - rect.min.y) / swatch) as usize;
+        if col < cols && row < rows {
+            state.selected = row * cols + col;
         }
     }
 
@@ -96,16 +99,19 @@ pub fn show(ui: &mut egui::Ui, state: &mut PaletteState, vm: &mut Vm) {
         }
         ui.label("#");
         let hex_resp = ui.add(egui::TextEdit::singleline(&mut state.hex).desired_width(70.0));
-        if hex_resp.changed() {
-            if let Some(parsed) = parse_hex(&state.hex) {
-                set_rgb(vm, state.selected, parsed);
-                state.hex_color = parsed;
-            }
+        if hex_resp.changed()
+            && let Some(parsed) = parse_hex(&state.hex)
+        {
+            set_rgb(vm, state.selected, parsed);
+            state.hex_color = parsed;
         }
     });
 
     ui.add_space(4.0);
-    ui.colored_label(theme::DIM, "changes apply live; Ctrl+S saves them to the cart");
+    ui.colored_label(
+        theme::DIM,
+        "changes apply live; Ctrl+S saves them to the cart",
+    );
 }
 
 fn parse_hex(s: &str) -> Option<[u8; 3]> {
