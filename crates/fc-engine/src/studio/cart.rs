@@ -6,7 +6,7 @@ use crate::app::rom_io::{CartMeta, SectionLayout};
 use anyhow::{Context, Result};
 use fc_core::memory::{
     MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE, PALETTE_RAM_BASE, SFX_BANK_LEN,
-    SFX_RAM_BASE, SPRITE_SHEET_RAM_BASE,
+    SFX_RAM_BASE, SPRITE_FLAGS_LEN, SPRITE_FLAGS_RAM_BASE, SPRITE_SHEET_LEN, SPRITE_SHEET_RAM_BASE,
 };
 use fc_rom::SectionKind;
 use fc_vm::Vm;
@@ -32,13 +32,8 @@ pub fn load_rom(vm: &mut Vm, path: &Path) -> Result<CartMeta> {
 
     let mut sections: Vec<SectionLayout> = Vec::new();
     for section in &rom.sections {
-        let ram_base = match section.kind {
-            SectionKind::SpriteSheet => SPRITE_SHEET_RAM_BASE,
-            SectionKind::Map => MAP_RAM_BASE,
-            SectionKind::Palette => PALETTE_RAM_BASE,
-            SectionKind::SfxBank => SFX_RAM_BASE,
-            SectionKind::MusicBank => MUSIC_RAM_BASE,
-            _ => continue,
+        let Some(ram_base) = section_ram_base(section.kind) else {
+            continue;
         };
         vm.load_section_to_ram(ram_base, &section.data);
         if section.kind == SectionKind::Palette {
@@ -65,7 +60,9 @@ pub fn load_rom(vm: &mut Vm, path: &Path) -> Result<CartMeta> {
         });
     }
     for (kind, ram_base, len) in [
+        (SectionKind::SpriteSheet, SPRITE_SHEET_RAM_BASE, SPRITE_SHEET_LEN),
         (SectionKind::Map, MAP_RAM_BASE, MAP_LEN),
+        (SectionKind::SpriteFlags, SPRITE_FLAGS_RAM_BASE, SPRITE_FLAGS_LEN),
         (SectionKind::SfxBank, SFX_RAM_BASE, SFX_BANK_LEN),
         (SectionKind::MusicBank, MUSIC_RAM_BASE, MUSIC_BANK_LEN),
     ] {
@@ -94,16 +91,78 @@ pub struct CompileError {
 }
 
 /// Compiles `.fc` source and loads it into the VM with its source map.
+/// Embedded asset blocks (`__gfx__` etc.) are split off and loaded into RAM;
+/// loading a program does not clear RAM, so assets painted in the editors
+/// survive recompiles.
 pub fn compile_into_vm(vm: &mut Vm, source: &str) -> std::result::Result<(), CompileError> {
-    match fc_lang::compile(source) {
+    let (code, sections) = fc_rom::text::split_source(source).map_err(|message| CompileError {
+        line: None,
+        message,
+    })?;
+    match fc_lang::compile(&code) {
         Ok(out) => {
             vm.load_rom_with_source_map(out.program, out.source_map);
-            vm.set_fc_source(source);
+            vm.set_fc_source(&code);
+            apply_sections(vm, &sections);
             Ok(())
         }
         Err(e) => Err(CompileError {
             line: e.line(),
-            message: e.render(source),
+            message: e.render(&code),
         }),
     }
+}
+
+pub fn section_ram_base(kind: SectionKind) -> Option<usize> {
+    Some(match kind {
+        SectionKind::SpriteSheet => SPRITE_SHEET_RAM_BASE,
+        SectionKind::Map => MAP_RAM_BASE,
+        SectionKind::SpriteFlags => SPRITE_FLAGS_RAM_BASE,
+        SectionKind::Palette => PALETTE_RAM_BASE,
+        SectionKind::SfxBank => SFX_RAM_BASE,
+        SectionKind::MusicBank => MUSIC_RAM_BASE,
+        _ => return None,
+    })
+}
+
+pub fn apply_sections(vm: &mut Vm, sections: &[(SectionKind, Vec<u8>)]) {
+    for (kind, data) in sections {
+        let Some(ram_base) = section_ram_base(*kind) else {
+            continue;
+        };
+        vm.load_section_to_ram(ram_base, data);
+        if *kind == SectionKind::Palette {
+            vm.set_palette_from_bytes(data);
+        }
+    }
+}
+
+/// Mirrors the VM's active palette into palette RAM so editors and cart
+/// saving always see full 16×RGB bytes there.
+pub fn sync_palette_to_ram(vm: &mut Vm) {
+    let bytes: Vec<u8> = vm
+        .get_palette()
+        .iter()
+        .flat_map(|c| [c.get_r(), c.get_g(), c.get_b()])
+        .collect();
+    vm.load_section_to_ram(PALETTE_RAM_BASE, &bytes);
+}
+
+/// Reads every asset region back out of VM RAM for embedding into `.fc`
+/// text on save. Empty (all-zero) regions are dropped by `join_source`.
+pub fn collect_ram_sections(vm: &Vm) -> Vec<(SectionKind, Vec<u8>)> {
+    [
+        (SectionKind::SpriteSheet, SPRITE_SHEET_RAM_BASE, SPRITE_SHEET_LEN),
+        (SectionKind::Map, MAP_RAM_BASE, MAP_LEN),
+        (SectionKind::SpriteFlags, SPRITE_FLAGS_RAM_BASE, SPRITE_FLAGS_LEN),
+        (SectionKind::Palette, PALETTE_RAM_BASE, 16 * 3),
+        (SectionKind::SfxBank, SFX_RAM_BASE, SFX_BANK_LEN),
+        (SectionKind::MusicBank, MUSIC_RAM_BASE, MUSIC_BANK_LEN),
+    ]
+    .into_iter()
+    .map(|(kind, base, len)| {
+        let bytes: Vec<u8> = (0..len).map(|i| vm.peek_memory(base + i)).collect();
+        (kind, bytes)
+    })
+    .collect()
 }

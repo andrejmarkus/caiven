@@ -217,13 +217,23 @@ impl App {
             .with_context(|| format!("failed to read source {}", path.display()))?;
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
         if ext == "fc" {
-            let out = fc_lang::compile(&source).map_err(|e| {
-                anyhow::anyhow!("compile error in {}:\n{}", path.display(), e.render(&source))
+            let (code, sections) =
+                fc_rom::text::split_source(&source).map_err(anyhow::Error::msg)?;
+            let out = fc_lang::compile(&code).map_err(|e| {
+                anyhow::anyhow!("compile error in {}:\n{}", path.display(), e.render(&code))
             })?;
             self.core
                 .vm
                 .load_rom_with_source_map(out.program, out.source_map);
-            self.core.vm.set_fc_source(&source);
+            self.core.vm.set_fc_source(&code);
+            for (kind, data) in &sections {
+                if let Some(ram_base) = crate::studio::cart::section_ram_base(*kind) {
+                    self.core.vm.load_section_to_ram(ram_base, data);
+                    if *kind == SectionKind::Palette {
+                        self.core.vm.set_palette_from_bytes(data);
+                    }
+                }
+            }
             self.code_editor.set_source_path(path.to_path_buf());
             info!("fc-lang compiled from {}", path.display());
         } else {

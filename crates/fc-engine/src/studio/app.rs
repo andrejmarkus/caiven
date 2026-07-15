@@ -1,7 +1,7 @@
 //! StudioApp: eframe application state — headless console core, cart state,
 //! tab selection and per-frame VM stepping + framebuffer texture upload.
 
-use super::{cart, code_panel, game_panel, theme, toolbar};
+use super::{cart, code_panel, game_panel, palette_panel, sprite_panel, theme, toolbar};
 use crate::app::rom_io::{self, CartMeta};
 use anyhow::Result;
 use fc_vm::input::Button;
@@ -72,6 +72,8 @@ pub struct StudioApp {
     status: String,
     status_is_error: bool,
     code: code_panel::CodeState,
+    sprite: sprite_panel::SpriteState,
+    palette: palette_panel::PaletteState,
 }
 
 impl StudioApp {
@@ -89,6 +91,8 @@ impl StudioApp {
             status: "no cart loaded — fc-engine edit <file.rom|file.fc>".into(),
             status_is_error: false,
             code: code_panel::CodeState::default(),
+            sprite: sprite_panel::SpriteState::default(),
+            palette: palette_panel::PaletteState::default(),
         };
 
         if let Some(path) = file {
@@ -122,10 +126,22 @@ impl StudioApp {
             }
             "fc" => {
                 let text = std::fs::read_to_string(path)?;
+                // Editor buffer holds only the code part; asset blocks live
+                // in VM RAM (mutated by the sprite/map/... editors) and are
+                // re-embedded on save.
+                let (code, sections) =
+                    fc_rom::text::split_source(&text).map_err(anyhow::Error::msg)?;
                 info!("studio: fc source loaded from {}", path.display());
+                cart::apply_sections(&mut self.core.vm, &sections);
+                if !sections
+                    .iter()
+                    .any(|(k, _)| *k == fc_rom::SectionKind::Palette)
+                {
+                    cart::sync_palette_to_ram(&mut self.core.vm);
+                }
                 self.source = Some(SourceFile {
                     path: path.to_path_buf(),
-                    text,
+                    text: code,
                     dirty: false,
                 });
                 self.cart = None;
@@ -182,7 +198,9 @@ impl StudioApp {
             return;
         }
         if let Some(src) = &mut self.source {
-            let result = std::fs::write(&src.path, &src.text);
+            let sections = cart::collect_ram_sections(&self.core.vm);
+            let text = fc_rom::text::join_source(&src.text, &sections);
+            let result = std::fs::write(&src.path, text);
             let path = src.path.display().to_string();
             if result.is_ok() {
                 src.dirty = false;
@@ -356,25 +374,35 @@ impl eframe::App for StudioApp {
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            if self.tab == Tab::Code {
-                match &mut self.source {
-                    Some(src) => code_panel::show(ui, &mut self.code, src),
-                    None => {
-                        ui.add_space(8.0);
-                        ui.heading("CODE EDITOR");
-                        ui.colored_label(
-                            theme::DIM,
-                            "no .fc source open — fc-engine edit <file.fc>",
-                        );
+            match self.tab {
+                Tab::Code => {
+                    match &mut self.source {
+                        Some(src) => code_panel::show(ui, &mut self.code, src),
+                        None => {
+                            ui.add_space(8.0);
+                            ui.heading("CODE EDITOR");
+                            ui.colored_label(
+                                theme::DIM,
+                                "no .fc source open — fc-engine edit <file.fc>",
+                            );
+                        }
                     }
+                    return;
                 }
-                return;
+                Tab::Sprite => {
+                    sprite_panel::show(ui, &mut self.sprite, &mut self.core.vm);
+                    return;
+                }
+                Tab::Palette => {
+                    palette_panel::show(ui, &mut self.palette, &mut self.core.vm);
+                    return;
+                }
+                _ => {}
             }
             ui.add_space(8.0);
             ui.heading(format!("{} EDITOR", self.tab.label()));
             let phase = match self.tab {
-                Tab::Code => unreachable!(),
-                Tab::Sprite | Tab::Palette => "P2",
+                Tab::Code | Tab::Sprite | Tab::Palette => unreachable!(),
                 Tab::Map => "P3",
                 Tab::Sfx | Tab::Music => "P4",
                 Tab::Meta | Tab::Browser => "P5",

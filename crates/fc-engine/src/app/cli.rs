@@ -281,17 +281,23 @@ pub fn run() -> Result<()> {
             if ext == "fc" {
                 let src_text = std::fs::read_to_string(source)
                     .with_context(|| format!("failed to read source {}", source.display()))?;
-                let out = fc_lang::compile(&src_text).map_err(|e| {
+                let (code, sections) = fc_rom::text::split_source(&src_text)
+                    .map_err(|e| anyhow::anyhow!("bad asset block in {}: {e}", source.display()))?;
+                let out = fc_lang::compile(&code).map_err(|e| {
                     anyhow::anyhow!(
                         "compile error in {}:\n{}",
                         source.display(),
-                        e.render(&src_text)
+                        e.render(&code)
                     )
                 })?;
                 let header = RomHeader::default_for(stem);
-                fc_rom::write(output, &header, &out.program, &[])
+                fc_rom::write(output, &header, &out.program, &sections)
                     .with_context(|| format!("cannot write ROM to {}", output.display()))?;
-                info!("ROM written to {}", output.display());
+                info!(
+                    "ROM written to {} ({} asset sections)",
+                    output.display(),
+                    sections.len()
+                );
                 return Ok(());
             }
 

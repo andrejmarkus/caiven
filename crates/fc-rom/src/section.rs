@@ -8,6 +8,7 @@ pub enum SectionKind {
     Palette,
     Meta,
     ModManifest,
+    SpriteFlags,
     Custom(u16),
 }
 
@@ -22,6 +23,7 @@ impl SectionKind {
             Self::Palette => 0x0006,
             Self::Meta => 0x0007,
             Self::ModManifest => 0x0008,
+            Self::SpriteFlags => 0x0009,
             Self::Custom(n) => n,
         }
     }
@@ -36,6 +38,7 @@ impl SectionKind {
             0x0006 => Self::Palette,
             0x0007 => Self::Meta,
             0x0008 => Self::ModManifest,
+            0x0009 => Self::SpriteFlags,
             n => Self::Custom(n),
         }
     }
@@ -50,6 +53,7 @@ impl SectionKind {
             Self::Palette => "Palette",
             Self::Meta => "Meta",
             Self::ModManifest => "ModManifest",
+            Self::SpriteFlags => "SpriteFlags",
             Self::Custom(_) => "Custom",
         }
     }

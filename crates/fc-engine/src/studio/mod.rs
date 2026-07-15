@@ -3,9 +3,11 @@
 //! nearest-neighbor texture while editors mutate cart RAM directly.
 
 mod app;
-mod cart;
+pub(crate) mod cart;
 mod code_panel;
 mod game_panel;
+mod palette_panel;
+mod sprite_panel;
 mod theme;
 mod toolbar;
 
