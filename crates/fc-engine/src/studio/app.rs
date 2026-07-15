@@ -2,7 +2,7 @@
 //! tab selection and per-frame VM stepping + framebuffer texture upload.
 
 use super::{
-    browser_panel, cart, code_panel, game_panel, map_panel, meta_panel, music_panel,
+    browser_panel, cart, code_panel, debug_panel, game_panel, map_panel, meta_panel, music_panel,
     palette_panel, sfx_panel, sprite_panel, theme, toolbar,
 };
 use crate::app::rom_io::{self, CartMeta};
@@ -80,6 +80,7 @@ pub struct StudioApp {
     sfx: sfx_panel::SfxState,
     music: music_panel::MusicState,
     browser: browser_panel::BrowserState,
+    debug: debug_panel::DebugState,
 }
 
 impl StudioApp {
@@ -107,6 +108,7 @@ impl StudioApp {
             sfx: sfx_panel::SfxState::default(),
             music: music_panel::MusicState::default(),
             browser: browser_panel::BrowserState::default(),
+            debug: debug_panel::DebugState::default(),
         };
 
         if let Some(path) = file {
@@ -166,6 +168,7 @@ impl StudioApp {
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
             self.browser.set_scan_dir(dir.to_path_buf());
         }
+        self.debug.on_cart_loaded(path);
         Ok(())
     }
 
@@ -256,8 +259,26 @@ impl StudioApp {
     fn step_vm(&mut self) {
         let steps = self.core.frame_steps();
         if self.run_state == RunState::Running {
+            let bps = self.debug.dbg.breakpoints().to_vec();
+            let mut hit = None;
             for _ in 0..steps {
-                self.core.run_frame();
+                if bps.is_empty() {
+                    self.core.run_frame();
+                } else {
+                    let ignore = self.debug.take_resume_ignore();
+                    hit = self.core.run_frame_bp(&bps, ignore);
+                }
+                if self.debug.recording {
+                    self.debug.dbg.push_state(self.core.vm.snapshot());
+                }
+                if hit.is_some() {
+                    break;
+                }
+            }
+            if let Some(pc) = hit {
+                self.run_state = RunState::Paused;
+                self.debug.on_break(pc);
+                self.set_status(format!("breakpoint hit at 0x{pc:04X}"), false);
             }
         } else {
             // Game stopped/paused: keep SFX/music editor previews audible.
@@ -360,6 +381,10 @@ impl eframe::App for StudioApp {
                     // recompile instead of resuming a stale program.
                     self.run_source();
                 } else if self.cart.is_some() || self.source.is_some() {
+                    if self.run_state == RunState::Paused {
+                        // Resuming while parked on a breakpoint must not re-trap it.
+                        self.debug.set_resume_ignore(self.core.vm.get_pc());
+                    }
                     self.run_state = RunState::Running;
                 } else {
                     self.set_status("no cart loaded", true);
@@ -392,12 +417,20 @@ impl eframe::App for StudioApp {
             .default_width(560.0)
             .min_width(160.0)
             .show(ctx, |ui| {
-                game_panel::show(
-                    ui,
-                    self.game_tex.as_ref(),
-                    self.core.config.width as f32,
-                    self.run_state,
-                );
+                egui::TopBottomPanel::bottom("debug")
+                    .resizable(true)
+                    .default_height(300.0)
+                    .show_inside(ui, |ui| {
+                        debug_panel::show(ui, &mut self.debug, &mut self.core, &mut self.run_state);
+                    });
+                egui::CentralPanel::default().show_inside(ui, |ui| {
+                    game_panel::show(
+                        ui,
+                        self.game_tex.as_ref(),
+                        self.core.config.width as f32,
+                        self.run_state,
+                    );
+                });
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {

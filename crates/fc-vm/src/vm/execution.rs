@@ -163,6 +163,41 @@ impl Vm {
         }
     }
 
+    /// Like [`Vm::run_frame`], but pauses when the PC reaches an address in
+    /// `breakpoints`, returning that address (the frame is left incomplete).
+    /// `ignore` exempts one address for the first instruction so resuming
+    /// from a breakpoint does not immediately re-trap; resuming restarts the
+    /// frame ticks (audio, peripherals, frame counter).
+    pub fn run_frame_bp(
+        &mut self,
+        input: &Input,
+        font: &Font,
+        breakpoints: &[usize],
+        ignore: Option<usize>,
+    ) -> Option<usize> {
+        self.waiting = false;
+        self.tick_music_player();
+        self.tick_sfx_player();
+        self.peripherals
+            .tick_all(&mut self.memory, self.frame_count);
+        self.frame_count = self.frame_count.wrapping_add(1);
+
+        let mut steps = 0u32;
+        while !self.waiting {
+            let pc = self.cpu.get_pc();
+            if breakpoints.contains(&pc) && (steps > 0 || ignore != Some(pc)) {
+                return Some(pc);
+            }
+            self.step(input, font);
+            steps += 1;
+            if steps >= 1_000_000 {
+                self.set_fault(VmFault::StepLimitExceeded);
+                break;
+            }
+        }
+        None
+    }
+
     pub fn step(&mut self, input: &Input, font: &Font) {
         if self.fault.is_some() {
             self.waiting = true;

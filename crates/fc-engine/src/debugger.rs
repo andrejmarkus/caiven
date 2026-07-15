@@ -283,6 +283,34 @@ impl Debugger {
         self.enabled
     }
 
+    pub fn breakpoints(&self) -> &[usize] {
+        &self.breakpoints
+    }
+
+    pub fn cursor_addr(&self) -> usize {
+        self.cursor_addr
+    }
+
+    pub fn set_cursor_addr(&mut self, addr: usize) {
+        self.cursor_addr = addr;
+    }
+
+    pub fn states_len(&self) -> usize {
+        self.states.len()
+    }
+
+    pub fn scrub_offset(&self) -> usize {
+        self.scrub_offset
+    }
+
+    pub fn set_scrub_offset(&mut self, offset: usize) {
+        self.scrub_offset = offset.min(self.states.len().saturating_sub(1));
+    }
+
+    pub fn reg_alias(&self, i: usize) -> Option<&str> {
+        self.reg_aliases.get(i)?.as_deref()
+    }
+
     /// Handle a mouse click (or drag) on the debug overlay. Returns what the caller must do next.
     pub fn handle_click(&mut self, x: u32, y: u32, vm: &Vm) -> DebugClickAction {
         if !self.enabled {

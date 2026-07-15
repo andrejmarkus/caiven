@@ -94,6 +94,14 @@ impl ConsoleCore {
     pub fn step(&mut self) {
         self.vm.step(&self.input, &self.font);
     }
+
+    /// Runs one frame honoring breakpoints; input latches like `run_frame`.
+    /// Returns the breakpoint address that was hit, if any.
+    pub fn run_frame_bp(&mut self, breakpoints: &[usize], ignore: Option<usize>) -> Option<usize> {
+        let hit = self.vm.run_frame_bp(&self.input, &self.font, breakpoints, ignore);
+        self.input.end_frame();
+        hit
+    }
 }
 
 /// Winit window and pixel surface for a console front-end. Both stay `None`

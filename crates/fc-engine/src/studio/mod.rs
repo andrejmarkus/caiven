@@ -6,6 +6,7 @@ mod app;
 mod browser_panel;
 pub(crate) mod cart;
 mod code_panel;
+mod debug_panel;
 mod game_panel;
 mod map_panel;
 mod meta_panel;
