@@ -105,6 +105,7 @@ pub struct CartDetail {
     #[serde(flatten)]
     pub cart: Cart,
     pub versions: Vec<CartVersionInfo>,
+    pub own_rating: Option<i32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -171,4 +172,25 @@ pub struct TokenInfo {
     pub name: String,
     pub created_at: String,
     pub last_used_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct RatingInput {
+    pub score: i32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct CommentInput {
+    pub body: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct CommentInfo {
+    pub id: String,
+    pub author: String,
+    pub body: String,
+    pub created_at: String,
 }

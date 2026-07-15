@@ -4,6 +4,7 @@ pub mod auth;
 pub mod carts;
 pub mod discovery;
 pub mod legacy;
+pub mod social;
 pub mod versions;
 
 use std::io::Cursor;

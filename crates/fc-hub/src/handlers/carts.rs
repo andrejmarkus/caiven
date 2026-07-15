@@ -137,7 +137,11 @@ pub async fn list_carts(
 }
 
 #[get("/api/v2/carts/<id>")]
-pub async fn get_cart(state: &State<HubState>, id: &str) -> Result<Json<CartDetail>, ApiError> {
+pub async fn get_cart(
+    state: &State<HubState>,
+    user: Option<AuthUser>,
+    id: &str,
+) -> Result<Json<CartDetail>, ApiError> {
     if !valid_id(id) {
         return Err(ApiError::bad_request("invalid id"));
     }
@@ -149,7 +153,15 @@ pub async fn get_cart(state: &State<HubState>, id: &str) -> Result<Json<CartDeta
         .into_iter()
         .map(CartVersionInfo::from)
         .collect();
-    Ok(Json(CartDetail { cart, versions }))
+    let own_rating = match &user {
+        Some(u) => db::get_own_rating(&state.db, id, &u.id).await?,
+        None => None,
+    };
+    Ok(Json(CartDetail {
+        cart,
+        versions,
+        own_rating,
+    }))
 }
 
 #[post("/api/v2/carts", data = "<upload>")]

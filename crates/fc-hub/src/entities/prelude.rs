@@ -7,6 +7,10 @@ pub use super::cart_versions::Entity as CartVersions;
 #[allow(unused_imports)]
 pub use super::carts::Entity as Carts;
 #[allow(unused_imports)]
+pub use super::comments::Entity as Comments;
+#[allow(unused_imports)]
+pub use super::ratings::Entity as Ratings;
+#[allow(unused_imports)]
 pub use super::sessions::Entity as Sessions;
 #[allow(unused_imports)]
 pub use super::users::Entity as Users;

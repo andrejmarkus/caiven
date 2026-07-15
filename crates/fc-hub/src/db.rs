@@ -1,13 +1,15 @@
 use anyhow::Result;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, DatabaseConnection, EntityTrait, PaginatorTrait,
-    QueryFilter, QueryOrder, Set,
+    QueryFilter, QueryOrder, Set, TransactionTrait,
     sea_query::{Expr, Order},
 };
 
 use crate::entities::{
     cart_versions::{self, Entity as CartVersionEntity},
     carts::{self, Entity as CartEntity},
+    comments::{self, Entity as CommentEntity},
+    ratings::{self, Entity as RatingEntity},
     users::{self, Entity as UserEntity},
 };
 use crate::models::{Cart, CartMeta, CartPatch, TagCount};
@@ -326,6 +328,150 @@ pub async fn get_user_by_username(
         .filter(users::Column::Username.eq(username))
         .one(db)
         .await?)
+}
+
+/// Upsert a user's rating for a cart, keeping `carts.rating_count`/`rating_sum`
+/// in sync in the same transaction (new rating adjusts both, re-rating only
+/// adjusts the sum by the delta).
+pub async fn upsert_rating(
+    db: &DatabaseConnection,
+    cart_id: &str,
+    user_id: &str,
+    score: i32,
+) -> Result<()> {
+    let txn = db.begin().await?;
+    let now = chrono::Utc::now().to_rfc3339();
+    let existing = RatingEntity::find()
+        .filter(ratings::Column::CartId.eq(cart_id))
+        .filter(ratings::Column::UserId.eq(user_id))
+        .one(&txn)
+        .await?;
+
+    let (count_delta, sum_delta): (i64, i64) = if let Some(existing) = existing {
+        let old_score = existing.score;
+        let mut active: ratings::ActiveModel = existing.into();
+        active.score = Set(score);
+        active.updated_at = Set(now);
+        active.update(&txn).await?;
+        (0, (score - old_score) as i64)
+    } else {
+        ratings::ActiveModel {
+            id: Set(uuid::Uuid::new_v4().to_string()),
+            cart_id: Set(cart_id.to_string()),
+            user_id: Set(user_id.to_string()),
+            score: Set(score),
+            created_at: Set(now.clone()),
+            updated_at: Set(now),
+        }
+        .insert(&txn)
+        .await?;
+        (1, score as i64)
+    };
+
+    CartEntity::update_many()
+        .col_expr(
+            carts::Column::RatingCount,
+            Expr::col(carts::Column::RatingCount).add(count_delta),
+        )
+        .col_expr(
+            carts::Column::RatingSum,
+            Expr::col(carts::Column::RatingSum).add(sum_delta),
+        )
+        .filter(carts::Column::Id.eq(cart_id))
+        .exec(&txn)
+        .await?;
+
+    txn.commit().await?;
+    Ok(())
+}
+
+pub async fn delete_rating(db: &DatabaseConnection, cart_id: &str, user_id: &str) -> Result<()> {
+    let txn = db.begin().await?;
+    let existing = RatingEntity::find()
+        .filter(ratings::Column::CartId.eq(cart_id))
+        .filter(ratings::Column::UserId.eq(user_id))
+        .one(&txn)
+        .await?;
+    let Some(existing) = existing else {
+        txn.commit().await?;
+        return Ok(());
+    };
+    let score = existing.score as i64;
+    RatingEntity::delete_by_id(existing.id).exec(&txn).await?;
+    CartEntity::update_many()
+        .col_expr(
+            carts::Column::RatingCount,
+            Expr::col(carts::Column::RatingCount).sub(1),
+        )
+        .col_expr(
+            carts::Column::RatingSum,
+            Expr::col(carts::Column::RatingSum).sub(score),
+        )
+        .filter(carts::Column::Id.eq(cart_id))
+        .exec(&txn)
+        .await?;
+    txn.commit().await?;
+    Ok(())
+}
+
+pub async fn get_own_rating(
+    db: &DatabaseConnection,
+    cart_id: &str,
+    user_id: &str,
+) -> Result<Option<i32>> {
+    Ok(RatingEntity::find()
+        .filter(ratings::Column::CartId.eq(cart_id))
+        .filter(ratings::Column::UserId.eq(user_id))
+        .one(db)
+        .await?
+        .map(|r| r.score))
+}
+
+pub async fn add_comment(
+    db: &DatabaseConnection,
+    cart_id: &str,
+    user_id: &str,
+    body: &str,
+) -> Result<comments::Model> {
+    Ok(comments::ActiveModel {
+        id: Set(uuid::Uuid::new_v4().to_string()),
+        cart_id: Set(cart_id.to_string()),
+        user_id: Set(user_id.to_string()),
+        body: Set(body.to_string()),
+        created_at: Set(chrono::Utc::now().to_rfc3339()),
+    }
+    .insert(db)
+    .await?)
+}
+
+/// List comments for a cart oldest-first, each paired with its author's
+/// username.
+pub async fn list_comments(
+    db: &DatabaseConnection,
+    cart_id: &str,
+) -> Result<Vec<(comments::Model, String)>> {
+    let rows = CommentEntity::find()
+        .filter(comments::Column::CartId.eq(cart_id))
+        .order_by_asc(comments::Column::CreatedAt)
+        .all(db)
+        .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for c in rows {
+        let username = owner_username(db, Some(&c.user_id))
+            .await?
+            .unwrap_or_else(|| "unknown".to_string());
+        out.push((c, username));
+    }
+    Ok(out)
+}
+
+pub async fn get_comment(db: &DatabaseConnection, id: &str) -> Result<Option<comments::Model>> {
+    Ok(CommentEntity::find_by_id(id).one(db).await?)
+}
+
+pub async fn delete_comment(db: &DatabaseConnection, id: &str) -> Result<()> {
+    CommentEntity::delete_by_id(id).exec(db).await?;
+    Ok(())
 }
 
 pub async fn list_by_owner(

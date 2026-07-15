@@ -518,6 +518,175 @@ async fn sort_popular_orders_by_downloads() {
     let _ = quiet;
 }
 
+// ── social: ratings + comments ──────────────────────────────────────────────
+
+#[rocket::async_test]
+async fn rating_upsert_is_one_per_user_and_averages() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+
+    let owner_token = register_get_token_and_logout(&client, "owner").await;
+    let alice_token = register_get_token_and_logout(&client, "alice").await;
+    let bob_token = register_get_token_and_logout(&client, "bob").await;
+
+    let resp = upload(&client, &owner_token, &sample_rom(), r#"{"title":"Game","author":"A"}"#).await;
+    let cart: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let id = cart["id"].as_str().unwrap().to_string();
+
+    let resp = client
+        .put(format!("/api/v2/carts/{id}/rating"))
+        .header(Header::new("X-Api-Key", alice_token.clone()))
+        .header(ContentType::JSON)
+        .body(r#"{"score":4}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let rated: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(rated["rating_count"], 1);
+    assert_eq!(rated["rating_avg"], 4.0);
+
+    let resp = client
+        .put(format!("/api/v2/carts/{id}/rating"))
+        .header(Header::new("X-Api-Key", bob_token.clone()))
+        .header(ContentType::JSON)
+        .body(r#"{"score":2}"#)
+        .dispatch()
+        .await;
+    let rated: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(rated["rating_count"], 2);
+    assert_eq!(rated["rating_avg"], 3.0);
+
+    // Alice changes her mind: 4 -> 5. Still one rating from her, avg updates.
+    let resp = client
+        .put(format!("/api/v2/carts/{id}/rating"))
+        .header(Header::new("X-Api-Key", alice_token.clone()))
+        .header(ContentType::JSON)
+        .body(r#"{"score":5}"#)
+        .dispatch()
+        .await;
+    let rated: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(rated["rating_count"], 2);
+    assert_eq!(rated["rating_avg"], 3.5);
+
+    let resp = client.get(format!("/api/v2/carts/{id}")).dispatch().await;
+    let detail: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(detail["own_rating"], serde_json::Value::Null);
+
+    let resp = client
+        .get(format!("/api/v2/carts/{id}"))
+        .header(Header::new("X-Api-Key", alice_token.clone()))
+        .dispatch()
+        .await;
+    let detail: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(detail["own_rating"], 5);
+
+    let resp = client
+        .delete(format!("/api/v2/carts/{id}/rating"))
+        .header(Header::new("X-Api-Key", bob_token.clone()))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let rated: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(rated["rating_count"], 1);
+    assert_eq!(rated["rating_avg"], 5.0);
+}
+
+#[rocket::async_test]
+async fn rating_out_of_range_is_400_and_requires_auth() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    let token = register_get_token_and_logout(&client, "tester").await;
+
+    let resp = upload(&client, &token, &sample_rom(), r#"{"title":"Game","author":"A"}"#).await;
+    let cart: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let id = cart["id"].as_str().unwrap().to_string();
+
+    let resp = client
+        .put(format!("/api/v2/carts/{id}/rating"))
+        .header(ContentType::JSON)
+        .body(r#"{"score":3}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Unauthorized);
+
+    let resp = client
+        .put(format!("/api/v2/carts/{id}/rating"))
+        .header(Header::new("X-Api-Key", token.clone()))
+        .header(ContentType::JSON)
+        .body(r#"{"score":6}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::BadRequest);
+}
+
+#[rocket::async_test]
+async fn comments_add_list_and_delete_permissions() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+
+    let owner_token = register_get_token_and_logout(&client, "owner").await;
+    let commenter_token = register_get_token_and_logout(&client, "commenter").await;
+    let stranger_token = register_get_token_and_logout(&client, "stranger").await;
+
+    let resp = upload(&client, &owner_token, &sample_rom(), r#"{"title":"Game","author":"A"}"#).await;
+    let cart: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let id = cart["id"].as_str().unwrap().to_string();
+
+    let resp = client
+        .post(format!("/api/v2/carts/{id}/comments"))
+        .header(Header::new("X-Api-Key", commenter_token.clone()))
+        .header(ContentType::JSON)
+        .body(r#"{"body":"Great game!"}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let comment: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(comment["author"], "commenter");
+    assert_eq!(comment["body"], "Great game!");
+    let comment_id = comment["id"].as_str().unwrap().to_string();
+
+    let resp = client
+        .post(format!("/api/v2/carts/{id}/comments"))
+        .header(ContentType::JSON)
+        .body(r#"{"body":"anonymous"}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Unauthorized);
+
+    let resp = client
+        .post(format!("/api/v2/carts/{id}/comments"))
+        .header(Header::new("X-Api-Key", commenter_token.clone()))
+        .header(ContentType::JSON)
+        .body(r#"{"body":"   "}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::BadRequest);
+
+    let resp = client.get(format!("/api/v2/carts/{id}/comments")).dispatch().await;
+    let list: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(list.as_array().unwrap().len(), 1);
+
+    // Stranger (not the commenter or cart owner) can't delete.
+    let resp = client
+        .delete(format!("/api/v2/carts/{id}/comments/{comment_id}"))
+        .header(Header::new("X-Api-Key", stranger_token.clone()))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Forbidden);
+
+    // Cart owner can delete someone else's comment.
+    let resp = client
+        .delete(format!("/api/v2/carts/{id}/comments/{comment_id}"))
+        .header(Header::new("X-Api-Key", owner_token.clone()))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+
+    let resp = client.get(format!("/api/v2/carts/{id}/comments")).dispatch().await;
+    let list: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(list.as_array().unwrap().len(), 0);
+}
+
 #[rocket::async_test]
 async fn legacy_carts_are_migrated_to_legacy_owner_with_v1() {
     let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();

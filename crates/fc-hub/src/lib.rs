@@ -52,6 +52,11 @@ pub fn build_rocket(config: rocket::Config, state: HubState) -> rocket::Rocket<r
                 handlers::versions::get_screenshot,
                 handlers::discovery::list_tags,
                 handlers::discovery::user_profile,
+                handlers::social::rate_cart,
+                handlers::social::unrate_cart,
+                handlers::social::list_comments,
+                handlers::social::add_comment,
+                handlers::social::delete_comment,
             ],
         )
         .register("/", rocket::catchers![handlers::unauthorized])

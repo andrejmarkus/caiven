@@ -5,5 +5,7 @@ pub mod prelude;
 pub mod api_tokens;
 pub mod cart_versions;
 pub mod carts;
+pub mod comments;
+pub mod ratings;
 pub mod sessions;
 pub mod users;
