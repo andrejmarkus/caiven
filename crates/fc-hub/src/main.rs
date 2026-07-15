@@ -21,27 +21,12 @@ struct Args {
     /// Directory for database and uploaded files
     #[arg(long, default_value = "data")]
     data_dir: PathBuf,
-
-    /// API key required for uploads
-    #[arg(long, default_value = "changeme", env = "FC_HUB_API_KEY")]
-    api_key: String,
 }
 
 #[rocket::main]
 async fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
-
-    if args.api_key == "changeme" {
-        if cfg!(debug_assertions) {
-            eprintln!("WARNING: default API key in use — set --api-key or FC_HUB_API_KEY");
-        } else {
-            anyhow::bail!(
-                "refusing to start with the default API key in a release build — \
-                 set --api-key or FC_HUB_API_KEY"
-            );
-        }
-    }
 
     tokio::fs::create_dir_all(args.data_dir.join("roms")).await?;
     tokio::fs::create_dir_all(args.data_dir.join("screenshots")).await?;
@@ -66,7 +51,7 @@ async fn main() -> Result<()> {
     let state = HubState {
         db,
         data_dir: args.data_dir,
-        api_key: args.api_key,
+        rate: fc_hub::auth::RateLimiter::default(),
     };
 
     build_rocket(config, state)

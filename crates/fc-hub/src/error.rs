@@ -13,6 +13,9 @@ pub enum ApiError {
     BadRequest(String),
     PayloadTooLarge(String),
     Unauthorized,
+    Forbidden(String),
+    Conflict(String),
+    TooManyRequests(String),
     Internal(String),
 }
 
@@ -22,6 +25,12 @@ impl ApiError {
     }
     pub fn bad_request(msg: impl Into<String>) -> Self {
         Self::BadRequest(msg.into())
+    }
+    pub fn forbidden(msg: impl Into<String>) -> Self {
+        Self::Forbidden(msg.into())
+    }
+    pub fn conflict(msg: impl Into<String>) -> Self {
+        Self::Conflict(msg.into())
     }
     pub fn internal(msg: impl Into<String>) -> Self {
         Self::Internal(msg.into())
@@ -34,7 +43,10 @@ impl<'r> Responder<'r, 'static> for ApiError {
             ApiError::NotFound(m) => (Status::NotFound, m),
             ApiError::BadRequest(m) => (Status::BadRequest, m),
             ApiError::PayloadTooLarge(m) => (Status::PayloadTooLarge, m),
-            ApiError::Unauthorized => (Status::Unauthorized, "invalid api key".into()),
+            ApiError::Unauthorized => (Status::Unauthorized, "authentication required".into()),
+            ApiError::Forbidden(m) => (Status::Forbidden, m),
+            ApiError::Conflict(m) => (Status::Conflict, m),
+            ApiError::TooManyRequests(m) => (Status::TooManyRequests, m),
             ApiError::Internal(m) => (Status::InternalServerError, m),
         };
         let body = serde_json::json!({"error": msg}).to_string();

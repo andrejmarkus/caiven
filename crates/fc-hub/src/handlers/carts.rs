@@ -1,75 +1,24 @@
-use std::io::Cursor;
-
 use rocket::{
     FromForm, State,
     data::Capped,
     form::Form,
     fs::TempFile,
-    get,
-    http::{Header, Status},
-    post,
-    request::{FromRequest, Outcome, Request},
-    response::{self, Responder, Response, content::RawHtml},
+    get, post,
+    response::content::RawHtml,
     serde::json::Json,
 };
-use std::path::Path;
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
-async fn move_file(src: &Path, dst: &Path) -> std::io::Result<()> {
-    match tokio::fs::rename(src, dst).await {
-        Ok(()) => Ok(()),
-        Err(e) if e.raw_os_error() == Some(18) => {
-            tokio::fs::copy(src, dst).await?;
-            let _ = tokio::fs::remove_file(src).await;
-            Ok(())
-        }
-        Err(e) => Err(e),
-    }
-}
-
+use super::{BinaryFile, move_file, safe_filename, valid_id};
 use crate::{
-    HubState, db,
+    HubState,
+    auth::AuthUser,
+    db,
     error::ApiError,
     gallery,
     models::{Cart, CartList, CartMeta},
 };
-
-pub struct ApiKey;
-
-#[rocket::async_trait]
-impl<'r> FromRequest<'r> for ApiKey {
-    type Error = ();
-
-    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, ()> {
-        // HubState is attached via .manage() at startup; if it is missing,
-        // fail the request instead of panicking inside the request guard.
-        let Some(state) = req.rocket().state::<HubState>() else {
-            return Outcome::Error((Status::InternalServerError, ()));
-        };
-        match req.headers().get_one("X-Api-Key") {
-            Some(k) if k == state.api_key => Outcome::Success(ApiKey),
-            _ => Outcome::Error((Status::Unauthorized, ())),
-        }
-    }
-}
-
-fn valid_id(s: &str) -> bool {
-    s.len() == 36 && s.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
-}
-
-fn safe_filename(s: &str) -> String {
-    s.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .take(64)
-        .collect()
-}
 
 fn validate_meta(meta: &CartMeta) -> Result<(), ApiError> {
     if meta.title.trim().is_empty() {
@@ -89,31 +38,6 @@ fn validate_meta(meta: &CartMeta) -> Result<(), ApiError> {
     }
     Ok(())
 }
-
-// ── custom binary responder ───────────────────────────────────────────────────
-
-pub struct BinaryFile {
-    bytes: Vec<u8>,
-    content_type: &'static str,
-    disposition: String,
-    cache: Option<&'static str>,
-}
-
-impl<'r> Responder<'r, 'static> for BinaryFile {
-    fn respond_to(self, _: &'r Request<'_>) -> response::Result<'static> {
-        let mut b = Response::build();
-        b.status(Status::Ok)
-            .header(Header::new("Content-Type", self.content_type))
-            .header(Header::new("Content-Disposition", self.disposition))
-            .header(Header::new("Content-Length", self.bytes.len().to_string()));
-        if let Some(cc) = self.cache {
-            b.header(Header::new("Cache-Control", cc));
-        }
-        b.sized_body(self.bytes.len(), Cursor::new(self.bytes)).ok()
-    }
-}
-
-// ── routes ────────────────────────────────────────────────────────────────────
 
 #[get("/?<page>&<q>")]
 pub async fn gallery_page(
@@ -166,7 +90,7 @@ pub struct CartUpload<'v> {
 
 #[post("/api/carts", data = "<upload>")]
 pub async fn upload_cart(
-    _key: ApiKey,
+    _user: AuthUser,
     state: &State<HubState>,
     upload: Form<CartUpload<'_>>,
 ) -> Result<Json<Cart>, ApiError> {
@@ -250,7 +174,7 @@ pub struct ScreenshotUpload<'v> {
 
 #[post("/api/carts/<id>/screenshot", data = "<upload>")]
 pub async fn upload_screenshot(
-    _key: ApiKey,
+    _user: AuthUser,
     state: &State<HubState>,
     id: &str,
     upload: Form<ScreenshotUpload<'_>>,
@@ -298,11 +222,6 @@ pub async fn upload_screenshot(
         return Err(ApiError::from(e));
     }
     Ok(())
-}
-
-#[rocket::catch(401)]
-pub fn unauthorized() -> ApiError {
-    ApiError::Unauthorized
 }
 
 #[get("/api/carts/<id>/screenshot")]

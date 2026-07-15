@@ -6,6 +6,7 @@
 
 use std::path::PathBuf;
 
+pub mod auth;
 pub mod db;
 pub mod entities;
 pub mod error;
@@ -16,7 +17,7 @@ pub mod models;
 pub struct HubState {
     pub db: sea_orm::DatabaseConnection,
     pub data_dir: PathBuf,
-    pub api_key: String,
+    pub rate: auth::RateLimiter,
 }
 
 /// Assemble the rocket with all routes and catchers mounted.
@@ -26,13 +27,20 @@ pub fn build_rocket(config: rocket::Config, state: HubState) -> rocket::Rocket<r
         .mount(
             "/",
             rocket::routes![
-                handlers::gallery_page,
-                handlers::list_carts,
-                handlers::get_cart,
-                handlers::upload_cart,
-                handlers::download_rom,
-                handlers::upload_screenshot,
-                handlers::get_screenshot,
+                handlers::carts::gallery_page,
+                handlers::carts::list_carts,
+                handlers::carts::get_cart,
+                handlers::carts::upload_cart,
+                handlers::carts::download_rom,
+                handlers::carts::upload_screenshot,
+                handlers::carts::get_screenshot,
+                handlers::auth::register,
+                handlers::auth::login,
+                handlers::auth::logout,
+                handlers::auth::me,
+                handlers::auth::list_tokens,
+                handlers::auth::create_token,
+                handlers::auth::revoke_token,
             ],
         )
         .register("/", rocket::catchers![handlers::unauthorized])

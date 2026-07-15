@@ -55,3 +55,43 @@ pub struct CartList {
     pub page: u32,
     pub per_page: u32,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct Credentials {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct UserInfo {
+    pub id: String,
+    pub username: String,
+    pub is_admin: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct TokenCreate {
+    #[serde(default)]
+    pub name: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct TokenCreated {
+    pub id: String,
+    pub name: String,
+    /// Plaintext token, shown only in this response.
+    pub token: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct TokenInfo {
+    pub id: String,
+    pub name: String,
+    pub created_at: String,
+    pub last_used_at: Option<String>,
+}

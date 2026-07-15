@@ -7,8 +7,6 @@ services:
       - "8080:8080"
     volumes:
       - hub-data:/data
-    environment:
-      FC_HUB_API_KEY: ${FC_HUB_API_KEY:?set FC_HUB_API_KEY (release builds refuse the default key)}
     restart: unless-stopped
 
 volumes:
