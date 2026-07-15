@@ -2,19 +2,13 @@
 //! (build/inspect/publish) and the `run` entry point that starts the editor.
 
 use super::App;
+use crate::hub_client::{build_multipart, capture_screenshot};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use fc_core::memory::{
-    MAP_RAM_BASE, MUSIC_RAM_BASE, PALETTE_RAM_BASE, SFX_RAM_BASE, SPRITE_SHEET_RAM_BASE,
-};
 use fc_rom::{RomHeader, SectionKind};
-use fc_vm::default_instruction_set;
-use fc_vm::input::Input;
-use fc_vm::rendering::font::Font;
-use fc_vm::{Vm, VmConfig};
+use fc_vm::VmConfig;
 use log::info;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use winit::event_loop::{ControlFlow, EventLoop};
 
 #[derive(Parser)]
@@ -61,8 +55,9 @@ enum Command {
         /// Hub base URL
         #[arg(long, env = "FC_HUB_URL", default_value = "http://localhost:8080")]
         url: String,
-        /// API key for upload authentication
-        #[arg(long, env = "FC_HUB_API_KEY", default_value = "changeme")]
+        /// Per-user hub API token (create one via the hub web UI Profile
+        /// page, or by logging into FC Studio's hub tab)
+        #[arg(long, env = "FC_HUB_API_KEY", default_value = "")]
         api_key: String,
         /// Cart title (defaults to ROM header title)
         #[arg(long)]
@@ -83,76 +78,6 @@ enum Command {
         #[arg(long)]
         no_screenshot: bool,
     },
-}
-
-fn build_multipart(boundary: &str, parts: &[(&str, Option<&str>, &str, &[u8])]) -> Vec<u8> {
-    let mut body = Vec::new();
-    for (name, filename, content_type, data) in parts {
-        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
-        let cd = match filename {
-            Some(fname) => {
-                format!("Content-Disposition: form-data; name=\"{name}\"; filename=\"{fname}\"\r\n")
-            }
-            None => format!("Content-Disposition: form-data; name=\"{name}\"\r\n"),
-        };
-        body.extend_from_slice(cd.as_bytes());
-        body.extend_from_slice(format!("Content-Type: {content_type}\r\n\r\n").as_bytes());
-        body.extend_from_slice(data);
-        body.extend_from_slice(b"\r\n");
-    }
-    body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
-    body
-}
-
-fn capture_screenshot(rom: &fc_rom::Rom, config: VmConfig, frames: u32) -> Result<Vec<u8>> {
-    let instruction_set = Arc::new(default_instruction_set());
-    let mut vm = Vm::new(instruction_set, config);
-
-    vm.load_rom(rom.program.clone());
-    for section in &rom.sections {
-        match section.kind {
-            SectionKind::SpriteSheet => {
-                vm.load_section_to_ram(SPRITE_SHEET_RAM_BASE, &section.data)
-            }
-            SectionKind::Map => vm.load_section_to_ram(MAP_RAM_BASE, &section.data),
-            SectionKind::Palette => {
-                vm.load_section_to_ram(PALETTE_RAM_BASE, &section.data);
-                vm.set_palette_from_bytes(&section.data);
-            }
-            SectionKind::SfxBank => vm.load_section_to_ram(SFX_RAM_BASE, &section.data),
-            SectionKind::MusicBank => vm.load_section_to_ram(MUSIC_RAM_BASE, &section.data),
-            _ => {}
-        }
-    }
-
-    let font = Font::empty();
-    let input = Input::new();
-    for _ in 0..frames {
-        vm.run_frame(&input, &font);
-    }
-
-    let world = vm.world_pixels();
-    let ui = vm.ui_pixels();
-    let pixel_count = (config.width * config.height) as usize;
-    let mut rgba = vec![0u8; pixel_count * 4];
-    for i in 0..pixel_count {
-        let base = i * 4;
-        if ui[base + 3] > 0 {
-            rgba[base..base + 4].copy_from_slice(&ui[base..base + 4]);
-        } else {
-            rgba[base..base + 4].copy_from_slice(&world[base..base + 4]);
-        }
-    }
-
-    let img = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(config.width, config.height, rgba)
-        .context("failed to create image buffer")?;
-    let mut png_bytes = Vec::new();
-    img.write_to(
-        &mut std::io::Cursor::new(&mut png_bytes),
-        image::ImageFormat::Png,
-    )
-    .context("failed to encode screenshot PNG")?;
-    Ok(png_bytes)
 }
 
 struct PublishArgs<'a> {
@@ -179,17 +104,28 @@ fn publish_cart(args: PublishArgs) -> Result<()> {
         frames,
         no_screenshot,
     } = args;
+    if api_key.is_empty() {
+        anyhow::bail!(
+            "no hub API token given — pass --api-key or set FC_HUB_API_KEY \
+             (create one via the hub web UI Profile page, or by logging into FC Studio's hub tab)"
+        );
+    }
     let rom = fc_rom::load(rom_path)
         .with_context(|| format!("failed to load ROM from {}", rom_path.display()))?;
 
     let title = title.unwrap_or(&rom.header.title);
     let author = author.unwrap_or(&rom.header.author);
+    let tags_vec: Vec<&str> = tags
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
 
     let meta_str = serde_json::json!({
         "title": title,
         "author": author,
         "description": description,
-        "tags": tags,
+        "tags": tags_vec,
     })
     .to_string();
 

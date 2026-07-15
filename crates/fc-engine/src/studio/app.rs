@@ -362,7 +362,7 @@ impl eframe::App for StudioApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.handle_shortcuts(ctx);
         self.route_game_input(ctx);
-        self.browser.poll();
+        self.browser.poll(ctx);
         if let Some(path) = self.browser.take_pending_load() {
             match self.open_file(&path) {
                 Ok(()) => self.tab = Tab::Code,
@@ -465,7 +465,7 @@ impl eframe::App for StudioApp {
                     meta_panel::show(ui, self.cart.as_mut(), self.source.as_ref());
                 }
                 Tab::Browser => {
-                    browser_panel::show(ui, &mut self.browser);
+                    browser_panel::show(ui, &mut self.browser, ctx, self.cart.as_ref());
                 }
             }
         });
