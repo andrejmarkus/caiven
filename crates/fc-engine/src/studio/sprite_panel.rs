@@ -2,17 +2,15 @@
 //! tools, palette row, per-sprite flags and a full sprite-sheet picker.
 //! All edits go straight to sprite RAM; undo keeps per-sprite snapshots.
 
+use super::sheet::{self, palette_color32, sprite_base};
 use super::theme;
 use egui::{Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
-use fc_core::memory::{
-    PALETTE_SIZE, SPRITE_COUNT, SPRITE_FLAGS_RAM_BASE, SPRITE_SHEET_RAM_BASE,
-};
+use fc_core::memory::{PALETTE_SIZE, SPRITE_FLAGS_RAM_BASE};
 use fc_vm::Vm;
 
 const SPRITE_SIZE: usize = 8;
 const SPRITE_BYTES: usize = SPRITE_SIZE * SPRITE_SIZE;
 const ZOOM: f32 = 32.0;
-const SHEET_COLS: usize = 16;
 const SHEET_SCALE: f32 = 2.0;
 const UNDO_CAP: usize = 64;
 
@@ -67,10 +65,6 @@ impl Default for SpriteState {
     }
 }
 
-fn sprite_base(sprite: usize) -> usize {
-    SPRITE_SHEET_RAM_BASE + sprite * SPRITE_BYTES
-}
-
 fn read_sprite(vm: &Vm, sprite: usize) -> [u8; SPRITE_BYTES] {
     let base = sprite_base(sprite);
     std::array::from_fn(|i| vm.peek_memory(base + i))
@@ -80,13 +74,6 @@ fn write_sprite(vm: &mut Vm, sprite: usize, data: &[u8; SPRITE_BYTES]) {
     let base = sprite_base(sprite);
     for (i, b) in data.iter().enumerate() {
         vm.poke_memory(base + i, *b);
-    }
-}
-
-fn palette_color32(vm: &Vm, index: u8) -> Color32 {
-    match vm.get_palette().get(index as usize) {
-        Some(c) => Color32::from_rgb(c.get_r(), c.get_g(), c.get_b()),
-        None => Color32::BLACK,
     }
 }
 
@@ -219,7 +206,14 @@ pub fn show(ui: &mut egui::Ui, state: &mut SpriteState, vm: &mut Vm) {
         ui.add_space(12.0);
         ui.vertical(|ui| {
             ui.label(format!("SPR {:03}", state.sprite));
-            show_sheet_picker(ui, state, vm);
+            sheet::show(
+                ui,
+                &mut state.sheet_tex,
+                vm,
+                &mut state.sprite,
+                SHEET_SCALE,
+                "sprite-sheet",
+            );
             ui.colored_label(theme::DIM, "RMB on canvas = pick color");
             ui.colored_label(theme::DIM, "Ctrl+Z/Y undo/redo, Ctrl+C/V copy/paste");
         });
@@ -426,65 +420,3 @@ fn show_flags_row(ui: &mut egui::Ui, state: &SpriteState, vm: &mut Vm) {
     });
 }
 
-fn show_sheet_picker(ui: &mut egui::Ui, state: &mut SpriteState, vm: &Vm) {
-    let rows = SPRITE_COUNT / SHEET_COLS;
-    let w = SHEET_COLS * SPRITE_SIZE;
-    let h = rows * SPRITE_SIZE;
-
-    let mut rgba = Vec::with_capacity(w * h * 4);
-    for py in 0..h {
-        for px in 0..w {
-            let sprite = (py / SPRITE_SIZE) * SHEET_COLS + px / SPRITE_SIZE;
-            let off =
-                sprite_base(sprite) + (py % SPRITE_SIZE) * SPRITE_SIZE + px % SPRITE_SIZE;
-            let c = palette_color32(vm, vm.peek_memory(off));
-            rgba.extend_from_slice(&[c.r(), c.g(), c.b(), 255]);
-        }
-    }
-    let image = egui::ColorImage::from_rgba_unmultiplied([w, h], &rgba);
-    let tex = match &mut state.sheet_tex {
-        Some(tex) => {
-            tex.set(image, egui::TextureOptions::NEAREST);
-            tex.clone()
-        }
-        None => {
-            let tex = ui
-                .ctx()
-                .load_texture("sprite-sheet", image, egui::TextureOptions::NEAREST);
-            state.sheet_tex = Some(tex.clone());
-            tex
-        }
-    };
-
-    let size = Vec2::new(w as f32, h as f32) * SHEET_SCALE;
-    let (rect, resp) = ui.allocate_exact_size(size, Sense::click_and_drag());
-    let painter = ui.painter_at(rect);
-    painter.image(
-        tex.id(),
-        rect,
-        Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-        Color32::WHITE,
-    );
-
-    if resp.is_pointer_button_down_on() {
-        if let Some(pos) = resp.interact_pointer_pos() {
-            let cell_px = SPRITE_SIZE as f32 * SHEET_SCALE;
-            let col = ((pos.x - rect.min.x) / cell_px) as usize;
-            let row = ((pos.y - rect.min.y) / cell_px) as usize;
-            if col < SHEET_COLS && row < rows {
-                state.sprite = row * SHEET_COLS + col;
-            }
-        }
-    }
-
-    let cell_px = SPRITE_SIZE as f32 * SHEET_SCALE;
-    let sel = Rect::from_min_size(
-        rect.min
-            + Vec2::new(
-                (state.sprite % SHEET_COLS) as f32 * cell_px,
-                (state.sprite / SHEET_COLS) as f32 * cell_px,
-            ),
-        Vec2::splat(cell_px),
-    );
-    painter.rect_stroke(sel, 0.0, Stroke::new(2.0, theme::ACCENT), StrokeKind::Outside);
-}
