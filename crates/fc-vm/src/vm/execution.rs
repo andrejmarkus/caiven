@@ -137,6 +137,13 @@ impl Vm {
         }
     }
 
+    /// Advances SFX/music playback one frame without running the program —
+    /// lets editors preview audio while the game is stopped or paused.
+    pub fn tick_audio_players(&mut self) {
+        self.tick_music_player();
+        self.tick_sfx_player();
+    }
+
     pub fn run_frame(&mut self, input: &Input, font: &Font) {
         self.waiting = false;
         self.tick_music_player();

@@ -261,4 +261,16 @@ impl Vm {
             s.noise.enabled = false;
         }
     }
+
+    pub fn sfx_player(&self) -> &SfxPlayer {
+        &self.sfx_player
+    }
+
+    pub fn music_player(&self) -> &MusicPlayer {
+        &self.music_player
+    }
+
+    pub fn set_music_loop(&mut self, on: bool) {
+        self.music_player.loop_on = on;
+    }
 }

@@ -1,14 +1,16 @@
 //! StudioApp: eframe application state — headless console core, cart state,
 //! tab selection and per-frame VM stepping + framebuffer texture upload.
 
-use super::{cart, code_panel, game_panel, map_panel, palette_panel, sprite_panel, theme, toolbar};
+use super::{
+    cart, code_panel, game_panel, map_panel, music_panel, palette_panel, sfx_panel, sprite_panel,
+    theme, toolbar,
+};
 use crate::app::rom_io::{self, CartMeta};
 use anyhow::Result;
 use fc_vm::input::Button;
 use fc_vm::runtime::ConsoleCore;
 use log::info;
 use std::path::PathBuf;
-use std::time::Instant;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -75,6 +77,8 @@ pub struct StudioApp {
     sprite: sprite_panel::SpriteState,
     map: map_panel::MapState,
     palette: palette_panel::PaletteState,
+    sfx: sfx_panel::SfxState,
+    music: music_panel::MusicState,
 }
 
 impl StudioApp {
@@ -95,6 +99,8 @@ impl StudioApp {
             sprite: sprite_panel::SpriteState::default(),
             map: map_panel::MapState::default(),
             palette: palette_panel::PaletteState::default(),
+            sfx: sfx_panel::SfxState::default(),
+            music: music_panel::MusicState::default(),
         };
 
         if let Some(path) = file {
@@ -239,13 +245,16 @@ impl StudioApp {
     }
 
     fn step_vm(&mut self) {
+        let steps = self.core.frame_steps();
         if self.run_state == RunState::Running {
-            let steps = self.core.frame_steps();
             for _ in 0..steps {
                 self.core.run_frame();
             }
         } else {
-            self.core.last_tick = Instant::now();
+            // Game stopped/paused: keep SFX/music editor previews audible.
+            for _ in 0..steps {
+                self.core.vm.tick_audio_players();
+            }
         }
     }
 
@@ -403,16 +412,19 @@ impl eframe::App for StudioApp {
                     palette_panel::show(ui, &mut self.palette, &mut self.core.vm);
                     return;
                 }
+                Tab::Sfx => {
+                    sfx_panel::show(ui, &mut self.sfx, &mut self.core.vm);
+                    return;
+                }
+                Tab::Music => {
+                    music_panel::show(ui, &mut self.music, &mut self.core.vm);
+                    return;
+                }
                 _ => {}
             }
             ui.add_space(8.0);
             ui.heading(format!("{} EDITOR", self.tab.label()));
-            let phase = match self.tab {
-                Tab::Code | Tab::Sprite | Tab::Map | Tab::Palette => unreachable!(),
-                Tab::Sfx | Tab::Music => "P4",
-                Tab::Meta | Tab::Browser => "P5",
-            };
-            ui.colored_label(theme::DIM, format!("coming in phase {phase}"));
+            ui.colored_label(theme::DIM, "coming in phase P5");
         });
 
         ctx.request_repaint();
