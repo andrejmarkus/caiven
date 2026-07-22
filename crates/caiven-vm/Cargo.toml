@@ -12,6 +12,7 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+chrono = { workspace = true }
 cpal = { workspace = true }
 caiven-core = { workspace = true }
 image = { workspace = true }

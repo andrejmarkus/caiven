@@ -1,4 +1,4 @@
-use caiven_core::memory::SFX_RAM_BASE;
+use caiven_core::memory::{RTC_RAM_BASE, SFX_RAM_BASE};
 use caiven_vm::input::Input;
 use caiven_vm::rendering::font::Font;
 use caiven_vm::{LuaRunOutcome, Vm, VmConfig, VmFault, describe_lua_error};
@@ -219,4 +219,43 @@ fn lua_globals_excludes_builtins_and_stdlib() {
     assert!(!names.contains(&"draw_text"), "builtins shouldn't appear");
     assert!(!names.contains(&"print"), "stdlib shouldn't appear");
     assert!(!names.contains(&"_update"), "entry points shouldn't appear");
+}
+
+#[test]
+fn rtc_peripheral_ticks_and_is_readable_from_lua() {
+    let mut vm = make_vm();
+    // RealTimeClock::init runs in Vm::new(), before any cart loads.
+    let hour = vm.peek_memory(RTC_RAM_BASE);
+    let minute = vm.peek_memory(RTC_RAM_BASE + 1);
+    let second = vm.peek_memory(RTC_RAM_BASE + 2);
+    assert!(hour < 24);
+    assert!(minute < 60);
+    assert!(second < 60);
+
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        rtc_hour, rtc_minute, rtc_second = real_time()
+        function _update() end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    let globals = vm.lua_globals();
+    let get = |name: &str| {
+        globals
+            .iter()
+            .find(|(k, _)| k == name)
+            .unwrap_or_else(|| panic!("missing global {name}"))
+            .1
+            .clone()
+    };
+    // Nothing ticks the peripheral between Vm::new() and load_lua_source,
+    // so the RAM-mapped registers real_time() reads are unchanged.
+    assert_eq!(get("rtc_hour"), hour.to_string());
+    assert_eq!(get("rtc_minute"), minute.to_string());
+    assert_eq!(get("rtc_second"), second.to_string());
 }

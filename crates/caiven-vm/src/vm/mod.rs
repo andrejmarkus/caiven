@@ -6,6 +6,7 @@ pub mod fault;
 mod lua_exec;
 pub mod memory;
 pub mod palette;
+mod rtc;
 pub mod sfx;
 
 pub use camera::*;
@@ -43,8 +44,13 @@ pub struct Vm {
 
 impl Vm {
     pub fn new(config: VmConfig) -> Self {
+        let mut memory = Memory::new(config.memory_size);
+        let mut peripherals = PeripheralRegistry::new();
+        peripherals.register(rtc::RealTimeClock);
+        peripherals.init_all(&mut memory);
+
         Self {
-            memory: Memory::new(config.memory_size),
+            memory,
             camera: Camera::new(Vec2::new(0, 0)),
             palette: Palette::new(config.palette_size),
             sound: Arc::new(Mutex::new(Sound {
@@ -63,7 +69,7 @@ impl Vm {
             })),
             sfx_player: SfxPlayer::new(),
             music_player: MusicPlayer::new(),
-            peripherals: PeripheralRegistry::new(),
+            peripherals,
             frame_count: 0,
             waiting: false,
             fault: None,

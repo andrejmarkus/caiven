@@ -1,8 +1,5 @@
-//! Embedded-Lua execution path (Phases A+B of the mlua migration).
-//!
-//! Lives alongside the bytecode VM rather than replacing it yet — `run_frame`
-//! branches to this path when a Lua script is loaded, leaving the existing
-//! opcode interpreter untouched for carts that still use it.
+//! Embedded-Lua execution path — every cart is Lua, `run_frame` always runs
+//! `_update()` through here.
 //! Names are spelled out rather than abbreviated (`sprite` not `spr`) so the
 //! API reads clearly on its own — and `draw_text` rather than `print` so we
 //! don't shadow Lua's real `print()`, which stays available for console
@@ -25,7 +22,8 @@ use crate::rendering::font::Font;
 use crate::rendering::screen::ScreenLayer;
 use crate::rendering::text::draw_text;
 use caiven_core::memory::{
-    MAP_H, MAP_RAM_BASE, MAP_W, SPRITE_BYTES, SPRITE_FLAGS_RAM_BASE, SPRITE_SHEET_RAM_BASE,
+    MAP_H, MAP_RAM_BASE, MAP_W, RTC_RAM_BASE, SPRITE_BYTES, SPRITE_FLAGS_RAM_BASE,
+    SPRITE_SHEET_RAM_BASE,
 };
 use caiven_core::{Color, Vec2};
 use mlua::{HookTriggers, Lua, Scope, Table, VmState};
@@ -58,6 +56,7 @@ const BUILTIN_NAMES: &[&str] = &[
     "play_sfx",
     "play_music",
     "stop_music",
+    "real_time",
 ];
 
 /// Lua's own stdlib globals — also excluded from the snapshot, along with
@@ -576,6 +575,17 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
+    globals.set(
+        "real_time",
+        scope.create_function(|_, ()| {
+            let mem = memory.borrow();
+            let hour = mem.read(RTC_RAM_BASE).unwrap_or(0);
+            let minute = mem.read(RTC_RAM_BASE + 1).unwrap_or(0);
+            let second = mem.read(RTC_RAM_BASE + 2).unwrap_or(0);
+            Ok((hour, minute, second))
+        })?,
+    )?;
+
     Ok(())
 }
 
@@ -699,9 +709,12 @@ impl Vm {
         font: &Font,
         breakpoints: &[usize],
     ) -> LuaRunOutcome {
-        // `run_frame` ticks this; this path grew separately and didn't, so
+        // `run_frame` ticks these; this path grew separately and didn't, so
         // Studio's Running state was silent even though a sound was "active".
         self.tick_audio_players();
+        self.peripherals
+            .tick_all(&mut self.memory, self.frame_count);
+        self.frame_count = self.frame_count.wrapping_add(1);
 
         let Some(script) = self.script.as_ref() else {
             return LuaRunOutcome::Completed;

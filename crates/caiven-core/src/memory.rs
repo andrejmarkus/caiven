@@ -13,7 +13,8 @@
 //! 0x9100 ─ 0x91FF   palette (16 slots × 3 bytes RGB)
 //! 0x9200 ─ 0x95FF   SFX bank (16 sfx × 64 bytes)
 //! 0x9600 ─ 0x96FF   music bank (8 patterns × 32 bytes)
-//! 0x9700 ─ 0xFFFF   heap (grows up) / stack (grows down from 0x10000)
+//! 0x9700 ─ 0x9702   RTC peripheral (hour, minute, second)
+//! 0x9703 ─ 0xFFFF   general purpose / heap
 //! ```
 
 /// Screen width in pixels.
@@ -62,6 +63,10 @@ pub const SFX_BANK_LEN: usize = 16 * 64;
 pub const MUSIC_RAM_BASE: usize = 0x9600;
 /// Music bank length in bytes (8 patterns × 32 bytes).
 pub const MUSIC_BANK_LEN: usize = 8 * 32;
-/// RAM base address of the runtime heap (compiler bump allocator; grows up
-/// toward the stack, which grows down from the top of RAM).
-pub const HEAP_RAM_BASE: usize = 0x9700;
+/// RAM base address of the RTC peripheral's mapped registers.
+pub const RTC_RAM_BASE: usize = 0x9700;
+/// RTC register block length in bytes (hour, minute, second).
+pub const RTC_LEN: usize = 3;
+
+/// RAM base address of general-purpose/heap space.
+pub const HEAP_RAM_BASE: usize = 0x9703;
