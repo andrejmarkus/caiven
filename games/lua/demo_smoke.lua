@@ -7,6 +7,9 @@ local hi = 0
 local frame = 0
 
 function _init()
+  set_palette_color(0, 10, 10, 20)
+  set_palette_color(1, 255, 255, 255)
+  set_palette_color(2, 220, 40, 40)
   ball = {x = 64, y = 64, dx = 2, dy = 1}
 end
 
@@ -35,3 +38,7 @@ function _update()
 
   frame = frame + 1
 end
+
+__gfx__
+00000101010100000001010101010100010101020201010101010202020201010101020202020101010101020201010100010101010101000000010101010000
+
