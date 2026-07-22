@@ -318,6 +318,11 @@ impl Compiler {
                 self.emit_push(0); // save closure_ptr
                 self.emit_mov32(1, alloc_size);
                 self.emit_addr(0, 1);
+                // Fault instead of silently growing the heap into the stack.
+                self.emit_getsp(4);
+                self.code.push(OP_CHKHEAP);
+                self.code.push(0);
+                self.code.push(4);
                 self.emit_stm32(HEAP_TOP_ADDR, 0); // heap_top += alloc_size
                 self.emit_pop(0); // R0 = closure_ptr
 

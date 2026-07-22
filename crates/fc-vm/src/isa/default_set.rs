@@ -96,6 +96,7 @@ fn handler_for(name: &str) -> Option<InstructionHandler> {
         "TSET" => operations::table_set,
         "TLEN" => operations::table_len,
         "TIDX" => operations::table_entry_at,
+        "CHKHEAP" => operations::check_heap_bounds,
         "POSC" => operations::set_camera_position,
         "MOVC" => operations::move_camera,
         "LOGR" => operations::log_register,

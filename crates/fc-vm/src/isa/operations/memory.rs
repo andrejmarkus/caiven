@@ -201,3 +201,17 @@ pub fn copy(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
     }
     Ok(())
 }
+
+// Faults if a candidate heap-top would collide with (or pass) the live stack
+// pointer — the heap grows up and the stack grows down through the same
+// region, and nothing else stops one from silently corrupting the other.
+pub fn check_heap_bounds(ctx: &mut ExecutionContext) -> Result<(), VmFault> {
+    let candidate_reg = ctx.read_register_index()?;
+    let sp_reg = ctx.read_register_index()?;
+    let candidate = ctx.cpu.get_register_value(candidate_reg);
+    let sp = ctx.cpu.get_register_value(sp_reg);
+    if candidate >= sp {
+        return Err(VmFault::HeapExhausted);
+    }
+    Ok(())
+}

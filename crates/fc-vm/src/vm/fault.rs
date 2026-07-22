@@ -6,4 +6,5 @@ pub enum VmFault {
     StackOverflow,
     StepLimitExceeded,
     DivisionByZero,
+    HeapExhausted,
 }

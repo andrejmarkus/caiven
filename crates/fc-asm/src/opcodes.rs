@@ -94,6 +94,7 @@ pub const OP_TGET: u8 = 0x52; // table get (0 when missing)
 pub const OP_TSET: u8 = 0x53; // table set (insert or overwrite)
 pub const OP_TLEN: u8 = 0x54; // table entry count
 pub const OP_TIDX: u8 = 0x55; // entry (key, val) at insertion index
+pub const OP_CHKHEAP: u8 = 0x56; // fault if candidate heap-top >= live SP
 
 pub const OP_POSC: u8 = 0x60;
 pub const OP_MOVC: u8 = 0x61;

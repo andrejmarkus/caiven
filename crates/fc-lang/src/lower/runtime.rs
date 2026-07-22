@@ -47,6 +47,11 @@ impl Compiler {
         self.emit_ldm32(1, HEAP_TOP_ADDR);
         self.emit_stm32(RT_STR_TMP4, 1); // save new_ptr
         self.emit_addr(0, 1);
+        // Fault instead of silently growing the heap into the stack.
+        self.emit_getsp(4);
+        self.code.push(OP_CHKHEAP);
+        self.code.push(0);
+        self.code.push(4);
         self.emit_stm32(HEAP_TOP_ADDR, 0);
 
         // copy ptr_a → new_ptr
@@ -118,6 +123,11 @@ impl Compiler {
         self.emit_stm32(RT_STR_TMP2, 1); // save new_ptr
         self.emit_mov(2, 16);
         self.emit_addr(1, 2);
+        // Fault instead of silently growing the heap into the stack.
+        self.emit_getsp(4);
+        self.code.push(OP_CHKHEAP);
+        self.code.push(1);
+        self.code.push(4);
         self.emit_stm32(HEAP_TOP_ADDR, 1);
 
         // write null at new_ptr + 12
@@ -231,6 +241,11 @@ impl Compiler {
         self.emit_ldm32(1, HEAP_TOP_ADDR);
         self.emit_stm32(RT_STR_TMP5, 1); // save new_ptr
         self.emit_addr(0, 1);
+        // Fault instead of silently growing the heap into the stack.
+        self.emit_getsp(4);
+        self.code.push(OP_CHKHEAP);
+        self.code.push(0);
+        self.code.push(4);
         self.emit_stm32(HEAP_TOP_ADDR, 0);
 
         // src = ptr + i - 1, dst = new_ptr, count = n
