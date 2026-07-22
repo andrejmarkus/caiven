@@ -933,6 +933,94 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b35204fbdc0b3f4446b89fc1ac2cf84a8a68971995d0bf2e925ec7cd960f9cb3"
 
 [[package]]
+name = "caiven-cart"
+version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "caiven-core"
+version = "0.1.0"
+
+[[package]]
+name = "caiven-machine"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "caiven-cart",
+ "caiven-core",
+ "caiven-vm",
+ "clap",
+ "env_logger",
+ "log",
+ "winit",
+]
+
+[[package]]
+name = "caiven-port"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "argon2",
+ "chrono",
+ "clap",
+ "env_logger",
+ "log",
+ "migration",
+ "rocket",
+ "sea-orm",
+ "sea-orm-migration",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "caiven-studio"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "caiven-cart",
+ "caiven-core",
+ "caiven-vm",
+ "chrono",
+ "clap",
+ "eframe",
+ "egui",
+ "egui_extras",
+ "env_logger",
+ "image",
+ "log",
+ "serde",
+ "serde_json",
+ "toml",
+ "ureq",
+ "winit",
+]
+
+[[package]]
+name = "caiven-vm"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "caiven-core",
+ "cpal",
+ "image",
+ "log",
+ "mlua",
+ "pixels",
+ "serde",
+ "toml",
+ "winit",
+]
+
+[[package]]
 name = "calloop"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1961,94 +2049,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.114",
-]
-
-[[package]]
-name = "fc-core"
-version = "0.1.0"
-
-[[package]]
-name = "fc-engine"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "eframe",
- "egui",
- "egui_extras",
- "env_logger",
- "fc-core",
- "fc-rom",
- "fc-vm",
- "image",
- "log",
- "serde",
- "serde_json",
- "toml",
- "ureq",
- "winit",
-]
-
-[[package]]
-name = "fc-host"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "env_logger",
- "fc-core",
- "fc-rom",
- "fc-vm",
- "log",
- "winit",
-]
-
-[[package]]
-name = "fc-hub"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "argon2",
- "chrono",
- "clap",
- "env_logger",
- "log",
- "migration",
- "rocket",
- "sea-orm",
- "sea-orm-migration",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "fc-rom"
-version = "0.1.0"
-dependencies = [
- "crc32fast",
- "tempfile",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "fc-vm"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "cpal",
- "fc-core",
- "image",
- "log",
- "mlua",
- "pixels",
- "serde",
- "toml",
- "winit",
 ]
 
 [[package]]

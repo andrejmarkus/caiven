@@ -1,9 +1,9 @@
-# 🎮 Fantasy Console
+# 🎮 Caiven
 
 ![Rust](https://img.shields.io/badge/rust-%23E32F26.svg?style=for-the-badge&logo=rust&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)
 
-**Fantasy Console** is a retro-inspired virtual machine and development environment written in Rust. Real embedded Lua 5.4 (via `mlua`) for game code, a full in-engine editor suite (FC Studio), and an optional cart-sharing hub.
+**Caiven** is a retro-inspired fantasy console: a virtual machine and development environment written in Rust. Real embedded Lua 5.4 (via `mlua`) for game code, a full in-engine editor suite (Caiven Studio), and an optional cart-sharing port.
 
 > [!TIP]
 > Write real Lua — every tutorial and stdlib function (`math`, `string`, `table`, `pcall`, ...) just works. No custom bytecode language, no arity caps, no silent gaps.
@@ -16,9 +16,9 @@
 - 🎨 **Palette-based Graphics** — 128×128 resolution, 16-color swappable palette; sprites, 64×64 tilemap, shape primitives, camera
 - 📦 **Descriptive Builtin API** — `sprite`, `draw_rect`, `button_down`, `set_palette_color`, etc. — no PICO-8-style abbreviations, and `print()` stays wired to your terminal for real Lua debugging (screen text is `draw_text`)
 - 🔊 **Audio Engine** — real-time sound synthesis, SFX and music banks, playback via CPAL
-- 🖌️ **FC Studio** — egui-based editor suite: code, sprite, map, palette, SFX, music, cart-meta editors, local & hub cart browser, all in one window
+- 🖌️ **Caiven Studio** — egui-based editor suite: code, sprite, map, palette, SFX, music, cart-meta editors, local & port cart browser, all in one window
 - 🔍 **Debugger** — line breakpoints (click the code editor gutter), pause/step-by-frame, script-globals inspector, live RAM view, `.fcdbg` sidecar persistence
-- 🌐 **Cart Sharing Hub** — self-hostable server with a Svelte web UI: accounts, cart versioning, ratings & comments, tag/author discovery
+- 🌐 **Caiven Port** — self-hostable cart sharing server with a Svelte web UI: accounts, cart versioning, ratings & comments, tag/author discovery
 
 ---
 
@@ -31,39 +31,39 @@ You'll need the [Rust toolchain](https://rustup.rs/) installed on your system.
 ### Installation
 
 ```bash
-git clone https://github.com/your-username/fantasy-console.git
-cd fantasy-console
+git clone https://github.com/your-username/caiven.git
+cd caiven
 cargo build --release
 ```
 
 ### Running
 
 ```bash
-cargo run -p fc-engine -- [command]
+cargo run -p caiven-studio -- [command]
 ```
 
 | Command | Description |
 | :------ | :---------- |
-| _(no command)_ | Launch FC Studio (editor suite), opens on the cart browser |
-| `edit [file]` | Launch FC Studio, optionally opening a `.rom` or `.lua` file |
-| `build <source.lua> <output.rom>` | Package a `.lua` source and its asset blocks into a ROM |
-| `inspect <file.rom>` | Print ROM section table |
-| `publish <file.rom>` | Upload cart to an fc-hub instance |
+| _(no command)_ | Launch Caiven Studio (editor suite), opens on the cart browser |
+| `edit [file]` | Launch Caiven Studio, optionally opening a `.cav` or `.lua` file |
+| `build <source.lua> <output.cav>` | Package a `.lua` source and its asset blocks into a cart |
+| `inspect <file.cav>` | Print cart section table |
+| `publish <file.cav>` | Upload cart to a caiven-port instance |
 
-To just run a cart (no editor), use `fc-host`:
+To just run a cart (no editor), use `caiven-machine`:
 
 ```bash
-cargo run -p fc-host -- game.lua   # or game.rom
+cargo run -p caiven-machine -- game.cav
 ```
 
 **Publish flags:**
 
 | Flag | Default | Description |
 | :--- | :------ | :---------- |
-| `--url` | `http://localhost:8080` | Hub base URL (env: `FC_HUB_URL`) |
-| `--api-key` | _(empty, required)_ | Per-user hub API token (env: `FC_HUB_API_KEY`) — mint one via the hub web UI Profile page or by logging into FC Studio's HUB tab |
-| `--title` | ROM header | Override cart title |
-| `--author` | ROM header | Override author |
+| `--url` | `http://localhost:8080` | Port base URL (env: `CAIVEN_PORT_URL`) |
+| `--api-key` | _(empty, required)_ | Per-user port API token (env: `CAIVEN_PORT_API_KEY`) — mint one via the port web UI Profile page or by logging into Caiven Studio's PORT tab |
+| `--title` | cart header | Override cart title |
+| `--author` | cart header | Override author |
 | `--description` | _(empty)_ | Short description |
 | `--tags` | _(empty)_ | Comma-separated tags |
 | `--frames` | `30` | Frames to run before screenshot |
@@ -105,17 +105,17 @@ function _update()
 end
 ```
 
-2. **Run it:**
+2. **Run it** — open it in Caiven Studio, which runs `.lua` source live:
 
 ```bash
-cargo run -p fc-host -- game.lua
+cargo run -p caiven-studio -- edit game.lua
 ```
 
-3. **Draw your player** — open FC Studio (`fc-engine edit game.lua`), press `F2` for the sprite tab and paint sprite 0.
+3. **Draw your player** — press `F2` for the sprite tab and paint sprite 0.
 
-4. **Iterate** — edit code in the `F1` code tab (or your external editor + `fc-host` again); click the gutter to set a line breakpoint, `F1`'s Run/Pause/Reset toolbar drives execution. Lua errors show with a line number and message straight in the status bar.
+4. **Iterate** — edit code in the `F1` code tab; click the gutter to set a line breakpoint, `F1`'s Run/Pause/Reset toolbar drives execution (or `Ctrl+R` to rerun). Lua errors show with a line number and message straight in the status bar.
 
-5. **Ship it** — `build game.lua game.rom`, then `Ctrl+S` in FC Studio stores sprites/map/audio into the cart, and `publish game.rom` shares it on a hub.
+5. **Ship it** — `build game.lua game.cav` packages a standalone cart (runnable with `caiven-machine game.cav`, no editor needed), then `Ctrl+S` in Caiven Studio stores sprites/map/audio into the cart, and `publish game.cav` shares it on a port.
 
 ### Cart source format
 
@@ -126,7 +126,7 @@ A `.lua` file is just a Lua chunk with two lifecycle functions:
 | `_init()` | Runs once when the cart loads |
 | `_update()` | Runs once per frame (called for you — no `wait()`/vsync call needed) |
 
-Sprite/map/palette/SFX/music data lives in RAM, edited via FC Studio, and round-trips through the same file as hex asset blocks (`__gfx__`, `__map__`, etc.) appended after your code — you never hand-edit these, `Ctrl+S` manages them.
+Sprite/map/palette/SFX/music data lives in RAM, edited via Caiven Studio, and round-trips through the same file as hex asset blocks (`__gfx__`, `__map__`, etc.) appended after your code — you never hand-edit these, `Ctrl+S` manages them.
 
 ---
 
@@ -175,7 +175,7 @@ Math (`sin`/`cos`/`abs`/`floor`/`sqrt`/`max`/`min`/`random`), strings (`..`, `su
 
 ---
 
-## 🖌️ FC Studio
+## 🖌️ Caiven Studio
 
 Press function keys at any time to switch tabs:
 
@@ -188,7 +188,7 @@ Press function keys at any time to switch tabs:
 | `F5` | 🎶 Music |
 | `F6` | 🎨 Palette |
 | `F7` | 📋 Cart meta |
-| `F8` | 📂 Browser (local + hub) |
+| `F8` | 📂 Browser (local + port) |
 
 `Ctrl+S` saves the cart from any tab. The Run/Pause/Reset toolbar and FPS counter are always visible; the game view renders as an integer-scaled, nearest-neighbor 128×128 texture.
 
@@ -246,13 +246,13 @@ Controls: Run/Pause/Step-one-frame; a script-globals inspector shows the script'
 
 ---
 
-## 🌐 fc-hub (Cart Sharing Server)
+## 🌐 Caiven Port (Cart Sharing Server)
 
 Self-hostable cart gallery server: Rocket + SQLite backend, Svelte web UI.
 Accounts, cart versioning, ratings & comments, and tag/author/sort discovery.
 
 ```bash
-cd crates/fc-hub
+cd crates/caiven-port
 cargo run --release
 # or
 docker compose up
@@ -262,14 +262,14 @@ docker compose up
 | :--- | :------ | :---------- |
 | `--address` | `0.0.0.0` | Listen address |
 | `--port` | `8080` | Listen port |
-| `--data-dir` | `data` | Directory for `hub.db` + uploaded ROMs/screenshots (auto-created) |
-| `--web-dir` | `crates/fc-hub/web/dist` | Built SPA directory (`npm run build` output in `crates/fc-hub/web/`) |
+| `--data-dir` | `data` | Directory for `port.db` + uploaded carts/screenshots (auto-created) |
+| `--web-dir` | `crates/caiven-port/web/dist` | Built SPA directory (`npm run build` output in `crates/caiven-port/web/`) |
 
 Open the base URL in a browser to register an account, browse/search/filter
 carts by tag, author or sort (new/popular/top), upload new carts or versions,
 rate and comment, and view author profile pages. The web UI uses a session
 cookie; the same account can also mint per-user API tokens (Profile page) for
-`fc-engine publish` or direct API calls — sent as an `X-Api-Key` header.
+`caiven-studio publish` or direct API calls — sent as an `X-Api-Key` header.
 
 | Method | Path | Description |
 | :----- | :--- | :---------- |
@@ -277,16 +277,16 @@ cookie; the same account can also mint per-user API tokens (Profile page) for
 | `GET` | `/api/v2/auth/me` | Current user |
 | `GET`/`POST`/`DELETE` | `/api/v2/auth/tokens` | Manage per-user API tokens |
 | `GET` | `/api/v2/carts` | List/search carts (`page`, `per_page`, `q`, `tag`, `author`, `sort`) |
-| `POST` | `/api/v2/carts` | Upload new cart (multipart: `rom` + JSON `meta`) |
+| `POST` | `/api/v2/carts` | Upload new cart (multipart: `cart` + JSON `meta`) |
 | `GET`/`DELETE` | `/api/v2/carts/:id` | Cart detail / delete (owner or admin) |
 | `POST` | `/api/v2/carts/:id/versions` | Upload a new version of an owned cart |
-| `GET` | `/api/v2/carts/:id/rom` \| `/screenshot` | Download ROM/screenshot (`?version=n`, defaults to latest) |
+| `GET` | `/api/v2/carts/:id/cart` \| `/screenshot` | Download cart/screenshot (`?version=n`, defaults to latest) |
 | `PUT`/`DELETE` | `/api/v2/carts/:id/rating` | Rate a cart (1-5) |
 | `GET`/`POST`/`DELETE` | `/api/v2/carts/:id/comments[/:cid]` | Comments |
 | `GET` | `/api/v2/tags` \| `/api/v2/users/:username` | Discovery |
 
-Legacy `/api/carts*` routes (v1 shape, single ROM per cart) remain for
-backward compatibility — `fc-engine publish` still targets them internally.
+Legacy `/api/carts*` routes (v1 shape, single cart file per cart) remain for
+backward compatibility — `caiven-studio publish` still targets them internally.
 
 ---
 
@@ -296,15 +296,15 @@ Cargo workspace with seven crates:
 
 | Crate | Description |
 | :---- | :---------- |
-| `crates/fc-core` | Shared types and memory map — `Color`, `Vec2`, RAM layout constants |
-| `crates/fc-rom` | ROM format: header, section layout, `.lua` source block splitting, load/write helpers |
-| `crates/fc-vm` | VM core: embedded Lua (`mlua`) execution, builtin API, renderer, audio, input, debugger hooks |
-| `crates/fc-engine` | Main binary: FC Studio editor suite (edit mode only), cart browser, CLI |
-| `crates/fc-host` | Standalone cart runner (run mode: `.rom`/`.lua`, no editor/hub) |
-| `crates/fc-hub` | Cart sharing server |
-| `crates/migration` | `sea-orm` database migrations for fc-hub |
+| `crates/caiven-core` | Shared types and memory map — `Color`, `Vec2`, RAM layout constants |
+| `crates/caiven-cart` | Cart format: header, section layout, `.lua` source block splitting, load/write helpers |
+| `crates/caiven-vm` | VM core: embedded Lua (`mlua`) execution, builtin API, renderer, audio, input, debugger hooks |
+| `crates/caiven-studio` | Main binary: Caiven Studio editor suite (edit mode only), cart browser, CLI |
+| `crates/caiven-machine` | Standalone cart runner (run mode: `.cav` only, no editor/port) |
+| `crates/caiven-port` | Cart sharing server |
+| `crates/migration` | `sea-orm` database migrations for caiven-port |
 
-`games/lua/` — example `.lua` cart sources. `games/roms/` — the same carts prebuilt to `.rom` (run directly: `cargo run -p fc-host -- games/roms/catch.rom`, or open in FC Studio via `fc-engine edit`).
+`games/lua/` — example `.lua` cart sources. `games/carts/` — the same carts prebuilt to `.cav` (run directly: `cargo run -p caiven-machine -- games/carts/catch.cav`, or open in Caiven Studio via `caiven-studio edit`).
 
 ---
 

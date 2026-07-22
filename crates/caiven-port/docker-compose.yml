@@ -1,0 +1,13 @@
+services:
+  port:
+    build:
+      context: ../..
+      dockerfile: crates/caiven-port/Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - port-data:/data
+    restart: unless-stopped
+
+volumes:
+  port-data:

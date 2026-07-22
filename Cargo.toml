@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/fc-core", "crates/fc-rom", "crates/fc-host", "crates/fc-vm", "crates/fc-engine", "crates/fc-hub", "crates/migration"]
+members = ["crates/caiven-core", "crates/caiven-cart", "crates/caiven-machine", "crates/caiven-vm", "crates/caiven-studio", "crates/caiven-port", "crates/migration"]
 resolver = "2"
 
 [workspace.lints.clippy]
@@ -16,9 +16,9 @@ eframe = "0.32"
 egui = "0.32"
 egui_extras = "0.32"
 env_logger = "0.11"
-fc-core = { path = "crates/fc-core" }
-fc-rom = { path = "crates/fc-rom" }
-fc-vm = { path = "crates/fc-vm" }
+caiven-core = { path = "crates/caiven-core" }
+caiven-cart = { path = "crates/caiven-cart" }
+caiven-vm = { path = "crates/caiven-vm" }
 image = "0.25"
 log = "0.4"
 mlua = { version = "0.10", features = ["lua54", "vendored"] }

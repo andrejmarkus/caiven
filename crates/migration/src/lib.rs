@@ -4,6 +4,7 @@ mod m20240101_000001_create_carts;
 mod m20260715_000002_create_auth;
 mod m20260715_000003_carts_v2;
 mod m20260715_000004_social;
+mod m20260722_000005_rename_rom_to_cart;
 
 pub struct Migrator;
 
@@ -15,6 +16,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260715_000002_create_auth::Migration),
             Box::new(m20260715_000003_carts_v2::Migration),
             Box::new(m20260715_000004_social::Migration),
+            Box::new(m20260722_000005_rename_rom_to_cart::Migration),
         ]
     }
 }
