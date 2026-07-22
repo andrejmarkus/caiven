@@ -220,6 +220,19 @@ impl Debugger {
         self.save_fcdbg();
     }
 
+    /// Toggles a breakpoint on a Lua source line, set from the code editor's
+    /// gutter. Unlike [`Debugger::toggle_bp_at_cursor`] this doesn't move the
+    /// cursor — the code editor, not this struct, owns "where you're looking"
+    /// for Lua carts.
+    pub fn toggle_line_breakpoint(&mut self, line: usize) {
+        if let Some(pos) = self.breakpoints.iter().position(|&a| a == line) {
+            self.breakpoints.remove(pos);
+        } else {
+            self.breakpoints.push(line);
+        }
+        self.save_fcdbg();
+    }
+
     pub fn scrub_back(&mut self) {
         if !self.enabled || self.states.is_empty() {
             return;
@@ -371,6 +384,10 @@ impl Debugger {
         if !self.enabled {
             return;
         }
+        if vm.has_lua_script() {
+            self.draw_lua_status(screen, vm, font, "RUN");
+            return;
+        }
         let cyan = Color::new_rgb(0, 200, 255);
         let yellow = Color::new_rgb(255, 220, 0);
         let pc = vm.get_pc();
@@ -379,8 +396,32 @@ impl Debugger {
         draw_text(font, screen, "PSE", Vec2::new(88, 0), yellow);
     }
 
+    /// A Lua cart has no addressable program/registers to disassemble or a
+    /// timeline to scrub (mlua's interpreter state isn't cheaply
+    /// snapshotable) — this in-game overlay is a quick-glance HUD, so it
+    /// just shows run state and any fault; use FC Studio's debugger panel
+    /// for line breakpoints and globals inspection.
+    fn draw_lua_status(&self, screen: &mut ScreenLayer, vm: &Vm, font: &Font, mode: &str) {
+        let cyan = Color::new_rgb(0, 200, 255);
+        let red = Color::new_rgb(255, 64, 64);
+        draw_text(font, screen, &format!("LUA {mode}"), Vec2::new(0, 0), cyan);
+        if let Some(fault) = vm.get_fault() {
+            draw_text(font, screen, &format!("{fault:?}"), Vec2::new(0, 8), red);
+        }
+        self.render_memory_page(font, screen, vm, Vec2::new(0, 16), cyan);
+    }
+
     pub fn draw_overlay(&self, screen: &mut ScreenLayer, vm: &Vm, font: &Font) {
         if !self.enabled {
+            return;
+        }
+        if vm.has_lua_script() {
+            let mode = match self.mode {
+                DebugMode::Running => "RUN",
+                DebugMode::Paused => "PAUSE",
+                DebugMode::Step => "STEP",
+            };
+            self.draw_lua_status(screen, vm, font, mode);
             return;
         }
 

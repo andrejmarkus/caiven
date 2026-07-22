@@ -10,9 +10,11 @@ use fc_core::memory::{
 };
 use fc_rom::SectionKind;
 use fc_vm::Vm;
+use fc_vm::input::Input;
+use fc_vm::rendering::font::Font;
 use std::path::Path;
 
-pub fn load_rom(vm: &mut Vm, path: &Path) -> Result<CartMeta> {
+pub fn load_rom(vm: &mut Vm, path: &Path, input: &Input, font: &Font) -> Result<CartMeta> {
     let rom = fc_rom::load(path)
         .with_context(|| format!("failed to load ROM from {}", path.display()))?;
 
@@ -28,7 +30,11 @@ pub fn load_rom(vm: &mut Vm, path: &Path) -> Result<CartMeta> {
         }
     }
 
-    vm.load_rom(rom.program.clone());
+    let lua_source = rom
+        .sections
+        .iter()
+        .find(|s| s.kind == SectionKind::LuaSource)
+        .map(|s| String::from_utf8_lossy(&s.data).into_owned());
 
     let mut sections: Vec<SectionLayout> = Vec::new();
     for section in &rom.sections {
@@ -44,6 +50,17 @@ pub fn load_rom(vm: &mut Vm, path: &Path) -> Result<CartMeta> {
             ram_base,
             len: section.data.len(),
         });
+    }
+
+    // Asset RAM must be in place before the Lua path runs, since loading a
+    // Lua script executes `_init()` immediately — unlike the bytecode path,
+    // which only loads a program and doesn't start executing until later.
+    if let Some(src) = &lua_source {
+        vm.load_lua_source(src, input, font)
+            .map_err(|e| anyhow::anyhow!("{e}"))
+            .with_context(|| format!("failed to load Lua ROM {}", path.display()))?;
+    } else {
+        vm.load_rom(rom.program.clone());
     }
 
     if !sections.iter().any(|s| s.kind == SectionKind::Palette) {
@@ -88,7 +105,7 @@ pub fn load_rom(vm: &mut Vm, path: &Path) -> Result<CartMeta> {
         header: rom.header,
         program: rom.program,
         sections,
-        lua_source: None,
+        lua_source,
     })
 }
 
@@ -99,27 +116,24 @@ pub struct CompileError {
     pub message: String,
 }
 
-/// Compiles `.fc` source and loads it into the VM with its source map.
-/// Embedded asset blocks (`__gfx__` etc.) are split off and loaded into RAM;
-/// loading a program does not clear RAM, so assets painted in the editors
-/// survive recompiles.
-pub fn compile_into_vm(vm: &mut Vm, source: &str) -> std::result::Result<(), CompileError> {
+/// Loads `.lua` source into the VM. Embedded asset blocks (`__gfx__` etc.)
+/// are split off and applied to RAM first: unlike the old bytecode path,
+/// loading Lua source runs `_init()` immediately, so map/sprite/etc. RAM
+/// needs to already be in place.
+pub fn compile_lua_into_vm(
+    vm: &mut Vm,
+    source: &str,
+    input: &Input,
+    font: &Font,
+) -> std::result::Result<(), CompileError> {
     let (code, sections) = fc_rom::text::split_source(source).map_err(|message| CompileError {
         line: None,
         message,
     })?;
-    match fc_lang::compile(&code) {
-        Ok(out) => {
-            vm.load_rom_with_source_map(out.program, out.source_map);
-            vm.set_fc_source(&code);
-            apply_sections(vm, &sections);
-            Ok(())
-        }
-        Err(e) => Err(CompileError {
-            line: e.line(),
-            message: e.render(&code),
-        }),
-    }
+    apply_sections(vm, &sections);
+    vm.load_lua_source(&code, input, font)
+        .map_err(|e| fc_vm::describe_lua_error(&e))
+        .map_err(|(line, message)| CompileError { line, message })
 }
 
 pub fn section_ram_base(kind: SectionKind) -> Option<usize> {
@@ -157,7 +171,7 @@ pub fn sync_palette_to_ram(vm: &mut Vm) {
     vm.load_section_to_ram(PALETTE_RAM_BASE, &bytes);
 }
 
-/// Reads every asset region back out of VM RAM for embedding into `.fc`
+/// Reads every asset region back out of VM RAM for embedding into `.lua`
 /// text on save. Empty (all-zero) regions are dropped by `join_source`.
 pub fn collect_ram_sections(vm: &Vm) -> Vec<(SectionKind, Vec<u8>)> {
     [

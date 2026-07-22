@@ -8,4 +8,4 @@ pub mod timing;
 pub mod vm;
 
 pub use isa::default_instruction_set;
-pub use vm::{Vm, VmConfig, VmFault, VmSnapshot};
+pub use vm::{LuaRunOutcome, Vm, VmConfig, VmFault, VmSnapshot, describe_lua_error};

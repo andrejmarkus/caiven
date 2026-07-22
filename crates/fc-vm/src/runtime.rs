@@ -104,6 +104,16 @@ impl ConsoleCore {
         self.input.end_frame();
         hit
     }
+
+    /// Runs one Lua-scripted frame honoring line breakpoints; input latches
+    /// like `run_frame`. See [`crate::vm::Vm::run_frame_lua_bp`].
+    pub fn run_frame_lua_bp(&mut self, breakpoints: &[usize]) -> crate::vm::LuaRunOutcome {
+        let outcome = self
+            .vm
+            .run_frame_lua_bp(&self.input, &self.font, breakpoints);
+        self.input.end_frame();
+        outcome
+    }
 }
 
 /// Winit window and pixel surface for a console front-end. Both stay `None`

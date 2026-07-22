@@ -5,18 +5,64 @@
 use super::app::SourceFile;
 use super::cart::CompileError;
 use super::theme;
+use crate::debugger::Debugger;
 use egui::text::{CCursor, CCursorRange, LayoutJob, TextFormat};
 
 const KEYWORDS: &[&str] = &[
-    "and", "break", "const", "do", "else", "elseif", "end", "false", "fn", "for", "function", "if",
-    "in", "let", "local", "nil", "not", "or", "repeat", "return", "then", "true", "until", "while",
+    "and", "break", "do", "else", "elseif", "end", "false", "for", "function", "goto", "if", "in",
+    "local", "nil", "not", "or", "repeat", "return", "then", "true", "until", "while",
 ];
 
+/// Our own console API (see `fc-vm/src/vm/lua_exec.rs`), plus Lua's own
+/// stdlib globals — `string`/`table`/etc. are highlighted as namespaces;
+/// their members (`string.format`) aren't, same as most editors.
 const BUILTINS: &[&str] = &[
-    "abs", "add", "btn", "btnp", "camera", "circ", "circfill", "cls", "cls_col", "cos", "fget",
-    "fill", "flr", "fset", "key", "keyp", "len", "line", "map", "max", "mget", "min", "mset",
-    "mus", "music", "nomus", "nomusic", "num", "pal", "print", "pset", "rect", "rectfill", "rnd",
-    "sfx", "sin", "spr", "sqrt", "strlen", "sub", "tostring", "txt", "wait",
+    "clear_screen",
+    "set_pixel",
+    "sprite",
+    "button_down",
+    "button_pressed",
+    "draw_text",
+    "draw_number",
+    "fill_screen",
+    "draw_line",
+    "draw_rect",
+    "fill_rect",
+    "draw_circle",
+    "fill_circle",
+    "set_camera",
+    "set_palette_color",
+    "draw_map",
+    "get_tile",
+    "set_tile",
+    "get_sprite_flags",
+    "set_sprite_flags",
+    "play_sfx",
+    "play_music",
+    "stop_music",
+    "_init",
+    "_update",
+    "assert",
+    "error",
+    "ipairs",
+    "next",
+    "pairs",
+    "pcall",
+    "print",
+    "select",
+    "setmetatable",
+    "getmetatable",
+    "tonumber",
+    "tostring",
+    "type",
+    "unpack",
+    "xpcall",
+    "math",
+    "string",
+    "table",
+    "os",
+    "io",
+    "coroutine",
 ];
 
 const EDITOR_ID: &str = "fc_code_editor";
@@ -36,7 +82,12 @@ pub struct CodeState {
     goto: Option<Goto>,
 }
 
-pub fn show(ui: &mut egui::Ui, state: &mut CodeState, source: &mut SourceFile) {
+pub fn show(
+    ui: &mut egui::Ui,
+    state: &mut CodeState,
+    source: &mut SourceFile,
+    debugger: &mut Debugger,
+) {
     let editor_id = egui::Id::new(EDITOR_ID);
 
     if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::F)) {
@@ -56,7 +107,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut CodeState, source: &mut SourceFile) {
         find_bar(ui, state, &source.text, editor_id);
     }
     error_bar(ui, state, &source.text);
-    editor(ui, state, source, editor_id);
+    editor(ui, state, source, editor_id, debugger);
 }
 
 fn header(ui: &mut egui::Ui, source: &SourceFile) {
@@ -129,7 +180,13 @@ fn error_bar(ui: &mut egui::Ui, state: &mut CodeState, text: &str) {
     ui.separator();
 }
 
-fn editor(ui: &mut egui::Ui, state: &mut CodeState, source: &mut SourceFile, editor_id: egui::Id) {
+fn editor(
+    ui: &mut egui::Ui,
+    state: &mut CodeState,
+    source: &mut SourceFile,
+    editor_id: egui::Id,
+    debugger: &mut Debugger,
+) {
     let row_h = ui.text_style_height(&egui::TextStyle::Monospace);
     let view_h = ui.available_height();
 
@@ -156,7 +213,7 @@ fn editor(ui: &mut egui::Ui, state: &mut CodeState, source: &mut SourceFile, edi
 
     scroll.show(ui, |ui| {
         ui.horizontal_top(|ui| {
-            gutter(ui, &source.text, error_line);
+            gutter(ui, &source.text, error_line, debugger);
             let output = egui::TextEdit::multiline(&mut source.text)
                 .id(editor_id)
                 .code_editor()
@@ -174,32 +231,32 @@ fn editor(ui: &mut egui::Ui, state: &mut CodeState, source: &mut SourceFile, edi
     });
 }
 
-fn gutter(ui: &mut egui::Ui, text: &str, error_line: Option<usize>) {
+/// Line numbers, clickable to toggle a breakpoint (shown as a filled dot).
+fn gutter(ui: &mut egui::Ui, text: &str, error_line: Option<usize>, debugger: &mut Debugger) {
     let lines = text.split('\n').count();
     let digits = lines.to_string().len();
     ui.vertical(|ui| {
         ui.add_space(2.0);
         ui.spacing_mut().item_spacing.y = 0.0;
-        let numbers: String = (1..=lines).map(|n| format!("{n:>digits$}\n")).collect();
-        let mut job = LayoutJob::default();
-        let font = egui::TextStyle::Monospace.resolve(ui.style());
-        for (idx, chunk) in numbers.split_inclusive('\n').enumerate() {
-            let color = if Some(idx + 1) == error_line {
+        for line in 1..=lines {
+            let is_bp = debugger.breakpoints().contains(&line);
+            let is_err = Some(line) == error_line;
+            let color = if is_err || is_bp {
                 theme::ERROR
             } else {
                 theme::DIM
             };
-            job.append(
-                chunk,
-                0.0,
-                TextFormat {
-                    font_id: font.clone(),
-                    color,
-                    ..Default::default()
-                },
-            );
+            let marker = if is_bp { "\u{25CF}" } else { " " };
+            let label = egui::RichText::new(format!("{marker}{line:>digits$}"))
+                .monospace()
+                .color(color);
+            let resp = ui.add(egui::Label::new(label).sense(egui::Sense::click()));
+            if resp.clicked() {
+                debugger.toggle_line_breakpoint(line);
+            } else if resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
         }
-        ui.label(job);
     });
 }
 

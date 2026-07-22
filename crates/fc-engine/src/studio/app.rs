@@ -99,7 +99,7 @@ impl StudioApp {
             run_state: RunState::Stopped,
             game_tex: None,
             compose_buf: Vec::new(),
-            status: "no cart loaded — fc-engine edit <file.rom|file.fc>".into(),
+            status: "no cart loaded — fc-engine edit <file.rom|file.lua>".into(),
             status_is_error: false,
             code: code_panel::CodeState::default(),
             sprite: sprite_panel::SpriteState::default(),
@@ -126,13 +126,14 @@ impl StudioApp {
     }
 
     /// Opens a cart file. Returns `Err` only for hard failures (I/O, bad ROM);
-    /// a `.fc` file that fails to compile still opens in the editor with the
+    /// a `.lua` file that fails to run still opens in the editor with the
     /// error shown, so it can be fixed in place.
     fn open_file(&mut self, path: &std::path::Path) -> Result<()> {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
         match ext {
             "rom" => {
-                let meta = cart::load_rom(&mut self.core.vm, path)?;
+                let meta =
+                    cart::load_rom(&mut self.core.vm, path, &self.core.input, &self.core.font)?;
                 info!("studio: ROM loaded from {}", path.display());
                 self.cart = Some(meta);
                 self.source = None;
@@ -140,14 +141,14 @@ impl StudioApp {
                 self.run_state = RunState::Running;
                 self.set_status(format!("loaded {}", path.display()), false);
             }
-            "fc" => {
+            "lua" => {
                 let text = std::fs::read_to_string(path)?;
                 // Editor buffer holds only the code part; asset blocks live
                 // in VM RAM (mutated by the sprite/map/... editors) and are
                 // re-embedded on save.
                 let (code, sections) =
                     fc_rom::text::split_source(&text).map_err(anyhow::Error::msg)?;
-                info!("studio: fc source loaded from {}", path.display());
+                info!("studio: lua source loaded from {}", path.display());
                 cart::apply_sections(&mut self.core.vm, &sections);
                 if !sections
                     .iter()
@@ -163,7 +164,7 @@ impl StudioApp {
                 self.cart = None;
                 self.run_source();
             }
-            _ => anyhow::bail!("unsupported file type: {} (expected .rom or .fc)", ext),
+            _ => anyhow::bail!("unsupported file type: {} (expected .rom or .lua)", ext),
         }
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
             self.browser.set_scan_dir(dir.to_path_buf());
@@ -175,10 +176,15 @@ impl StudioApp {
     /// Compiles the current editor buffer and (re)starts the game.
     fn run_source(&mut self) {
         let Some(src) = &self.source else {
-            self.set_status("no .fc source loaded", true);
+            self.set_status("no .lua source loaded", true);
             return;
         };
-        match cart::compile_into_vm(&mut self.core.vm, &src.text) {
+        match cart::compile_lua_into_vm(
+            &mut self.core.vm,
+            &src.text,
+            &self.core.input,
+            &self.core.font,
+        ) {
             Ok(()) => {
                 let name = src.path.display().to_string();
                 self.code.error = None;
@@ -263,33 +269,60 @@ impl StudioApp {
 
     fn step_vm(&mut self) {
         let steps = self.core.frame_steps();
-        if self.run_state == RunState::Running {
-            let bps = self.debug.dbg.breakpoints().to_vec();
-            let mut hit = None;
-            for _ in 0..steps {
-                if bps.is_empty() {
-                    self.core.run_frame();
-                } else {
-                    let ignore = self.debug.take_resume_ignore();
-                    hit = self.core.run_frame_bp(&bps, ignore);
-                }
-                if self.debug.recording {
-                    self.debug.dbg.push_state(self.core.vm.snapshot());
-                }
-                if hit.is_some() {
-                    break;
-                }
-            }
-            if let Some(pc) = hit {
-                self.run_state = RunState::Paused;
-                self.debug.on_break(pc);
-                self.set_status(format!("breakpoint hit at 0x{pc:04X}"), false);
-            }
-        } else {
+        if self.run_state != RunState::Running {
             // Game stopped/paused: keep SFX/music editor previews audible.
             for _ in 0..steps {
                 self.core.vm.tick_audio_players();
             }
+            return;
+        }
+
+        if self.core.vm.has_lua_script() {
+            let bps = self.debug.dbg.breakpoints().to_vec();
+            let mut outcome = fc_vm::LuaRunOutcome::Completed;
+            for _ in 0..steps {
+                outcome = self.core.run_frame_lua_bp(&bps);
+                if !matches!(outcome, fc_vm::LuaRunOutcome::Completed) {
+                    break;
+                }
+            }
+            match outcome {
+                fc_vm::LuaRunOutcome::Completed => {}
+                fc_vm::LuaRunOutcome::Breakpoint(line) => {
+                    self.run_state = RunState::Paused;
+                    self.debug.on_break(line);
+                    self.debug.last_error = None;
+                    self.set_status(format!("breakpoint hit at line {line}"), false);
+                }
+                fc_vm::LuaRunOutcome::Error(msg) => {
+                    self.run_state = RunState::Paused;
+                    self.debug.last_error = Some(msg.clone());
+                    self.set_status(format!("lua error: {msg}"), true);
+                }
+            }
+            return;
+        }
+
+        let bps = self.debug.dbg.breakpoints().to_vec();
+        let mut hit = None;
+        for _ in 0..steps {
+            if bps.is_empty() {
+                self.core.run_frame();
+            } else {
+                let ignore = self.debug.take_resume_ignore();
+                hit = self.core.run_frame_bp(&bps, ignore);
+            }
+            if self.debug.recording {
+                self.debug.dbg.push_state(self.core.vm.snapshot());
+            }
+            if hit.is_some() {
+                break;
+            }
+        }
+        if let Some(pc) = hit {
+            self.run_state = RunState::Paused;
+            self.debug.on_break(pc);
+            self.set_status(format!("breakpoint hit at 0x{pc:04X}"), false);
         }
     }
 
@@ -436,11 +469,14 @@ impl eframe::App for StudioApp {
 
         egui::CentralPanel::default().show(ctx, |ui| match self.tab {
             Tab::Code => match &mut self.source {
-                Some(src) => code_panel::show(ui, &mut self.code, src),
+                Some(src) => code_panel::show(ui, &mut self.code, src, &mut self.debug.dbg),
                 None => {
                     ui.add_space(8.0);
                     ui.heading("CODE EDITOR");
-                    ui.colored_label(theme::DIM, "no .fc source open — fc-engine edit <file.fc>");
+                    ui.colored_label(
+                        theme::DIM,
+                        "no .lua source open — fc-engine edit <file.lua>",
+                    );
                 }
             },
             Tab::Sprite => {

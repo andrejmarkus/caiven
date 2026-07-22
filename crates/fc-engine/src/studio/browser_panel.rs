@@ -1,4 +1,4 @@
-//! Cart browser panel: local .fc/.rom file list plus the fc-hub online tab.
+//! Cart browser panel: local .lua/.rom file list plus the fc-hub online tab.
 //! Hub requests run on background threads and report back over a shared
 //! mpsc channel; the app polls each frame and picks up finished downloads
 //! via `take_pending_load`.
@@ -545,7 +545,7 @@ impl BrowserState {
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext != "rom" && ext != "fc" {
+            if ext != "rom" && ext != "lua" {
                 continue;
             }
             let name = path
@@ -788,7 +788,7 @@ fn show_local(ui: &mut egui::Ui, state: &mut BrowserState) {
     ui.add_space(4.0);
 
     if state.files.is_empty() {
-        ui.colored_label(theme::DIM, "no .fc or .rom files in this folder");
+        ui.colored_label(theme::DIM, "no .lua or .rom files in this folder");
         return;
     }
 

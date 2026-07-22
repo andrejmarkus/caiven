@@ -16,6 +16,7 @@ pub use config::VmConfig;
 pub use context::*;
 pub use debug::VmSnapshot;
 pub use fault::VmFault;
+pub use lua_exec::{LuaRunOutcome, describe_lua_error};
 pub use palette::*;
 
 use self::cpu::Cpu;

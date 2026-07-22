@@ -72,7 +72,7 @@ pub fn show(ui: &mut egui::Ui, cart: Option<&mut CartMeta>, source: Option<&Sour
         ui.add_space(8.0);
         ui.colored_label(
             theme::DIM,
-            ".fc sources have no header — `fc-engine build` derives the title from the file name",
+            ".lua sources have no header — `fc-engine build` derives the title from the file name",
         );
         return;
     }

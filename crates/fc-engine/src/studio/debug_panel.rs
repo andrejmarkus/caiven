@@ -32,6 +32,10 @@ const RAM_REGIONS: [(&str, usize); 7] = [
 pub struct DebugState {
     pub dbg: Debugger,
     pub recording: bool,
+    /// Most recent Lua runtime error text — `VmFault::LuaError` stays a unit
+    /// variant (kept `Copy` on purpose, see `fc-vm`), so the message is
+    /// tracked here instead, Studio-side only.
+    pub last_error: Option<String>,
     ram_page: usize,
     resume_ignore: Option<usize>,
     scroll_to_pc: bool,
@@ -42,6 +46,7 @@ impl Default for DebugState {
         Self {
             dbg: Debugger::new(true),
             recording: true,
+            last_error: None,
             ram_page: 0,
             resume_ignore: None,
             scroll_to_pc: false,
@@ -53,6 +58,7 @@ impl DebugState {
     /// Points breakpoint persistence at `<cart>.fcdbg` and loads it.
     pub fn on_cart_loaded(&mut self, path: &Path) {
         self.dbg.set_fcdbg_path(path.with_extension("fcdbg"));
+        self.last_error = None;
     }
 
     /// Suppresses a re-trap on `pc` for the first instruction after resume.
@@ -64,8 +70,10 @@ impl DebugState {
         self.resume_ignore.take()
     }
 
-    pub fn on_break(&mut self, pc: usize) {
-        self.dbg.set_cursor_addr(pc);
+    /// Marks a breakpoint (bytecode address, or Lua source line) as hit and
+    /// requests a scroll-to on next render.
+    pub fn on_break(&mut self, addr_or_line: usize) {
+        self.dbg.set_cursor_addr(addr_or_line);
         self.scroll_to_pc = true;
     }
 }
@@ -76,6 +84,16 @@ pub fn show(
     core: &mut ConsoleCore,
     run_state: &mut RunState,
 ) {
+    if core.vm.has_lua_script() {
+        lua_controls(ui, state, core, run_state);
+        ui.separator();
+        lua_status(ui, state, core);
+        ui.separator();
+        lua_globals(ui, core);
+        ram_view(ui, state, core);
+        return;
+    }
+
     controls(ui, state, core, run_state);
     ui.separator();
     disasm(ui, state, core);
@@ -83,6 +101,90 @@ pub fn show(
     registers(ui, state, core);
     ram_view(ui, state, core);
     timeline(ui, state, core, run_state);
+}
+
+/// Line breakpoints are set from the code editor's gutter (see
+/// `code_panel::gutter`) — this panel just runs/steps and reports state.
+/// There's no instruction-level STEP for Lua (mlua's safe hook API can't
+/// yield outside a coroutine while `run_frame_lua`'s per-frame `Lua::scope`
+/// borrows are live — see `Vm::run_frame_lua_bp`), so STEP here means
+/// "run one frame", same granularity as RUN honoring breakpoints.
+fn lua_controls(
+    ui: &mut egui::Ui,
+    state: &mut DebugState,
+    core: &mut ConsoleCore,
+    run_state: &mut RunState,
+) {
+    ui.horizontal(|ui| {
+        ui.colored_label(theme::ACCENT, "DEBUG");
+        let paused = *run_state == RunState::Paused;
+        if ui
+            .add_enabled(paused, egui::Button::new("STEP"))
+            .on_hover_text("run one frame")
+            .clicked()
+        {
+            let bps = state.dbg.breakpoints().to_vec();
+            apply_lua_outcome(state, core.run_frame_lua_bp(&bps));
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let bps = state.dbg.breakpoints().len();
+            ui.colored_label(
+                theme::DIM,
+                format!("{bps} BREAKPOINT{}", if bps == 1 { "" } else { "S" }),
+            );
+        });
+    });
+}
+
+fn apply_lua_outcome(state: &mut DebugState, outcome: fc_vm::LuaRunOutcome) {
+    match outcome {
+        fc_vm::LuaRunOutcome::Completed => {}
+        fc_vm::LuaRunOutcome::Breakpoint(line) => {
+            state.on_break(line);
+            state.last_error = None;
+        }
+        fc_vm::LuaRunOutcome::Error(msg) => {
+            state.last_error = Some(msg);
+        }
+    }
+}
+
+fn lua_status(ui: &mut egui::Ui, state: &DebugState, core: &ConsoleCore) {
+    ui.horizontal(|ui| {
+        if state.dbg.breakpoints().contains(&state.dbg.cursor_addr()) {
+            ui.colored_label(
+                theme::ACCENT,
+                format!("stopped at line {}", state.dbg.cursor_addr()),
+            );
+        } else {
+            ui.colored_label(theme::DIM, "click a line number to set a breakpoint");
+        }
+    });
+    if let Some(err) = &state.last_error {
+        ui.colored_label(theme::ERROR, err);
+    } else if let Some(fault) = core.vm.get_fault() {
+        ui.colored_label(theme::ERROR, format!("FAULT: {fault:?}"));
+    }
+}
+
+/// Script-defined globals — mlua's safe hook API has no `lua_getlocal`
+/// binding, so locals aren't enumerable at a breakpoint; globals are the
+/// best available state inspector (see `Vm::lua_globals`).
+fn lua_globals(ui: &mut egui::Ui, core: &ConsoleCore) {
+    ui.colored_label(theme::DIM, "GLOBALS");
+    let globals = core.vm.lua_globals();
+    if globals.is_empty() {
+        ui.colored_label(theme::DIM, "(none)");
+        return;
+    }
+    egui::ScrollArea::vertical()
+        .id_salt("dbg_globals")
+        .max_height(80.0)
+        .show(ui, |ui| {
+            for (name, value) in &globals {
+                ui.colored_label(theme::TEXT, format!("{name} = {value}"));
+            }
+        });
 }
 
 fn controls(

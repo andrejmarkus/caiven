@@ -28,11 +28,129 @@ use fc_core::memory::{
     MAP_H, MAP_RAM_BASE, MAP_W, SPRITE_BYTES, SPRITE_FLAGS_RAM_BASE, SPRITE_SHEET_RAM_BASE,
 };
 use fc_core::{Color, Vec2};
-use mlua::{Lua, Scope, Table};
-use std::cell::RefCell;
+use mlua::{HookTriggers, Lua, Scope, Table, VmState};
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+
+/// Names registered by [`register_builtins`] — excluded from
+/// [`Vm::lua_globals`]'s snapshot since they're API surface, not script state.
+const BUILTIN_NAMES: &[&str] = &[
+    "clear_screen",
+    "set_pixel",
+    "sprite",
+    "button_down",
+    "button_pressed",
+    "draw_text",
+    "draw_number",
+    "fill_screen",
+    "draw_line",
+    "draw_rect",
+    "fill_rect",
+    "draw_circle",
+    "fill_circle",
+    "set_camera",
+    "set_palette_color",
+    "draw_map",
+    "get_tile",
+    "set_tile",
+    "get_sprite_flags",
+    "set_sprite_flags",
+    "play_sfx",
+    "play_music",
+    "stop_music",
+];
+
+/// Lua's own stdlib globals — also excluded from the snapshot, along with
+/// the two script entry points.
+const STDLIB_NAMES: &[&str] = &[
+    "_G",
+    "_VERSION",
+    "_init",
+    "_update",
+    "assert",
+    "collectgarbage",
+    "coroutine",
+    "debug",
+    "dofile",
+    "error",
+    "getmetatable",
+    "io",
+    "ipairs",
+    "load",
+    "loadfile",
+    "math",
+    "next",
+    "os",
+    "package",
+    "pairs",
+    "pcall",
+    "print",
+    "rawequal",
+    "rawget",
+    "rawlen",
+    "rawset",
+    "require",
+    "select",
+    "setmetatable",
+    "string",
+    "table",
+    "tonumber",
+    "tostring",
+    "type",
+    "utf8",
+    "xpcall",
+];
+
+/// Chunk name given to every loaded script — error messages come back as
+/// `cart:<line>: ...`, which [`describe_lua_error`] parses to recover the
+/// line for the code editor's clickable error jump. The `=` prefix tells Lua
+/// to use the name as-is instead of wrapping it as `[string "cart"]`.
+const CHUNK_NAME: &str = "cart";
+const CHUNK_SOURCE_NAME: &str = "=cart";
 
 pub(super) struct LuaScript {
     lua: Lua,
+}
+
+/// Result of one debug-aware Lua frame ([`Vm::run_frame_lua_bp`]).
+#[derive(Debug, Clone)]
+pub enum LuaRunOutcome {
+    /// `_update()` ran to completion.
+    Completed,
+    /// Execution stopped at a breakpointed source line; the rest of this
+    /// frame's `_update()` did not run.
+    Breakpoint(usize),
+    /// A genuine Lua runtime error (not a breakpoint stop).
+    Error(String),
+}
+
+/// Extracts the raw Lua message (no `syntax error:`/`runtime error:` wrapper)
+/// and, when present, the 1-based `cart:<line>:` source line.
+pub fn describe_lua_error(err: &mlua::Error) -> (Option<usize>, String) {
+    let raw = match err {
+        mlua::Error::SyntaxError { message, .. } => message.clone(),
+        mlua::Error::RuntimeError(message) => message.clone(),
+        other => other.to_string(),
+    };
+    let line = raw
+        .strip_prefix(CHUNK_NAME)
+        .and_then(|rest| rest.strip_prefix(':'))
+        .and_then(|rest| rest.split(':').next())
+        .and_then(|n| n.parse().ok());
+    (line, raw)
+}
+
+fn describe_lua_value(value: &mlua::Value) -> String {
+    match value {
+        mlua::Value::Nil => "nil".to_string(),
+        mlua::Value::Boolean(b) => b.to_string(),
+        mlua::Value::Integer(i) => i.to_string(),
+        mlua::Value::Number(n) => n.to_string(),
+        mlua::Value::String(s) => format!("{:?}", s.to_string_lossy()),
+        mlua::Value::Table(_) => "{table}".to_string(),
+        mlua::Value::Function(_) => "{function}".to_string(),
+        other => format!("{other:?}"),
+    }
 }
 
 fn plot(layer: &mut ScreenLayer, x: i64, y: i64, color: Color) {
@@ -499,7 +617,7 @@ impl Vm {
                 height,
             )?;
 
-            lua.load(src).exec()?;
+            lua.load(src).set_name(CHUNK_SOURCE_NAME).exec()?;
             if let Ok(init) = globals.get::<mlua::Function>("_init") {
                 init.call::<()>(())?;
             }
@@ -511,7 +629,7 @@ impl Vm {
         Ok(())
     }
 
-    pub(super) fn has_lua_script(&self) -> bool {
+    pub fn has_lua_script(&self) -> bool {
         self.script.is_some()
     }
 
@@ -564,5 +682,104 @@ impl Vm {
             log::error!("Lua runtime error: {e}");
             self.set_fault(VmFault::LuaError);
         }
+    }
+
+    /// Like [`Vm::run_frame_lua`], but installs a line hook that aborts
+    /// `_update()` as soon as it reaches a breakpointed source line. The
+    /// aborted call unwinds Lua's stack (mlua's hooks can't yield outside a
+    /// coroutine while borrowing per-frame VM state via `Lua::scope`, so a
+    /// suspend-and-resume mid-statement debugger isn't possible here) —
+    /// globals and RAM at the moment of the stop are still readable via
+    /// [`Vm::lua_globals`] and `peek_memory`, but locals are not: mlua's
+    /// safe hook API has no `lua_getlocal` binding. Resuming re-runs
+    /// `_update()` from the top, same as any other frame.
+    pub fn run_frame_lua_bp(
+        &mut self,
+        input: &Input,
+        font: &Font,
+        breakpoints: &[usize],
+    ) -> LuaRunOutcome {
+        let Some(script) = self.script.as_ref() else {
+            return LuaRunOutcome::Completed;
+        };
+        let lua = &script.lua;
+
+        let world = RefCell::new(&mut self.world);
+        let ui = RefCell::new(&mut self.ui);
+        let memory = RefCell::new(&mut self.memory);
+        let palette = RefCell::new(&mut self.palette);
+        let camera = RefCell::new(&mut self.camera);
+        let sfx_player = RefCell::new(&mut self.sfx_player);
+        let music_player = RefCell::new(&mut self.music_player);
+        let sprite_size = self.config.sprite_size;
+        let width = self.config.width;
+        let height = self.config.height;
+
+        let hit: Rc<Cell<Option<usize>>> = Rc::new(Cell::new(None));
+        let hit_hook = hit.clone();
+        let bps: Vec<usize> = breakpoints.to_vec();
+        lua.set_hook(HookTriggers::EVERY_LINE, move |_lua, debug| {
+            let line = debug.curr_line();
+            if line > 0 && bps.contains(&(line as usize)) {
+                hit_hook.set(Some(line as usize));
+                return Err(mlua::Error::runtime("breakpoint"));
+            }
+            Ok(VmState::Continue)
+        });
+
+        let result: mlua::Result<()> = lua.scope(|scope| {
+            let globals = lua.globals();
+            register_builtins(
+                scope,
+                &globals,
+                &world,
+                &ui,
+                &memory,
+                &palette,
+                &camera,
+                &sfx_player,
+                &music_player,
+                input,
+                font,
+                sprite_size,
+                width,
+                height,
+            )?;
+
+            let update: mlua::Function = globals.get("_update")?;
+            update.call::<()>(())
+        });
+        lua.remove_hook();
+
+        match (hit.get(), result) {
+            (Some(line), _) => LuaRunOutcome::Breakpoint(line),
+            (None, Ok(())) => LuaRunOutcome::Completed,
+            (None, Err(e)) => {
+                log::error!("Lua runtime error: {e}");
+                self.set_fault(VmFault::LuaError);
+                LuaRunOutcome::Error(e.to_string())
+            }
+        }
+    }
+
+    /// Snapshot of the script's global variables, for the Studio debugger's
+    /// state inspector. Excludes registered builtins and Lua's own stdlib —
+    /// see [`BUILTIN_NAMES`]/[`STDLIB_NAMES`] — so only script-defined state
+    /// shows up. Locals aren't enumerable (see [`Vm::run_frame_lua_bp`]).
+    pub fn lua_globals(&self) -> Vec<(String, String)> {
+        let Some(script) = self.script.as_ref() else {
+            return Vec::new();
+        };
+        let globals = script.lua.globals();
+        let mut out: Vec<(String, String)> = globals
+            .pairs::<String, mlua::Value>()
+            .filter_map(|pair| pair.ok())
+            .filter(|(k, _)| {
+                !BUILTIN_NAMES.contains(&k.as_str()) && !STDLIB_NAMES.contains(&k.as_str())
+            })
+            .map(|(k, v)| (k, describe_lua_value(&v)))
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
     }
 }

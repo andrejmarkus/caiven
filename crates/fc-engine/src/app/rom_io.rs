@@ -86,15 +86,6 @@ impl App {
             .find(|s| s.kind == SectionKind::LuaSource)
             .map(|s| String::from_utf8_lossy(&s.data).into_owned());
 
-        if let Some(src) = &lua_source {
-            self.core
-                .vm
-                .load_lua_source(src, &self.core.input, &self.core.font)
-                .map_err(|e| anyhow::anyhow!("{e}"))
-                .with_context(|| format!("failed to load Lua ROM {}", path.display()))?;
-        } else {
-            self.core.vm.load_rom(rom.program.clone());
-        }
         self.debugger.set_fcdbg_path(path.with_extension("fcdbg"));
 
         let mut sections: Vec<SectionLayout> = Vec::new();
@@ -224,6 +215,19 @@ impl App {
                 ram_base: MUSIC_RAM_BASE,
                 len: MUSIC_BANK_LEN,
             });
+        }
+
+        // Loaded after asset RAM is populated: loading Lua source runs
+        // `_init()` immediately, unlike the bytecode path, which only loads
+        // a program and doesn't start executing until later.
+        if let Some(src) = &lua_source {
+            self.core
+                .vm
+                .load_lua_source(src, &self.core.input, &self.core.font)
+                .map_err(|e| anyhow::anyhow!("{e}"))
+                .with_context(|| format!("failed to load Lua ROM {}", path.display()))?;
+        } else {
+            self.core.vm.load_rom(rom.program.clone());
         }
 
         self.cart_meta = Some(CartMeta {
