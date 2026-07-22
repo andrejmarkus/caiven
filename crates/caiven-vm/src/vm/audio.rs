@@ -4,6 +4,12 @@ use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::{Arc, Mutex};
 
+/// Per-channel scale so square+noise summing doesn't hard-clip at full volume.
+const CHANNEL_HEADROOM: f32 = 0.5;
+/// Overall output attenuation — raw full-scale square/noise waves read as
+/// much louder than typical game audio at the same numeric volume.
+const MASTER_GAIN: f32 = 0.35;
+
 #[derive(Debug, Clone)]
 pub struct SquareChannel {
     pub enabled: bool,
@@ -65,7 +71,7 @@ impl Audio {
                                 let v = if square_phase < 0.5 { 1.0 } else { -1.0 };
                                 square_phase =
                                     (square_phase + s.square.frequency / sample_rate) % 1.0;
-                                mix += v * s.square.volume;
+                                mix += v * s.square.volume * CHANNEL_HEADROOM;
                             }
 
                             if s.noise.enabled && s.noise.volume > 0.0 {
@@ -77,10 +83,10 @@ impl Audio {
                                     lfsr = (lfsr >> 1) | (bit << 15);
                                 }
                                 let v = if (lfsr & 1) == 0 { 1.0 } else { -1.0 };
-                                mix += v * s.noise.volume;
+                                mix += v * s.noise.volume * CHANNEL_HEADROOM;
                             }
 
-                            let sample_value = mix.clamp(-1.0, 1.0);
+                            let sample_value = (mix * MASTER_GAIN).clamp(-1.0, 1.0);
                             let final_sample: $t = $conv(sample_value);
                             for sample in frame.iter_mut() {
                                 *sample = final_sample;
