@@ -301,7 +301,7 @@ Cargo workspace with seven crates:
 | `crates/fc-hub` | Cart sharing server |
 | `crates/migration` | `sea-orm` database migrations for fc-hub |
 
-`games/lua/` — example `.lua` cart sources.
+`games/lua/` — example `.lua` cart sources. `games/roms/` — the same carts prebuilt to `.rom` (run directly: `fc-engine run games/roms/catch.rom`, or open in FC Studio via `fc-engine edit`).
 
 ---
 
