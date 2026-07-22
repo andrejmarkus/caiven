@@ -132,12 +132,13 @@ impl Parser {
                     self.advance();
                     let line = self.line();
                     let name = self.expect_ident()?;
-                    let params = self.parse_param_list()?;
+                    let (params, is_variadic) = self.parse_param_list()?;
                     let body = self.parse_block()?;
                     self.expect(TokenKind::End)?;
                     functions.push(FnDecl {
                         name,
                         params,
+                        is_variadic,
                         body,
                         line,
                     });
@@ -175,23 +176,30 @@ impl Parser {
         })
     }
 
-    fn parse_param_list(&mut self) -> Result<Vec<String>> {
+    fn parse_param_list(&mut self) -> Result<(Vec<String>, bool)> {
         self.expect(TokenKind::LParen)?;
         let mut params = Vec::new();
+        let mut is_variadic = false;
         self.skip_newlines();
         if !matches!(self.peek(), TokenKind::RParen) {
-            params.push(self.expect_ident()?);
-            while matches!(self.peek(), TokenKind::Comma) {
-                self.advance();
+            loop {
                 self.skip_newlines();
-                if matches!(self.peek(), TokenKind::RParen) {
+                if matches!(self.peek(), TokenKind::DotDotDot) {
+                    self.advance();
+                    is_variadic = true;
                     break;
                 }
                 params.push(self.expect_ident()?);
+                self.skip_newlines();
+                if matches!(self.peek(), TokenKind::Comma) {
+                    self.advance();
+                } else {
+                    break;
+                }
             }
         }
         self.expect(TokenKind::RParen)?;
-        Ok(params)
+        Ok((params, is_variadic))
     }
 
     fn is_block_end(&self) -> bool {
@@ -842,10 +850,14 @@ impl Parser {
             TokenKind::LBrace => self.parse_table_ctor(),
             TokenKind::Fn | TokenKind::Function => {
                 self.advance();
-                let params = self.parse_param_list()?;
+                let (params, _is_variadic) = self.parse_param_list()?;
                 let body = self.parse_block()?;
                 self.expect(TokenKind::End)?;
                 Ok(Expr::Func { params, body, line })
+            }
+            TokenKind::DotDotDot => {
+                self.advance();
+                Ok(Expr::Varargs(line))
             }
             TokenKind::Ident(name) => {
                 self.advance();

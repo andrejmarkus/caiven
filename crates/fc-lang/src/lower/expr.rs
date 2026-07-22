@@ -401,6 +401,13 @@ impl Compiler {
                 self.emit_mov(1, key_ptr);
                 self.emit_tget(0, 0, 1);
             }
+            Expr::Varargs(line) => {
+                return Err(LangError::NotImplemented {
+                    line: *line,
+                    feature: "... is only supported as the sole init of a local statement"
+                        .to_string(),
+                });
+            }
         }
         Ok(())
     }
@@ -715,6 +722,10 @@ impl Compiler {
         for arg in args_clone.iter().rev() {
             self.lower_expr_r0(arg)?;
             self.emit_push(0);
+        }
+        if self.variadic_fns.contains(name) {
+            // R1 = actual arg count, read by the callee's variadic prologue
+            self.emit_mov(1, args.len() as u16);
         }
         self.emit_jsr(name);
         // Clean up args: SP += nargs * 4

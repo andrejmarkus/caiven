@@ -31,6 +31,13 @@ const RT_STR_TMP2: u16 = 0x3FA0;
 const RT_STR_TMP3: u16 = 0x3FA4;
 const RT_STR_TMP4: u16 = 0x3FA8;
 const RT_STR_TMP5: u16 = 0x3FAC;
+// Multi-return scratch: value[0] always comes back in R0 (unchanged single-value
+// convention); value[1..MAX_RETURN_ARITY-1] are stashed here by `return` and read
+// back immediately by the caller's `local a, b = f()` unpack, before any other
+// call can run — safe under recursion/nesting for the same reason R0-as-return
+// already is.
+const RETURN_BUFFER_ADDR: u16 = 0x3FB0;
+const MAX_RETURN_ARITY: usize = 8;
 // Key value TIDX reports past the end of a table (see fc-vm TABLE_ITER_END)
 const TABLE_SENTINEL: u32 = 0xFFFFFFFF;
 
@@ -55,6 +62,7 @@ struct FnCtx {
     break_targets: Vec<BreakTarget>,
     upvals: Vec<String>,
     is_closure: bool,
+    varargs_count_slot: Option<usize>,
 }
 
 impl FnCtx {
@@ -66,6 +74,7 @@ impl FnCtx {
             break_targets: Vec::new(),
             upvals: Vec::new(),
             is_closure: false,
+            varargs_count_slot: None,
         }
     }
 
@@ -77,6 +86,7 @@ impl FnCtx {
             break_targets: Vec::new(),
             upvals,
             is_closure: true,
+            varargs_count_slot: None,
         }
     }
 
@@ -138,6 +148,7 @@ pub struct Compiler {
     cpy_src_patch: usize,
     cpy_len_patch: usize,
     fn_names: std::collections::HashSet<String>,
+    variadic_fns: std::collections::HashSet<String>,
 }
 
 impl Default for Compiler {
@@ -164,6 +175,7 @@ impl Compiler {
             cpy_src_patch: 0,
             cpy_len_patch: 0,
             fn_names: std::collections::HashSet::new(),
+            variadic_fns: std::collections::HashSet::new(),
         }
     }
 
@@ -216,6 +228,9 @@ impl Compiler {
         // Populate fn_names for static-vs-dynamic call dispatch
         for func in &file.functions {
             self.fn_names.insert(func.name.clone());
+            if func.is_variadic {
+                self.variadic_fns.insert(func.name.clone());
+            }
         }
 
         // Emit function bodies
@@ -279,6 +294,17 @@ impl Compiler {
         //   mem[FP+8 + i*4] = arg_i  (caller pushes args in reverse: argN-1 first, arg0 last)
 
         self.fn_ctx = Some(FnCtx::new(func.params.clone()));
+
+        if func.is_variadic {
+            // Caller stashed the actual arg count in R1 right before JSR
+            // (see emit_named_call). Copy it into a synthetic local so the
+            // varargs unpack in the body can bounds-check against it.
+            self.emit_movr(0, 1);
+            let ctx = self.fn_ctx.as_mut().unwrap();
+            let slot = ctx.alloc_local("#nargs".to_string());
+            ctx.varargs_count_slot = Some(slot);
+            self.emit_push(0);
+        }
 
         let body = func.body.clone();
         self.compile_block(&body)?;

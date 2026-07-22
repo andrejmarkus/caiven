@@ -21,6 +21,7 @@ pub struct LetDecl {
 pub struct FnDecl {
     pub name: String,
     pub params: Vec<String>,
+    pub is_variadic: bool,
     pub body: Block,
     pub line: usize,
 }
@@ -144,6 +145,7 @@ pub enum Expr {
         name: String,
         line: usize,
     },
+    Varargs(usize),
 }
 
 impl Expr {
@@ -158,6 +160,7 @@ impl Expr {
             Expr::Func { line, .. } => *line,
             Expr::Index { line, .. } => *line,
             Expr::Field { line, .. } => *line,
+            Expr::Varargs(l) => *l,
         }
     }
 }

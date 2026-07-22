@@ -4,6 +4,22 @@
 use super::*;
 
 impl Compiler {
+    // Bind R0 to `name` as a new local (inside a function) or global
+    // (top-level) — the tail half of every `local` binding.
+    fn bind_local_r0(&mut self, name: &str) {
+        if let Some(ctx) = &mut self.fn_ctx {
+            ctx.alloc_local(name.to_string());
+            self.emit_push(0);
+        } else {
+            let addr = if let Some(&a) = self.globals.get(name) {
+                a
+            } else {
+                self.alloc_global(name)
+            };
+            self.emit_stm32(addr, 0);
+        }
+    }
+
     pub(super) fn compile_block(&mut self, block: &[Stmt]) -> Result<()> {
         if let Some(ctx) = &mut self.fn_ctx {
             ctx.push_scope();
@@ -82,25 +98,61 @@ impl Compiler {
                 }
             }
             Stmt::Local { names, inits, line } => {
-                for (i, name) in names.iter().enumerate() {
-                    if let Some(init) = inits.get(i) {
-                        self.lower_expr_r0(init)?;
-                    } else {
-                        self.emit_mov_r0_imm(0); // nil → 0
+                if inits.len() == 1 && names.len() > 1 && matches!(inits[0], Expr::Varargs(_)) {
+                    let (nargs_slot, base_idx) = {
+                        let ctx =
+                            self.fn_ctx
+                                .as_ref()
+                                .ok_or_else(|| LangError::NotImplemented {
+                                    line: *line,
+                                    feature: "... outside a function".to_string(),
+                                })?;
+                        let nargs_slot =
+                            ctx.varargs_count_slot
+                                .ok_or_else(|| LangError::NotImplemented {
+                                    line: *line,
+                                    feature: "... used in a non-variadic function".to_string(),
+                                })?;
+                        (nargs_slot, ctx.params.len())
+                    };
+                    for (i, name) in names.iter().enumerate() {
+                        let nil_label = self.fresh_label("va_nil");
+                        let done_label = self.fresh_label("va_done");
+                        self.emit_load_local(nargs_slot); // R0 = actual arg count
+                        self.emit_movr(1, 0);
+                        self.emit_mov(0, (base_idx + i) as u16); // R0 = threshold
+                        self.code.push(OP_SLTS);
+                        self.code.push(2);
+                        self.code.push(0);
+                        self.code.push(1); // R2 = threshold < actual_count
+                        self.emit_jz(2, &nil_label);
+                        self.emit_load_param(base_idx + i); // R0 = value
+                        self.emit_jmp(&done_label);
+                        self.emit_label(&nil_label);
+                        self.emit_mov_r0_imm(0);
+                        self.emit_label(&done_label);
+                        self.bind_local_r0(name);
                     }
-                    if let Some(ctx) = &mut self.fn_ctx {
-                        ctx.alloc_local(name.clone());
-                        // PUSH R0 puts value on stack at slot
-                        self.emit_push(0);
-                    } else {
-                        // top-level local = global
-                        let addr = if let Some(&a) = self.globals.get(name) {
-                            a
+                } else if inits.len() == 1 && names.len() > 1 {
+                    let init0 = inits[0].clone();
+                    self.lower_expr_r0(&init0)?;
+                    self.bind_local_r0(&names[0]);
+                    for (i, name) in names.iter().enumerate().skip(1) {
+                        if i - 1 < MAX_RETURN_ARITY - 1 {
+                            self.emit_ldm32(0, RETURN_BUFFER_ADDR + ((i - 1) * 4) as u16);
                         } else {
-                            self.alloc_global(name)
-                        };
-                        self.emit_stm32(addr, 0);
-                        let _ = line;
+                            self.emit_mov_r0_imm(0);
+                        }
+                        self.bind_local_r0(name);
+                    }
+                } else {
+                    for (i, name) in names.iter().enumerate() {
+                        if let Some(init) = inits.get(i) {
+                            self.lower_expr_r0(init)?;
+                        } else {
+                            self.emit_mov_r0_imm(0); // nil → 0
+                        }
+                        self.bind_local_r0(name);
                     }
                 }
             }
@@ -377,7 +429,28 @@ impl Compiler {
                 if self.fn_ctx.is_none() {
                     return Err(LangError::ReturnOutsideFunction { line: *line });
                 }
-                // Single return value in R0
+                if values.len() > MAX_RETURN_ARITY {
+                    return Err(LangError::NotImplemented {
+                        line: *line,
+                        feature: format!("return with more than {MAX_RETURN_ARITY} values"),
+                    });
+                }
+                if values.len() > 1 {
+                    // Extra values go to the return buffer first (using R0 as
+                    // scratch); value[0] is lowered last so it's the one left
+                    // in R0 when the epilogue runs.
+                    for slot in 0..MAX_RETURN_ARITY - 1 {
+                        match values.get(slot + 1) {
+                            Some(v) => {
+                                let v = v.clone();
+                                self.lower_expr_r0(&v)?;
+                            }
+                            None => self.emit_mov_r0_imm(0),
+                        }
+                        self.emit_stm32(RETURN_BUFFER_ADDR + (slot * 4) as u16, 0);
+                    }
+                }
+                // Single/first return value in R0
                 if let Some(val) = values.first() {
                     let val = val.clone();
                     self.lower_expr_r0(&val)?;
