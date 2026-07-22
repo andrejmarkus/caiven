@@ -217,18 +217,16 @@ impl App {
             });
         }
 
-        // Loaded after asset RAM is populated: loading Lua source runs
-        // `_init()` immediately, unlike the bytecode path, which only loads
-        // a program and doesn't start executing until later.
-        if let Some(src) = &lua_source {
-            self.core
-                .vm
-                .load_lua_source(src, &self.core.input, &self.core.font)
-                .map_err(|e| anyhow::anyhow!("{e}"))
-                .with_context(|| format!("failed to load Lua ROM {}", path.display()))?;
-        } else {
-            self.core.vm.load_rom(rom.program.clone());
-        }
+        // Loaded after asset RAM is populated, since it runs `_init()`
+        // immediately.
+        let src = lua_source
+            .as_deref()
+            .context("ROM has no Lua source section (bytecode carts are no longer supported)")?;
+        self.core
+            .vm
+            .load_lua_source(src, &self.core.input, &self.core.font)
+            .map_err(|e| anyhow::anyhow!("{e}"))
+            .with_context(|| format!("failed to load Lua ROM {}", path.display()))?;
 
         self.cart_meta = Some(CartMeta {
             path: path.to_path_buf(),
@@ -240,64 +238,6 @@ impl App {
 
         info!("ROM loaded from {}", path.display());
         Ok(())
-    }
-
-    pub(super) fn load_source(&mut self, path: &Path) -> Result<()> {
-        let source = std::fs::read_to_string(path)
-            .with_context(|| format!("failed to read source {}", path.display()))?;
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        if ext == "fc" {
-            let (code, sections) =
-                fc_rom::text::split_source(&source).map_err(anyhow::Error::msg)?;
-            let out = fc_lang::compile(&code).map_err(|e| {
-                anyhow::anyhow!("compile error in {}:\n{}", path.display(), e.render(&code))
-            })?;
-            self.core
-                .vm
-                .load_rom_with_source_map(out.program, out.source_map);
-            self.core.vm.set_fc_source(&code);
-            for (kind, data) in &sections {
-                if let Some(ram_base) = crate::studio::cart::section_ram_base(*kind) {
-                    self.core.vm.load_section_to_ram(ram_base, data);
-                    if *kind == SectionKind::Palette {
-                        self.core.vm.set_palette_from_bytes(data);
-                    }
-                }
-            }
-            info!("fc-lang compiled from {}", path.display());
-        } else {
-            let out = fc_asm::assemble_with_sections(&source)
-                .with_context(|| format!("failed to assemble {}", path.display()))?;
-            self.core
-                .vm
-                .load_rom_with_source_map(out.program, out.source_map);
-            for (wire_id, data) in &out.extra_sections {
-                if *wire_id == fc_rom::SectionKind::SpriteSheet.to_u16() {
-                    self.core
-                        .vm
-                        .load_section_to_ram(SPRITE_SHEET_RAM_BASE, data);
-                }
-            }
-            info!("source assembled from {}", path.display());
-        }
-        self.debugger.set_fcdbg_path(path.with_extension("fcdbg"));
-        Ok(())
-    }
-
-    pub(super) fn watch_source(&mut self, path: PathBuf) -> Result<()> {
-        self.load_source(&path)?;
-        let mtime = path.metadata().ok().and_then(|m| m.modified().ok());
-        self.hot_reload.watch(path, mtime);
-        Ok(())
-    }
-
-    pub(super) fn poll_hot_reload(&mut self) {
-        if let Some(path) = self.hot_reload.poll() {
-            info!("hot-reload: {}", path.display());
-            if let Err(e) = self.load_source(&path) {
-                warn!("hot-reload failed: {e}");
-            }
-        }
     }
 
     pub(super) fn save_cart(&mut self) {

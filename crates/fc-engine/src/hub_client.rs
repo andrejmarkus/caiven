@@ -8,11 +8,9 @@ use fc_core::memory::{
     MAP_RAM_BASE, MUSIC_RAM_BASE, PALETTE_RAM_BASE, SFX_RAM_BASE, SPRITE_SHEET_RAM_BASE,
 };
 use fc_rom::SectionKind;
-use fc_vm::default_instruction_set;
 use fc_vm::input::Input;
 use fc_vm::rendering::font::Font;
 use fc_vm::{Vm, VmConfig};
-use std::sync::Arc;
 
 pub(crate) fn build_multipart(
     boundary: &str,
@@ -41,10 +39,10 @@ pub(crate) fn capture_screenshot(
     config: VmConfig,
     frames: u32,
 ) -> Result<Vec<u8>> {
-    let instruction_set = Arc::new(default_instruction_set());
-    let mut vm = Vm::new(instruction_set, config);
+    let mut vm = Vm::new(config);
 
-    vm.load_rom(rom.program.clone());
+    // Asset RAM must be in place before the Lua load, since it runs
+    // `_init()` immediately.
     for section in &rom.sections {
         match section.kind {
             SectionKind::SpriteSheet => {
@@ -63,6 +61,17 @@ pub(crate) fn capture_screenshot(
 
     let font = Font::empty();
     let input = Input::new();
+
+    let lua_source = rom
+        .sections
+        .iter()
+        .find(|s| s.kind == SectionKind::LuaSource)
+        .map(|s| String::from_utf8_lossy(&s.data).into_owned())
+        .context("ROM has no Lua source section (bytecode carts are no longer supported)")?;
+    vm.load_lua_source(&lua_source, &input, &font)
+        .map_err(|e| anyhow::anyhow!("{e}"))
+        .context("failed to load Lua ROM for screenshot")?;
+
     for _ in 0..frames {
         vm.run_frame(&input, &font);
     }

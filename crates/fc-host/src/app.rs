@@ -44,8 +44,8 @@ impl App {
             }
         }
 
-        self.core.vm.load_rom(rom.program);
-
+        // Asset RAM must be in place before the Lua load, since it runs
+        // `_init()` immediately.
         for section in &rom.sections {
             if section.kind == SectionKind::SpriteSheet {
                 self.core
@@ -58,6 +58,19 @@ impl App {
                 );
             }
         }
+
+        let lua_source = rom
+            .sections
+            .iter()
+            .find(|s| s.kind == SectionKind::LuaSource)
+            .map(|s| String::from_utf8_lossy(&s.data).into_owned())
+            .context("ROM has no Lua source section (bytecode carts are no longer supported)")?;
+        self.core
+            .vm
+            .load_lua_source(&lua_source, &self.core.input, &self.core.font)
+            .map_err(|e| anyhow::anyhow!("{e}"))
+            .with_context(|| format!("failed to load Lua ROM {}", path.display()))?;
+
         info!("ROM loaded from {}", path.display());
         Ok(())
     }

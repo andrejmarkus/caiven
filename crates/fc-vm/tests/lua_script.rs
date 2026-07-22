@@ -1,10 +1,9 @@
 use fc_vm::input::Input;
 use fc_vm::rendering::font::Font;
-use fc_vm::{LuaRunOutcome, Vm, VmConfig, VmFault, default_instruction_set, describe_lua_error};
-use std::sync::Arc;
+use fc_vm::{LuaRunOutcome, Vm, VmConfig, VmFault, describe_lua_error};
 
 fn make_vm() -> Vm {
-    Vm::new(Arc::new(default_instruction_set()), VmConfig::default())
+    Vm::new(VmConfig::default())
 }
 
 fn read_rgba(vm: &Vm, x: u32, y: u32) -> [u8; 4] {

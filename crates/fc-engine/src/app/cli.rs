@@ -26,9 +26,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Assemble source and write a ROM file
+    /// Package a .lua source file and its asset blocks into a ROM
     Build {
-        /// Path to the .asm source file
+        /// Path to the .lua source file
         source: PathBuf,
         /// Output .rom path
         output: PathBuf,
@@ -38,9 +38,9 @@ enum Command {
         /// Path to the .rom file
         rom: PathBuf,
     },
-    /// Run a .asm or .rom file
+    /// Run a .lua or .rom file
     Run {
-        /// Path to .asm source (hot reload) or .rom file
+        /// Path to .lua source or .rom file
         file: PathBuf,
     },
     /// Open FC Studio, the desktop editor suite
@@ -214,63 +214,25 @@ pub fn run() -> Result<()> {
 
             let stem = source.file_stem().and_then(|s| s.to_str()).unwrap_or("");
             let ext = source.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext == "lua" {
-                let src_text = std::fs::read_to_string(source)
-                    .with_context(|| format!("failed to read source {}", source.display()))?;
-                let (code, mut sections) = fc_rom::text::split_source(&src_text)
-                    .map_err(|e| anyhow::anyhow!("bad asset block in {}: {e}", source.display()))?;
-                sections.push((SectionKind::LuaSource, code.into_bytes()));
-                let header = RomHeader::default_for(stem);
-                fc_rom::write(output, &header, &[], &sections)
-                    .with_context(|| format!("cannot write ROM to {}", output.display()))?;
-                info!(
-                    "ROM written to {} ({} asset sections)",
-                    output.display(),
-                    sections.len() - 1
+            if ext != "lua" {
+                anyhow::bail!(
+                    "unsupported source extension '.{}' (expected .lua): {}",
+                    ext,
+                    source.display()
                 );
-                return Ok(());
             }
-            if ext == "fc" {
-                let src_text = std::fs::read_to_string(source)
-                    .with_context(|| format!("failed to read source {}", source.display()))?;
-                let (code, sections) = fc_rom::text::split_source(&src_text)
-                    .map_err(|e| anyhow::anyhow!("bad asset block in {}: {e}", source.display()))?;
-                let out = fc_lang::compile(&code).map_err(|e| {
-                    anyhow::anyhow!(
-                        "compile error in {}:\n{}",
-                        source.display(),
-                        e.render(&code)
-                    )
-                })?;
-                let header = RomHeader::default_for(stem);
-                fc_rom::write(output, &header, &out.program, &sections)
-                    .with_context(|| format!("cannot write ROM to {}", output.display()))?;
-                info!(
-                    "ROM written to {} ({} asset sections)",
-                    output.display(),
-                    sections.len()
-                );
-                return Ok(());
-            }
-
-            let out = fc_asm::assemble_file_with_sections(source)
-                .map_err(|e| anyhow::anyhow!("assembly failed: {e}"))?;
-
+            let src_text = std::fs::read_to_string(source)
+                .with_context(|| format!("failed to read source {}", source.display()))?;
+            let (code, mut sections) = fc_rom::text::split_source(&src_text)
+                .map_err(|e| anyhow::anyhow!("bad asset block in {}: {e}", source.display()))?;
+            sections.push((SectionKind::LuaSource, code.into_bytes()));
             let header = RomHeader::default_for(stem);
-
-            let extra: Vec<(SectionKind, Vec<u8>)> = out
-                .extra_sections
-                .into_iter()
-                .map(|(id, data)| (SectionKind::from_u16(id), data))
-                .collect();
-
-            fc_rom::write(output, &header, &out.program, &extra)
+            fc_rom::write(output, &header, &[], &sections)
                 .with_context(|| format!("cannot write ROM to {}", output.display()))?;
-
             info!(
-                "ROM written to {} ({} extra sections)",
+                "ROM written to {} ({} asset sections)",
                 output.display(),
-                extra.len()
+                sections.len() - 1
             );
             return Ok(());
         }
@@ -327,15 +289,20 @@ pub fn run() -> Result<()> {
     match command {
         Some(Command::Run { file }) => {
             let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext == "rom" {
-                info!("running ROM: {}", file.display());
-                app.load_rom(&file)?;
-            } else if ext == "lua" {
-                info!("running Lua source: {}", file.display());
-                app.load_lua(&file)?;
-            } else {
-                info!("running source: {} (hot-reload active)", file.display());
-                app.watch_source(file)?;
+            match ext {
+                "rom" => {
+                    info!("running ROM: {}", file.display());
+                    app.load_rom(&file)?;
+                }
+                "lua" => {
+                    info!("running Lua source: {}", file.display());
+                    app.load_lua(&file)?;
+                }
+                _ => anyhow::bail!(
+                    "unsupported file extension '.{}' (expected .rom or .lua): {}",
+                    ext,
+                    file.display()
+                ),
             }
         }
         None

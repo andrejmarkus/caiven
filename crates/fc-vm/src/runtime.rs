@@ -8,7 +8,7 @@ use crate::rendering::screen::Screen;
 use crate::settings::NAME;
 use crate::timing::FixedTimestep;
 use crate::vm::audio::{Audio, AudioPeripheral};
-use crate::{Vm, VmConfig, default_instruction_set};
+use crate::{Vm, VmConfig};
 use anyhow::{Context, Result};
 use log::{error, info};
 use pixels::{Pixels, SurfaceTexture};
@@ -47,8 +47,7 @@ impl ConsoleCore {
             Font::from_image(FONT_PATH, FONT_GLYPHS, 3, 5).context("failed to initialize font")?;
 
         let config = VmConfig::default();
-        let instruction_set = Arc::new(default_instruction_set());
-        let mut vm = Vm::new(instruction_set, config);
+        let mut vm = Vm::new(config);
 
         let audio = match Audio::new(vm.get_sound_shared()) {
             Ok(a) => Some(a),
@@ -88,21 +87,6 @@ impl ConsoleCore {
     pub fn run_frame(&mut self) {
         self.vm.run_frame(&self.input, &self.font);
         self.input.end_frame();
-    }
-
-    /// Executes a single VM instruction with the current input state.
-    pub fn step(&mut self) {
-        self.vm.step(&self.input, &self.font);
-    }
-
-    /// Runs one frame honoring breakpoints; input latches like `run_frame`.
-    /// Returns the breakpoint address that was hit, if any.
-    pub fn run_frame_bp(&mut self, breakpoints: &[usize], ignore: Option<usize>) -> Option<usize> {
-        let hit = self
-            .vm
-            .run_frame_bp(&self.input, &self.font, breakpoints, ignore);
-        self.input.end_frame();
-        hit
     }
 
     /// Runs one Lua-scripted frame honoring line breakpoints; input latches

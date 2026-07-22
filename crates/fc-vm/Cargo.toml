@@ -10,13 +10,9 @@ workspace = true
 name = "fc_vm"
 path = "src/lib.rs"
 
-[dev-dependencies]
-fc-lang = { workspace = true }
-
 [dependencies]
 anyhow = { workspace = true }
 cpal = { workspace = true }
-fc-asm = { workspace = true }
 fc-core = { workspace = true }
 image = { workspace = true }
 log = { workspace = true }

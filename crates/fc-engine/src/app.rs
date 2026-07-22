@@ -6,7 +6,6 @@ mod run_loop;
 pub use cli::run;
 
 use crate::debugger::{DebugClickAction, DebugMode, Debugger};
-use crate::hot_reload::HotReload;
 use anyhow::Result;
 use fc_vm::runtime::{ConsoleCore, WINDOW_SCALE, WindowGfx};
 use rom_io::CartMeta;
@@ -17,11 +16,9 @@ pub struct App {
     core: ConsoleCore,
     gfx: WindowGfx,
     debugger: Debugger,
-    hot_reload: HotReload,
     cart_meta: Option<CartMeta>,
     mouse_x: f64,
     mouse_y: f64,
-    mouse_left: bool,
     modifiers: Modifiers,
 }
 
@@ -31,11 +28,9 @@ impl App {
             core: ConsoleCore::new()?,
             gfx: WindowGfx::default(),
             debugger: Debugger::new(false),
-            hot_reload: HotReload::new(),
             cart_meta: None,
             mouse_x: 0.0,
             mouse_y: 0.0,
-            mouse_left: false,
             modifiers: Modifiers::default(),
         })
     }
@@ -104,32 +99,15 @@ impl ApplicationHandler for App {
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse_x = position.x;
                 self.mouse_y = position.y;
-                let (sx, sy) = self.logical_mouse_pos();
-                // Debugger timeline drag
-                if self.mouse_left
-                    && self.debugger.is_enabled()
-                    && let DebugClickAction::RestoreScrub =
-                        self.debugger.handle_click(sx, sy, &self.core.vm)
-                    && let Some(state) = self.debugger.current_scrub_snapshot()
-                {
-                    self.core.vm.restore(&state);
-                }
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if button == MouseButton::Left {
                     let pressed = state == ElementState::Pressed;
-                    self.mouse_left = pressed;
                     if pressed && self.debugger.is_enabled() {
                         let (sx, sy) = self.logical_mouse_pos();
-                        let pc = self.core.vm.get_pc();
-                        match self.debugger.handle_click(sx, sy, &self.core.vm) {
-                            DebugClickAction::TogglePause => self.debugger.toggle_pause(pc),
+                        match self.debugger.handle_click(sx, sy) {
+                            DebugClickAction::TogglePause => self.debugger.toggle_pause(),
                             DebugClickAction::Step => self.debugger.step(),
-                            DebugClickAction::RestoreScrub => {
-                                if let Some(state) = self.debugger.current_scrub_snapshot() {
-                                    self.core.vm.restore(&state);
-                                }
-                            }
                             DebugClickAction::None => {}
                         }
                     }

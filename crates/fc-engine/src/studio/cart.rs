@@ -52,16 +52,14 @@ pub fn load_rom(vm: &mut Vm, path: &Path, input: &Input, font: &Font) -> Result<
         });
     }
 
-    // Asset RAM must be in place before the Lua path runs, since loading a
-    // Lua script executes `_init()` immediately — unlike the bytecode path,
-    // which only loads a program and doesn't start executing until later.
-    if let Some(src) = &lua_source {
-        vm.load_lua_source(src, input, font)
-            .map_err(|e| anyhow::anyhow!("{e}"))
-            .with_context(|| format!("failed to load Lua ROM {}", path.display()))?;
-    } else {
-        vm.load_rom(rom.program.clone());
-    }
+    // Asset RAM must be in place before the Lua load, since it runs
+    // `_init()` immediately.
+    let src = lua_source
+        .as_deref()
+        .context("ROM has no Lua source section (bytecode carts are no longer supported)")?;
+    vm.load_lua_source(src, input, font)
+        .map_err(|e| anyhow::anyhow!("{e}"))
+        .with_context(|| format!("failed to load Lua ROM {}", path.display()))?;
 
     if !sections.iter().any(|s| s.kind == SectionKind::Palette) {
         let palette_bytes: Vec<u8> = vm

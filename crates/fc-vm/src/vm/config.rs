@@ -4,7 +4,6 @@ pub struct VmConfig {
     pub height: u32,
     pub sprite_size: u32,
     pub memory_size: usize,
-    pub register_count: usize,
     pub palette_size: usize,
 }
 
@@ -15,7 +14,6 @@ impl Default for VmConfig {
             height: fc_core::memory::SCREEN_HEIGHT,
             sprite_size: fc_core::memory::SPRITE_SIZE,
             memory_size: fc_core::memory::RAM_SIZE,
-            register_count: 8,
             palette_size: fc_core::memory::PALETTE_SIZE,
         }
     }

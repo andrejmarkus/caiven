@@ -277,52 +277,27 @@ impl StudioApp {
             return;
         }
 
-        if self.core.vm.has_lua_script() {
-            let bps = self.debug.dbg.breakpoints().to_vec();
-            let mut outcome = fc_vm::LuaRunOutcome::Completed;
-            for _ in 0..steps {
-                outcome = self.core.run_frame_lua_bp(&bps);
-                if !matches!(outcome, fc_vm::LuaRunOutcome::Completed) {
-                    break;
-                }
-            }
-            match outcome {
-                fc_vm::LuaRunOutcome::Completed => {}
-                fc_vm::LuaRunOutcome::Breakpoint(line) => {
-                    self.run_state = RunState::Paused;
-                    self.debug.on_break(line);
-                    self.debug.last_error = None;
-                    self.set_status(format!("breakpoint hit at line {line}"), false);
-                }
-                fc_vm::LuaRunOutcome::Error(msg) => {
-                    self.run_state = RunState::Paused;
-                    self.debug.last_error = Some(msg.clone());
-                    self.set_status(format!("lua error: {msg}"), true);
-                }
-            }
-            return;
-        }
-
         let bps = self.debug.dbg.breakpoints().to_vec();
-        let mut hit = None;
+        let mut outcome = fc_vm::LuaRunOutcome::Completed;
         for _ in 0..steps {
-            if bps.is_empty() {
-                self.core.run_frame();
-            } else {
-                let ignore = self.debug.take_resume_ignore();
-                hit = self.core.run_frame_bp(&bps, ignore);
-            }
-            if self.debug.recording {
-                self.debug.dbg.push_state(self.core.vm.snapshot());
-            }
-            if hit.is_some() {
+            outcome = self.core.run_frame_lua_bp(&bps);
+            if !matches!(outcome, fc_vm::LuaRunOutcome::Completed) {
                 break;
             }
         }
-        if let Some(pc) = hit {
-            self.run_state = RunState::Paused;
-            self.debug.on_break(pc);
-            self.set_status(format!("breakpoint hit at 0x{pc:04X}"), false);
+        match outcome {
+            fc_vm::LuaRunOutcome::Completed => {}
+            fc_vm::LuaRunOutcome::Breakpoint(line) => {
+                self.run_state = RunState::Paused;
+                self.debug.on_break(line);
+                self.debug.last_error = None;
+                self.set_status(format!("breakpoint hit at line {line}"), false);
+            }
+            fc_vm::LuaRunOutcome::Error(msg) => {
+                self.run_state = RunState::Paused;
+                self.debug.last_error = Some(msg.clone());
+                self.set_status(format!("lua error: {msg}"), true);
+            }
         }
     }
 
@@ -415,10 +390,6 @@ impl eframe::App for StudioApp {
                     // recompile instead of resuming a stale program.
                     self.run_source();
                 } else if self.cart.is_some() || self.source.is_some() {
-                    if self.run_state == RunState::Paused {
-                        // Resuming while parked on a breakpoint must not re-trap it.
-                        self.debug.set_resume_ignore(self.core.vm.get_pc());
-                    }
                     self.run_state = RunState::Running;
                 } else {
                     self.set_status("no cart loaded", true);

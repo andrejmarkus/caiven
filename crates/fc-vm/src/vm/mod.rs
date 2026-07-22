@@ -1,9 +1,6 @@
 pub mod audio;
 pub mod camera;
 pub mod config;
-pub mod context;
-pub mod cpu;
-mod debug;
 mod execution;
 pub mod fault;
 mod lua_exec;
@@ -13,16 +10,12 @@ pub mod sfx;
 
 pub use camera::*;
 pub use config::VmConfig;
-pub use context::*;
-pub use debug::VmSnapshot;
 pub use fault::VmFault;
 pub use lua_exec::{LuaRunOutcome, describe_lua_error};
 pub use palette::*;
 
-use self::cpu::Cpu;
 use self::memory::Memory;
 use self::sfx::{MusicPlayer, SfxPlayer};
-use crate::isa::InstructionSet;
 use crate::peripheral::{Peripheral, PeripheralRegistry};
 use crate::rendering::screen::ScreenLayer;
 use crate::vm::Camera;
@@ -31,21 +24,10 @@ use fc_core::{Color, Vec2};
 use log::error;
 use std::sync::{Arc, Mutex};
 
-/// Native table storage: table id-1 indexes the outer Vec; each table is an
-/// insertion-ordered association list of (key, value). Lives outside guest
-/// RAM so tables can grow without a fixed cap.
-pub type TableStore = Vec<Vec<(u32, u32)>>;
-
 pub struct Vm {
-    cpu: Cpu,
-    program: Vec<u8>,
     memory: Memory,
-    tables: TableStore,
     camera: Camera,
     palette: Palette,
-    instructions: Arc<InstructionSet>,
-    source_map: fc_asm::SourceMap,
-    fc_source_lines: Vec<String>,
     sound: Arc<Mutex<Sound>>,
     sfx_player: SfxPlayer,
     music_player: MusicPlayer,
@@ -60,17 +42,11 @@ pub struct Vm {
 }
 
 impl Vm {
-    pub fn new(instructions: Arc<InstructionSet>, config: VmConfig) -> Self {
-        let mut cpu = Cpu::new(config.register_count);
-        cpu.set_sp(config.memory_size);
+    pub fn new(config: VmConfig) -> Self {
         Self {
-            cpu,
-            program: Vec::new(),
             memory: Memory::new(config.memory_size),
-            tables: Vec::new(),
             camera: Camera::new(Vec2::new(0, 0)),
             palette: Palette::new(config.palette_size),
-            instructions: instructions.clone(),
             sound: Arc::new(Mutex::new(Sound {
                 square: SquareChannel {
                     enabled: false,
@@ -85,8 +61,6 @@ impl Vm {
                     duration: 0,
                 },
             })),
-            source_map: fc_asm::SourceMap::new(),
-            fc_source_lines: Vec::new(),
             sfx_player: SfxPlayer::new(),
             music_player: MusicPlayer::new(),
             peripherals: PeripheralRegistry::new(),
@@ -118,48 +92,6 @@ impl Vm {
         self.sound.clone()
     }
 
-    pub fn load_program(&mut self, source: &str) -> Result<(), fc_asm::AsmError> {
-        let (program, source_map) = fc_asm::assemble_with_source_map(source)?;
-        self.program = program;
-        self.source_map = source_map;
-        self.cpu.set_pc(0);
-        self.frame_count = 0;
-        self.tables.clear();
-        self.peripherals.init_all(&mut self.memory);
-        Ok(())
-    }
-
-    pub fn load_rom(&mut self, program: Vec<u8>) {
-        self.source_map = fc_asm::generate_source_map(&program);
-        self.program = program;
-        self.fc_source_lines.clear();
-        self.cpu.set_pc(0);
-        self.frame_count = 0;
-        self.tables.clear();
-        self.peripherals.init_all(&mut self.memory);
-    }
-
-    pub fn load_rom_with_source_map(&mut self, program: Vec<u8>, source_map: fc_asm::SourceMap) {
-        self.program = program;
-        self.source_map = source_map;
-        self.fc_source_lines.clear();
-        self.cpu.set_pc(0);
-        self.frame_count = 0;
-        self.tables.clear();
-        self.peripherals.init_all(&mut self.memory);
-    }
-
-    pub fn set_fc_source(&mut self, src: &str) {
-        self.fc_source_lines = src.lines().map(|l| l.to_string()).collect();
-    }
-
-    pub fn get_fc_source_line(&self, line: usize) -> Option<&str> {
-        // source lines are 1-based in AST
-        self.fc_source_lines
-            .get(line.saturating_sub(1))
-            .map(|s| s.as_str())
-    }
-
     pub fn load_section_to_ram(&mut self, base: usize, data: &[u8]) {
         for (i, &byte) in data.iter().enumerate() {
             if let Err(e) = self.memory.write(base + i, byte) {
@@ -167,22 +99,6 @@ impl Vm {
                 break;
             }
         }
-    }
-
-    pub fn get_instruction_by_opcode(&self, opcode: u8) -> Option<&crate::isa::Instruction> {
-        self.instructions.get_by_opcode(opcode)
-    }
-
-    pub fn get_program(&self) -> &[u8] {
-        &self.program
-    }
-
-    pub fn get_registers(&self) -> &[u32] {
-        self.cpu.get_registers()
-    }
-
-    pub fn get_source_map(&self) -> &fc_asm::SourceMap {
-        &self.source_map
     }
 
     pub fn get_memory_length(&self) -> usize {
@@ -207,10 +123,6 @@ impl Vm {
 
     pub fn get_fault(&self) -> Option<VmFault> {
         self.fault
-    }
-
-    pub fn get_pc(&self) -> usize {
-        self.cpu.get_pc()
     }
 
     pub fn world_pixels(&self) -> &[u8] {

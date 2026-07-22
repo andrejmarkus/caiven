@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/fc-core", "crates/fc-rom", "crates/fc-asm", "crates/fc-host", "crates/fc-vm", "crates/fc-engine", "crates/fc-lang", "crates/fc-hub", "crates/migration"]
+members = ["crates/fc-core", "crates/fc-rom", "crates/fc-host", "crates/fc-vm", "crates/fc-engine", "crates/fc-hub", "crates/migration"]
 resolver = "2"
 
 [workspace.lints.clippy]
@@ -16,8 +16,6 @@ eframe = "0.32"
 egui = "0.32"
 egui_extras = "0.32"
 env_logger = "0.11"
-fc-asm = { path = "crates/fc-asm" }
-fc-lang = { path = "crates/fc-lang" }
 fc-core = { path = "crates/fc-core" }
 fc-rom = { path = "crates/fc-rom" }
 fc-vm = { path = "crates/fc-vm" }

@@ -1964,14 +1964,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fc-asm"
-version = "0.1.0"
-dependencies = [
- "fc-core",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "fc-core"
 version = "0.1.0"
 
@@ -1986,9 +1978,7 @@ dependencies = [
  "egui",
  "egui_extras",
  "env_logger",
- "fc-asm",
  "fc-core",
- "fc-lang",
  "fc-rom",
  "fc-vm",
  "image",
@@ -2037,15 +2027,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fc-lang"
-version = "0.1.0"
-dependencies = [
- "fc-asm",
- "fc-core",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "fc-rom"
 version = "0.1.0"
 dependencies = [
@@ -2060,9 +2041,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cpal",
- "fc-asm",
  "fc-core",
- "fc-lang",
  "image",
  "log",
  "mlua",

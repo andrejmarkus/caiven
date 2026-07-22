@@ -1,12 +1,11 @@
 //! Frame/step execution and audio player ticking for [`Vm`].
 
+use super::Vm;
 use super::memory::Memory;
 use super::sfx::{MusicPlayer, SfxPlayer, note_to_freq};
-use super::{ExecutionContext, Vm, VmFault};
 use crate::input::Input;
 use crate::rendering::font::Font;
 use crate::vm::audio::{NoiseChannel, Sound, SquareChannel};
-use std::sync::Arc;
 
 fn tick_sfx_channel(
     player: &mut SfxPlayer,
@@ -152,114 +151,7 @@ impl Vm {
             .tick_all(&mut self.memory, self.frame_count);
         self.frame_count = self.frame_count.wrapping_add(1);
 
-        if self.has_lua_script() {
-            self.run_frame_lua(input, font);
-            self.waiting = true;
-            return;
-        }
-
-        let mut steps = 0u32;
-        while !self.waiting {
-            self.step(input, font);
-            steps += 1;
-            if steps >= 1_000_000 {
-                self.set_fault(VmFault::StepLimitExceeded);
-                break;
-            }
-        }
-    }
-
-    /// Like [`Vm::run_frame`], but pauses when the PC reaches an address in
-    /// `breakpoints`, returning that address (the frame is left incomplete).
-    /// `ignore` exempts one address for the first instruction so resuming
-    /// from a breakpoint does not immediately re-trap; resuming restarts the
-    /// frame ticks (audio, peripherals, frame counter).
-    pub fn run_frame_bp(
-        &mut self,
-        input: &Input,
-        font: &Font,
-        breakpoints: &[usize],
-        ignore: Option<usize>,
-    ) -> Option<usize> {
-        self.waiting = false;
-        self.tick_music_player();
-        self.tick_sfx_player();
-        self.peripherals
-            .tick_all(&mut self.memory, self.frame_count);
-        self.frame_count = self.frame_count.wrapping_add(1);
-
-        let mut steps = 0u32;
-        while !self.waiting {
-            let pc = self.cpu.get_pc();
-            if breakpoints.contains(&pc) && (steps > 0 || ignore != Some(pc)) {
-                return Some(pc);
-            }
-            self.step(input, font);
-            steps += 1;
-            if steps >= 1_000_000 {
-                self.set_fault(VmFault::StepLimitExceeded);
-                break;
-            }
-        }
-        None
-    }
-
-    pub fn step(&mut self, input: &Input, font: &Font) {
-        if self.fault.is_some() {
-            self.waiting = true;
-            return;
-        }
-
-        if self.program.is_empty() {
-            self.waiting = true;
-            return;
-        }
-
-        let pc = self.cpu.get_pc();
-        if pc >= self.program.len() {
-            self.waiting = true;
-            return;
-        }
-
-        let opcode = self.program[pc];
-
-        let handler = {
-            let instruction = self.instructions.get_by_opcode(opcode);
-            if let Some(instr) = instruction {
-                instr.execute
-            } else {
-                self.set_fault(VmFault::InvalidOpcode(opcode));
-                return;
-            }
-        };
-
-        self.cpu.set_pc(pc + 1);
-
-        let sound_arc = Arc::clone(&self.sound);
-        // A poisoned lock only means another thread panicked mid-write;
-        // sound state is non-critical, so recover rather than propagate the panic.
-        let mut sound_guard = sound_arc.lock().unwrap_or_else(|e| e.into_inner());
-        let mut ctx = ExecutionContext {
-            cpu: &mut self.cpu,
-            mem: &mut self.memory,
-            tables: &mut self.tables,
-            palette: &mut self.palette,
-            camera: &mut self.camera,
-            sound: &mut sound_guard,
-            sfx_player: &mut self.sfx_player,
-            music_player: &mut self.music_player,
-            program: &self.program,
-            input,
-            font,
-            config: &self.config,
-            world: &mut self.world,
-            ui: &mut self.ui,
-            waiting: &mut self.waiting,
-        };
-        let result = (handler)(&mut ctx);
-        drop(sound_guard);
-        if let Err(fault) = result {
-            self.set_fault(fault);
-        }
+        self.run_frame_lua(input, font);
+        self.waiting = true;
     }
 }
