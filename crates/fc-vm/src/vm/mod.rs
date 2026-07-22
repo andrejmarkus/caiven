@@ -6,6 +6,7 @@ pub mod cpu;
 mod debug;
 mod execution;
 pub mod fault;
+mod lua_exec;
 pub mod memory;
 pub mod palette;
 pub mod sfx;
@@ -54,6 +55,7 @@ pub struct Vm {
     world: ScreenLayer,
     ui: ScreenLayer,
     config: VmConfig,
+    script: Option<lua_exec::LuaScript>,
 }
 
 impl Vm {
@@ -93,6 +95,7 @@ impl Vm {
             world: ScreenLayer::new(config.width, config.height),
             ui: ScreenLayer::new(config.width, config.height),
             config,
+            script: None,
         }
     }
 

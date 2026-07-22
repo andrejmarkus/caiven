@@ -23,6 +23,7 @@ fc-rom = { path = "crates/fc-rom" }
 fc-vm = { path = "crates/fc-vm" }
 image = "0.25"
 log = "0.4"
+mlua = { version = "0.10", features = ["lua54", "vendored"] }
 pixels = "0.15"
 rocket = { version = "0.5", features = ["json"] }
 sea-orm = { version = "1", features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros"] }

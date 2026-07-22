@@ -42,6 +42,19 @@ pub(crate) fn save(vm: &Vm, meta: &CartMeta) -> Result<()> {
 }
 
 impl App {
+    /// Phase-A stopgap: loads a `.lua` file straight into the VM's embedded
+    /// Lua path. No asset sections, no hot reload, no ROM packaging yet —
+    /// those land in a later phase once the ROM format carries Lua source.
+    pub(super) fn load_lua(&mut self, path: &Path) -> Result<()> {
+        let src = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read Lua source from {}", path.display()))?;
+        self.core
+            .vm
+            .load_lua_source(&src)
+            .map_err(|e| anyhow::anyhow!("{e}"))
+            .with_context(|| format!("failed to load Lua script {}", path.display()))
+    }
+
     pub(super) fn load_rom(&mut self, path: &Path) -> Result<()> {
         let rom = fc_rom::load(path)
             .with_context(|| format!("failed to load ROM from {}", path.display()))?;

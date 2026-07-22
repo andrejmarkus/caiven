@@ -7,4 +7,5 @@ pub enum VmFault {
     StepLimitExceeded,
     DivisionByZero,
     HeapExhausted,
+    LuaError,
 }

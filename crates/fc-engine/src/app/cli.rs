@@ -314,6 +314,9 @@ pub fn run() -> Result<()> {
             if ext == "rom" {
                 info!("running ROM: {}", file.display());
                 app.load_rom(&file)?;
+            } else if ext == "lua" {
+                info!("running Lua source: {}", file.display());
+                app.load_lua(&file)?;
             } else {
                 info!("running source: {} (hot-reload active)", file.display());
                 app.watch_source(file)?;

@@ -152,6 +152,12 @@ impl Vm {
             .tick_all(&mut self.memory, self.frame_count);
         self.frame_count = self.frame_count.wrapping_add(1);
 
+        if self.has_lua_script() {
+            self.run_frame_lua(input, font);
+            self.waiting = true;
+            return;
+        }
+
         let mut steps = 0u32;
         while !self.waiting {
             self.step(input, font);
