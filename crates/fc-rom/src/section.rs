@@ -9,6 +9,7 @@ pub enum SectionKind {
     Meta,
     ModManifest,
     SpriteFlags,
+    LuaSource,
     Custom(u16),
 }
 
@@ -24,6 +25,7 @@ impl SectionKind {
             Self::Meta => 0x0007,
             Self::ModManifest => 0x0008,
             Self::SpriteFlags => 0x0009,
+            Self::LuaSource => 0x000A,
             Self::Custom(n) => n,
         }
     }
@@ -39,6 +41,7 @@ impl SectionKind {
             0x0007 => Self::Meta,
             0x0008 => Self::ModManifest,
             0x0009 => Self::SpriteFlags,
+            0x000A => Self::LuaSource,
             n => Self::Custom(n),
         }
     }
@@ -54,6 +57,7 @@ impl SectionKind {
             Self::Meta => "Meta",
             Self::ModManifest => "ModManifest",
             Self::SpriteFlags => "SpriteFlags",
+            Self::LuaSource => "LuaSource",
             Self::Custom(_) => "Custom",
         }
     }

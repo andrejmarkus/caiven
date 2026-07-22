@@ -1,6 +1,6 @@
-//! Text-embedded asset sections for `.fc` cart source files.
+//! Text-embedded asset sections for `.fc`/`.lua` cart source files.
 //!
-//! A `.fc` file is fc-lang code optionally followed by hex data blocks,
+//! A `.fc` or `.lua` file is code optionally followed by hex data blocks,
 //! one per asset kind:
 //!
 //! ```text

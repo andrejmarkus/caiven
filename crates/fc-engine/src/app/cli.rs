@@ -214,6 +214,22 @@ pub fn run() -> Result<()> {
 
             let stem = source.file_stem().and_then(|s| s.to_str()).unwrap_or("");
             let ext = source.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if ext == "lua" {
+                let src_text = std::fs::read_to_string(source)
+                    .with_context(|| format!("failed to read source {}", source.display()))?;
+                let (code, mut sections) = fc_rom::text::split_source(&src_text)
+                    .map_err(|e| anyhow::anyhow!("bad asset block in {}: {e}", source.display()))?;
+                sections.push((SectionKind::LuaSource, code.into_bytes()));
+                let header = RomHeader::default_for(stem);
+                fc_rom::write(output, &header, &[], &sections)
+                    .with_context(|| format!("cannot write ROM to {}", output.display()))?;
+                info!(
+                    "ROM written to {} ({} asset sections)",
+                    output.display(),
+                    sections.len() - 1
+                );
+                return Ok(());
+            }
             if ext == "fc" {
                 let src_text = std::fs::read_to_string(source)
                     .with_context(|| format!("failed to read source {}", source.display()))?;

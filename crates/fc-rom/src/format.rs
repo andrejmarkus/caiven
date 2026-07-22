@@ -1,6 +1,6 @@
 /// ROM layout:
 ///   magic:       b"SPEAR2" (6 bytes)
-///   version:     u16 LE   (= 2)
+///   version:     u16 LE   (= 3, unchecked by any reader — bump is informational)
 ///   n_sections:  u16 LE
 ///   header body: 72 bytes  (title[32] author[32] entry[4] flags[4])
 ///   section table: n_sections × 14 bytes each:
@@ -124,7 +124,7 @@ pub fn write(
     let mut out = Vec::with_capacity(cur);
 
     out.extend_from_slice(MAGIC);
-    out.extend_from_slice(&2u16.to_le_bytes()); // version
+    out.extend_from_slice(&3u16.to_le_bytes()); // version
     out.extend_from_slice(&(n as u16).to_le_bytes());
     out.extend_from_slice(&header_body);
 

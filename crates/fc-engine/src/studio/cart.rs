@@ -88,6 +88,7 @@ pub fn load_rom(vm: &mut Vm, path: &Path) -> Result<CartMeta> {
         header: rom.header,
         program: rom.program,
         sections,
+        lua_source: None,
     })
 }
 

@@ -22,13 +22,14 @@ pub struct CartMeta {
     pub header: RomHeader,
     pub program: Vec<u8>,
     pub sections: Vec<SectionLayout>,
+    pub lua_source: Option<String>,
 }
 
 /// Reads each tracked RAM section from the VM and writes them back to the cart file.
 /// Only sections that were copied into RAM (e.g. SpriteSheet) are round-tripped.
 /// Other section kinds are not currently written back.
 pub(crate) fn save(vm: &Vm, meta: &CartMeta) -> Result<()> {
-    let extra: Vec<(SectionKind, Vec<u8>)> = meta
+    let mut extra: Vec<(SectionKind, Vec<u8>)> = meta
         .sections
         .iter()
         .map(|s| {
@@ -37,14 +38,22 @@ pub(crate) fn save(vm: &Vm, meta: &CartMeta) -> Result<()> {
         })
         .collect();
 
-    fc_rom::write(&meta.path, &meta.header, &meta.program, &extra)
+    let program: &[u8] = match &meta.lua_source {
+        Some(src) => {
+            extra.push((SectionKind::LuaSource, src.clone().into_bytes()));
+            &[]
+        }
+        None => &meta.program,
+    };
+
+    fc_rom::write(&meta.path, &meta.header, program, &extra)
         .with_context(|| format!("failed to write cart to {}", meta.path.display()))
 }
 
 impl App {
-    /// Phase-A stopgap: loads a `.lua` file straight into the VM's embedded
-    /// Lua path. No asset sections, no hot reload, no ROM packaging yet —
-    /// those land in a later phase once the ROM format carries Lua source.
+    /// Loads a bare `.lua` file straight into the VM's embedded Lua path.
+    /// No asset sections and no ROM packaging — for that, build a `.rom`
+    /// with a `LuaSource` section instead (see `load_rom` below).
     pub(super) fn load_lua(&mut self, path: &Path) -> Result<()> {
         let src = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read Lua source from {}", path.display()))?;
@@ -71,7 +80,21 @@ impl App {
             }
         }
 
-        self.core.vm.load_rom(rom.program.clone());
+        let lua_source = rom
+            .sections
+            .iter()
+            .find(|s| s.kind == SectionKind::LuaSource)
+            .map(|s| String::from_utf8_lossy(&s.data).into_owned());
+
+        if let Some(src) = &lua_source {
+            self.core
+                .vm
+                .load_lua_source(src, &self.core.input, &self.core.font)
+                .map_err(|e| anyhow::anyhow!("{e}"))
+                .with_context(|| format!("failed to load Lua ROM {}", path.display()))?;
+        } else {
+            self.core.vm.load_rom(rom.program.clone());
+        }
         self.debugger.set_fcdbg_path(path.with_extension("fcdbg"));
 
         let mut sections: Vec<SectionLayout> = Vec::new();
@@ -208,6 +231,7 @@ impl App {
             header: rom.header,
             program: rom.program,
             sections,
+            lua_source,
         });
 
         info!("ROM loaded from {}", path.display());
