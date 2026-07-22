@@ -1,3 +1,4 @@
+use fc_core::memory::SFX_RAM_BASE;
 use fc_vm::input::Input;
 use fc_vm::rendering::font::Font;
 use fc_vm::{LuaRunOutcome, Vm, VmConfig, VmFault, describe_lua_error};
@@ -134,6 +135,43 @@ fn lua_run_frame_bp_completes_when_no_breakpoint_hit() {
         LuaRunOutcome::Completed => {}
         other => panic!("expected Completed, got {other:?}"),
     }
+}
+
+#[test]
+fn lua_run_frame_bp_ticks_audio_players() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    // SFX slot 0, step 0: note=49, vol=12, wave=0 (square), fx=0.
+    vm.load_section_to_ram(SFX_RAM_BASE, &[49, 12, 0, 0]);
+    vm.load_lua_source(
+        r#"
+        function _update()
+          play_sfx(0)
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    // Studio's breakpoint-aware path used to skip tick_audio_players
+    // entirely, so play_sfx() would mark a player active without ever
+    // advancing it into the shared Sound state the CPAL callback reads.
+    // Two frames: frame 1's _update() calls play_sfx (marks the player
+    // active); frame 2's tick (which runs before _update) is what actually
+    // reads RAM into Sound — same one-frame latency plain run_frame has.
+    for _ in 0..2 {
+        match vm.run_frame_lua_bp(&input, &font, &[]) {
+            LuaRunOutcome::Completed => {}
+            other => panic!("expected Completed, got {other:?}"),
+        }
+    }
+
+    let sound = vm.get_sound_shared();
+    let s = sound.lock().unwrap_or_else(|e| e.into_inner());
+    assert!(s.square.enabled, "square channel should be enabled");
+    assert!(s.square.volume > 0.0, "volume should be nonzero");
 }
 
 #[test]

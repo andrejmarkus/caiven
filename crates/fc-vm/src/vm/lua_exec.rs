@@ -699,6 +699,10 @@ impl Vm {
         font: &Font,
         breakpoints: &[usize],
     ) -> LuaRunOutcome {
+        // `run_frame` ticks this; this path grew separately and didn't, so
+        // Studio's Running state was silent even though a sound was "active".
+        self.tick_audio_players();
+
         let Some(script) = self.script.as_ref() else {
             return LuaRunOutcome::Completed;
         };
