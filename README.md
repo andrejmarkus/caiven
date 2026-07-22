@@ -21,7 +21,7 @@
 - 🔥 **Hot Reload** — edit `.fc` / `.asm` source in any editor, the running game reloads on save
 - 🧭 **Friendly Compile Errors** — source line and caret context, straight in the terminal and the code editor
 - 🔍 **Pro Debugger** — breakpoints, source-level stepping, timeline scrubber, register aliases, live memory view, `.fcdbg` sidecar persistence
-- 🌐 **Cart Sharing Hub** — self-hostable REST server; publish and download carts with screenshots and gallery
+- 🌐 **Cart Sharing Hub** — self-hostable server with a Svelte web UI: accounts, cart versioning, ratings & comments, tag/author discovery
 
 ---
 
@@ -47,7 +47,8 @@ cargo run -p fc-engine -- [command]
 
 | Command | Description |
 | :------ | :---------- |
-| _(no command)_ | Open the cart browser |
+| _(no command)_ | Launch FC Studio (editor suite) |
+| `edit [file]` | Launch FC Studio, optionally opening a `.rom` or `.fc` file |
 | `run <file>` | Run a `.fc` / `.asm` (hot-reload) or `.rom` file |
 | `build <source> <output.rom>` | Compile `.fc` or assemble `.asm` and write ROM |
 | `inspect <file.rom>` | Print ROM section table |
@@ -58,7 +59,7 @@ cargo run -p fc-engine -- [command]
 | Flag | Default | Description |
 | :--- | :------ | :---------- |
 | `--url` | `http://localhost:8080` | Hub base URL (env: `FC_HUB_URL`) |
-| `--api-key` | `changeme` | Upload auth key (env: `FC_HUB_API_KEY`) |
+| `--api-key` | _(empty, required)_ | Per-user hub API token (env: `FC_HUB_API_KEY`) — mint one via the hub web UI Profile page or by logging into FC Studio's HUB tab |
 | `--title` | ROM header | Override cart title |
 | `--author` | ROM header | Override author |
 | `--description` | _(empty)_ | Short description |
@@ -516,7 +517,8 @@ loop:
 
 ## 🌐 fc-hub (Cart Sharing Server)
 
-Self-hostable cart gallery server built with Rocket + SQLite.
+Self-hostable cart gallery server: Rocket + SQLite backend, Svelte web UI.
+Accounts, cart versioning, ratings & comments, and tag/author/sort discovery.
 
 ```bash
 cd crates/fc-hub
@@ -525,17 +527,35 @@ cargo run --release
 docker compose up
 ```
 
+| Flag | Default | Description |
+| :--- | :------ | :---------- |
+| `--address` | `0.0.0.0` | Listen address |
+| `--port` | `8080` | Listen port |
+| `--data-dir` | `data` | Directory for `hub.db` + uploaded ROMs/screenshots (auto-created) |
+| `--web-dir` | `crates/fc-hub/web/dist` | Built SPA directory (`npm run build` output in `crates/fc-hub/web/`) |
+
+Open the base URL in a browser to register an account, browse/search/filter
+carts by tag, author or sort (new/popular/top), upload new carts or versions,
+rate and comment, and view author profile pages. The web UI uses a session
+cookie; the same account can also mint per-user API tokens (Profile page) for
+`fc-engine publish` or direct API calls — sent as an `X-Api-Key` header.
+
 | Method | Path | Description |
 | :----- | :--- | :---------- |
-| `GET` | `/` | HTML gallery page (search + paging) |
-| `GET` | `/api/carts` | List published carts (`page`, `per_page`, `q`) |
-| `POST` | `/api/carts` | Upload cart (multipart, API key required) |
-| `GET` | `/api/carts/:id` | Cart metadata |
-| `GET` | `/api/carts/:id/rom` | Download cart ROM |
-| `GET` | `/api/carts/:id/screenshot` | Cart screenshot PNG |
-| `POST` | `/api/carts/:id/screenshot` | Upload screenshot (API key required) |
+| `POST` | `/api/v2/auth/register` / `/login` / `/logout` | Account auth (session cookie) |
+| `GET` | `/api/v2/auth/me` | Current user |
+| `GET`/`POST`/`DELETE` | `/api/v2/auth/tokens` | Manage per-user API tokens |
+| `GET` | `/api/v2/carts` | List/search carts (`page`, `per_page`, `q`, `tag`, `author`, `sort`) |
+| `POST` | `/api/v2/carts` | Upload new cart (multipart: `rom` + JSON `meta`) |
+| `GET`/`DELETE` | `/api/v2/carts/:id` | Cart detail / delete (owner or admin) |
+| `POST` | `/api/v2/carts/:id/versions` | Upload a new version of an owned cart |
+| `GET` | `/api/v2/carts/:id/rom` \| `/screenshot` | Download ROM/screenshot (`?version=n`, defaults to latest) |
+| `PUT`/`DELETE` | `/api/v2/carts/:id/rating` | Rate a cart (1-5) |
+| `GET`/`POST`/`DELETE` | `/api/v2/carts/:id/comments[/:cid]` | Comments |
+| `GET` | `/api/v2/tags` \| `/api/v2/users/:username` | Discovery |
 
-Configure via `FC_HUB_API_KEY` and `DATABASE_URL` environment variables. Release builds refuse to start with the default `changeme` API key — set a real one; debug builds only print a warning.
+Legacy `/api/carts*` routes (v1 shape, single ROM per cart) remain for
+backward compatibility — `fc-engine publish` still targets them internally.
 
 ---
 
