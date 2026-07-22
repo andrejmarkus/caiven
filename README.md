@@ -3,24 +3,21 @@
 ![Rust](https://img.shields.io/badge/rust-%23E32F26.svg?style=for-the-badge&logo=rust&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)
 
-**Fantasy Console** is a retro-inspired virtual machine and development environment written in Rust. Custom 32-bit CPU, built-in assembler, high-level scripting language, full suite of in-engine editors, and an optional cart-sharing hub.
+**Fantasy Console** is a retro-inspired virtual machine and development environment written in Rust. Real embedded Lua 5.4 (via `mlua`) for game code, a full in-engine editor suite (FC Studio), and an optional cart-sharing hub.
 
 > [!TIP]
-> Dive into the world of low-level programming and create your own retro games using a simple yet powerful assembly language — or skip straight to the high-level `.fc` scripting language.
+> Write real Lua — every tutorial and stdlib function (`math`, `string`, `table`, `pcall`, ...) just works. No custom bytecode language, no arity caps, no silent gaps.
 
 ---
 
 ## ✨ Features
 
-- 🖥️ **Custom 32-bit Architecture** — 8 general-purpose registers (R0–R7), 64 KiB RAM, 16:16 fixed-point math
+- 🌙 **Real Lua 5.4** — embedded via `mlua` (vendored, no system Lua required); `_init()` runs once, `_update()` runs every frame
 - 🎨 **Palette-based Graphics** — 128×128 resolution, 16-color swappable palette; sprites, 64×64 tilemap, shape primitives, camera
-- 🛠️ **Integrated Assembler** — tokeniser, parser, code emitter, source maps, label resolution
-- 📝 **High-Level Language** (`fc-lang`) — Lua-like scripting that compiles to the native ISA; native tables, closures, strings, full builtin API
+- 📦 **Descriptive Builtin API** — `sprite`, `draw_rect`, `button_down`, `set_palette_color`, etc. — no PICO-8-style abbreviations, and `print()` stays wired to your terminal for real Lua debugging (screen text is `draw_text`)
 - 🔊 **Audio Engine** — real-time sound synthesis, SFX and music banks, playback via CPAL
-- 🖌️ **Full Editor Suite** — code, sprite, map, palette, SFX, music, and cart-meta editors; local & hub cart browser
-- 🔥 **Hot Reload** — edit `.fc` / `.asm` source in any editor, the running game reloads on save
-- 🧭 **Friendly Compile Errors** — source line and caret context, straight in the terminal and the code editor
-- 🔍 **Pro Debugger** — breakpoints, source-level stepping, timeline scrubber, register aliases, live memory view, `.fcdbg` sidecar persistence
+- 🖌️ **FC Studio** — egui-based editor suite: code, sprite, map, palette, SFX, music, cart-meta editors, local & hub cart browser, all in one window
+- 🔍 **Debugger** — line breakpoints (click the code editor gutter), pause/step-by-frame, script-globals inspector, live RAM view, `.fcdbg` sidecar persistence
 - 🌐 **Cart Sharing Hub** — self-hostable server with a Svelte web UI: accounts, cart versioning, ratings & comments, tag/author discovery
 
 ---
@@ -47,12 +44,14 @@ cargo run -p fc-engine -- [command]
 
 | Command | Description |
 | :------ | :---------- |
-| _(no command)_ | Launch FC Studio (editor suite) |
-| `edit [file]` | Launch FC Studio, optionally opening a `.rom` or `.fc` file |
-| `run <file>` | Run a `.fc` / `.asm` (hot-reload) or `.rom` file |
-| `build <source> <output.rom>` | Compile `.fc` or assemble `.asm` and write ROM |
+| _(no command)_ | Launch FC Studio (editor suite), opens on the cart browser |
+| `edit [file]` | Launch FC Studio, optionally opening a `.rom` or `.lua` file |
+| `run <file>` | Run a `.lua` source file or a `.rom` file |
+| `build <source.lua> <output.rom>` | Package a `.lua` source and its asset blocks into a ROM |
 | `inspect <file.rom>` | Print ROM section table |
 | `publish <file.rom>` | Upload cart to an fc-hub instance |
+
+Pass `--debug` (or `-d`) to `run` for the in-game debug overlay (fault/RAM/breakpoint status — FC Studio is the full debugging experience).
 
 **Publish flags:**
 
@@ -71,201 +70,150 @@ cargo run -p fc-engine -- [command]
 
 ## 🐣 Tutorial: Your First Game
 
-1. **Create `game.fc`:**
+1. **Create `game.lua`:**
 
 ```lua
-const SPEED = 2
+local SPEED = 2
 
-let x = 60
-let y = 60
-let score = 0
+local x = 60
+local y = 60
+local score = 0
 
-init:
-  pal(0, 10, 10, 30)     -- dark blue background
+function _init()
+  set_palette_color(0, 10, 10, 30)  -- dark blue background
+end
 
-loop:
-  cls()
+function _update()
+  clear_screen()
 
-  if btn(2) then x -= SPEED end   -- left
-  if btn(3) then x += SPEED end   -- right
-  if btn(0) then y -= SPEED end   -- up
-  if btn(1) then y += SPEED end   -- down
+  if button_down(2) then x = x - SPEED end  -- left
+  if button_down(3) then x = x + SPEED end  -- right
+  if button_down(0) then y = y - SPEED end  -- up
+  if button_down(1) then y = y + SPEED end  -- down
 
-  if btnp(4) then                 -- A pressed this frame
-    score += 1
-    sfx(0)
+  if button_pressed(4) then  -- A pressed this frame
+    score = score + 1
+    play_sfx(0)
   end
 
-  spr(0, x, y)
-  print("score", 2, 2, 7)
-  num(score, 26, 2, 7)
-  wait()
+  sprite(0, x, y)
+  draw_text("score", 2, 2, 7)
+  draw_number(score, 26, 2, 7)
+end
 ```
 
-2. **Run it with hot reload:**
+2. **Run it:**
 
 ```bash
-cargo run -p fc-engine -- run game.fc
+cargo run -p fc-engine -- run game.lua
 ```
 
-3. **Draw your player** — press `F2` for the sprite editor and paint sprite 0. Press `F1` to jump back to the game.
+3. **Draw your player** — open FC Studio (`fc-engine edit game.lua`), press `F2` for the sprite tab and paint sprite 0.
 
-4. **Iterate** — edit `game.fc` in your external editor (or press `F9` for the built-in one); every save reloads the running game instantly. Compile errors print with the offending line and a caret:
+4. **Iterate** — edit code in the `F1` code tab (or your external editor + `run` again); click the gutter to set a line breakpoint, `F1`'s Run/Pause/Reset toolbar drives execution. Lua errors show with a line number and message straight in the status bar.
 
-```text
-line 14: undefined variable 'scroe'
-  14 |   scroe += 1
-     |   ^^^^^
-```
+5. **Ship it** — `build game.lua game.rom`, then `Ctrl+S` in FC Studio stores sprites/map/audio into the cart, and `publish game.rom` shares it on a hub.
 
-5. **Ship it** — `build game.fc game.rom`, then `Ctrl+S` in-engine stores sprites/map/audio into the cart, and `publish game.rom` shares it on a hub.
+### Cart source format
 
-### `.fc` program structure
+A `.lua` file is just a Lua chunk with two lifecycle functions:
 
-| Block | Purpose |
-| :---- | :------ |
-| `const NAME = <number>` | Compile-time constant |
-| `let name = <expr>` | Global variable |
-| `fn name(a, b) ... end` | Function (also `function`); user functions shadow builtins |
-| `init:` | Runs once at startup |
-| `loop:` | Runs every frame (end with `wait()`) |
+| Function | Purpose |
+| :------- | :------ |
+| `_init()` | Runs once when the cart loads |
+| `_update()` | Runs once per frame (called for you — no `wait()`/vsync call needed) |
 
-Statements: `if/elseif/else`, `while`, `repeat/until`, numeric `for i = a, b [, step]`, generic `for k, v in t`, `break`, `return`, `local`, compound `+=` / `-=`. Values are 32-bit; tables (`{}`) and strings are first-class.
+Sprite/map/palette/SFX/music data lives in RAM, edited via FC Studio, and round-trips through the same file as hex asset blocks (`__gfx__`, `__map__`, etc.) appended after your code — you never hand-edit these, `Ctrl+S` manages them.
 
 ---
 
-## 📝 fc-lang Built-in Reference
+## 📝 Built-in API Reference
 
-All builtins accept arbitrary expressions as arguments.
+Math (`sin`/`cos`/`abs`/`floor`/`sqrt`/`max`/`min`/`random`), strings (`..`, `sub`, `tostring`, `string.*`), and tables are all just Lua's own stdlib — no bindings needed for those.
 
 ### Graphics
 
 | Function | Description |
 | :------- | :---------- |
-| `cls()` | Clear screen |
-| `fill(c)` | Fill screen with palette color |
-| `pset(x,y,c)` | Set pixel (signed coords, camera-aware) |
-| `line(x1,y1,x2,y2,c)` | Line |
-| `rect(x1,y1,x2,y2,c)` / `rectfill(...)` | Rectangle outline / filled |
-| `circ(x,y,r,c)` / `circfill(x,y,r,c)` | Circle outline / filled |
-| `pal(i,r,g,b)` | Set palette entry |
-| `camera(x,y)` / `camera()` | Set / reset camera offset |
-| `print(str,x,y,c)` (alias `txt`) | Draw text (literals and dynamic strings) |
-| `num(val,x,y,c)` | Draw number |
+| `clear_screen()` | Clear screen and UI layer |
+| `fill_screen(color)` | Fill screen with a palette color |
+| `set_pixel(x, y, color)` | Set pixel (signed coords) |
+| `draw_line(x0, y0, x1, y1, color)` | Line (camera-aware) |
+| `draw_rect(x, y, w, h, color)` / `fill_rect(x, y, w, h, color)` | Rectangle outline / filled |
+| `draw_circle(cx, cy, r, color)` / `fill_circle(cx, cy, r, color)` | Circle outline / filled |
+| `set_palette_color(index, r, g, b)` | Set palette entry |
+| `set_camera(x, y)` | Set camera offset |
+| `draw_text(text, x, y, color)` | Draw a string (does **not** shadow Lua's real `print()` — that still goes to your terminal) |
+| `draw_number(value, x, y, color)` | Draw an integer |
 
 ### Sprites & Map
 
 | Function | Description |
 | :------- | :---------- |
-| `spr(id,x,y[,flip])` | Draw 8×8 sprite; flip bit 0 = horizontal, bit 1 = vertical |
-| `map(cel_x,cel_y,sx,sy,w,h)` | Draw tilemap block |
-| `mget(x,y)` / `mset(x,y,tile)` | Read / write map cell |
-| `fget(id)` / `fset(id,flags)` | Read / write sprite flags |
+| `sprite(id, x, y)` | Draw 8×8 sprite (camera-aware) |
+| `draw_map(cell_x, cell_y, sx, sy, w, h)` | Draw a block of the tilemap |
+| `get_tile(x, y)` / `set_tile(x, y, tile)` | Read / write a map cell |
+| `get_sprite_flags(id)` / `set_sprite_flags(id, flags)` | Read / write per-sprite flag byte |
 
 ### Input
 
 | Function | Description |
 | :------- | :---------- |
-| `btn(id)` | Button held (0=Up 1=Down 2=Left 3=Right 4=A 5=B) |
-| `btnp(id)` | Button pressed this frame |
+| `button_down(id)` | Button held (0=Up 1=Down 2=Left 3=Right 4=A 5=B) |
+| `button_pressed(id)` | Button pressed this frame |
 
-### Math
-
-| Function | Description |
-| :------- | :---------- |
-| `rnd(max)` | Random integer `[0, max)` |
-| `sin(t)` / `cos(t)` | 0–255 = full turn, returns −127..127 |
-| `abs(x)` / `flr(x)` / `sqrt(x)` | Absolute value / floor / integer square root |
-| `max(a,b)` / `min(a,b)` | Signed max / min |
-
-### Tables & Strings
+### Audio
 
 | Function | Description |
 | :------- | :---------- |
-| `{a=1, 2, 3}` | Table constructor; `t.x`, `t[i]` access |
-| `len(t)` | Sequence length |
-| `add(t,v)` | Append `v` at `len(t)+1` |
-| `"a" .. "b"` | String concatenation |
-| `sub(s,i,j)` | 1-based inclusive substring |
-| `strlen(s)` | String length |
-| `tostring(v)` | Number → string |
-
-### Audio & System
-
-| Function | Description |
-| :------- | :---------- |
-| `sfx(i)` | Play sound effect from SFX bank |
-| `music(i)` (alias `mus`) | Play music track |
-| `nomusic()` (alias `nomus`) | Stop music |
-| `wait()` | Wait for next frame (VSync) |
+| `play_sfx(id)` | Play a sound effect from the SFX bank |
+| `play_music(id)` | Play a music track |
+| `stop_music()` | Stop music |
 
 ---
 
-## 🖌️ Editor Suite
+## 🖌️ FC Studio
 
-Press function keys at any time to switch between modes:
+Press function keys at any time to switch tabs:
 
-| Key | Mode |
+| Key | Tab |
 | :-- | :--- |
-| `F1` | ▶️ Run (game) |
-| `F2` | 🖼️ Sprite editor |
-| `F3` | 🗺️ Map editor |
-| `F4` | 🎵 SFX editor |
-| `F5` | 🎶 Music editor |
-| `F6` | 🎨 Palette editor |
-| `F7` | 📋 Cart meta editor |
-| `F8` | 📂 Cart browser |
-| `F9` | 📝 Code editor |
+| `F1` | 📝 Code |
+| `F2` | 🖼️ Sprite |
+| `F3` | 🗺️ Map |
+| `F4` | 🎵 SFX |
+| `F5` | 🎶 Music |
+| `F6` | 🎨 Palette |
+| `F7` | 📋 Cart meta |
+| `F8` | 📂 Browser (local + hub) |
 
-### 🖼️ Sprite Editor
-
-| Zone | Location | Controls |
-| :--- | :------- | :------- |
-| Zoom canvas | Top-left 64×64 | Click/drag to paint; `F` toggles fill mode |
-| Sheet browser | Right 64×64 | Click to select active sprite |
-| Palette strip | Row 64–71 | Click to select draw color |
-
-| Key | Action |
-| :-- | :----- |
-| `C` | Copy active sprite to clipboard |
-| `V` | Paste clipboard into active sprite |
-| `F` | Toggle flood-fill mode (orange cursor) |
+`Ctrl+S` saves the cart from any tab. The Run/Pause/Reset toolbar and FPS counter are always visible; the game view renders as an integer-scaled, nearest-neighbor 128×128 texture.
 
 ### 📝 Code Editor
 
-Edit the loaded `.fc` source in-engine. `Ctrl+R` compiles and runs; on a compile error the cursor jumps to the offending line and the error shows in the status bar. `Ctrl+S` saves the source file.
+Syntax highlighting for Lua keywords, this project's builtin API, and stdlib namespaces (`math`, `string`, `table`, ...). Click a line's gutter to toggle a breakpoint. `Ctrl+Z`/`Ctrl+Y` undo/redo, `Ctrl+F`/`Ctrl+G` find/find-next. A Lua error jumps the cursor to the offending line and shows the message in the status bar.
 
-### 📋 Cart Meta Editor
+### 🖼️ Sprite Editor
 
-Editable title and author fields that sync into the ROM header on `Ctrl+S`.
+8×8 canvas at 32× zoom: pencil/fill/line/rect tools (drag preview), right-click eyedropper, palette row, per-sprite flag checkboxes, 16×16 sheet picker, per-sprite undo/redo (`Ctrl+Z`/`Y`, `Ctrl+C`/`V` copy/paste).
 
-| Key | Action |
-| :-- | :----- |
-| `Tab` | Switch focus between Title / Author |
-| Type | Append character (A–Z, 0–9, punctuation) |
-| `Backspace` | Delete last character |
-| `Ctrl+S` | Save cart (writes ROM + updates header) |
+### 🗺️ Map Editor
+
+Scrollable 64×64 tile canvas, pencil/fill/rect tools, right-click tile eyedropper, 1×/2×/4× zoom, full-map undo/redo.
+
+### 🎵 SFX / 🎶 Music Editors
+
+16-step pitch/volume tracker per SFX slot (drag to draw notes, wave/fx toggles, playhead); 8-pattern music editor (16 rows × 2 channels referencing SFX slots, loop toggle, playhead). `Space` previews.
 
 ### 🔍 Debugger
 
-Active when `--debug` flag is passed with `run`. Arrow-key controls apply only while paused.
-
-| Key | Action |
-| :-- | :----- |
-| `Space` | Pause / resume |
-| `C` / `F10` | Step one instruction |
-| `B` | Toggle breakpoint at cursor address |
-| `↑` / `↓` | Move disassembly cursor |
-| `←` / `→` | Scrub timeline (restores VM snapshot) |
-| `N` / `M` | Previous / next RAM page |
-
-Breakpoints and register aliases persist in a `.fcdbg` TOML sidecar:
+Bottom panel below the game view. Breakpoints toggle from the code editor gutter and persist in a `.fcdbg` TOML sidecar next to the cart:
 
 ```toml
 breakpoints = [9, 42]
-r0 = "player_x"
-r1 = "player_y"
 ```
+
+Controls: Run/Pause/Step-one-frame; a script-globals inspector shows the script's current top-level variables (filters out builtins and Lua stdlib names); the RAM hex view (sprite/map/palette/SFX/music regions) stays available for low-level inspection. There's no instruction-level single-step or timeline-scrubber rewind — mlua's interpreter state isn't cheaply snapshotable, so stepping is frame-granular.
 
 ---
 
@@ -273,9 +221,9 @@ r1 = "player_y"
 
 | Component | Specification |
 | :-------- | :------------ |
-| **CPU** | Custom 32-bit, 8 registers (R0–R7; fc-lang reserves R3 as frame pointer) |
+| **Script engine** | Lua 5.4 via `mlua` (vendored) |
 | **Resolution** | 128×128 (upscaled 4×) |
-| **RAM** | 64 KiB |
+| **RAM** | 64 KiB (asset/RAM regions below; script state lives in the Lua VM, not guest RAM) |
 | **Palette** | 16 colors |
 | **Sprites** | 256 × 8×8 pixels |
 | **Map** | 64×64 tiles |
@@ -284,234 +232,14 @@ r1 = "player_y"
 
 | Range | Region |
 | :---- | :----- |
-| `0x0000–0x3FFF` | General RAM: stack, globals (compiler scratch `0x3F80–0x3FAC`) |
+| `0x0000–0x3FFF` | Unused / reserved |
 | `0x4000–0x7FFF` | Sprite sheet — 256 sprites × 64 bytes (1 byte/pixel) |
 | `0x8000–0x8FFF` | Tilemap 64×64 (1 byte/cell) |
 | `0x9000–0x90FF` | Sprite flags (1 byte/sprite) |
-| `0x9100–0x91FF` | Palette |
+| `0x9100–0x91FF` | Palette (16 × 3 bytes RGB, rest padding) |
 | `0x9200–0x95FF` | SFX bank (16 × 64 bytes) |
 | `0x9600–0x96FF` | Music bank (8 × 32 bytes) |
-| `0x9700–0xFFFF` | Heap (strings, dynamic data) |
-
----
-
-## 📜 Assembly Reference
-
-### ⌨️ Instructions
-
-<details>
-<summary><b>🎨 Graphics & Rendering</b> (Click to expand)</summary>
-
-| Instruction | Arguments | Description |
-| :---------- | :-------- | :---------- |
-| `CLS` | — | Clear screen (fill with color 0) |
-| `FILL` | `color` | Fill entire screen with palette index |
-| `FILLR` | `rcol` | Fill screen, color from register |
-| `PAL` | `idx r g b` | Set palette entry (literals) |
-| `PALR` | `ri rr rg rb` | Set palette entry from registers |
-| `PSET` | `rx ry rcol` | Set pixel (signed coords, camera-aware) |
-| `LINE` | `rx1 ry1 rx2 ry2 rcol` | Draw line |
-| `RECT` | `rx1 ry1 rx2 ry2 rcol` | Rectangle outline |
-| `RECTF` | `rx1 ry1 rx2 ry2 rcol` | Filled rectangle |
-| `CIRC` | `rx ry rr rcol` | Circle outline |
-| `CIRCF` | `rx ry rr rcol` | Filled circle |
-| `SPR` | `rid rx ry rflip` | Draw sprite by id; flip bits 0/1 = H/V |
-| `MGET` | `rd rx ry` | Read tilemap cell |
-| `MSET` | `rx ry rtile` | Write tilemap cell |
-| `FGET` | `rd rid` | Read sprite flags |
-| `FSET` | `rid rflags` | Write sprite flags |
-| `MAPD` | `rcx rcy rsx rsy rw rh` | Draw tilemap block |
-| `POSC` | `rx ry` | Set camera position |
-| `MOVC` | `rx ry` | Move camera by delta |
-| `TXT` | `rx ry rcol rbase len` | Draw text from memory (known length) |
-| `TXTZ` | `rx ry rcol rbase` | Draw null-terminated text |
-| `TAT` | `rx ry raddr rcol flags` | Draw text from null-terminated address |
-| `TSD` | `rx ry raddr` | Draw text (simple, default color) |
-| `NUM` | `rx ry rcol rval` | Draw integer value |
-| `DPX` | `x y r g b` | Draw literal RGB pixel (legacy) |
-| `DPXR` | `rx ry r g b` | Draw RGB pixel at register coords (legacy) |
-| `SPT` | `rx ry rspr` | Draw sprite, id in register (legacy) |
-| `TIL` | `rx ry raddr rpal w h` | Draw tiles from address (legacy) |
-
-</details>
-
-<details>
-<summary><b>🔢 Arithmetic & Logic</b> (Click to expand)</summary>
-
-| Instruction | Arguments | Description |
-| :---------- | :-------- | :---------- |
-| `MOV` | `reg val` | Load 16-bit literal into register |
-| `MOV32` | `reg dword` | Load 32-bit literal into register |
-| `MOVR` | `dst src` | Copy register |
-| `ADD` | `reg val` | Add literal |
-| `ADDR` | `dst src` | Add register |
-| `SUB` | `reg val` | Subtract literal |
-| `SUBR` | `dst src` | Subtract register |
-| `DEC` | `reg` | Decrement by 1 |
-| `MUL` | `dst src` | Multiply (wrapping) |
-| `DIV` | `dst src` | Signed integer divide |
-| `MOD` | `dst src` | Signed integer modulo |
-| `FMUL` | `dst src` | 16:16 fixed-point multiply `(a*b)>>16` |
-| `FDIV` | `dst src` | 16:16 fixed-point divide `(a<<16)/b` |
-| `MATH1` | `dst src kind` | Unary math: 0=sin 1=cos 2=abs 3=flr 4=sqrt |
-| `MAX` | `dst src` | Signed maximum |
-| `MIN` | `dst src` | Signed minimum |
-| `RND` | `reg max` | Random integer in `[0, max)` |
-| `RNDR` | `rd rmax` | Random integer, max from register |
-| `SLT` | `rd rs1 rs2` | Set `rd = (rs1 < rs2)` unsigned |
-| `SLTS` | `rd rs1 rs2` | Set `rd = (rs1 < rs2)` signed |
-| `EQ` | `rd rs1 rs2` | Set `rd = (rs1 == rs2)` |
-| `AND` | `dst src` | Bitwise AND |
-| `OR` | `dst src` | Bitwise OR |
-| `XOR` | `dst src` | Bitwise XOR |
-| `NOT` | `reg` | Bitwise NOT |
-| `NEG` | `reg` | Arithmetic negation |
-| `SHL` | `reg shift` | Logical shift left |
-| `SHR` | `reg shift` | Logical shift right |
-| `SAR` | `reg shift` | Arithmetic shift right |
-
-`MATH1` sin/cos: input 0–255 = 256ths of a full turn; output −127..127.
-
-</details>
-
-<details>
-<summary><b>💾 Memory & Tables</b> (Click to expand)</summary>
-
-| Instruction | Arguments | Description |
-| :---------- | :-------- | :---------- |
-| `LDM` | `reg addr` | Load byte from absolute address |
-| `STM` | `addr reg` | Store byte to absolute address |
-| `LDMW` | `reg addr` | Load 16-bit word |
-| `STMW` | `addr reg` | Store 16-bit word |
-| `LDM32` | `reg addr` | Load 32-bit dword |
-| `STM32` | `addr reg` | Store 32-bit dword |
-| `LDMI` | `rd rs` | Indirect byte load from RAM (address in `rs`) |
-| `STMI` | `ra rv` | Indirect byte store (address in `ra`) |
-| `LDM32I` | `rd rs` | Indirect 32-bit load |
-| `STM32I` | `ra rv` | Indirect 32-bit store |
-| `CPY` | `dst src len` | Copy `len` bytes from program space to RAM |
-| `TNEW` | `rd` | Create table, handle → `rd` |
-| `TGET` | `rd rt rk` | `rd = table[key]` |
-| `TSET` | `rt rk rv` | `table[key] = value` |
-| `TLEN` | `rd rt` | Sequence length |
-| `TIDX` | `rk rv rt ri` | Iterate entry `ri`; key/value out, key = `0xFFFFFFFF` at end |
-
-Tables live outside guest RAM in the VM (unlimited growth, snapshot-aware); handles are opaque 32-bit values.
-
-</details>
-
-<details>
-<summary><b>🔀 Control Flow & Stack</b> (Click to expand)</summary>
-
-| Instruction | Arguments | Description |
-| :---------- | :-------- | :---------- |
-| `JMP` | `addr` | Unconditional jump |
-| `JNZ` | `reg addr` | Jump if register ≠ 0 |
-| `JZ` | `reg addr` | Jump if register = 0 |
-| `JSR` | `addr` | Call subroutine (push return address) |
-| `JREG` | `reg` | Jump to address in register |
-| `RET` | — | Return from subroutine |
-| `PUSH` | `reg` | Push register onto stack |
-| `POP` | `reg` | Pop from stack into register |
-| `GETSP` | `reg` | Read stack pointer |
-| `SETSP` | `reg` | Write stack pointer |
-| `WAIT` | — | Wait for next frame (VSync) |
-
-</details>
-
-<details>
-<summary><b>🎮 Input & Debug</b> (Click to expand)</summary>
-
-| Instruction | Arguments | Description |
-| :---------- | :-------- | :---------- |
-| `IN` | `reg id` | Button held (0=Up 1=Down 2=Left 3=Right 4=A 5=B) |
-| `INR` | `rd rid` | Button held, id from register |
-| `INP` | `reg id` | Button pressed this frame |
-| `INPR` | `rd rid` | Button pressed this frame, id from register |
-| `LOGR` | `reg` | Log register value to host console |
-| `LOGV` | `val` | Log literal value to host console |
-
-</details>
-
-<details>
-<summary><b>🔊 Audio</b> (Click to expand)</summary>
-
-| Instruction | Arguments | Description |
-| :---------- | :-------- | :---------- |
-| `SND` | `rf rv rd` | Play tone: freq/vol/dur from registers |
-| `SNDV` | `freq vol dur` | Play tone with literal values |
-| `NOSND` | — | Stop all sound |
-| `NSND` | `rf rv rd` | Play noise: freq/vol/dur from registers |
-| `NSNDV` | `freq vol dur` | Play noise with literal values |
-| `SSTOP` | — | Stop sound channel |
-| `NSTOP` | — | Stop noise channel |
-| `SFX` | `idx` | Play sound effect by index |
-| `SFXR` | `ridx` | Play sound effect, index from register |
-| `MUS` | `idx` | Play music track by index |
-| `MUSR` | `ridx` | Play music track, index from register |
-| `NOMUS` | — | Stop music |
-
-</details>
-
-### 📝 Directives
-
-| Directive | Arguments | Description |
-| :-------- | :-------- | :---------- |
-| `.DB` | `val...` | **Define Byte**: insert 8-bit values or a quoted string |
-| `.DW` | `val...` | **Define Word**: insert 16-bit values or labels |
-| `.ORG` | `addr` | **Origin**: set the assembly start address |
-| `.FILL` | `len val` | Fill `len` bytes with value |
-
----
-
-## 📝 Example Code
-
-### Assembly
-
-```asm
-; Move a sprite around the screen
-init:
-    PAL 1 255 80 0      ; Define palette index 1
-
-loop:
-    CLS
-    IN R2 2             ; Read left button
-    JZ R2 skip_left
-    DEC R0              ; Move left
-
-skip_left:
-    IN R2 3             ; Read right button
-    JZ R2 skip_right
-    ADD R0 1            ; Move right
-
-skip_right:
-    MOV R4 0            ; Sprite id 0
-    MOV R5 0            ; No flip
-    SPR R4 R0 R1 R5     ; Draw sprite 0 at (R0, R1)
-    WAIT
-    JMP loop
-```
-
-### fc-lang (High-Level)
-
-```lua
-const SPEED = 2
-
-let x = 60
-let y = 60
-
-init:
-  pal(0, 10, 10, 30)
-
-loop:
-  cls()
-  if btn(0) then y -= SPEED end
-  if btn(1) then y += SPEED end
-  if btn(2) then x -= SPEED end
-  if btn(3) then x += SPEED end
-  spr(0, x, y)
-  wait()
-```
+| `0x9700–0xFFFF` | Reserved |
 
 ---
 
@@ -561,19 +289,19 @@ backward compatibility — `fc-engine publish` still targets them internally.
 
 ## 📂 Project Structure
 
-Cargo workspace with eight crates:
+Cargo workspace with seven crates:
 
 | Crate | Description |
 | :---- | :---------- |
 | `crates/fc-core` | Shared types and memory map — `Color`, `Vec2`, RAM layout constants |
-| `crates/fc-asm` | Assembler: tokeniser, parser, code emitter, source maps, ISA table |
-| `crates/fc-rom` | ROM format: header, section layout, load/write helpers |
-| `crates/fc-vm` | VM core: CPU, ISA interpreter, renderer, audio, input, debugger |
-| `crates/fc-lang` | High-level language compiler (`.fc` → bytecode) |
-| `crates/fc-engine` | Main binary: editor suite, cart browser, app loop |
+| `crates/fc-rom` | ROM format: header, section layout, `.lua` source block splitting, load/write helpers |
+| `crates/fc-vm` | VM core: embedded Lua (`mlua`) execution, builtin API, renderer, audio, input, debugger hooks |
+| `crates/fc-engine` | Main binary: FC Studio editor suite, cart browser, CLI, app loop |
+| `crates/fc-host` | Minimal standalone ROM runner (no editor/hub) |
 | `crates/fc-hub` | Cart sharing server |
+| `crates/migration` | `sea-orm` database migrations for fc-hub |
 
-`games/` — example `.asm` and `.fc` sources with pre-built `.rom` files.
+`games/lua/` — example `.lua` cart sources.
 
 ---
 
