@@ -20,6 +20,7 @@ caiven-cart = { workspace = true }
 caiven-vm = { workspace = true }
 image = { workspace = true }
 log = { workspace = true }
+rfd = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }

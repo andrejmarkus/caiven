@@ -2,8 +2,8 @@
 //! tab selection and per-frame VM stepping + framebuffer texture upload.
 
 use super::{
-    browser_panel, cart, code_panel, debug_panel, game_panel, map_panel, meta_panel, music_panel,
-    palette_panel, sfx_panel, sprite_panel, theme, toolbar,
+    browser_panel, cart, code_panel, debug_panel, game_panel, map_panel, menu_bar, meta_panel,
+    music_panel, palette_panel, recent, sfx_panel, sprite_panel, theme, toolbar,
 };
 use crate::app::cart_io::{self, CartMeta};
 use anyhow::Result;
@@ -63,6 +63,14 @@ pub struct SourceFile {
     pub dirty: bool,
 }
 
+/// A project action deferred behind the unsaved-changes confirmation modal.
+enum PendingAction {
+    New,
+    Open(PathBuf),
+    Close,
+    Exit,
+}
+
 pub struct StudioApp {
     core: ConsoleCore,
     cart: Option<CartMeta>,
@@ -81,6 +89,9 @@ pub struct StudioApp {
     music: music_panel::MusicState,
     browser: browser_panel::BrowserState,
     debug: debug_panel::DebugState,
+    pending_action: Option<PendingAction>,
+    recent: Vec<PathBuf>,
+    last_title: String,
 }
 
 impl StudioApp {
@@ -109,6 +120,9 @@ impl StudioApp {
             music: music_panel::MusicState::default(),
             browser: browser_panel::BrowserState::default(),
             debug: debug_panel::DebugState::default(),
+            pending_action: None,
+            recent: recent::load(),
+            last_title: String::new(),
         };
 
         if let Some(path) = file
@@ -151,6 +165,7 @@ impl StudioApp {
             self.browser.set_scan_dir(dir.to_path_buf());
         }
         self.debug.on_cart_loaded(path);
+        recent::push(&mut self.recent, path);
         Ok(())
     }
 
@@ -248,6 +263,119 @@ impl StudioApp {
         }
     }
 
+    /// Saves the current cart under a new path, then behaves like `save()`.
+    fn save_as(&mut self, path: PathBuf) {
+        let Some(meta) = &mut self.cart else {
+            self.set_status("nothing to save", true);
+            return;
+        };
+        meta.path = path.clone();
+        if let Some(src) = &mut self.source {
+            src.path = path.clone();
+        }
+        self.save();
+        recent::push(&mut self.recent, &path);
+    }
+
+    /// Unloads the current cart back to the empty/Browser state.
+    fn close_cart(&mut self) {
+        self.cart = None;
+        self.source = None;
+        self.core.reset_vm();
+        self.run_state = RunState::Stopped;
+        self.tab = Tab::Browser;
+        self.set_status("no cart loaded — caiven-studio edit <file.cav>", false);
+    }
+
+    fn is_dirty(&self) -> bool {
+        self.source.as_ref().is_some_and(|s| s.dirty)
+    }
+
+    /// Runs `action` now if there's nothing unsaved, otherwise defers it
+    /// behind the unsaved-changes confirmation modal.
+    fn guard(&mut self, action: PendingAction) {
+        if self.is_dirty() {
+            self.pending_action = Some(action);
+        } else {
+            self.run_pending(action);
+        }
+    }
+
+    fn request_new(&mut self) {
+        self.guard(PendingAction::New);
+    }
+
+    fn request_open(&mut self, path: PathBuf) {
+        self.guard(PendingAction::Open(path));
+    }
+
+    fn request_close(&mut self) {
+        self.guard(PendingAction::Close);
+    }
+
+    fn request_exit(&mut self, ctx: &egui::Context) {
+        if self.is_dirty() {
+            self.pending_action = Some(PendingAction::Exit);
+        } else {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+    }
+
+    fn run_pending(&mut self, action: PendingAction) {
+        match action {
+            PendingAction::New => self.new_cart(),
+            PendingAction::Open(path) => match self.open_file(&path) {
+                Ok(()) => self.tab = Tab::Code,
+                Err(e) => self.set_status(format!("{e:#}"), true),
+            },
+            PendingAction::Close => self.close_cart(),
+            PendingAction::Exit => {}
+        }
+    }
+
+    /// Renders the "Save changes to X?" modal if a project action is
+    /// deferred behind unsaved changes.
+    fn show_pending_modal(&mut self, ctx: &egui::Context) {
+        let Some(action) = &self.pending_action else {
+            return;
+        };
+        let is_exit = matches!(action, PendingAction::Exit);
+        let name = self.cart_name();
+
+        let modal = egui::Modal::new(egui::Id::new("unsaved_changes")).show(ctx, |ui| {
+            ui.set_width(280.0);
+            ui.label(format!("Save changes to {name}?"));
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                let save = ui.button("Save").clicked();
+                let discard = ui.button("Don't Save").clicked();
+                let cancel = ui.button("Cancel").clicked();
+                (save, discard, cancel)
+            })
+            .inner
+        });
+
+        let (save, discard, cancel) = modal.inner;
+        if save {
+            self.save();
+            let action = self.pending_action.take().unwrap();
+            if is_exit {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            } else {
+                self.run_pending(action);
+            }
+        } else if discard {
+            let action = self.pending_action.take().unwrap();
+            if is_exit {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            } else {
+                self.run_pending(action);
+            }
+        } else if cancel || modal.should_close() {
+            self.pending_action = None;
+        }
+    }
+
     fn route_game_input(&mut self, ctx: &egui::Context) {
         use egui::Key;
         const BINDINGS: [(Button, &[Key]); 6] = [
@@ -325,6 +453,11 @@ impl StudioApp {
         }
     }
 
+    fn window_title(&self) -> String {
+        let dirty = if self.is_dirty() { " •" } else { "" };
+        format!("{}{} — Caiven Studio", self.cart_name(), dirty)
+    }
+
     fn cart_name(&self) -> String {
         let path = self
             .cart
@@ -341,13 +474,34 @@ impl StudioApp {
     }
 
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
-        let save = ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::S));
-        if save {
-            self.save();
+        // Shift+Ctrl+S must be checked before plain Ctrl+S: `consume_key`
+        // ignores extra modifiers, so the plain pattern would also match it.
+        let save_as = ctx.input_mut(|i| {
+            i.consume_key(egui::Modifiers::CTRL | egui::Modifiers::SHIFT, egui::Key::S)
+        });
+        if save_as {
+            if let Some(path) = pick_save_as_path(&self.cart_name()) {
+                self.save_as(path);
+            }
+        } else {
+            let save = ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::S));
+            if save {
+                self.save();
+            }
         }
         let run = ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::R));
         if run {
             self.run_source();
+        }
+        let new = ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::N));
+        if new {
+            self.request_new();
+        }
+        let open = ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::O));
+        if open
+            && let Some(path) = pick_open_path()
+        {
+            self.request_open(path);
         }
 
         ctx.input(|i| {
@@ -376,16 +530,45 @@ impl eframe::App for StudioApp {
         self.route_game_input(ctx);
         self.browser.poll(ctx);
         if let Some(path) = self.browser.take_pending_load() {
-            match self.open_file(&path) {
-                Ok(()) => self.tab = Tab::Code,
-                Err(e) => self.set_status(format!("{e:#}"), true),
-            }
+            self.request_open(path);
         }
         if self.browser.take_pending_new() {
-            self.new_cart();
+            self.request_new();
         }
         self.step_vm();
         self.update_game_texture(ctx);
+
+        if self.pending_action.is_none()
+            && self.is_dirty()
+            && ctx.input(|i| i.viewport().close_requested())
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.pending_action = Some(PendingAction::Exit);
+        }
+
+        match menu_bar::show(ctx, &self.recent) {
+            menu_bar::MenuAction::New => self.request_new(),
+            menu_bar::MenuAction::Open => {
+                if let Some(path) = pick_open_path() {
+                    self.request_open(path);
+                }
+            }
+            menu_bar::MenuAction::OpenRecent(path) => self.request_open(path),
+            menu_bar::MenuAction::ClearRecent => {
+                self.recent.clear();
+                recent::save(&self.recent);
+            }
+            menu_bar::MenuAction::Save => self.save(),
+            menu_bar::MenuAction::SaveAs => {
+                if let Some(path) = pick_save_as_path(&self.cart_name()) {
+                    self.save_as(path);
+                }
+            }
+            menu_bar::MenuAction::Close => self.request_close(),
+            menu_bar::MenuAction::Exit => self.request_exit(ctx),
+            menu_bar::MenuAction::None => {}
+        }
+        self.show_pending_modal(ctx);
 
         let fps = ctx.input(|i| 1.0 / i.stable_dt.max(1e-6));
         let action = toolbar::show(ctx, &self.cart_name(), self.run_state, fps);
@@ -479,8 +662,30 @@ impl eframe::App for StudioApp {
             }
         });
 
+        let title = self.window_title();
+        if title != self.last_title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.last_title = title;
+        }
+
         ctx.request_repaint();
     }
+}
+
+/// Opens a native "Open" dialog filtered to `.cav` carts.
+fn pick_open_path() -> Option<PathBuf> {
+    rfd::FileDialog::new()
+        .add_filter("Caiven cart", &["cav"])
+        .pick_file()
+}
+
+/// Opens a native "Save As" dialog filtered to `.cav` carts, defaulting to
+/// the current cart's name.
+fn pick_save_as_path(current_name: &str) -> Option<PathBuf> {
+    rfd::FileDialog::new()
+        .add_filter("Caiven cart", &["cav"])
+        .set_file_name(current_name)
+        .save_file()
 }
 
 /// First non-colliding `untitled.cav` / `untitled-2.cav` / ... path in `dir`.
