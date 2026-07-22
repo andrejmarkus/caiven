@@ -135,8 +135,15 @@ impl StudioApp {
                 let meta =
                     cart::load_rom(&mut self.core.vm, path, &self.core.input, &self.core.font)?;
                 info!("studio: ROM loaded from {}", path.display());
+                // Show the embedded Lua source in the code tab too, so a
+                // prebuilt .rom is viewable/editable the same as a .lua file
+                // — edits get folded back into `meta.lua_source` on save().
+                self.source = meta.lua_source.clone().map(|text| SourceFile {
+                    path: path.to_path_buf(),
+                    text,
+                    dirty: false,
+                });
                 self.cart = Some(meta);
-                self.source = None;
                 self.code.error = None;
                 self.run_state = RunState::Running;
                 self.set_status(format!("loaded {}", path.display()), false);
@@ -221,9 +228,19 @@ impl StudioApp {
     }
 
     fn save(&mut self) {
-        if let Some(meta) = &self.cart {
-            match rom_io::save(&self.core.vm, meta) {
-                Ok(()) => self.set_status(format!("saved {}", meta.path.display()), false),
+        if let Some(meta) = &mut self.cart {
+            if let Some(src) = &self.source {
+                meta.lua_source = Some(src.text.clone());
+            }
+            let result = rom_io::save(&self.core.vm, meta);
+            let path = meta.path.clone();
+            match result {
+                Ok(()) => {
+                    if let Some(src) = &mut self.source {
+                        src.dirty = false;
+                    }
+                    self.set_status(format!("saved {}", path.display()), false)
+                }
                 Err(e) => self.set_status(format!("save failed: {e:#}"), true),
             }
             return;
