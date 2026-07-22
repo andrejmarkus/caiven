@@ -17,6 +17,8 @@ fn read_rgba(vm: &Vm, x: u32, y: u32) -> [u8; 4] {
 #[test]
 fn lua_pset_draws_palette_color() {
     let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
     vm.load_lua_source(
         r#"
         function _update()
@@ -24,11 +26,11 @@ fn lua_pset_draws_palette_color() {
           set_pixel(10, 20, 8)
         end
         "#,
+        &input,
+        &font,
     )
     .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
 
-    let input = Input::new();
-    let font = Font::empty();
     vm.run_frame(&input, &font);
 
     assert_eq!(vm.get_fault(), None);
@@ -39,6 +41,7 @@ fn lua_pset_draws_palette_color() {
 #[test]
 fn lua_btn_reads_input_state() {
     let mut vm = make_vm();
+    let font = Font::empty();
     vm.load_lua_source(
         r#"
         result = 0
@@ -51,12 +54,13 @@ fn lua_btn_reads_input_state() {
           set_pixel(0, 0, result)
         end
         "#,
+        &Input::new(),
+        &font,
     )
     .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
 
     let mut input = Input::new();
     input.set_button(fc_vm::input::Button::A, true);
-    let font = Font::empty();
     vm.run_frame(&input, &font);
 
     assert_eq!(vm.get_fault(), None);
@@ -67,17 +71,19 @@ fn lua_btn_reads_input_state() {
 #[test]
 fn lua_runtime_error_faults_cleanly() {
     let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
     vm.load_lua_source(
         r#"
         function _update()
           error("boom")
         end
         "#,
+        &input,
+        &font,
     )
     .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
 
-    let input = Input::new();
-    let font = Font::empty();
     vm.run_frame(&input, &font);
 
     assert_eq!(vm.get_fault(), Some(VmFault::LuaError));

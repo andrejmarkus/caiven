@@ -50,7 +50,7 @@ impl App {
             .with_context(|| format!("failed to read Lua source from {}", path.display()))?;
         self.core
             .vm
-            .load_lua_source(&src)
+            .load_lua_source(&src, &self.core.input, &self.core.font)
             .map_err(|e| anyhow::anyhow!("{e}"))
             .with_context(|| format!("failed to load Lua script {}", path.display()))
     }
