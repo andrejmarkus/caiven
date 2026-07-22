@@ -14,7 +14,7 @@
 
 - 🌙 **Real Lua 5.4** — embedded via `mlua` (vendored, no system Lua required); `_init()` runs once, `_update()` runs every frame
 - 🎨 **Palette-based Graphics** — 128×128 resolution, 16-color swappable palette; sprites, 64×64 tilemap, shape primitives, camera
-- 📦 **Descriptive Builtin API** — `sprite`, `draw_rect`, `button_down`, `set_palette_color`, etc. — no PICO-8-style abbreviations, and `print()` stays wired to your terminal for real Lua debugging (screen text is `draw_text`)
+- 📦 **Descriptive Builtin API** — `sprite`, `draw_rect`, `button_down`, `set_palette_color`, etc. — no cryptic abbreviations, and `print()` stays wired to your terminal for real Lua debugging (screen text is `draw_text`)
 - 🔊 **Audio Engine** — real-time sound synthesis, SFX and music banks, playback via CPAL
 - 🖌️ **Caiven Studio** — egui-based editor suite: code, sprite, map, palette, SFX, music, cart-meta editors, local & port cart browser, all in one window
 - 🔍 **Debugger** — line breakpoints (click the code editor gutter), pause/step-by-frame, script-globals inspector, live RAM view, `.fcdbg` sidecar persistence
@@ -45,8 +45,7 @@ cargo run -p caiven-studio -- [command]
 | Command | Description |
 | :------ | :---------- |
 | _(no command)_ | Launch Caiven Studio (editor suite), opens on the cart browser |
-| `edit [file]` | Launch Caiven Studio, optionally opening a `.cav` or `.lua` file |
-| `build <source.lua> <output.cav>` | Package a `.lua` source and its asset blocks into a cart |
+| `edit [file]` | Launch Caiven Studio, optionally opening a `.cav` file |
 | `inspect <file.cav>` | Print cart section table |
 | `publish <file.cav>` | Upload cart to a caiven-port instance |
 
@@ -73,7 +72,19 @@ cargo run -p caiven-machine -- game.cav
 
 ## 🐣 Tutorial: Your First Game
 
-1. **Create `game.lua`:**
+Every cart is a single `.cav` file: a binary bundle (magic header + CRC32-checked
+sections) holding your Lua code alongside sprites, map, palette, SFX and music —
+authored entirely in Caiven Studio, no external text files involved.
+
+1. **Launch Caiven Studio** and click **NEW CART** on the browser tab (`F8`):
+
+```bash
+cargo run -p caiven-studio -- edit
+```
+
+This opens a blank cart with a `_init`/`_update` stub in the `F1` code tab.
+
+2. **Write your game logic:**
 
 ```lua
 local SPEED = 2
@@ -105,28 +116,18 @@ function _update()
 end
 ```
 
-2. **Run it** — open it in Caiven Studio, which runs `.lua` source live:
-
-```bash
-cargo run -p caiven-studio -- edit game.lua
-```
-
 3. **Draw your player** — press `F2` for the sprite tab and paint sprite 0.
 
-4. **Iterate** — edit code in the `F1` code tab; click the gutter to set a line breakpoint, `F1`'s Run/Pause/Reset toolbar drives execution (or `Ctrl+R` to rerun). Lua errors show with a line number and message straight in the status bar.
+4. **Iterate** — click the code editor's gutter to set a line breakpoint, the toolbar's Run/Pause/Reset drives execution (or `Ctrl+R` to rerun). Lua errors show with a line number and message straight in the status bar.
 
-5. **Ship it** — `build game.lua game.cav` packages a standalone cart (runnable with `caiven-machine game.cav`, no editor needed), then `Ctrl+S` in Caiven Studio stores sprites/map/audio into the cart, and `publish game.cav` shares it on a port.
+5. **Ship it** — `Ctrl+S` writes code + sprites + map + audio into the `.cav` (a new cart defaults to `untitled.cav` in the browser's folder — rename the file on disk, and set title/author on the `F7` meta tab), then run it standalone with `caiven-machine game.cav` (no editor needed), or `publish game.cav` to share it on a port.
 
-### Cart source format
-
-A `.lua` file is just a Lua chunk with two lifecycle functions:
+### Cart lifecycle functions
 
 | Function | Purpose |
 | :------- | :------ |
 | `_init()` | Runs once when the cart loads |
 | `_update()` | Runs once per frame (called for you — no `wait()`/vsync call needed) |
-
-Sprite/map/palette/SFX/music data lives in RAM, edited via Caiven Studio, and round-trips through the same file as hex asset blocks (`__gfx__`, `__map__`, etc.) appended after your code — you never hand-edit these, `Ctrl+S` manages them.
 
 ---
 
@@ -297,14 +298,14 @@ Cargo workspace with seven crates:
 | Crate | Description |
 | :---- | :---------- |
 | `crates/caiven-core` | Shared types and memory map — `Color`, `Vec2`, RAM layout constants |
-| `crates/caiven-cart` | Cart format: header, section layout, `.lua` source block splitting, load/write helpers |
+| `crates/caiven-cart` | Cart format: binary header, section layout, load/write helpers |
 | `crates/caiven-vm` | VM core: embedded Lua (`mlua`) execution, builtin API, renderer, audio, input, debugger hooks |
 | `crates/caiven-studio` | Main binary: Caiven Studio editor suite (edit mode only), cart browser, CLI |
 | `crates/caiven-machine` | Standalone cart runner (run mode: `.cav` only, no editor/port) |
 | `crates/caiven-port` | Cart sharing server |
 | `crates/migration` | `sea-orm` database migrations for caiven-port |
 
-`games/lua/` — example `.lua` cart sources. `games/carts/` — the same carts prebuilt to `.cav` (run directly: `cargo run -p caiven-machine -- games/carts/catch.cav`, or open in Caiven Studio via `caiven-studio edit`).
+`games/carts/` — example carts, ready to run: `cargo run -p caiven-machine -- games/carts/catch.cav`, or open in Caiven Studio via `caiven-studio edit`.
 
 ---
 

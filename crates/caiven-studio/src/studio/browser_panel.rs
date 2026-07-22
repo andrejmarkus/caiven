@@ -1,4 +1,4 @@
-//! Cart browser panel: local .lua/.cav file list plus the caiven-port online tab.
+//! Cart browser panel: local .cav file list plus the caiven-port online tab.
 //! Port requests run on background threads and report back over a shared
 //! mpsc channel; the app polls each frame and picks up finished downloads
 //! via `take_pending_load`.
@@ -6,8 +6,8 @@
 use super::theme;
 use crate::app::cart_io::CartMeta;
 use crate::port_client::{build_multipart, capture_screenshot};
-use chrono::{DateTime, Local};
 use caiven_vm::VmConfig;
+use chrono::{DateTime, Local};
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::PathBuf;
@@ -229,11 +229,16 @@ pub struct BrowserState {
     tx: Sender<PortMsg>,
     rx: Receiver<PortMsg>,
     pending_load: Option<PathBuf>,
+    pending_new: bool,
 }
 
 fn token_file_path() -> Option<PathBuf> {
     if let Ok(appdata) = std::env::var("APPDATA") {
-        return Some(PathBuf::from(appdata).join("caiven-studio").join("port_token"));
+        return Some(
+            PathBuf::from(appdata)
+                .join("caiven-studio")
+                .join("port_token"),
+        );
     }
     if let Ok(home) = std::env::var("HOME") {
         return Some(
@@ -326,8 +331,10 @@ fn decode_png_to_color_image(bytes: &[u8]) -> Option<egui::ColorImage> {
 }
 
 fn run_publish(job: &PublishJob) -> Result<String, String> {
-    let cart = caiven_cart::load(&job.cart_path).map_err(|e| format!("failed to load cart: {e:#}"))?;
-    let cart_bytes = std::fs::read(&job.cart_path).map_err(|e| format!("failed to read cart: {e}"))?;
+    let cart =
+        caiven_cart::load(&job.cart_path).map_err(|e| format!("failed to load cart: {e:#}"))?;
+    let cart_bytes =
+        std::fs::read(&job.cart_path).map_err(|e| format!("failed to read cart: {e}"))?;
     let filename = job
         .cart_path
         .file_name()
@@ -435,7 +442,8 @@ impl Default for BrowserState {
             scan_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             files: Vec::new(),
             scanned: false,
-            port_url: std::env::var("CAIVEN_PORT_URL").unwrap_or_else(|_| "http://localhost:8080".into()),
+            port_url: std::env::var("CAIVEN_PORT_URL")
+                .unwrap_or_else(|_| "http://localhost:8080".into()),
             port_token,
             port_username,
             query: String::new(),
@@ -450,6 +458,7 @@ impl Default for BrowserState {
             tx,
             rx,
             pending_load: None,
+            pending_new: false,
         }
     }
 }
@@ -464,6 +473,14 @@ impl BrowserState {
 
     pub fn take_pending_load(&mut self) -> Option<PathBuf> {
         self.pending_load.take()
+    }
+
+    pub fn take_pending_new(&mut self) -> bool {
+        std::mem::take(&mut self.pending_new)
+    }
+
+    pub fn scan_dir(&self) -> &std::path::Path {
+        &self.scan_dir
     }
 
     /// Polls the background port threads; call once per frame.
@@ -545,21 +562,17 @@ impl BrowserState {
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext != "cav" && ext != "lua" {
+            if ext != "cav" {
                 continue;
             }
             let name = path
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            let title = if ext == "cav" {
-                caiven_cart::load(&path)
-                    .ok()
-                    .map(|r| r.header.title)
-                    .unwrap_or_default()
-            } else {
-                String::new()
-            };
+            let title = caiven_cart::load(&path)
+                .ok()
+                .map(|r| r.header.title)
+                .unwrap_or_default();
             let date = path
                 .metadata()
                 .ok()
@@ -783,12 +796,15 @@ fn show_local(ui: &mut egui::Ui, state: &mut BrowserState) {
         if ui.button("RESCAN").clicked() {
             state.rescan();
         }
+        if ui.button("NEW CART").clicked() {
+            state.pending_new = true;
+        }
         ui.colored_label(theme::DIM, state.scan_dir.display().to_string());
     });
     ui.add_space(4.0);
 
     if state.files.is_empty() {
-        ui.colored_label(theme::DIM, "no .lua or .cav files in this folder");
+        ui.colored_label(theme::DIM, "no .cav files in this folder");
         return;
     }
 

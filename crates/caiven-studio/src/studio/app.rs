@@ -99,7 +99,7 @@ impl StudioApp {
             run_state: RunState::Stopped,
             game_tex: None,
             compose_buf: Vec::new(),
-            status: "no cart loaded — caiven-studio edit <file.cav|file.lua>".into(),
+            status: "no cart loaded — caiven-studio edit <file.cav>".into(),
             status_is_error: false,
             code: code_panel::CodeState::default(),
             sprite: sprite_panel::SpriteState::default(),
@@ -125,59 +125,59 @@ impl StudioApp {
         self.status_is_error = is_error;
     }
 
-    /// Opens a cart file. Returns `Err` only for hard failures (I/O, bad cart);
-    /// a `.lua` file that fails to run still opens in the editor with the
-    /// error shown, so it can be fixed in place.
+    /// Opens a `.cav` cart file. Returns `Err` only for hard failures (I/O,
+    /// bad cart); a cart whose embedded Lua fails to run still opens in the
+    /// editor with the error shown, so it can be fixed in place.
     fn open_file(&mut self, path: &std::path::Path) -> Result<()> {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        match ext {
-            "cav" => {
-                let meta =
-                    cart::load_cart(&mut self.core.vm, path, &self.core.input, &self.core.font)?;
-                info!("studio: cart loaded from {}", path.display());
-                // Show the embedded Lua source in the code tab too, so a
-                // prebuilt .cav is viewable/editable the same as a .lua file
-                // — edits get folded back into `meta.lua_source` on save().
-                self.source = meta.lua_source.clone().map(|text| SourceFile {
-                    path: path.to_path_buf(),
-                    text,
-                    dirty: false,
-                });
-                self.cart = Some(meta);
-                self.code.error = None;
-                self.run_state = RunState::Running;
-                self.set_status(format!("loaded {}", path.display()), false);
-            }
-            "lua" => {
-                let text = std::fs::read_to_string(path)?;
-                // Editor buffer holds only the code part; asset blocks live
-                // in VM RAM (mutated by the sprite/map/... editors) and are
-                // re-embedded on save.
-                let (code, sections) =
-                    caiven_cart::text::split_source(&text).map_err(anyhow::Error::msg)?;
-                info!("studio: lua source loaded from {}", path.display());
-                cart::apply_sections(&mut self.core.vm, &sections);
-                if !sections
-                    .iter()
-                    .any(|(k, _)| *k == caiven_cart::SectionKind::Palette)
-                {
-                    cart::sync_palette_to_ram(&mut self.core.vm);
-                }
-                self.source = Some(SourceFile {
-                    path: path.to_path_buf(),
-                    text: code,
-                    dirty: false,
-                });
-                self.cart = None;
-                self.run_source();
-            }
-            _ => anyhow::bail!("unsupported file type: {} (expected .cav or .lua)", ext),
+        if ext != "cav" {
+            anyhow::bail!("unsupported file type: {} (expected .cav)", ext);
         }
+        let meta = cart::load_cart(&mut self.core.vm, path, &self.core.input, &self.core.font)?;
+        info!("studio: cart loaded from {}", path.display());
+        // Show the embedded Lua source in the code tab too, so it's
+        // viewable/editable — edits get folded back into `meta.lua_source`
+        // on save().
+        self.source = meta.lua_source.clone().map(|text| SourceFile {
+            path: path.to_path_buf(),
+            text,
+            dirty: false,
+        });
+        self.cart = Some(meta);
+        self.code.error = None;
+        self.run_state = RunState::Running;
+        self.set_status(format!("loaded {}", path.display()), false);
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
             self.browser.set_scan_dir(dir.to_path_buf());
         }
         self.debug.on_cart_loaded(path);
         Ok(())
+    }
+
+    /// Starts editing a brand-new blank cart, seeded with a minimal
+    /// `_init`/`_update` stub. Not yet on disk — `Ctrl+S` writes it to a
+    /// free `untitled*.cav` name in the browser's current folder.
+    fn new_cart(&mut self) {
+        const BOILERPLATE: &str =
+            "function _init()\nend\n\nfunction _update()\n  clear_screen()\nend\n";
+
+        self.core.reset_vm();
+        let path = free_untitled_path(self.browser.scan_dir());
+        self.cart = Some(CartMeta {
+            path: path.clone(),
+            header: caiven_cart::CartHeader::default_for("untitled"),
+            program: Vec::new(),
+            sections: cart::default_section_layout(),
+            lua_source: Some(BOILERPLATE.to_string()),
+        });
+        self.source = Some(SourceFile {
+            path,
+            text: BOILERPLATE.to_string(),
+            dirty: true,
+        });
+        self.code.error = None;
+        self.run_source();
+        self.tab = Tab::Code;
     }
 
     /// Compiles the current editor buffer and (re)starts the game.
@@ -228,38 +228,24 @@ impl StudioApp {
     }
 
     fn save(&mut self) {
-        if let Some(meta) = &mut self.cart {
-            if let Some(src) = &self.source {
-                meta.lua_source = Some(src.text.clone());
-            }
-            let result = cart_io::save(&self.core.vm, meta);
-            let path = meta.path.clone();
-            match result {
-                Ok(()) => {
-                    if let Some(src) = &mut self.source {
-                        src.dirty = false;
-                    }
-                    self.set_status(format!("saved {}", path.display()), false)
+        let Some(meta) = &mut self.cart else {
+            self.set_status("nothing to save", true);
+            return;
+        };
+        if let Some(src) = &self.source {
+            meta.lua_source = Some(src.text.clone());
+        }
+        let result = cart_io::save(&self.core.vm, meta);
+        let path = meta.path.clone();
+        match result {
+            Ok(()) => {
+                if let Some(src) = &mut self.source {
+                    src.dirty = false;
                 }
-                Err(e) => self.set_status(format!("save failed: {e:#}"), true),
+                self.set_status(format!("saved {}", path.display()), false)
             }
-            return;
+            Err(e) => self.set_status(format!("save failed: {e:#}"), true),
         }
-        if let Some(src) = &mut self.source {
-            let sections = cart::collect_ram_sections(&self.core.vm);
-            let text = caiven_cart::text::join_source(&src.text, &sections);
-            let result = std::fs::write(&src.path, text);
-            let path = src.path.display().to_string();
-            if result.is_ok() {
-                src.dirty = false;
-            }
-            match result {
-                Ok(()) => self.set_status(format!("saved {path}"), false),
-                Err(e) => self.set_status(format!("save failed: {e:#}"), true),
-            }
-            return;
-        }
-        self.set_status("nothing to save", true);
     }
 
     fn route_game_input(&mut self, ctx: &egui::Context) {
@@ -395,6 +381,9 @@ impl eframe::App for StudioApp {
                 Err(e) => self.set_status(format!("{e:#}"), true),
             }
         }
+        if self.browser.take_pending_new() {
+            self.new_cart();
+        }
         self.step_vm();
         self.update_game_texture(ctx);
 
@@ -463,7 +452,7 @@ impl eframe::App for StudioApp {
                     ui.heading("CODE EDITOR");
                     ui.colored_label(
                         theme::DIM,
-                        "no .lua source open — caiven-studio edit <file.lua>",
+                        "no cart open — caiven-studio edit <file.cav>, or NEW CART in the browser",
                     );
                 }
             },
@@ -483,7 +472,7 @@ impl eframe::App for StudioApp {
                 music_panel::show(ui, &mut self.music, &mut self.core.vm);
             }
             Tab::Meta => {
-                meta_panel::show(ui, self.cart.as_mut(), self.source.as_ref());
+                meta_panel::show(ui, self.cart.as_mut());
             }
             Tab::Browser => {
                 browser_panel::show(ui, &mut self.browser, ctx, self.cart.as_ref());
@@ -491,5 +480,21 @@ impl eframe::App for StudioApp {
         });
 
         ctx.request_repaint();
+    }
+}
+
+/// First non-colliding `untitled.cav` / `untitled-2.cav` / ... path in `dir`.
+fn free_untitled_path(dir: &std::path::Path) -> PathBuf {
+    let candidate = dir.join("untitled.cav");
+    if !candidate.exists() {
+        return candidate;
+    }
+    let mut n = 2;
+    loop {
+        let candidate = dir.join(format!("untitled-{n}.cav"));
+        if !candidate.exists() {
+            return candidate;
+        }
+        n += 1;
     }
 }

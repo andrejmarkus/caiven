@@ -3,12 +3,11 @@
 
 use super::theme;
 use crate::app::cart_io::CartMeta;
-use crate::studio::app::SourceFile;
 
 /// CartHeader stores title/author as fixed 32-byte fields.
 const FIELD_MAX: usize = 32;
 
-pub fn show(ui: &mut egui::Ui, cart: Option<&mut CartMeta>, source: Option<&SourceFile>) {
+pub fn show(ui: &mut egui::Ui, cart: Option<&mut CartMeta>) {
     ui.add_space(8.0);
     ui.heading("CART META");
     ui.add_space(8.0);
@@ -47,32 +46,9 @@ pub fn show(ui: &mut egui::Ui, cart: Option<&mut CartMeta>, source: Option<&Sour
                 ui.end_row();
             });
         ui.add_space(8.0);
-        ui.colored_label(theme::DIM, "Ctrl+S writes title/author into the cart header");
-        return;
-    }
-
-    if let Some(src) = source {
-        let stem = src
-            .path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("cart");
-        egui::Grid::new("meta_grid_fc")
-            .num_columns(2)
-            .spacing([16.0, 10.0])
-            .show(ui, |ui| {
-                ui.label("FILE");
-                ui.colored_label(theme::DIM, src.path.display().to_string());
-                ui.end_row();
-
-                ui.label("TITLE");
-                ui.colored_label(theme::DIM, stem);
-                ui.end_row();
-            });
-        ui.add_space(8.0);
         ui.colored_label(
             theme::DIM,
-            ".lua sources have no header — `caiven-studio build` derives the title from the file name",
+            "Ctrl+S writes title/author into the cart header",
         );
         return;
     }

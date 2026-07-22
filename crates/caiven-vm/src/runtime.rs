@@ -74,6 +74,23 @@ impl ConsoleCore {
         })
     }
 
+    /// Replaces the VM and audio device with a blank state, keeping
+    /// screen/input/font/timing. Used to start editing a brand-new cart
+    /// without carrying over a previously loaded cart's RAM.
+    pub fn reset_vm(&mut self) {
+        let mut vm = Vm::new(self.config);
+        let audio = match Audio::new(vm.get_sound_shared()) {
+            Ok(a) => Some(a),
+            Err(e) => {
+                error!("failed to initialize audio: {e}");
+                None
+            }
+        };
+        vm.register_peripheral(AudioPeripheral::new(vm.get_sound_shared()));
+        self.vm = vm;
+        self.audio = audio;
+    }
+
     /// Advances the fixed-timestep clock; returns how many frames to run now.
     pub fn frame_steps(&mut self) -> u32 {
         let now = Instant::now();

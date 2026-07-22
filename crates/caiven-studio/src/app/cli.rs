@@ -1,19 +1,14 @@
 //! Command-line interface: argument parsing, headless subcommands
-//! (build/inspect/publish) and the `run` entry point that starts the editor.
+//! (inspect/publish) and the `run` entry point that starts the editor.
 
 use crate::port_client::{build_multipart, capture_screenshot};
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
-use caiven_cart::{CartHeader, SectionKind};
 use caiven_vm::VmConfig;
-use log::info;
+use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
-#[command(
-    name = "caiven-studio",
-    about = "Caiven — development environment"
-)]
+#[command(name = "caiven-studio", about = "Caiven — development environment")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -24,13 +19,6 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Package a .lua source file and its asset blocks into a cart
-    Build {
-        /// Path to the .lua source file
-        source: PathBuf,
-        /// Output .cav path
-        output: PathBuf,
-    },
     /// Inspect a cart file and print its section table
     Inspect {
         /// Path to the .cav file
@@ -38,7 +26,7 @@ enum Command {
     },
     /// Open Caiven Studio, the desktop editor suite
     Edit {
-        /// Optional .cav or .lua file to open
+        /// Optional .cav file to open
         file: Option<PathBuf>,
     },
     /// Publish a .cav file to a cart sharing port
@@ -202,33 +190,6 @@ pub fn run() -> Result<()> {
     let command = cli.command;
 
     match &command {
-        Some(Command::Build { source, output }) => {
-            info!("building cart: {} → {}", source.display(), output.display());
-
-            let stem = source.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-            let ext = source.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext != "lua" {
-                anyhow::bail!(
-                    "unsupported source extension '.{}' (expected .lua): {}",
-                    ext,
-                    source.display()
-                );
-            }
-            let src_text = std::fs::read_to_string(source)
-                .with_context(|| format!("failed to read source {}", source.display()))?;
-            let (code, mut sections) = caiven_cart::text::split_source(&src_text)
-                .map_err(|e| anyhow::anyhow!("bad asset block in {}: {e}", source.display()))?;
-            sections.push((SectionKind::LuaSource, code.into_bytes()));
-            let header = CartHeader::default_for(stem);
-            caiven_cart::write(output, &header, &[], &sections)
-                .with_context(|| format!("cannot write cart to {}", output.display()))?;
-            info!(
-                "cart written to {} ({} asset sections)",
-                output.display(),
-                sections.len() - 1
-            );
-            Ok(())
-        }
         Some(Command::Inspect { cart }) => {
             let loaded = caiven_cart::load(cart)
                 .with_context(|| format!("failed to load cart from {}", cart.display()))?;

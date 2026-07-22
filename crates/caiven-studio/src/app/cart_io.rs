@@ -1,4 +1,4 @@
-//! Cart saving: writes RAM-backed sections from the VM back to a `.cav`/`.lua` file.
+//! Cart saving: writes RAM-backed sections from the VM back to a `.cav` file.
 
 use anyhow::{Context, Result};
 use caiven_cart::{CartHeader, SectionKind};

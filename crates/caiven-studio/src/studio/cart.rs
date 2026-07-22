@@ -3,11 +3,11 @@
 
 use crate::app::cart_io::{CartMeta, SectionLayout};
 use anyhow::{Context, Result};
+use caiven_cart::SectionKind;
 use caiven_core::memory::{
     MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE, PALETTE_RAM_BASE, SFX_BANK_LEN,
     SFX_RAM_BASE, SPRITE_FLAGS_LEN, SPRITE_FLAGS_RAM_BASE, SPRITE_SHEET_LEN, SPRITE_SHEET_RAM_BASE,
 };
-use caiven_cart::SectionKind;
 use caiven_vm::Vm;
 use caiven_vm::input::Input;
 use caiven_vm::rendering::font::Font;
@@ -123,10 +123,11 @@ pub fn compile_lua_into_vm(
     input: &Input,
     font: &Font,
 ) -> std::result::Result<(), CompileError> {
-    let (code, sections) = caiven_cart::text::split_source(source).map_err(|message| CompileError {
-        line: None,
-        message,
-    })?;
+    let (code, sections) =
+        caiven_cart::text::split_source(source).map_err(|message| CompileError {
+            line: None,
+            message,
+        })?;
     apply_sections(vm, &sections);
     vm.load_lua_source(&code, input, font)
         .map_err(|e| caiven_vm::describe_lua_error(&e))
@@ -157,20 +158,10 @@ pub fn apply_sections(vm: &mut Vm, sections: &[(SectionKind, Vec<u8>)]) {
     }
 }
 
-/// Mirrors the VM's active palette into palette RAM so editors and cart
-/// saving always see full 16×RGB bytes there.
-pub fn sync_palette_to_ram(vm: &mut Vm) {
-    let bytes: Vec<u8> = vm
-        .get_palette()
-        .iter()
-        .flat_map(|c| [c.get_r(), c.get_g(), c.get_b()])
-        .collect();
-    vm.load_section_to_ram(PALETTE_RAM_BASE, &bytes);
-}
-
-/// Reads every asset region back out of VM RAM for embedding into `.lua`
-/// text on save. Empty (all-zero) regions are dropped by `join_source`.
-pub fn collect_ram_sections(vm: &Vm) -> Vec<(SectionKind, Vec<u8>)> {
+/// The full set of asset regions a cart always round-trips, used to seed a
+/// brand-new blank cart (a loaded cart instead builds this per-section from
+/// what's actually present, see `load_cart`).
+pub fn default_section_layout() -> Vec<SectionLayout> {
     [
         (
             SectionKind::SpriteSheet,
@@ -188,9 +179,10 @@ pub fn collect_ram_sections(vm: &Vm) -> Vec<(SectionKind, Vec<u8>)> {
         (SectionKind::MusicBank, MUSIC_RAM_BASE, MUSIC_BANK_LEN),
     ]
     .into_iter()
-    .map(|(kind, base, len)| {
-        let bytes: Vec<u8> = (0..len).map(|i| vm.peek_memory(base + i)).collect();
-        (kind, bytes)
+    .map(|(kind, ram_base, len)| SectionLayout {
+        kind,
+        ram_base,
+        len,
     })
     .collect()
 }
