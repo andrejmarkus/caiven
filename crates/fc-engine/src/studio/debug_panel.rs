@@ -38,7 +38,7 @@ pub struct DebugState {
 impl Default for DebugState {
     fn default() -> Self {
         Self {
-            dbg: Debugger::new(true),
+            dbg: Debugger::new(),
             last_error: None,
             ram_page: 0,
         }

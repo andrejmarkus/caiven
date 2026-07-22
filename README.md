@@ -46,12 +46,15 @@ cargo run -p fc-engine -- [command]
 | :------ | :---------- |
 | _(no command)_ | Launch FC Studio (editor suite), opens on the cart browser |
 | `edit [file]` | Launch FC Studio, optionally opening a `.rom` or `.lua` file |
-| `run <file>` | Run a `.lua` source file or a `.rom` file |
 | `build <source.lua> <output.rom>` | Package a `.lua` source and its asset blocks into a ROM |
 | `inspect <file.rom>` | Print ROM section table |
 | `publish <file.rom>` | Upload cart to an fc-hub instance |
 
-Pass `--debug` (or `-d`) to `run` for the in-game debug overlay (fault/RAM/breakpoint status — FC Studio is the full debugging experience).
+To just run a cart (no editor), use `fc-host`:
+
+```bash
+cargo run -p fc-host -- game.lua   # or game.rom
+```
 
 **Publish flags:**
 
@@ -105,12 +108,12 @@ end
 2. **Run it:**
 
 ```bash
-cargo run -p fc-engine -- run game.lua
+cargo run -p fc-host -- game.lua
 ```
 
 3. **Draw your player** — open FC Studio (`fc-engine edit game.lua`), press `F2` for the sprite tab and paint sprite 0.
 
-4. **Iterate** — edit code in the `F1` code tab (or your external editor + `run` again); click the gutter to set a line breakpoint, `F1`'s Run/Pause/Reset toolbar drives execution. Lua errors show with a line number and message straight in the status bar.
+4. **Iterate** — edit code in the `F1` code tab (or your external editor + `fc-host` again); click the gutter to set a line breakpoint, `F1`'s Run/Pause/Reset toolbar drives execution. Lua errors show with a line number and message straight in the status bar.
 
 5. **Ship it** — `build game.lua game.rom`, then `Ctrl+S` in FC Studio stores sprites/map/audio into the cart, and `publish game.rom` shares it on a hub.
 
@@ -296,12 +299,12 @@ Cargo workspace with seven crates:
 | `crates/fc-core` | Shared types and memory map — `Color`, `Vec2`, RAM layout constants |
 | `crates/fc-rom` | ROM format: header, section layout, `.lua` source block splitting, load/write helpers |
 | `crates/fc-vm` | VM core: embedded Lua (`mlua`) execution, builtin API, renderer, audio, input, debugger hooks |
-| `crates/fc-engine` | Main binary: FC Studio editor suite, cart browser, CLI, app loop |
-| `crates/fc-host` | Minimal standalone ROM runner (no editor/hub) |
+| `crates/fc-engine` | Main binary: FC Studio editor suite (edit mode only), cart browser, CLI |
+| `crates/fc-host` | Standalone cart runner (run mode: `.rom`/`.lua`, no editor/hub) |
 | `crates/fc-hub` | Cart sharing server |
 | `crates/migration` | `sea-orm` database migrations for fc-hub |
 
-`games/lua/` — example `.lua` cart sources. `games/roms/` — the same carts prebuilt to `.rom` (run directly: `fc-engine run games/roms/catch.rom`, or open in FC Studio via `fc-engine edit`).
+`games/lua/` — example `.lua` cart sources. `games/roms/` — the same carts prebuilt to `.rom` (run directly: `cargo run -p fc-host -- games/roms/catch.rom`, or open in FC Studio via `fc-engine edit`).
 
 ---
 

@@ -1,7 +1,6 @@
 //! Command-line interface: argument parsing, headless subcommands
 //! (build/inspect/publish) and the `run` entry point that starts the editor.
 
-use super::App;
 use crate::hub_client::{build_multipart, capture_screenshot};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -9,7 +8,6 @@ use fc_rom::{RomHeader, SectionKind};
 use fc_vm::VmConfig;
 use log::info;
 use std::path::{Path, PathBuf};
-use winit::event_loop::{ControlFlow, EventLoop};
 
 #[derive(Parser)]
 #[command(
@@ -19,7 +17,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
-    /// Enable debugger overlay
+    /// Enable debug-level logging
     #[arg(short, long, global = true)]
     debug: bool,
 }
@@ -37,11 +35,6 @@ enum Command {
     Inspect {
         /// Path to the .rom file
         rom: PathBuf,
-    },
-    /// Run a .lua or .rom file
-    Run {
-        /// Path to .lua source or .rom file
-        file: PathBuf,
     },
     /// Open FC Studio, the desktop editor suite
     Edit {
@@ -234,7 +227,7 @@ pub fn run() -> Result<()> {
                 output.display(),
                 sections.len() - 1
             );
-            return Ok(());
+            Ok(())
         }
         Some(Command::Inspect { rom }) => {
             let loaded = fc_rom::load(rom)
@@ -248,7 +241,7 @@ pub fn run() -> Result<()> {
             for (i, s) in loaded.sections.iter().enumerate() {
                 println!("    [{}] {:?}  {} bytes", i + 1, s.kind, s.data.len());
             }
-            return Ok(());
+            Ok(())
         }
         Some(Command::Publish {
             rom,
@@ -272,49 +265,9 @@ pub fn run() -> Result<()> {
                 frames: *frames,
                 no_screenshot: *no_screenshot,
             })?;
-            return Ok(());
+            Ok(())
         }
-        Some(Command::Edit { file }) => {
-            return crate::studio::run_studio(file.clone());
-        }
-        None => {
-            return crate::studio::run_studio(None);
-        }
-        _ => {}
+        Some(Command::Edit { file }) => crate::studio::run_studio(file.clone()),
+        None => crate::studio::run_studio(None),
     }
-
-    let mut app = App::new()?;
-    app.set_debug_enabled(cli.debug);
-
-    match command {
-        Some(Command::Run { file }) => {
-            let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("");
-            match ext {
-                "rom" => {
-                    info!("running ROM: {}", file.display());
-                    app.load_rom(&file)?;
-                }
-                "lua" => {
-                    info!("running Lua source: {}", file.display());
-                    app.load_lua(&file)?;
-                }
-                _ => anyhow::bail!(
-                    "unsupported file extension '.{}' (expected .rom or .lua): {}",
-                    ext,
-                    file.display()
-                ),
-            }
-        }
-        None
-        | Some(Command::Build { .. })
-        | Some(Command::Inspect { .. })
-        | Some(Command::Publish { .. })
-        | Some(Command::Edit { .. }) => unreachable!(),
-    }
-
-    let event_loop = EventLoop::new().context("failed to create event loop")?;
-    event_loop.set_control_flow(ControlFlow::Poll);
-    event_loop.run_app(&mut app).context("event loop error")?;
-
-    Ok(())
 }

@@ -10,9 +10,10 @@ use winit::keyboard::PhysicalKey;
 use winit::{application::ApplicationHandler, event::WindowEvent};
 
 #[derive(Parser)]
-#[command(name = "fc-host", about = "Fantasy Console — ROM runner")]
+#[command(name = "fc-host", about = "Fantasy Console — cart runner")]
 struct Cli {
-    rom: PathBuf,
+    /// Path to a .rom or .lua file
+    file: PathBuf,
 }
 
 pub struct App {
@@ -26,6 +27,30 @@ impl App {
             core: ConsoleCore::new()?,
             gfx: WindowGfx::default(),
         })
+    }
+
+    fn load(&mut self, path: &Path) -> Result<()> {
+        match path.extension().and_then(|e| e.to_str()) {
+            Some("lua") => self.load_lua(path),
+            Some("rom") => self.load_rom(path),
+            ext => anyhow::bail!(
+                "unsupported file extension '{}' (expected .rom or .lua): {}",
+                ext.unwrap_or(""),
+                path.display()
+            ),
+        }
+    }
+
+    /// Loads a bare `.lua` file straight into the VM's embedded Lua path.
+    /// No asset sections and no ROM packaging — for that, build a `.rom`.
+    fn load_lua(&mut self, path: &Path) -> Result<()> {
+        let src = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read Lua source from {}", path.display()))?;
+        self.core
+            .vm
+            .load_lua_source(&src, &self.core.input, &self.core.font)
+            .map_err(|e| anyhow::anyhow!("{e}"))
+            .with_context(|| format!("failed to load Lua script {}", path.display()))
     }
 
     fn load_rom(&mut self, path: &Path) -> Result<()> {
@@ -124,7 +149,7 @@ pub fn run() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let mut app = App::new()?;
-    app.load_rom(&cli.rom)?;
+    app.load(&cli.file)?;
 
     let event_loop = EventLoop::new().context("failed to create event loop")?;
     event_loop.set_control_flow(ControlFlow::Poll);

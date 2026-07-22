@@ -1,6 +1,5 @@
 //! Standalone cart loading for the studio: loads ROM sections into VM RAM
-//! and produces a [`CartMeta`] usable with `rom_io::save`. Mirrors the
-//! legacy `App::load_rom` path without depending on the old editor state.
+//! and produces a [`CartMeta`] usable with `rom_io::save`.
 
 use crate::app::rom_io::{CartMeta, SectionLayout};
 use anyhow::{Context, Result};
