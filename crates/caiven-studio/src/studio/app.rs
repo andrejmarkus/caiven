@@ -2,9 +2,9 @@
 //! tab selection and per-frame VM stepping + framebuffer texture upload.
 
 use super::{
-    browser_panel, cart, code_panel, debug_panel, game_panel, map_panel, menu_bar, meta_panel,
-    music_panel, palette_panel, recent, sfx_panel, sprite_panel, templates, theme, toolbar,
-    welcome_panel,
+    browser_panel, cart, code_panel, command_palette, debug_panel, game_panel, help_panel,
+    map_panel, menu_bar, meta_panel, music_panel, palette_panel, recent, sfx_panel, sprite_panel,
+    templates, theme, toolbar, welcome_panel,
 };
 use crate::app::cart_io::{self, CartMeta};
 use anyhow::Result;
@@ -23,10 +23,11 @@ pub enum Tab {
     Palette,
     Meta,
     Browser,
+    Help,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 8] = [
+    pub const ALL: [Tab; 9] = [
         Tab::Code,
         Tab::Sprite,
         Tab::Map,
@@ -35,6 +36,7 @@ impl Tab {
         Tab::Palette,
         Tab::Meta,
         Tab::Browser,
+        Tab::Help,
     ];
 
     pub fn label(self) -> &'static str {
@@ -47,6 +49,7 @@ impl Tab {
             Tab::Palette => "PALETTE",
             Tab::Meta => "META",
             Tab::Browser => "BROWSER",
+            Tab::Help => "HELP",
         }
     }
 }
@@ -90,6 +93,8 @@ pub struct StudioApp {
     music: music_panel::MusicState,
     browser: browser_panel::BrowserState,
     debug: debug_panel::DebugState,
+    help: help_panel::HelpState,
+    cmd_palette: command_palette::PaletteState,
     pending_action: Option<PendingAction>,
     recent: Vec<PathBuf>,
     last_title: String,
@@ -122,6 +127,8 @@ impl StudioApp {
             music: music_panel::MusicState::default(),
             browser: browser_panel::BrowserState::default(),
             debug: debug_panel::DebugState::default(),
+            help: help_panel::HelpState::default(),
+            cmd_palette: command_palette::PaletteState::default(),
             pending_action: None,
             recent: recent::load(),
             last_title: String::new(),
@@ -233,6 +240,24 @@ impl StudioApp {
                 self.set_status(format!("compile error: {first}"), true);
             }
         }
+    }
+
+    /// Starts the game running, recompiling first if the source was never
+    /// compiled (or last failed to). Shared by the toolbar's RUN button and
+    /// the command palette's "Run" entry.
+    fn run_or_resume(&mut self) {
+        if self.source.is_some() && self.run_state == RunState::Stopped {
+            self.run_source();
+        } else if self.cart.is_some() || self.source.is_some() {
+            self.run_state = RunState::Running;
+        } else {
+            self.set_status("no cart loaded", true);
+        }
+    }
+
+    fn pause(&mut self) {
+        self.run_state = RunState::Paused;
+        self.core.vm.stop_audio();
     }
 
     fn reset(&mut self) {
@@ -460,6 +485,18 @@ impl StudioApp {
         self.tab = Tab::Code;
     }
 
+    /// Splices `text` into the code editor at its last known cursor
+    /// position and switches to the Code tab — used by both the API
+    /// reference panel and the command palette's "insert builtin" entries.
+    fn insert_at_cursor(&mut self, ctx: &egui::Context, text: &str) {
+        let Some(src) = &mut self.source else {
+            self.set_status("open a cart to insert code", true);
+            return;
+        };
+        code_panel::insert_at_cursor(ctx, src, text);
+        self.tab = Tab::Code;
+    }
+
     fn update_game_texture(&mut self, ctx: &egui::Context) {
         let w = self.core.config.width as usize;
         let h = self.core.config.height as usize;
@@ -526,9 +563,7 @@ impl StudioApp {
             self.request_new();
         }
         let open = ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::O));
-        if open
-            && let Some(path) = pick_open_path()
-        {
+        if open && let Some(path) = pick_open_path() {
             self.request_open(path);
         }
 
@@ -542,6 +577,7 @@ impl StudioApp {
                 (egui::Key::F6, Tab::Palette),
                 (egui::Key::F7, Tab::Meta),
                 (egui::Key::F8, Tab::Browser),
+                (egui::Key::F9, Tab::Help),
             ];
             for (key, tab) in f_keys {
                 if i.key_pressed(key) {
@@ -602,24 +638,42 @@ impl eframe::App for StudioApp {
         let fps = ctx.input(|i| 1.0 / i.stable_dt.max(1e-6));
         let action = toolbar::show(ctx, &self.cart_name(), self.run_state, fps);
         match action {
-            toolbar::ToolbarAction::Run => {
-                if self.source.is_some() && self.run_state == RunState::Stopped {
-                    // Stopped source means never compiled or compile failed —
-                    // recompile instead of resuming a stale program.
-                    self.run_source();
-                } else if self.cart.is_some() || self.source.is_some() {
-                    self.run_state = RunState::Running;
-                } else {
-                    self.set_status("no cart loaded", true);
-                }
-            }
-            toolbar::ToolbarAction::Pause => {
-                self.run_state = RunState::Paused;
-                self.core.vm.stop_audio();
-            }
+            toolbar::ToolbarAction::Run => self.run_or_resume(),
+            toolbar::ToolbarAction::Pause => self.pause(),
             toolbar::ToolbarAction::Reset => self.reset(),
             toolbar::ToolbarAction::Save => self.save(),
             toolbar::ToolbarAction::None => {}
+        }
+
+        if let Some(action) = command_palette::show(
+            ctx,
+            &mut self.cmd_palette,
+            self.run_state == RunState::Running,
+        ) {
+            match action {
+                command_palette::PaletteAction::New => self.request_new(),
+                command_palette::PaletteAction::NewTemplate(src) => self.request_new_template(src),
+                command_palette::PaletteAction::Open => {
+                    if let Some(path) = pick_open_path() {
+                        self.request_open(path);
+                    }
+                }
+                command_palette::PaletteAction::Save => self.save(),
+                command_palette::PaletteAction::SaveAs => {
+                    if let Some(path) = pick_save_as_path(&self.cart_name()) {
+                        self.save_as(path);
+                    }
+                }
+                command_palette::PaletteAction::Close => self.request_close(),
+                command_palette::PaletteAction::Exit => self.request_exit(ctx),
+                command_palette::PaletteAction::Run => self.run_or_resume(),
+                command_palette::PaletteAction::Pause => self.pause(),
+                command_palette::PaletteAction::Reset => self.reset(),
+                command_palette::PaletteAction::SwitchTab(tab) => self.tab = tab,
+                command_palette::PaletteAction::InsertBuiltin(text) => {
+                    self.insert_at_cursor(ctx, &text)
+                }
+            }
         }
 
         egui::TopBottomPanel::top("tabs").show(ctx, |ui| {
@@ -663,6 +717,7 @@ impl eframe::App for StudioApp {
                 });
             });
 
+        let mut help_insert = None;
         let welcome_action = egui::CentralPanel::default()
             .show(ctx, |ui| match self.tab {
                 Tab::Code => match &mut self.source {
@@ -700,8 +755,20 @@ impl eframe::App for StudioApp {
                     browser_panel::show(ui, &mut self.browser, ctx, self.cart.as_ref());
                     welcome_panel::WelcomeAction::None
                 }
+                Tab::Help => {
+                    if let help_panel::HelpAction::Insert(text) =
+                        help_panel::show(ui, &mut self.help)
+                    {
+                        help_insert = Some(text);
+                    }
+                    welcome_panel::WelcomeAction::None
+                }
             })
             .inner;
+
+        if let Some(text) = help_insert {
+            self.insert_at_cursor(ctx, &text);
+        }
 
         match welcome_action {
             welcome_panel::WelcomeAction::None => {}

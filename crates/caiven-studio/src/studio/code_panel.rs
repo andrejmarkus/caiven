@@ -50,8 +50,7 @@ const EXTRA_BUILTINS: &[&str] = &[
 /// token, so they're harmless to include here — `next_token`'s word-scan
 /// simply never produces them as one token.
 fn is_builtin(word: &str) -> bool {
-    EXTRA_BUILTINS.contains(&word)
-        || caiven_vm::vm::api_registry::all_names().any(|n| n == word)
+    EXTRA_BUILTINS.contains(&word) || caiven_vm::vm::api_registry::all_names().any(|n| n == word)
 }
 
 const EDITOR_ID: &str = "fc_code_editor";
@@ -338,6 +337,31 @@ fn accept_candidate(
     state.ac.open = false;
 }
 
+/// Splices `text` in at the editor's last known cursor position (or at the
+/// end of the buffer if the editor has never been focused this session) —
+/// used by the command palette and API reference panel's "insert" actions,
+/// which act on the code editor from outside its own `show()` call.
+pub fn insert_at_cursor(ctx: &egui::Context, source: &mut SourceFile, text: &str) {
+    let editor_id = egui::Id::new(EDITOR_ID);
+    let cursor = egui::TextEdit::load_state(ctx, editor_id)
+        .and_then(|s| s.cursor.char_range())
+        .map(|r| r.primary.index)
+        .unwrap_or_else(|| source.text.chars().count());
+
+    let chars: Vec<char> = source.text.chars().collect();
+    let at = cursor.min(chars.len());
+    let before: String = chars[..at].iter().collect();
+    let after: String = chars[at..].iter().collect();
+    source.text = format!("{before}{text}{after}");
+    source.dirty = true;
+
+    let new_cursor = at + text.chars().count();
+    let mut st = egui::TextEdit::load_state(ctx, editor_id).unwrap_or_default();
+    st.cursor
+        .set_char_range(Some(CCursorRange::one(CCursor::new(new_cursor))));
+    st.store(ctx, editor_id);
+}
+
 /// Recomputes the in-progress identifier at the cursor and opens/updates/
 /// closes the popup accordingly. Only *opens* a closed popup when the text
 /// actually changed this frame (typing) or `manual` is set (an explicit
@@ -421,7 +445,9 @@ fn render_autocomplete_popup(
     let Some(range) = output.state.cursor.char_range() else {
         return;
     };
-    let rect = output.galley.pos_from_cursor(CCursor::new(range.primary.index));
+    let rect = output
+        .galley
+        .pos_from_cursor(CCursor::new(range.primary.index));
     let pos = output.galley_pos + rect.left_bottom().to_vec2();
 
     let mut clicked = None;
@@ -432,8 +458,10 @@ fn render_autocomplete_popup(
         .show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 for (i, cand) in state.ac.candidates.iter().enumerate() {
-                    let resp = ui
-                        .selectable_label(i == state.ac.selected, egui::RichText::new(cand).monospace());
+                    let resp = ui.selectable_label(
+                        i == state.ac.selected,
+                        egui::RichText::new(cand).monospace(),
+                    );
                     if resp.clicked() {
                         clicked = Some(i);
                     }
@@ -503,7 +531,10 @@ fn show_hover_doc(
                 intellisense::SymbolKind::Local => "local",
                 intellisense::SymbolKind::Function => "function",
             };
-            ui.label(format!("{kind} {} — declared at line {}", sym.name, sym.line));
+            ui.label(format!(
+                "{kind} {} — declared at line {}",
+                sym.name, sym.line
+            ));
         }
     });
 }
