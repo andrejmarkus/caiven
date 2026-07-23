@@ -59,6 +59,31 @@ const BUILTIN_NAMES: &[&str] = &[
     "real_time",
     "frame_count",
     "time",
+    "SPRITE_SIZE",
+];
+
+/// Names defined by [`PRELUDE_SOURCE`] — also excluded from
+/// [`Vm::lua_globals`]'s snapshot, same reasoning as `BUILTIN_NAMES`: API
+/// surface, not script state. `Particles` is a table, not a function; it's
+/// still excluded wholesale rather than snapshotted, since its `list` field
+/// churns every frame and isn't useful in a "what does the script think"
+/// debugger view.
+const PRELUDE_NAMES: &[&str] = &[
+    "lerp",
+    "clamp",
+    "ease_linear",
+    "ease_in_quad",
+    "ease_out_quad",
+    "ease_in_out_quad",
+    "aabb_overlap",
+    "tile_solid",
+    "box_touches_solid",
+    "new_tween",
+    "tween_update",
+    "new_anim",
+    "anim_update",
+    "anim_sprite",
+    "Particles",
 ];
 
 /// Lua's own stdlib globals — also excluded from the snapshot, along with
@@ -109,6 +134,11 @@ const STDLIB_NAMES: &[&str] = &[
 /// to use the name as-is instead of wrapping it as `[string "cart"]`.
 const CHUNK_NAME: &str = "cart";
 const CHUNK_SOURCE_NAME: &str = "=cart";
+
+/// Gameplay-facing stdlib (easing, AABB/tile collision, tweens, particles) —
+/// pure Lua, loaded into globals once before the cart's own source so it's
+/// available from `_init()` onward like any builtin.
+const PRELUDE_SOURCE: &str = include_str!("prelude.lua");
 
 /// Frames per second `time()` assumes when converting `frame_count`.
 const TARGET_FPS: f64 = 60.0;
@@ -244,6 +274,8 @@ fn register_builtins<'scope, 'env>(
     height: u32,
     frame_count: u32,
 ) -> mlua::Result<()> {
+    globals.set("SPRITE_SIZE", sprite_size)?;
+
     globals.set(
         "clear_screen",
         scope.create_function_mut(|_, ()| {
@@ -646,6 +678,7 @@ impl Vm {
                 self.frame_count,
             )?;
 
+            lua.load(PRELUDE_SOURCE).set_name("=prelude").exec()?;
             lua.load(src).set_name(CHUNK_SOURCE_NAME).exec()?;
             if let Ok(init) = globals.get::<mlua::Function>("_init") {
                 init.call::<()>(())?;
@@ -815,9 +848,10 @@ impl Vm {
     }
 
     /// Snapshot of the script's global variables, for the Studio debugger's
-    /// state inspector. Excludes registered builtins and Lua's own stdlib —
-    /// see [`BUILTIN_NAMES`]/[`STDLIB_NAMES`] — so only script-defined state
-    /// shows up. Locals aren't enumerable (see [`Vm::run_frame_lua_bp`]).
+    /// state inspector. Excludes registered builtins, the gameplay prelude,
+    /// and Lua's own stdlib — see [`BUILTIN_NAMES`]/[`PRELUDE_NAMES`]/
+    /// [`STDLIB_NAMES`] — so only script-defined state shows up. Locals
+    /// aren't enumerable (see [`Vm::run_frame_lua_bp`]).
     pub fn lua_globals(&self) -> Vec<(String, String)> {
         let Some(script) = self.script.as_ref() else {
             return Vec::new();
@@ -827,7 +861,9 @@ impl Vm {
             .pairs::<String, mlua::Value>()
             .filter_map(|pair| pair.ok())
             .filter(|(k, _)| {
-                !BUILTIN_NAMES.contains(&k.as_str()) && !STDLIB_NAMES.contains(&k.as_str())
+                !BUILTIN_NAMES.contains(&k.as_str())
+                    && !PRELUDE_NAMES.contains(&k.as_str())
+                    && !STDLIB_NAMES.contains(&k.as_str())
             })
             .map(|(k, v)| (k, describe_lua_value(&v)))
             .collect();

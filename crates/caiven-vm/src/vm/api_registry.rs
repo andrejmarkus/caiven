@@ -1,7 +1,8 @@
 //! Structured metadata for every name a Lua cart script can call — the
-//! console's own builtins (registered in [`super::lua_exec::register_builtins`])
-//! plus the Lua stdlib members this console leans on. Single source of truth
-//! for editor tooling (autocomplete, hover docs, signature help); the
+//! console's own builtins (registered in [`super::lua_exec::register_builtins`]),
+//! the pure-Lua gameplay stdlib (`lua_exec.rs`'s `prelude.lua`), plus the Lua
+//! stdlib members this console leans on. Single source of truth for editor
+//! tooling (autocomplete, hover docs, signature help); the
 //! syntax-highlighter's builtin list in `caiven-studio`'s code panel is
 //! derived from [`all_names`] so the two can't drift apart.
 
@@ -249,6 +250,160 @@ pub const BUILTINS: &[ApiEntry] = &[
     },
 ];
 
+/// Gameplay-facing stdlib — pure Lua (`lua_exec.rs`'s `prelude.lua`), not
+/// Rust-registered, so hand-authored here like `STDLIB` below rather than
+/// derived from anything.
+pub const PRELUDE: &[ApiEntry] = &[
+    ApiEntry {
+        name: "lerp",
+        params: &[
+            param!("a": "number"),
+            param!("b": "number"),
+            param!("t": "number"),
+        ],
+        returns: "number",
+        doc: "Linear interpolation from a to b at t (0..1).",
+    },
+    ApiEntry {
+        name: "clamp",
+        params: &[
+            param!("v": "number"),
+            param!("lo": "number"),
+            param!("hi": "number"),
+        ],
+        returns: "number",
+        doc: "v restricted to the [lo, hi] range.",
+    },
+    ApiEntry {
+        name: "ease_linear",
+        params: &[param!("t": "number")],
+        returns: "number",
+        doc: "Identity easing curve: ease_linear(t) == t.",
+    },
+    ApiEntry {
+        name: "ease_in_quad",
+        params: &[param!("t": "number")],
+        returns: "number",
+        doc: "Quadratic ease-in curve over t (0..1).",
+    },
+    ApiEntry {
+        name: "ease_out_quad",
+        params: &[param!("t": "number")],
+        returns: "number",
+        doc: "Quadratic ease-out curve over t (0..1).",
+    },
+    ApiEntry {
+        name: "ease_in_out_quad",
+        params: &[param!("t": "number")],
+        returns: "number",
+        doc: "Quadratic ease-in-then-out curve over t (0..1).",
+    },
+    ApiEntry {
+        name: "aabb_overlap",
+        params: &[
+            param!("x1": "number"),
+            param!("y1": "number"),
+            param!("w1": "number"),
+            param!("h1": "number"),
+            param!("x2": "number"),
+            param!("y2": "number"),
+            param!("w2": "number"),
+            param!("h2": "number"),
+        ],
+        returns: "bool",
+        doc: "True if the two axis-aligned boxes overlap.",
+    },
+    ApiEntry {
+        name: "tile_solid",
+        params: &[param!("tx": "number"), param!("ty": "number")],
+        returns: "bool",
+        doc: "True if the map tile at cell (tx, ty) has sprite flag bit 0 set.",
+    },
+    ApiEntry {
+        name: "box_touches_solid",
+        params: &[
+            param!("x": "number"),
+            param!("y": "number"),
+            param!("w": "number"),
+            param!("h": "number"),
+        ],
+        returns: "bool",
+        doc: "True if the pixel-space box overlaps any solid map tile.",
+    },
+    ApiEntry {
+        name: "new_tween",
+        params: &[
+            param!("from": "number"),
+            param!("to": "number"),
+            param!("frames": "number"),
+            param!("ease?": "function"),
+        ],
+        returns: "table",
+        doc: "Creates tween state; ease defaults to ease_linear.",
+    },
+    ApiEntry {
+        name: "tween_update",
+        params: &[param!("tw": "table")],
+        returns: "number",
+        doc: "Advances tw by one frame and returns its current value; tw.done flips true on arrival.",
+    },
+    ApiEntry {
+        name: "new_anim",
+        params: &[param!("frames": "table"), param!("frame_len": "number")],
+        returns: "table",
+        doc: "Creates animation state cycling through a list of sprite ids.",
+    },
+    ApiEntry {
+        name: "anim_update",
+        params: &[param!("anim": "table")],
+        returns: "nil",
+        doc: "Advances anim by one frame, looping back to the first frame at the end.",
+    },
+    ApiEntry {
+        name: "anim_sprite",
+        params: &[param!("anim": "table")],
+        returns: "number",
+        doc: "The sprite id anim is currently showing.",
+    },
+    ApiEntry {
+        name: "Particles.spawn",
+        params: &[
+            param!("x": "number"),
+            param!("y": "number"),
+            param!("vx": "number"),
+            param!("vy": "number"),
+            param!("color": "u8"),
+            param!("life": "number"),
+        ],
+        returns: "nil",
+        doc: "Spawns a particle with the given position, velocity, palette color, and lifetime in frames.",
+    },
+    ApiEntry {
+        name: "Particles.update",
+        params: &[],
+        returns: "nil",
+        doc: "Advances all particles by one frame, dropping any past their lifetime.",
+    },
+    ApiEntry {
+        name: "Particles.draw",
+        params: &[],
+        returns: "nil",
+        doc: "Draws every live particle as a single pixel.",
+    },
+    ApiEntry {
+        name: "Particles.clear",
+        params: &[],
+        returns: "nil",
+        doc: "Removes all particles.",
+    },
+    ApiEntry {
+        name: "Particles.count",
+        params: &[],
+        returns: "number",
+        doc: "Number of live particles.",
+    },
+];
+
 /// Lua stdlib members this console leans on — never Rust-registered (see
 /// `lua_exec.rs`'s module doc comment), so hand-authored here rather than
 /// derived from anything.
@@ -422,10 +577,15 @@ pub const STDLIB: &[ApiEntry] = &[
 pub fn lookup(name: &str) -> Option<&'static ApiEntry> {
     BUILTINS
         .iter()
+        .chain(PRELUDE.iter())
         .chain(STDLIB.iter())
         .find(|e| e.name == name)
 }
 
 pub fn all_names() -> impl Iterator<Item = &'static str> {
-    BUILTINS.iter().chain(STDLIB.iter()).map(|e| e.name)
+    BUILTINS
+        .iter()
+        .chain(PRELUDE.iter())
+        .chain(STDLIB.iter())
+        .map(|e| e.name)
 }

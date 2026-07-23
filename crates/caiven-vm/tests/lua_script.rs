@@ -219,6 +219,10 @@ fn lua_globals_excludes_builtins_and_stdlib() {
     assert!(!names.contains(&"draw_text"), "builtins shouldn't appear");
     assert!(!names.contains(&"print"), "stdlib shouldn't appear");
     assert!(!names.contains(&"_update"), "entry points shouldn't appear");
+    assert!(
+        !names.contains(&"lerp") && !names.contains(&"Particles"),
+        "gameplay prelude shouldn't appear"
+    );
 }
 
 #[test]
@@ -356,4 +360,117 @@ fn lua_frame_count_and_time_advance() {
     // 60 calls the Lua-visible count is 60 and time() is exactly 1 second.
     assert_eq!(get("fc"), "60");
     assert_eq!(get("t"), "1");
+}
+
+fn run_and_get(src_update_body: &str, snapshot_vars: &[&str]) -> Vec<String> {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    let src = format!("function _update()\n{src_update_body}\nend\n");
+    vm.load_lua_source(&src, &input, &font)
+        .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&input, &font);
+    assert_eq!(vm.get_fault(), None);
+    let globals = vm.lua_globals();
+    snapshot_vars
+        .iter()
+        .map(|name| {
+            globals
+                .iter()
+                .find(|(k, _)| k == name)
+                .unwrap_or_else(|| panic!("missing global {name}"))
+                .1
+                .clone()
+        })
+        .collect()
+}
+
+#[test]
+fn prelude_lerp_and_clamp() {
+    let got = run_and_get(
+        "a = lerp(0, 10, 0.5)\nb = clamp(15, 0, 10)\nc = clamp(-5, 0, 10)",
+        &["a", "b", "c"],
+    );
+    assert_eq!(got, vec!["5", "10", "0"]);
+}
+
+#[test]
+fn prelude_easing_bounds() {
+    let got = run_and_get(
+        "a = ease_in_quad(0)\nb = ease_in_quad(1)\nc = ease_out_quad(1)\nd = ease_in_out_quad(1)",
+        &["a", "b", "c", "d"],
+    );
+    assert_eq!(got, vec!["0", "1", "1", "1"]);
+}
+
+#[test]
+fn prelude_aabb_overlap() {
+    let got = run_and_get(
+        "a = aabb_overlap(0,0,10,10, 5,5,10,10)\nb = aabb_overlap(0,0,5,5, 10,10,5,5)",
+        &["a", "b"],
+    );
+    assert_eq!(got, vec!["true", "false"]);
+}
+
+#[test]
+fn prelude_tile_solid_and_box_touches_solid() {
+    let got = run_and_get(
+        r#"
+        set_tile(0, 0, 5)
+        set_sprite_flags(5, 1)
+        a = tile_solid(0, 0)
+        b = tile_solid(1, 0)
+        c = box_touches_solid(0, 0, SPRITE_SIZE, SPRITE_SIZE)
+        d = box_touches_solid(SPRITE_SIZE * 3, SPRITE_SIZE * 3, SPRITE_SIZE, SPRITE_SIZE)
+        "#,
+        &["a", "b", "c", "d"],
+    );
+    assert_eq!(got, vec!["true", "false", "true", "false"]);
+}
+
+#[test]
+fn prelude_tween_reaches_target_and_marks_done() {
+    let got = run_and_get(
+        r#"
+        tw = new_tween(0, 10, 5)
+        for i = 1, 5 do
+          v = tween_update(tw)
+        end
+        done = tw.done
+        "#,
+        &["v", "done"],
+    );
+    assert_eq!(got, vec!["10", "true"]);
+}
+
+#[test]
+fn prelude_anim_cycles_frames() {
+    let got = run_and_get(
+        r#"
+        a = new_anim({7, 8, 9}, 2)
+        for i = 1, 2 do anim_update(a) end
+        first = anim_sprite(a)
+        for i = 1, 2 do anim_update(a) end
+        second = anim_sprite(a)
+        "#,
+        &["first", "second"],
+    );
+    assert_eq!(got, vec!["8", "9"]);
+}
+
+#[test]
+fn prelude_particles_spawn_update_expire() {
+    let got = run_and_get(
+        r#"
+        Particles.spawn(1, 1, 1, 0, 8, 2)
+        n0 = Particles.count()
+        Particles.draw()
+        Particles.update()
+        n1 = Particles.count()
+        Particles.update()
+        n2 = Particles.count()
+        "#,
+        &["n0", "n1", "n2"],
+    );
+    assert_eq!(got, vec!["1", "1", "0"]);
 }

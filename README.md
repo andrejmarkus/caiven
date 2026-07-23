@@ -16,6 +16,7 @@
 - 🎨 **Palette-based Graphics** — 128×128 resolution, 16-color swappable palette; sprites, 64×64 tilemap, shape primitives, camera
 - 📦 **Descriptive Builtin API** — `sprite`, `draw_rect`, `button_down`, `set_palette_color`, etc. — no cryptic abbreviations, and `print()` stays wired to your terminal for real Lua debugging (screen text is `draw_text`)
 - 🔊 **Audio Engine** — real-time sound synthesis, SFX and music banks, playback via CPAL
+- 🧰 **Gameplay Stdlib** — tweens, easing curves, AABB/tile collision, a particle system, and sprite-frame animation, all pure Lua and preloaded into every cart
 - 🖌️ **Caiven Studio** — egui-based editor suite: code, sprite, map, palette, SFX, music, cart-meta editors, local & port cart browser, all in one window
 - 🔍 **Debugger** — line breakpoints (click the code editor gutter), pause/step-by-frame, script-globals inspector, live RAM view, `.cavdbg` sidecar persistence
 - 🌐 **Caiven Port** — self-hostable cart sharing server with a Svelte web UI: accounts, cart versioning, ratings & comments, tag/author discovery
@@ -182,6 +183,21 @@ Math (`sin`/`cos`/`abs`/`floor`/`sqrt`/`max`/`min`/`random`), strings (`..`, `su
 | `real_time()` | Returns `(hour, minute, second)` from the host's real-time clock |
 | `frame_count()` | Number of frames run since the cart loaded |
 | `time()` | Seconds since the cart loaded, assuming 60 frames per second |
+
+### Gameplay stdlib
+
+Pure Lua, loaded into every cart's globals automatically (no `require`) — read `crates/caiven-vm/src/vm/prelude.lua` for the source. See it all in action in `games/carts/stdlib_demo.cav` (`cargo run -p caiven-machine -- games/carts/stdlib_demo.cav`): a tiny platformer with tile collision, a coin pickup that bursts particles, a walk-cycle sprite animation, and four side-by-side tweened dots comparing each easing curve.
+
+| Function | Description |
+| :------- | :---------- |
+| `lerp(a, b, t)` / `clamp(v, lo, hi)` | Linear interpolate / clamp to range |
+| `ease_linear/in_quad/out_quad/in_out_quad(t)` | Easing curves, `t` in `0..1` |
+| `aabb_overlap(x1, y1, w1, h1, x2, y2, w2, h2)` | Axis-aligned box overlap test |
+| `tile_solid(tx, ty)` | Whether the map tile at `(tx, ty)` has sprite flag bit 0 set |
+| `box_touches_solid(x, y, w, h)` | Whether a pixel-space box overlaps any solid tile |
+| `new_tween(from, to, frames, ease)` / `tween_update(tw)` | Frame-driven value tween; `tw.done` flips true on arrival |
+| `new_anim(frames, frame_len)` / `anim_update(anim)` / `anim_sprite(anim)` | Frame-based sprite animation cycling through a sprite-id list |
+| `Particles.spawn(x, y, vx, vy, color, life)` / `.update()` / `.draw()` / `.clear()` / `.count()` | Simple velocity + lifetime particle system |
 
 ---
 

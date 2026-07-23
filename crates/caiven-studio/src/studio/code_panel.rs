@@ -17,7 +17,9 @@ const KEYWORDS: &[&str] = &[
 /// Extra names not in `caiven_vm::vm::api_registry` (script entry points and
 /// Lua's own stdlib globals/namespaces) — `string`/`table`/etc. are
 /// highlighted as namespaces; their members (`string.format`) aren't, same
-/// as most editors.
+/// as most editors. `Particles` is the gameplay prelude's one namespace-style
+/// table (its members, e.g. `Particles.spawn`, are dotted entries in the
+/// registry's `PRELUDE` and highlight via that path instead).
 const EXTRA_BUILTINS: &[&str] = &[
     "_init",
     "_update",
@@ -43,6 +45,7 @@ const EXTRA_BUILTINS: &[&str] = &[
     "os",
     "io",
     "coroutine",
+    "Particles",
 ];
 
 /// Console builtins from the registry (single source of truth, see
