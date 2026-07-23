@@ -223,6 +223,18 @@ pub const BUILTINS: &[ApiEntry] = &[
         returns: "(u8, u8, u8)",
         doc: "Read the real-time clock as (hour, minute, second).",
     },
+    ApiEntry {
+        name: "frame_count",
+        params: &[],
+        returns: "number",
+        doc: "Number of frames run since the cart loaded.",
+    },
+    ApiEntry {
+        name: "time",
+        params: &[],
+        returns: "number",
+        doc: "Seconds since the cart loaded, assuming 60 frames per second.",
+    },
 ];
 
 /// Lua stdlib members this console leans on — never Rust-registered (see

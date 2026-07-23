@@ -1,5 +1,5 @@
 //! Embedded-Lua execution path — every cart is Lua, `run_frame` always runs
-//! `_update()` through here.
+//! `_update()` through here, then `_draw()` if the cart defines it.
 //! Names are spelled out rather than abbreviated (`sprite` not `spr`) so the
 //! API reads clearly on its own — and `draw_text` rather than `print` so we
 //! don't shadow Lua's real `print()`, which stays available for console
@@ -57,6 +57,8 @@ const BUILTIN_NAMES: &[&str] = &[
     "play_music",
     "stop_music",
     "real_time",
+    "frame_count",
+    "time",
 ];
 
 /// Lua's own stdlib globals — also excluded from the snapshot, along with
@@ -66,6 +68,7 @@ const STDLIB_NAMES: &[&str] = &[
     "_VERSION",
     "_init",
     "_update",
+    "_draw",
     "assert",
     "collectgarbage",
     "coroutine",
@@ -106,6 +109,9 @@ const STDLIB_NAMES: &[&str] = &[
 /// to use the name as-is instead of wrapping it as `[string "cart"]`.
 const CHUNK_NAME: &str = "cart";
 const CHUNK_SOURCE_NAME: &str = "=cart";
+
+/// Frames per second `time()` assumes when converting `frame_count`.
+const TARGET_FPS: f64 = 60.0;
 
 pub(super) struct LuaScript {
     lua: Lua,
@@ -236,6 +242,7 @@ fn register_builtins<'scope, 'env>(
     sprite_size: u32,
     width: u32,
     height: u32,
+    frame_count: u32,
 ) -> mlua::Result<()> {
     globals.set(
         "clear_screen",
@@ -587,6 +594,16 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
+    globals.set(
+        "frame_count",
+        scope.create_function(move |_, ()| Ok(frame_count))?,
+    )?;
+
+    globals.set(
+        "time",
+        scope.create_function(move |_, ()| Ok(frame_count as f64 / TARGET_FPS))?,
+    )?;
+
     Ok(())
 }
 
@@ -626,6 +643,7 @@ impl Vm {
                 sprite_size,
                 width,
                 height,
+                self.frame_count,
             )?;
 
             lua.load(src).set_name(CHUNK_SOURCE_NAME).exec()?;
@@ -683,10 +701,15 @@ impl Vm {
                 sprite_size,
                 width,
                 height,
+                self.frame_count,
             )?;
 
             let update: mlua::Function = globals.get("_update")?;
-            update.call::<()>(())
+            update.call::<()>(())?;
+            if let Ok(draw) = globals.get::<mlua::Function>("_draw") {
+                draw.call::<()>(())?;
+            }
+            Ok(())
         });
 
         if let Err(e) = result {
@@ -762,10 +785,15 @@ impl Vm {
                 sprite_size,
                 width,
                 height,
+                self.frame_count,
             )?;
 
             let update: mlua::Function = globals.get("_update")?;
-            update.call::<()>(())
+            update.call::<()>(())?;
+            if let Ok(draw) = globals.get::<mlua::Function>("_draw") {
+                draw.call::<()>(())?;
+            }
+            Ok(())
         });
         lua.remove_hook();
 

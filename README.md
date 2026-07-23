@@ -12,7 +12,7 @@
 
 ## ✨ Features
 
-- 🌙 **Real Lua 5.4** — embedded via `mlua` (vendored, no system Lua required); `_init()` runs once, `_update()` runs every frame
+- 🌙 **Real Lua 5.4** — embedded via `mlua` (vendored, no system Lua required); `_init()` runs once, `_update()` runs every frame, optional `_draw()` runs right after it
 - 🎨 **Palette-based Graphics** — 128×128 resolution, 16-color swappable palette; sprites, 64×64 tilemap, shape primitives, camera
 - 📦 **Descriptive Builtin API** — `sprite`, `draw_rect`, `button_down`, `set_palette_color`, etc. — no cryptic abbreviations, and `print()` stays wired to your terminal for real Lua debugging (screen text is `draw_text`)
 - 🔊 **Audio Engine** — real-time sound synthesis, SFX and music banks, playback via CPAL
@@ -128,6 +128,7 @@ end
 | :------- | :------ |
 | `_init()` | Runs once when the cart loads |
 | `_update()` | Runs once per frame (called for you — no `wait()`/vsync call needed) |
+| `_draw()` | Optional — runs once per frame, right after `_update()`. Split game logic from rendering if you like; carts with only `_update()` work exactly as before |
 
 ---
 
@@ -179,6 +180,8 @@ Math (`sin`/`cos`/`abs`/`floor`/`sqrt`/`max`/`min`/`random`), strings (`..`, `su
 | Function | Description |
 | :------- | :---------- |
 | `real_time()` | Returns `(hour, minute, second)` from the host's real-time clock |
+| `frame_count()` | Number of frames run since the cart loaded |
+| `time()` | Seconds since the cart loaded, assuming 60 frames per second |
 
 ---
 

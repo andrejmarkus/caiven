@@ -21,6 +21,7 @@ const KEYWORDS: &[&str] = &[
 const EXTRA_BUILTINS: &[&str] = &[
     "_init",
     "_update",
+    "_draw",
     "assert",
     "error",
     "ipairs",

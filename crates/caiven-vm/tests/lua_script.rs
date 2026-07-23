@@ -259,3 +259,101 @@ fn rtc_peripheral_ticks_and_is_readable_from_lua() {
     assert_eq!(get("rtc_minute"), minute.to_string());
     assert_eq!(get("rtc_second"), second.to_string());
 }
+
+#[test]
+fn lua_draw_runs_after_update_each_frame() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        update_count = 0
+        draw_count = 0
+        function _update()
+          update_count = update_count + 1
+        end
+        function _draw()
+          draw_count = draw_count + 1
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    vm.run_frame(&input, &font);
+    vm.run_frame(&input, &font);
+
+    assert_eq!(vm.get_fault(), None);
+    let globals = vm.lua_globals();
+    let get = |name: &str| {
+        globals
+            .iter()
+            .find(|(k, _)| k == name)
+            .unwrap_or_else(|| panic!("missing global {name}"))
+            .1
+            .clone()
+    };
+    assert_eq!(get("update_count"), "2");
+    assert_eq!(get("draw_count"), "2");
+}
+
+#[test]
+fn lua_cart_without_draw_still_runs() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          set_pixel(0, 0, 1)
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    vm.run_frame(&input, &font);
+
+    assert_eq!(vm.get_fault(), None);
+}
+
+#[test]
+fn lua_frame_count_and_time_advance() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        fc = 0
+        t = 0
+        function _update()
+          fc = frame_count()
+          t = time()
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    for _ in 0..60 {
+        vm.run_frame(&input, &font);
+    }
+
+    assert_eq!(vm.get_fault(), None);
+    let globals = vm.lua_globals();
+    let get = |name: &str| {
+        globals
+            .iter()
+            .find(|(k, _)| k == name)
+            .unwrap_or_else(|| panic!("missing global {name}"))
+            .1
+            .clone()
+    };
+    // run_frame() increments frame_count before calling _update(), so after
+    // 60 calls the Lua-visible count is 60 and time() is exactly 1 second.
+    assert_eq!(get("fc"), "60");
+    assert_eq!(get("t"), "1");
+}
