@@ -1,9 +1,8 @@
 use rocket::{
     FromForm, State, data::Capped, form::Form, fs::TempFile, get, post, serde::json::Json,
 };
-use tokio::io::AsyncReadExt;
 
-use super::{BinaryFile, move_file, safe_filename, valid_id};
+use super::{BinaryFile, safe_filename, valid_id};
 use crate::{
     PortState,
     auth::AuthUser,
@@ -40,9 +39,9 @@ pub(crate) async fn download_cart_impl(
         return Err(ApiError::bad_request("invalid id"));
     }
     let v = resolve_version(state, id, version).await?;
-    let bytes = tokio::fs::read(state.data_dir.join(&v.cart_path))
-        .await
-        .map_err(|_| ApiError::not_found("cart not found"))?;
+    let bytes = db::get_cart_blob(&state.db, &v.id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("cart not found"))?;
 
     let title = db::get(&state.db, id)
         .await
@@ -73,9 +72,9 @@ pub(crate) async fn get_screenshot_impl(
     if !v.has_screenshot {
         return Err(ApiError::not_found("screenshot not found"));
     }
-    let bytes = tokio::fs::read(state.data_dir.join(db::screenshot_rel_path(id, v.version)))
-        .await
-        .map_err(|_| ApiError::not_found("screenshot not found"))?;
+    let bytes = db::get_screenshot_blob(&state.db, &v.id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("screenshot not found"))?;
 
     Ok(BinaryFile {
         content_type: "image/png",
@@ -116,28 +115,17 @@ pub(crate) async fn upload_screenshot_impl(
         .path()
         .ok_or_else(|| ApiError::internal("temp file unavailable"))?;
 
-    let mut f = tokio::fs::File::open(tmp_path)
+    let bytes = tokio::fs::read(tmp_path)
         .await
         .map_err(|e| ApiError::internal(e.to_string()))?;
-    let mut magic = [0u8; 8];
-    f.read_exact(&mut magic)
-        .await
-        .map_err(|_| ApiError::bad_request("file too small"))?;
-    drop(f);
-
-    if &magic != b"\x89PNG\r\n\x1a\n" {
+    if bytes.len() < 8 {
+        return Err(ApiError::bad_request("file too small"));
+    }
+    if &bytes[..8] != b"\x89PNG\r\n\x1a\n" {
         return Err(ApiError::bad_request("must be a PNG"));
     }
 
-    let dest = state.data_dir.join(db::screenshot_rel_path(id, v.version));
-    move_file(tmp_path, &dest)
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
-
-    if let Err(e) = db::set_version_has_screenshot(&state.db, id, v.version).await {
-        let _ = tokio::fs::remove_file(&dest).await;
-        return Err(ApiError::from(e));
-    }
+    db::set_screenshot(&state.db, &v.id, &bytes).await?;
     Ok(())
 }
 
@@ -172,15 +160,13 @@ pub async fn create_version(
         .path()
         .ok_or_else(|| ApiError::internal("temp file unavailable"))?;
 
-    let mut f = tokio::fs::File::open(tmp_path)
+    let bytes = tokio::fs::read(tmp_path)
         .await
         .map_err(|e| ApiError::internal(e.to_string()))?;
-    let mut magic = [0u8; 6];
-    f.read_exact(&mut magic)
-        .await
-        .map_err(|_| ApiError::bad_request("cart too small"))?;
-    drop(f);
-    if &magic != b"CAIVEN" {
+    if bytes.len() < 6 {
+        return Err(ApiError::bad_request("cart too small"));
+    }
+    if &bytes[..6] != b"CAIVEN" {
         return Err(ApiError::bad_request("not a valid Caiven cart"));
     }
 
@@ -190,30 +176,11 @@ pub async fn create_version(
     } else {
         serde_json::from_str(&upload.meta)?
     };
-    let next = latest_or_one(state, id).await? + 1;
-    let dest = state.data_dir.join(db::cart_rel_path(id, next));
-    move_file(tmp_path, &dest)
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
-
-    let version = match db::insert_version(&state.db, id, &meta.changelog, cart_len).await {
-        Ok(v) => v,
-        Err(e) => {
-            let _ = tokio::fs::remove_file(&dest).await;
-            return Err(ApiError::from(e));
-        }
-    };
+    let version = db::insert_version(&state.db, id, &meta.changelog, &bytes).await?;
     let v = db::get_version(&state.db, id, version)
         .await?
         .ok_or_else(|| ApiError::internal("insert failed"))?;
     Ok(Json(CartVersionInfo::from(v)))
-}
-
-async fn latest_or_one(state: &PortState, id: &str) -> Result<i32, ApiError> {
-    Ok(db::latest_version(&state.db, id)
-        .await?
-        .map(|v| v.version)
-        .unwrap_or(0))
 }
 
 #[get("/api/v2/carts/<id>/cart?<version>")]

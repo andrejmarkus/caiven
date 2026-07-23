@@ -287,21 +287,29 @@ Controls: Run/Pause/Step-one-frame; a script-globals inspector shows the script'
 
 ## 🌐 Caiven Port (Cart Sharing Server)
 
-Self-hostable cart gallery server: Rocket + SQLite backend, Svelte web UI.
-Accounts, cart versioning, ratings & comments, and tag/author/sort discovery.
+Self-hostable cart gallery server: Rocket + Svelte web UI. Accounts, cart
+versioning, ratings & comments, and tag/author/sort discovery. Everything —
+including cart files and screenshots — is stored in the database (`BYTEA`),
+so a PostgreSQL instance is the only stateful thing to provision or back up.
 
 ```bash
 cd crates/caiven-port
 cargo run --release
-# or
+# or, for a real PostgreSQL-backed deploy:
 docker compose up
 ```
+
+Without `--database-url`/`DATABASE_URL` set, `cargo run` falls back to an
+on-disk SQLite database under `--data-dir` — zero-setup for local dev.
+`docker compose up` runs the real deploy path: a `postgres` service plus the
+server, wired together via `DATABASE_URL`.
 
 | Flag | Default | Description |
 | :--- | :------ | :---------- |
 | `--address` | `0.0.0.0` | Listen address |
 | `--port` | `8080` | Listen port |
-| `--data-dir` | `data` | Directory for `port.db` + uploaded carts/screenshots (auto-created) |
+| `--database-url` (env `DATABASE_URL`) | unset | PostgreSQL connection string. When set, carts/screenshots/all data live in Postgres |
+| `--data-dir` | `data` | Fallback SQLite database directory, used only when `--database-url` is unset |
 | `--web-dir` | `crates/caiven-port/web/dist` | Built SPA directory (`npm run build` output in `crates/caiven-port/web/`) |
 
 Open the base URL in a browser to register an account, browse/search/filter

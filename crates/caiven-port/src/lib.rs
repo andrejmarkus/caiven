@@ -15,7 +15,6 @@ pub mod models;
 
 pub struct PortState {
     pub db: sea_orm::DatabaseConnection,
-    pub data_dir: PathBuf,
     pub rate: auth::RateLimiter,
     pub web_dir: PathBuf,
 }

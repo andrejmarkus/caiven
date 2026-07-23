@@ -26,8 +26,8 @@ pixels = "0.15"
 regex = "1"
 rfd = "0.15"
 rocket = { version = "0.5", features = ["json"] }
-sea-orm = { version = "1", features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros"] }
-sea-orm-migration = { version = "1", features = ["sqlx-sqlite", "runtime-tokio-rustls"] }
+sea-orm = { version = "1", features = ["sqlx-sqlite", "sqlx-postgres", "runtime-tokio-rustls", "macros"] }
+sea-orm-migration = { version = "1", features = ["sqlx-sqlite", "sqlx-postgres", "runtime-tokio-rustls"] }
 migration = { path = "crates/migration" }
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"

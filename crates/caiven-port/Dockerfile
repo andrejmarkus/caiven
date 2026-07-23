@@ -27,10 +27,7 @@ RUN apt-get update \
 COPY --from=builder /app/target/release/caiven-port /usr/local/bin/caiven-port
 COPY --from=web /app/web/dist /app/web
 
-RUN mkdir -p /data/carts /data/screenshots
-
-VOLUME /data
 EXPOSE 8080
 
 ENTRYPOINT ["caiven-port"]
-CMD ["--data-dir", "/data", "--web-dir", "/app/web", "--address", "0.0.0.0", "--port", "8080"]
+CMD ["--web-dir", "/app/web", "--address", "0.0.0.0", "--port", "8080"]
