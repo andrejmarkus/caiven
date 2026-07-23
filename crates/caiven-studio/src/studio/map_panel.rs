@@ -2,9 +2,11 @@
 //! sheet, with pencil/fill/rect tools, RMB tile pick, zoom and full-map undo.
 
 use super::{sheet, theme};
-use egui::{Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
-use caiven_core::memory::{MAP_H, MAP_LEN, MAP_RAM_BASE, MAP_W, PALETTE_SIZE};
+use caiven_core::memory::{
+    MAP_H, MAP_LEN, MAP_RAM_BASE, MAP_W, PALETTE_SIZE, SPRITE_FLAGS_RAM_BASE,
+};
 use caiven_vm::Vm;
+use egui::{Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
 
 const TILE_PX: usize = 8;
 /// Tiles per 128px screen — grid draws a stronger line on these boundaries.
@@ -34,6 +36,7 @@ impl Tool {
 pub struct MapState {
     pub tile: usize,
     pub tool: Tool,
+    pub show_flags: bool,
     zoom: usize,
     undo: Vec<Vec<u8>>,
     redo: Vec<Vec<u8>>,
@@ -48,6 +51,7 @@ impl Default for MapState {
         Self {
             tile: 0,
             tool: Tool::Pencil,
+            show_flags: false,
             zoom: 1,
             undo: Vec::new(),
             redo: Vec::new(),
@@ -212,21 +216,63 @@ fn show_tool_row(ui: &mut egui::Ui, state: &mut MapState) {
         for (i, z) in ZOOMS.iter().enumerate() {
             ui.selectable_value(&mut state.zoom, i, format!("{z}\u{d7}"));
         }
+        ui.separator();
+        ui.checkbox(&mut state.show_flags, "FLAGS");
     });
 }
 
-/// Renders the whole 512×512 map image from tile + sprite RAM.
-fn build_map_image(vm: &Vm) -> egui::ColorImage {
+/// Blended color for a tile's sprite-flag byte, one fixed hue per bit,
+/// averaged across set bits. `None` when no flags are set.
+fn flag_overlay_color(flags: u8) -> Option<Color32> {
+    const BIT_COLORS: [(u32, u32, u32); 8] = [
+        (237, 28, 36),
+        (255, 127, 39),
+        (255, 242, 0),
+        (34, 177, 76),
+        (0, 162, 232),
+        (63, 72, 204),
+        (163, 73, 164),
+        (255, 174, 201),
+    ];
+    let mut sum = (0u32, 0u32, 0u32);
+    let mut n = 0u32;
+    for (bit, (r, g, b)) in BIT_COLORS.iter().enumerate() {
+        if flags & (1 << bit) != 0 {
+            sum.0 += r;
+            sum.1 += g;
+            sum.2 += b;
+            n += 1;
+        }
+    }
+    (n > 0).then(|| Color32::from_rgb((sum.0 / n) as u8, (sum.1 / n) as u8, (sum.2 / n) as u8))
+}
+
+fn blend(a: Color32, b: Color32, t: f32) -> Color32 {
+    let lerp = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t) as u8;
+    Color32::from_rgb(lerp(a.r(), b.r()), lerp(a.g(), b.g()), lerp(a.b(), b.b()))
+}
+
+/// Renders the whole 512×512 map image from tile + sprite RAM. When
+/// `show_flags` is set, each tile is tinted by its sprite-flag byte.
+fn build_map_image(vm: &Vm, show_flags: bool) -> egui::ColorImage {
     let w = MAP_W * TILE_PX;
     let h = MAP_H * TILE_PX;
     let pal: [Color32; PALETTE_SIZE] = std::array::from_fn(|i| sheet::palette_color32(vm, i as u8));
     let mut rgba = vec![0u8; w * h * 4];
     for ty in 0..MAP_H {
         for tx in 0..MAP_W {
-            let base = sheet::sprite_base(tile_at(vm, tx, ty) as usize);
+            let tile = tile_at(vm, tx, ty) as usize;
+            let base = sheet::sprite_base(tile);
+            let overlay = show_flags
+                .then(|| flag_overlay_color(vm.peek_memory(SPRITE_FLAGS_RAM_BASE + tile)))
+                .flatten();
             for py in 0..TILE_PX {
                 for px in 0..TILE_PX {
-                    let c = pal[(vm.peek_memory(base + py * TILE_PX + px) as usize) % PALETTE_SIZE];
+                    let mut c =
+                        pal[(vm.peek_memory(base + py * TILE_PX + px) as usize) % PALETTE_SIZE];
+                    if let Some(ov) = overlay {
+                        c = blend(c, ov, 0.55);
+                    }
                     let off = ((ty * TILE_PX + py) * w + tx * TILE_PX + px) * 4;
                     rgba[off..off + 4].copy_from_slice(&[c.r(), c.g(), c.b(), 255]);
                 }
@@ -237,7 +283,7 @@ fn build_map_image(vm: &Vm) -> egui::ColorImage {
 }
 
 fn show_canvas(ui: &mut egui::Ui, state: &mut MapState, vm: &mut Vm) {
-    let image = build_map_image(vm);
+    let image = build_map_image(vm, state.show_flags);
     let tex = match &mut state.map_tex {
         Some(tex) => {
             tex.set(image, egui::TextureOptions::NEAREST);
@@ -361,6 +407,42 @@ fn show_canvas(ui: &mut egui::Ui, state: &mut MapState, vm: &mut Vm) {
         None => {
             ui.colored_label(theme::DIM, format!("map {MAP_W}\u{d7}{MAP_H}"));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_flags_means_no_overlay() {
+        assert_eq!(flag_overlay_color(0), None);
+    }
+
+    #[test]
+    fn single_flag_uses_its_own_color() {
+        assert_eq!(flag_overlay_color(1), Some(Color32::from_rgb(237, 28, 36)));
+    }
+
+    #[test]
+    fn multiple_flags_average_their_colors() {
+        // bits 0 and 2 -> average of (237,28,36) and (255,242,0)
+        let c = flag_overlay_color(0b101).unwrap();
+        assert_eq!(c, Color32::from_rgb(246, 135, 18));
+    }
+
+    #[test]
+    fn blend_at_zero_keeps_original() {
+        let a = Color32::from_rgb(10, 20, 30);
+        let b = Color32::from_rgb(200, 200, 200);
+        assert_eq!(blend(a, b, 0.0), a);
+    }
+
+    #[test]
+    fn blend_at_one_gives_target() {
+        let a = Color32::from_rgb(10, 20, 30);
+        let b = Color32::from_rgb(200, 200, 200);
+        assert_eq!(blend(a, b, 1.0), b);
     }
 }
 

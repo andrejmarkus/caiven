@@ -4,9 +4,9 @@
 
 use super::sheet::{self, palette_color32, sprite_base};
 use super::theme;
-use egui::{Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
 use caiven_core::memory::{PALETTE_SIZE, SPRITE_FLAGS_RAM_BASE};
 use caiven_vm::Vm;
+use egui::{Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
 
 const SPRITE_SIZE: usize = 8;
 const SPRITE_BYTES: usize = SPRITE_SIZE * SPRITE_SIZE;
@@ -176,6 +176,38 @@ fn line_cells(a: (usize, usize), b: (usize, usize)) -> Vec<(usize, usize)> {
     cells
 }
 
+fn flip_h(data: &[u8; SPRITE_BYTES]) -> [u8; SPRITE_BYTES] {
+    std::array::from_fn(|i| {
+        let (x, y) = (i % SPRITE_SIZE, i / SPRITE_SIZE);
+        data[y * SPRITE_SIZE + (SPRITE_SIZE - 1 - x)]
+    })
+}
+
+fn flip_v(data: &[u8; SPRITE_BYTES]) -> [u8; SPRITE_BYTES] {
+    std::array::from_fn(|i| {
+        let (x, y) = (i % SPRITE_SIZE, i / SPRITE_SIZE);
+        data[(SPRITE_SIZE - 1 - y) * SPRITE_SIZE + x]
+    })
+}
+
+fn rotate90(data: &[u8; SPRITE_BYTES]) -> [u8; SPRITE_BYTES] {
+    std::array::from_fn(|i| {
+        let (x, y) = (i % SPRITE_SIZE, i / SPRITE_SIZE);
+        data[(SPRITE_SIZE - 1 - x) * SPRITE_SIZE + y]
+    })
+}
+
+/// Wraps pixels by one cell in the given direction.
+fn shift(data: &[u8; SPRITE_BYTES], dx: isize, dy: isize) -> [u8; SPRITE_BYTES] {
+    let n = SPRITE_SIZE as isize;
+    std::array::from_fn(|i| {
+        let (x, y) = (i % SPRITE_SIZE, i / SPRITE_SIZE);
+        let sx = (x as isize - dx).rem_euclid(n) as usize;
+        let sy = (y as isize - dy).rem_euclid(n) as usize;
+        data[sy * SPRITE_SIZE + sx]
+    })
+}
+
 /// Cells of a rectangle outline between two corner cells.
 fn rect_cells(a: (usize, usize), b: (usize, usize)) -> Vec<(usize, usize)> {
     let (x0, x1) = (a.0.min(b.0), a.0.max(b.0));
@@ -200,6 +232,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut SpriteState, vm: &mut Vm) {
         ui.vertical(|ui| {
             show_tool_row(ui, state);
             show_canvas(ui, state, vm);
+            show_ops_row(ui, state, vm);
             show_palette_row(ui, state, vm);
             show_flags_row(ui, state, vm);
         });
@@ -369,6 +402,49 @@ fn show_canvas(ui: &mut egui::Ui, state: &mut SpriteState, vm: &mut Vm) {
     }
 }
 
+fn show_ops_row(ui: &mut egui::Ui, state: &mut SpriteState, vm: &mut Vm) {
+    ui.horizontal(|ui| {
+        if ui.button("FLIP H").clicked() {
+            state.apply_edit(vm, |vm, sprite| {
+                let data = flip_h(&read_sprite(vm, sprite));
+                write_sprite(vm, sprite, &data);
+            });
+        }
+        if ui.button("FLIP V").clicked() {
+            state.apply_edit(vm, |vm, sprite| {
+                let data = flip_v(&read_sprite(vm, sprite));
+                write_sprite(vm, sprite, &data);
+            });
+        }
+        if ui.button("ROT90").clicked() {
+            state.apply_edit(vm, |vm, sprite| {
+                let data = rotate90(&read_sprite(vm, sprite));
+                write_sprite(vm, sprite, &data);
+            });
+        }
+        ui.separator();
+        for (label, dx, dy) in [
+            ("\u{25c0}", -1, 0),
+            ("\u{25b6}", 1, 0),
+            ("\u{25b2}", 0, -1),
+            ("\u{25bc}", 0, 1),
+        ] {
+            if ui.button(label).clicked() {
+                state.apply_edit(vm, move |vm, sprite| {
+                    let data = shift(&read_sprite(vm, sprite), dx, dy);
+                    write_sprite(vm, sprite, &data);
+                });
+            }
+        }
+        ui.separator();
+        if ui.button("CLEAR").clicked() {
+            state.apply_edit(vm, |vm, sprite| {
+                write_sprite(vm, sprite, &[0; SPRITE_BYTES])
+            });
+        }
+    });
+}
+
 fn show_palette_row(ui: &mut egui::Ui, state: &mut SpriteState, vm: &Vm) {
     let swatch = 16.0;
     let (rect, resp) = ui.allocate_exact_size(
@@ -414,4 +490,66 @@ fn show_flags_row(ui: &mut egui::Ui, state: &SpriteState, vm: &mut Vm) {
             vm.poke_memory(addr, flags);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sprite_from_rows(rows: [[u8; 8]; 8]) -> [u8; SPRITE_BYTES] {
+        std::array::from_fn(|i| rows[i / SPRITE_SIZE][i % SPRITE_SIZE])
+    }
+
+    #[test]
+    fn flip_h_mirrors_columns() {
+        let data = sprite_from_rows([
+            [1, 2, 3, 4, 5, 6, 7, 8],
+            [0; 8],
+            [0; 8],
+            [0; 8],
+            [0; 8],
+            [0; 8],
+            [0; 8],
+            [0; 8],
+        ]);
+        let flipped = flip_h(&data);
+        assert_eq!(&flipped[0..8], &[8, 7, 6, 5, 4, 3, 2, 1]);
+    }
+
+    #[test]
+    fn flip_v_mirrors_rows() {
+        let mut rows = [[0u8; 8]; 8];
+        rows[0] = [9; 8];
+        rows[7] = [3; 8];
+        let flipped = flip_v(&sprite_from_rows(rows));
+        assert_eq!(&flipped[0..8], &[3; 8]);
+        assert_eq!(&flipped[56..64], &[9; 8]);
+    }
+
+    #[test]
+    fn rotate90_moves_top_row_to_right_column() {
+        let mut rows = [[0u8; 8]; 8];
+        rows[0] = [1, 2, 3, 4, 5, 6, 7, 8];
+        let rotated = rotate90(&sprite_from_rows(rows));
+        for y in 0..SPRITE_SIZE {
+            assert_eq!(rotated[y * SPRITE_SIZE + 7], rows[0][y]);
+        }
+    }
+
+    #[test]
+    fn shift_wraps_around_edges() {
+        let mut rows = [[0u8; 8]; 8];
+        rows[0][0] = 42;
+        let data = sprite_from_rows(rows);
+        // Shift left by one: pixel at (0,0) should now appear at (7,0).
+        let shifted = shift(&data, -1, 0);
+        assert_eq!(shifted[7], 42);
+        assert_eq!(shifted[0], 0);
+    }
+
+    #[test]
+    fn clear_zeroes_all_pixels() {
+        let cleared = [0u8; SPRITE_BYTES];
+        assert!(cleared.iter().all(|&b| b == 0));
+    }
 }
