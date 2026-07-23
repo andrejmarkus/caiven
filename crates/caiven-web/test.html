@@ -58,6 +58,37 @@
         canvas.height = height;
         const ctx = canvas.getContext("2d");
 
+        // Button indices per crates/caiven-vm/src/input/button.rs.
+        const KEY_TO_BUTTON = {
+          ArrowUp: 0,
+          w: 0,
+          ArrowDown: 1,
+          s: 1,
+          ArrowLeft: 2,
+          a: 2,
+          ArrowRight: 3,
+          d: 3,
+          j: 4,
+          z: 4,
+          k: 5,
+          x: 5,
+        };
+        canvas.tabIndex = 0;
+        canvas.focus();
+        canvas.addEventListener("click", () => canvas.focus());
+        window.addEventListener("keydown", (e) => {
+          const btn = KEY_TO_BUTTON[e.key];
+          if (btn === undefined) return;
+          e.preventDefault();
+          Module.ccall("caiven_set_button", null, ["number", "number"], [btn, 1]);
+        });
+        window.addEventListener("keyup", (e) => {
+          const btn = KEY_TO_BUTTON[e.key];
+          if (btn === undefined) return;
+          e.preventDefault();
+          Module.ccall("caiven_set_button", null, ["number", "number"], [btn, 0]);
+        });
+
         function frame() {
           Module.ccall("caiven_tick", null, ["number"], [1]);
           const pixPtr = Module.ccall("caiven_pixels", "number", [], []);
