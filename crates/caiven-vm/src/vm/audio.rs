@@ -1,13 +1,18 @@
 use crate::peripheral::Peripheral;
 use crate::vm::memory::Memory;
-use anyhow::{Context, Result};
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::{Arc, Mutex};
 
+#[cfg(feature = "native")]
+use anyhow::{Context, Result};
+#[cfg(feature = "native")]
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+
 /// Per-channel scale so square+noise summing doesn't hard-clip at full volume.
+#[cfg(feature = "native")]
 const CHANNEL_HEADROOM: f32 = 0.5;
 /// Overall output attenuation — raw full-scale square/noise waves read as
 /// much louder than typical game audio at the same numeric volume.
+#[cfg(feature = "native")]
 const MASTER_GAIN: f32 = 0.35;
 
 #[derive(Debug, Clone)]
@@ -32,11 +37,13 @@ pub struct Sound {
     pub noise: NoiseChannel,
 }
 
+#[cfg(feature = "native")]
 pub struct Audio {
     #[allow(dead_code)]
     stream: cpal::Stream,
 }
 
+#[cfg(feature = "native")]
 impl Audio {
     pub fn new(sound: Arc<Mutex<Sound>>) -> Result<Self> {
         let host = cpal::default_host();

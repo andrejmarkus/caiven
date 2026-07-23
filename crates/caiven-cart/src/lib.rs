@@ -5,6 +5,6 @@ mod section;
 pub mod text;
 
 pub use error::CartError;
-pub use format::{Cart, load, write};
+pub use format::{Cart, load, parse, write};
 pub use header::CartHeader;
 pub use section::{CartSection, SectionKind};

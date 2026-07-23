@@ -53,7 +53,29 @@ impl Font {
         let img = image::open(path)
             .with_context(|| format!("failed to open font image at {path}"))?
             .to_rgba8();
+        Ok(Self::from_rgba8(&img, chars, glyph_width, glyph_height))
+    }
 
+    /// Decodes a font sheet from an in-memory image (e.g. `include_bytes!`),
+    /// for hosts without filesystem access such as the web player.
+    pub fn from_bytes(
+        bytes: &[u8],
+        chars: &str,
+        glyph_width: usize,
+        glyph_height: usize,
+    ) -> Result<Self> {
+        let img = image::load_from_memory(bytes)
+            .context("failed to decode font image from memory")?
+            .to_rgba8();
+        Ok(Self::from_rgba8(&img, chars, glyph_width, glyph_height))
+    }
+
+    fn from_rgba8(
+        img: &image::RgbaImage,
+        chars: &str,
+        glyph_width: usize,
+        glyph_height: usize,
+    ) -> Self {
         let mut glyphs = HashMap::new();
         for (i, ch) in chars.chars().enumerate() {
             let x0 = i * glyph_width;
@@ -67,10 +89,10 @@ impl Font {
             glyphs.insert(ch, Glyph { pixels });
         }
 
-        Ok(Self {
+        Self {
             glyphs,
             width: glyph_width,
             height: glyph_height,
-        })
+        }
     }
 }

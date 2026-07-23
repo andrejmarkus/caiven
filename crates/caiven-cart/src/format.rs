@@ -31,10 +31,16 @@ pub struct Cart {
 
 pub fn load(path: &Path) -> Result<Cart, CartError> {
     let data = std::fs::read(path)?;
+    parse(&data)
+}
+
+/// Parses a cart from an in-memory byte slice (e.g. fetched over HTTP),
+/// for hosts without filesystem access such as the web player.
+pub fn parse(data: &[u8]) -> Result<Cart, CartError> {
     if data.len() < MAGIC.len() || &data[0..MAGIC.len()] != MAGIC {
         return Err(CartError::BadMagic);
     }
-    load_bytes(&data)
+    load_bytes(data)
 }
 
 /// Read a little-endian u32 at `pos`. Caller must ensure `pos + 4 <= data.len()`.

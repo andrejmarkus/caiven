@@ -10,16 +10,20 @@ workspace = true
 name = "caiven_vm"
 path = "src/lib.rs"
 
+[features]
+default = ["native"]
+native = ["dep:winit", "dep:pixels", "dep:cpal"]
+
 [dependencies]
 anyhow = { workspace = true }
 chrono = { workspace = true }
-cpal = { workspace = true }
+cpal = { workspace = true, optional = true }
 caiven-cart = { workspace = true }
 caiven-core = { workspace = true }
 image = { workspace = true }
 log = { workspace = true }
 mlua = { workspace = true }
-pixels = { workspace = true }
+pixels = { workspace = true, optional = true }
 serde = { workspace = true }
 toml = { workspace = true }
-winit = { workspace = true }
+winit = { workspace = true, optional = true }
