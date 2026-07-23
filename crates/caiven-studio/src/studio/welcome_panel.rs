@@ -4,6 +4,8 @@
 
 use super::templates::{CartTemplate, TEMPLATES};
 use super::theme;
+use egui::text::LayoutJob;
+use egui::{FontId, TextFormat};
 use std::path::{Path, PathBuf};
 
 pub enum WelcomeAction {
@@ -44,8 +46,10 @@ pub fn show(ui: &mut egui::Ui, recent: &[PathBuf]) -> WelcomeAction {
             source,
         } in TEMPLATES
         {
-            let text = format!("{name:<16}{description}");
-            if cols[0].selectable_label(false, text).clicked() {
+            if cols[0]
+                .selectable_label(false, template_row(name, description))
+                .clicked()
+            {
                 action = WelcomeAction::NewTemplate(source);
             }
         }
@@ -70,4 +74,31 @@ fn display_name(path: &Path) -> String {
     path.file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.display().to_string())
+}
+
+/// Name in accent/bold, description dimmed — so the two don't read as one
+/// run-on phrase (the plain `"{name:<16}{description}"` string they replace
+/// rendered as flat, same-weight text with no visual break between them).
+fn template_row(name: &str, description: &str) -> LayoutJob {
+    let mut job = LayoutJob::default();
+    let font_id = FontId::monospace(14.0);
+    job.append(
+        &format!("{name:<18}"),
+        0.0,
+        TextFormat {
+            font_id: font_id.clone(),
+            color: theme::ACCENT,
+            ..Default::default()
+        },
+    );
+    job.append(
+        description,
+        0.0,
+        TextFormat {
+            font_id,
+            color: theme::DIM,
+            ..Default::default()
+        },
+    );
+    job
 }
