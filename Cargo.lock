@@ -1051,6 +1051,7 @@ name = "caiven-vm"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "caiven-cart",
  "caiven-core",
  "chrono",
  "cpal",

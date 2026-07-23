@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use caiven_cart::SectionKind;
-use caiven_core::memory::SPRITE_SHEET_RAM_BASE;
 use caiven_vm::runtime::{ConsoleCore, WindowGfx};
 use clap::Parser;
 use log::info;
@@ -43,25 +42,17 @@ impl App {
 
         // Asset RAM must be in place before the Lua load, since it runs
         // `_init()` immediately.
-        for section in &cart.sections {
-            if section.kind == SectionKind::SpriteSheet {
-                self.core
-                    .vm
-                    .load_section_to_ram(SPRITE_SHEET_RAM_BASE, &section.data);
-                info!(
-                    "SpriteSheet section loaded to RAM at 0x{:04X} ({} bytes)",
-                    SPRITE_SHEET_RAM_BASE,
-                    section.data.len()
-                );
-            }
-        }
-
-        let lua_source = cart
-            .sections
-            .iter()
-            .find(|s| s.kind == SectionKind::LuaSource)
-            .map(|s| String::from_utf8_lossy(&s.data).into_owned())
-            .context("cart has no Lua source section (bytecode carts are no longer supported)")?;
+        let lua_source =
+            self.core.vm.load_cart_sections(&cart.sections).context(
+                "cart has no Lua source section (bytecode carts are no longer supported)",
+            )?;
+        info!(
+            "loaded {} asset section(s) to RAM",
+            cart.sections
+                .iter()
+                .filter(|s| s.kind != SectionKind::LuaSource)
+                .count()
+        );
         self.core
             .vm
             .load_lua_source(&lua_source, &self.core.input, &self.core.font)

@@ -22,6 +22,11 @@ use crate::peripheral::{Peripheral, PeripheralRegistry};
 use crate::rendering::screen::ScreenLayer;
 use crate::vm::Camera;
 use crate::vm::audio::{NoiseChannel, Sound, SquareChannel};
+use caiven_cart::{CartSection, SectionKind};
+use caiven_core::memory::{
+    MAP_RAM_BASE, MUSIC_RAM_BASE, PALETTE_RAM_BASE, SFX_RAM_BASE, SPRITE_FLAGS_RAM_BASE,
+    SPRITE_SHEET_RAM_BASE,
+};
 use caiven_core::{Color, Vec2};
 use log::error;
 use std::sync::{Arc, Mutex};
@@ -121,6 +126,40 @@ impl Vm {
                 break;
             }
         }
+    }
+
+    /// Copies every RAM-backed asset section a cart may carry (SpriteSheet,
+    /// Map, SpriteFlags, Palette, SfxBank, MusicBank) to its fixed RAM base,
+    /// and returns the cart's Lua source text if present. Single source of
+    /// truth for "which section kind goes where" — every cart-loading call
+    /// site (Studio, `caiven-machine`, the port screenshot capturer) must go
+    /// through this instead of re-listing the mapping, so they can't drift
+    /// apart the way the audio/peripheral per-frame tick paths already did
+    /// once each grew a second, independently-written call site.
+    pub fn load_cart_sections(&mut self, sections: &[CartSection]) -> Option<String> {
+        for section in sections {
+            let ram_base = match section.kind {
+                SectionKind::SpriteSheet => SPRITE_SHEET_RAM_BASE,
+                SectionKind::Map => MAP_RAM_BASE,
+                SectionKind::SpriteFlags => SPRITE_FLAGS_RAM_BASE,
+                SectionKind::Palette => PALETTE_RAM_BASE,
+                SectionKind::SfxBank => SFX_RAM_BASE,
+                SectionKind::MusicBank => MUSIC_RAM_BASE,
+                SectionKind::Program
+                | SectionKind::Meta
+                | SectionKind::ModManifest
+                | SectionKind::LuaSource
+                | SectionKind::Custom(_) => continue,
+            };
+            self.load_section_to_ram(ram_base, &section.data);
+            if section.kind == SectionKind::Palette {
+                self.set_palette_from_bytes(&section.data);
+            }
+        }
+        sections
+            .iter()
+            .find(|s| s.kind == SectionKind::LuaSource)
+            .map(|s| String::from_utf8_lossy(&s.data).into_owned())
     }
 
     pub fn get_memory_length(&self) -> usize {

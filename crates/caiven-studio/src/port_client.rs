@@ -4,10 +4,6 @@
 //! screenshot capture used to illustrate a published cart.
 
 use anyhow::{Context, Result};
-use caiven_cart::SectionKind;
-use caiven_core::memory::{
-    MAP_RAM_BASE, MUSIC_RAM_BASE, PALETTE_RAM_BASE, SFX_RAM_BASE, SPRITE_SHEET_RAM_BASE,
-};
 use caiven_vm::input::Input;
 use caiven_vm::rendering::font::Font;
 use caiven_vm::{Vm, VmConfig};
@@ -43,31 +39,13 @@ pub(crate) fn capture_screenshot(
 
     // Asset RAM must be in place before the Lua load, since it runs
     // `_init()` immediately.
-    for section in &cart.sections {
-        match section.kind {
-            SectionKind::SpriteSheet => {
-                vm.load_section_to_ram(SPRITE_SHEET_RAM_BASE, &section.data)
-            }
-            SectionKind::Map => vm.load_section_to_ram(MAP_RAM_BASE, &section.data),
-            SectionKind::Palette => {
-                vm.load_section_to_ram(PALETTE_RAM_BASE, &section.data);
-                vm.set_palette_from_bytes(&section.data);
-            }
-            SectionKind::SfxBank => vm.load_section_to_ram(SFX_RAM_BASE, &section.data),
-            SectionKind::MusicBank => vm.load_section_to_ram(MUSIC_RAM_BASE, &section.data),
-            _ => {}
-        }
-    }
+    let lua_source = vm
+        .load_cart_sections(&cart.sections)
+        .context("cart has no Lua source section (bytecode carts are no longer supported)")?;
 
     let font = Font::empty();
     let input = Input::new();
 
-    let lua_source = cart
-        .sections
-        .iter()
-        .find(|s| s.kind == SectionKind::LuaSource)
-        .map(|s| String::from_utf8_lossy(&s.data).into_owned())
-        .context("cart has no Lua source section (bytecode carts are no longer supported)")?;
     vm.load_lua_source(&lua_source, &input, &font)
         .map_err(|e| anyhow::anyhow!("{e}"))
         .context("failed to load Lua cart for screenshot")?;
