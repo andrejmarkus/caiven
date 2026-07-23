@@ -37,11 +37,7 @@ impl App {
             if section.kind == SectionKind::ModManifest {
                 let manifest = String::from_utf8_lossy(&section.data);
                 let registered = self.core.vm.registered_peripheral_names();
-                for required in manifest.lines().map(str::trim).filter(|s| !s.is_empty()) {
-                    if !registered.contains(&required) {
-                        anyhow::bail!("cart requires mod '{}' but it is not loaded", required);
-                    }
-                }
+                check_mod_manifest(&manifest, &registered)?;
             }
         }
 
@@ -119,6 +115,17 @@ impl ApplicationHandler for App {
     }
 }
 
+/// Checks that every peripheral a cart's `ModManifest` section declares it
+/// needs is present in `registered`. Blank lines are ignored.
+fn check_mod_manifest(manifest: &str, registered: &[&str]) -> Result<()> {
+    for required in manifest.lines().map(str::trim).filter(|s| !s.is_empty()) {
+        if !registered.contains(&required) {
+            anyhow::bail!("cart requires mod '{}' but it is not loaded", required);
+        }
+    }
+    Ok(())
+}
+
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
 
@@ -132,4 +139,30 @@ pub fn run() -> Result<()> {
     event_loop.run_app(&mut app).context("event loop error")?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_mod_manifest;
+
+    #[test]
+    fn passes_when_all_required_peripherals_registered() {
+        assert!(check_mod_manifest("rtc\ninput", &["rtc", "input", "audio"]).is_ok());
+    }
+
+    #[test]
+    fn fails_when_a_peripheral_is_missing() {
+        let err = check_mod_manifest("rtc\nmissing_mod", &["rtc"]).unwrap_err();
+        assert!(err.to_string().contains("missing_mod"));
+    }
+
+    #[test]
+    fn ignores_blank_lines_and_surrounding_whitespace() {
+        assert!(check_mod_manifest("\n  rtc  \n\n", &["rtc"]).is_ok());
+    }
+
+    #[test]
+    fn empty_manifest_always_passes() {
+        assert!(check_mod_manifest("", &[]).is_ok());
+    }
 }

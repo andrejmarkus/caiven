@@ -70,3 +70,41 @@ pub const RTC_LEN: usize = 3;
 
 /// RAM base address of general-purpose/heap space.
 pub const HEAP_RAM_BASE: usize = 0x9703;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every mapped RAM region, in ascending address order. Catches the
+    /// class of bug this map has already hit twice (a shifted base
+    /// silently overlapping its neighbor) by asserting no region's end
+    /// runs past the next region's start.
+    #[test]
+    fn ram_regions_do_not_overlap_and_fit_in_ram() {
+        let regions: [(&str, usize, usize); 7] = [
+            ("sprite_sheet", SPRITE_SHEET_RAM_BASE, SPRITE_SHEET_LEN),
+            ("map", MAP_RAM_BASE, MAP_LEN),
+            ("sprite_flags", SPRITE_FLAGS_RAM_BASE, SPRITE_FLAGS_LEN),
+            ("palette", PALETTE_RAM_BASE, PALETTE_SIZE * 3),
+            ("sfx", SFX_RAM_BASE, SFX_BANK_LEN),
+            ("music", MUSIC_RAM_BASE, MUSIC_BANK_LEN),
+            ("rtc", RTC_RAM_BASE, RTC_LEN),
+        ];
+
+        let mut prev_end = 0usize;
+        let mut prev_name = "start of RAM";
+        for (name, base, len) in regions {
+            assert!(
+                base >= prev_end,
+                "{name} (0x{base:04X}) overlaps {prev_name} (ends 0x{prev_end:04X})"
+            );
+            prev_end = base + len;
+            prev_name = name;
+        }
+
+        assert!(
+            HEAP_RAM_BASE >= prev_end,
+            "heap (0x{HEAP_RAM_BASE:04X}) overlaps {prev_name} (ends 0x{prev_end:04X})"
+        );
+    }
+}
