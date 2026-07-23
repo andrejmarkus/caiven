@@ -37,13 +37,21 @@ pub const BUILTINS: &[ApiEntry] = &[
     },
     ApiEntry {
         name: "set_pixel",
-        params: &[param!("x": "number"), param!("y": "number"), param!("color_index": "u8")],
+        params: &[
+            param!("x": "number"),
+            param!("y": "number"),
+            param!("color_index": "u8"),
+        ],
         returns: "nil",
         doc: "Set a single pixel to a palette color.",
     },
     ApiEntry {
         name: "sprite",
-        params: &[param!("sprite_id": "u8"), param!("x": "number"), param!("y": "number")],
+        params: &[
+            param!("sprite_id": "u8"),
+            param!("x": "number"),
+            param!("y": "number"),
+        ],
         returns: "nil",
         doc: "Draw sprite sprite_id with its top-left at (x, y), camera-relative.",
     },
@@ -183,7 +191,11 @@ pub const BUILTINS: &[ApiEntry] = &[
     },
     ApiEntry {
         name: "set_tile",
-        params: &[param!("x": "number"), param!("y": "number"), param!("tile": "u8")],
+        params: &[
+            param!("x": "number"),
+            param!("y": "number"),
+            param!("tile": "u8"),
+        ],
         returns: "nil",
         doc: "Write a tile id at map cell (x, y); no-op if out of bounds.",
     },
@@ -303,7 +315,11 @@ pub const STDLIB: &[ApiEntry] = &[
     },
     ApiEntry {
         name: "string.sub",
-        params: &[param!("s": "string"), param!("i": "number"), param!("j?": "number")],
+        params: &[
+            param!("s": "string"),
+            param!("i": "number"),
+            param!("j?": "number"),
+        ],
         returns: "string",
         doc: "Substring from index i to j (inclusive, 1-based).",
     },
@@ -321,7 +337,11 @@ pub const STDLIB: &[ApiEntry] = &[
     },
     ApiEntry {
         name: "string.find",
-        params: &[param!("s": "string"), param!("pattern": "string"), param!("init?": "number")],
+        params: &[
+            param!("s": "string"),
+            param!("pattern": "string"),
+            param!("init?": "number"),
+        ],
         returns: "number, number",
         doc: "Start/end indices of the first pattern match, or nil.",
     },
@@ -338,7 +358,11 @@ pub const STDLIB: &[ApiEntry] = &[
     },
     ApiEntry {
         name: "string.match",
-        params: &[param!("s": "string"), param!("pattern": "string"), param!("init?": "number")],
+        params: &[
+            param!("s": "string"),
+            param!("pattern": "string"),
+            param!("init?": "number"),
+        ],
         returns: "string",
         doc: "First match of pattern in s, or nil.",
     },
@@ -362,7 +386,11 @@ pub const STDLIB: &[ApiEntry] = &[
     },
     ApiEntry {
         name: "table.insert",
-        params: &[param!("t": "table"), param!("pos?": "number"), param!("value": "any")],
+        params: &[
+            param!("t": "table"),
+            param!("pos?": "number"),
+            param!("value": "any"),
+        ],
         returns: "nil",
         doc: "Insert value into t, at pos if given, else at the end.",
     },

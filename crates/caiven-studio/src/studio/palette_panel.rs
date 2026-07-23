@@ -3,10 +3,10 @@
 //! RAM so Ctrl+S persists them.
 
 use super::theme;
-use egui::{Color32, Rect, Sense, Stroke, StrokeKind, Vec2};
 use caiven_core::Color;
 use caiven_core::memory::{PALETTE_RAM_BASE, PALETTE_SIZE};
 use caiven_vm::Vm;
+use egui::{Color32, Rect, Sense, Stroke, StrokeKind, Vec2};
 
 pub struct PaletteState {
     pub selected: usize,

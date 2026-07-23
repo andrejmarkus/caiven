@@ -4,9 +4,9 @@
 
 use super::sfx_panel;
 use super::theme;
-use egui::RichText;
 use caiven_core::memory::MUSIC_RAM_BASE;
 use caiven_vm::Vm;
+use egui::RichText;
 
 const PATTERNS: usize = 8;
 const ROWS: usize = 16;

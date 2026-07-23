@@ -3,10 +3,10 @@
 //! Edits go straight to SFX RAM; undo keeps per-sfx snapshots.
 
 use super::theme;
-use egui::{Color32, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Vec2};
 use caiven_core::memory::SFX_RAM_BASE;
 use caiven_vm::Vm;
 use caiven_vm::vm::sfx::note_name;
+use egui::{Color32, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Vec2};
 
 pub const STEPS: usize = 16;
 pub const SFX_COUNT: usize = 16;

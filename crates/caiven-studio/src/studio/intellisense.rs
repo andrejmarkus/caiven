@@ -21,8 +21,9 @@ pub struct Symbol {
 
 static LOCAL_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)^\s*local\s+([A-Za-z_]\w*)").unwrap());
-static FUNCTION_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?m)^\s*(?:local\s+)?function\s+([A-Za-z_][\w.:]*)\s*\(").unwrap());
+static FUNCTION_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^\s*(?:local\s+)?function\s+([A-Za-z_][\w.:]*)\s*\(").unwrap()
+});
 
 /// Scans the whole buffer for `local x = ...` and `function name(...)` /
 /// `local function name(...)` declarations, for autocomplete + hover.
@@ -93,7 +94,11 @@ fn completion_prefix_at(text: &str, cursor: usize) -> (usize, String) {
 /// pops up off a bare cursor move.
 pub fn completion_context(text: &str, cursor: usize) -> Option<(usize, String)> {
     let (start, prefix) = completion_prefix_at(text, cursor);
-    if prefix.is_empty() { None } else { Some((start, prefix)) }
+    if prefix.is_empty() {
+        None
+    } else {
+        Some((start, prefix))
+    }
 }
 
 /// Like [`completion_context`], but never returns `None` — an empty prefix
@@ -179,7 +184,9 @@ pub fn call_context_at_cursor(text: &str, cursor: usize) -> Option<(String, usiz
                 if depth == 0 {
                     let mut end = i;
                     while end > 0
-                        && (chars[end - 1].is_alphanumeric() || chars[end - 1] == '_' || chars[end - 1] == '.')
+                        && (chars[end - 1].is_alphanumeric()
+                            || chars[end - 1] == '_'
+                            || chars[end - 1] == '.')
                     {
                         end -= 1;
                     }

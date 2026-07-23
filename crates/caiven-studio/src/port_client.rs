@@ -4,10 +4,10 @@
 //! screenshot capture used to illustrate a published cart.
 
 use anyhow::{Context, Result};
+use caiven_cart::SectionKind;
 use caiven_core::memory::{
     MAP_RAM_BASE, MUSIC_RAM_BASE, PALETTE_RAM_BASE, SFX_RAM_BASE, SPRITE_SHEET_RAM_BASE,
 };
-use caiven_cart::SectionKind;
 use caiven_vm::input::Input;
 use caiven_vm::rendering::font::Font;
 use caiven_vm::{Vm, VmConfig};

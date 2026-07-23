@@ -2,9 +2,9 @@
 //! texture with click/drag selection. Used by the sprite and map editors.
 
 use super::theme;
-use egui::{Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
 use caiven_core::memory::{SPRITE_BYTES, SPRITE_COUNT, SPRITE_SHEET_RAM_BASE};
 use caiven_vm::Vm;
+use egui::{Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
 
 pub const SHEET_COLS: usize = 16;
 const SPRITE_SIZE: usize = 8;
