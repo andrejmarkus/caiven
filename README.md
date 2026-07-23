@@ -17,7 +17,7 @@
 - 📦 **Descriptive Builtin API** — `sprite`, `draw_rect`, `button_down`, `set_palette_color`, etc. — no cryptic abbreviations, and `print()` stays wired to your terminal for real Lua debugging (screen text is `draw_text`)
 - 🔊 **Audio Engine** — real-time sound synthesis, SFX and music banks, playback via CPAL
 - 🖌️ **Caiven Studio** — egui-based editor suite: code, sprite, map, palette, SFX, music, cart-meta editors, local & port cart browser, all in one window
-- 🔍 **Debugger** — line breakpoints (click the code editor gutter), pause/step-by-frame, script-globals inspector, live RAM view, `.fcdbg` sidecar persistence
+- 🔍 **Debugger** — line breakpoints (click the code editor gutter), pause/step-by-frame, script-globals inspector, live RAM view, `.cavdbg` sidecar persistence
 - 🌐 **Caiven Port** — self-hostable cart sharing server with a Svelte web UI: accounts, cart versioning, ratings & comments, tag/author discovery
 
 ---
@@ -233,7 +233,7 @@ Scrollable 64×64 tile canvas, pencil/fill/rect tools, right-click tile eyedropp
 
 ### 🔍 Debugger
 
-Bottom panel below the game view. Breakpoints toggle from the code editor gutter and persist in a `.fcdbg` TOML sidecar next to the cart:
+Bottom panel below the game view. Breakpoints toggle from the code editor gutter and persist in a `.cavdbg` TOML sidecar next to the cart:
 
 ```toml
 breakpoints = [9, 42]

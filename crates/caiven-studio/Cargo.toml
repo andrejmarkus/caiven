@@ -13,7 +13,6 @@ chrono = { workspace = true }
 clap = { workspace = true }
 eframe = { workspace = true }
 egui = { workspace = true }
-egui_extras = { workspace = true }
 env_logger = { workspace = true }
 caiven-core = { workspace = true }
 caiven-cart = { workspace = true }
@@ -26,4 +25,3 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
 ureq = { workspace = true }
-winit = { workspace = true }

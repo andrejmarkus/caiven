@@ -356,7 +356,13 @@ async fn oversize_cart_is_413() {
 
     let mut cart_bytes = sample_cart();
     cart_bytes.resize(1024 * 1024 + 1, 0);
-    let resp = upload(&client, &token, &cart_bytes, r#"{"title":"T","author":"A"}"#).await;
+    let resp = upload(
+        &client,
+        &token,
+        &cart_bytes,
+        r#"{"title":"T","author":"A"}"#,
+    )
+    .await;
     assert_eq!(resp.status(), Status::PayloadTooLarge);
 }
 
@@ -444,7 +450,13 @@ async fn versioning_upload_list_download_and_delete() {
     let token = auth_token(&client).await;
 
     let cart_v1 = sample_cart();
-    let resp = upload(&client, &token, &cart_v1, r#"{"title":"Game","author":"A"}"#).await;
+    let resp = upload(
+        &client,
+        &token,
+        &cart_v1,
+        r#"{"title":"Game","author":"A"}"#,
+    )
+    .await;
     assert_eq!(resp.status(), Status::Ok);
     let cart: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     let id = cart["id"].as_str().unwrap().to_string();

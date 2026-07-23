@@ -410,6 +410,29 @@ fn show_canvas(ui: &mut egui::Ui, state: &mut MapState, vm: &mut Vm) {
     }
 }
 
+/// Per-tile grid at 2×+ zoom, screen-boundary lines (every 16 tiles) always.
+fn draw_grid(painter: &egui::Painter, rect: Rect, cell_px: f32, zoom: usize) {
+    let fine = Stroke::new(1.0, Color32::from_rgba_unmultiplied(45, 45, 55, 120));
+    let screen = Stroke::new(1.0, Color32::from_rgba_unmultiplied(120, 120, 140, 160));
+    let (w, h) = (rect.width(), rect.height());
+    for i in 0..=MAP_W {
+        let on_screen_edge = i % SCREEN_TILES == 0;
+        if zoom == 0 && !on_screen_edge {
+            continue;
+        }
+        let stroke = if on_screen_edge { screen } else { fine };
+        let t = i as f32 * cell_px;
+        painter.line_segment(
+            [rect.min + Vec2::new(t, 0.0), rect.min + Vec2::new(t, h)],
+            stroke,
+        );
+        painter.line_segment(
+            [rect.min + Vec2::new(0.0, t), rect.min + Vec2::new(w, t)],
+            stroke,
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -443,28 +466,5 @@ mod tests {
         let a = Color32::from_rgb(10, 20, 30);
         let b = Color32::from_rgb(200, 200, 200);
         assert_eq!(blend(a, b, 1.0), b);
-    }
-}
-
-/// Per-tile grid at 2×+ zoom, screen-boundary lines (every 16 tiles) always.
-fn draw_grid(painter: &egui::Painter, rect: Rect, cell_px: f32, zoom: usize) {
-    let fine = Stroke::new(1.0, Color32::from_rgba_unmultiplied(45, 45, 55, 120));
-    let screen = Stroke::new(1.0, Color32::from_rgba_unmultiplied(120, 120, 140, 160));
-    let (w, h) = (rect.width(), rect.height());
-    for i in 0..=MAP_W {
-        let on_screen_edge = i % SCREEN_TILES == 0;
-        if zoom == 0 && !on_screen_edge {
-            continue;
-        }
-        let stroke = if on_screen_edge { screen } else { fine };
-        let t = i as f32 * cell_px;
-        painter.line_segment(
-            [rect.min + Vec2::new(t, 0.0), rect.min + Vec2::new(t, h)],
-            stroke,
-        );
-        painter.line_segment(
-            [rect.min + Vec2::new(0.0, t), rect.min + Vec2::new(w, t)],
-            stroke,
-        );
     }
 }

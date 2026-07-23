@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
-struct FcDbgFile {
+struct DbgFile {
     #[serde(default)]
     breakpoints: Vec<usize>,
 }
@@ -12,7 +12,7 @@ struct FcDbgFile {
 pub struct Debugger {
     breakpoints: Vec<usize>,
     cursor_addr: usize,
-    fcdbg_path: Option<PathBuf>,
+    dbg_path: Option<PathBuf>,
 }
 
 impl Debugger {
@@ -20,29 +20,29 @@ impl Debugger {
         Debugger {
             breakpoints: Vec::new(),
             cursor_addr: 0,
-            fcdbg_path: None,
+            dbg_path: None,
         }
     }
 
-    pub fn set_fcdbg_path(&mut self, path: PathBuf) {
-        self.fcdbg_path = Some(path);
-        self.load_fcdbg();
+    pub fn set_dbg_path(&mut self, path: PathBuf) {
+        self.dbg_path = Some(path);
+        self.load_dbg();
     }
 
-    fn load_fcdbg(&mut self) {
-        let Some(path) = &self.fcdbg_path else { return };
+    fn load_dbg(&mut self) {
+        let Some(path) = &self.dbg_path else { return };
         let Ok(text) = std::fs::read_to_string(path) else {
             return;
         };
-        let Ok(file) = toml::from_str::<FcDbgFile>(&text) else {
+        let Ok(file) = toml::from_str::<DbgFile>(&text) else {
             return;
         };
         self.breakpoints = file.breakpoints;
     }
 
-    fn save_fcdbg(&self) {
-        let Some(path) = &self.fcdbg_path else { return };
-        let file = FcDbgFile {
+    fn save_dbg(&self) {
+        let Some(path) = &self.dbg_path else { return };
+        let file = DbgFile {
             breakpoints: self.breakpoints.clone(),
         };
         if let Ok(text) = toml::to_string(&file) {
@@ -58,7 +58,7 @@ impl Debugger {
         } else {
             self.breakpoints.push(line);
         }
-        self.save_fcdbg();
+        self.save_dbg();
     }
 
     pub fn breakpoints(&self) -> &[usize] {

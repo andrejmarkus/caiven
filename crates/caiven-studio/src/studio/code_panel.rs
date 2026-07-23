@@ -54,7 +54,7 @@ fn is_builtin(word: &str) -> bool {
     EXTRA_BUILTINS.contains(&word) || caiven_vm::vm::api_registry::all_names().any(|n| n == word)
 }
 
-const EDITOR_ID: &str = "fc_code_editor";
+const EDITOR_ID: &str = "cav_code_editor";
 
 struct Goto {
     char_start: usize,
@@ -145,7 +145,7 @@ fn find_bar(ui: &mut egui::Ui, state: &mut CodeState, text: &str, editor_id: egu
         ui.colored_label(theme::DIM, "find:");
         let resp = ui.add(
             egui::TextEdit::singleline(&mut state.query)
-                .id(egui::Id::new("fc_code_find"))
+                .id(egui::Id::new("cav_code_find"))
                 .desired_width(220.0),
         );
         if state.find_focus {
@@ -452,7 +452,7 @@ fn render_autocomplete_popup(
     let pos = output.galley_pos + rect.left_bottom().to_vec2();
 
     let mut clicked = None;
-    egui::Area::new(egui::Id::new("fc_autocomplete_popup"))
+    egui::Area::new(egui::Id::new("cav_autocomplete_popup"))
         .fixed_pos(pos)
         .movable(false)
         .order(egui::Order::Foreground)
@@ -513,7 +513,7 @@ fn show_hover_doc(
     egui::Tooltip::always_open(
         ui.ctx().clone(),
         output.response.layer_id,
-        egui::Id::new("fc_hover_doc"),
+        egui::Id::new("cav_hover_doc"),
         egui::PopupAnchor::Pointer,
     )
     .at_pointer()
@@ -560,7 +560,7 @@ fn show_signature_help(ui: &mut egui::Ui, output: &egui::text_edit::TextEditOutp
     let rect = output.galley.pos_from_cursor(CCursor::new(cursor));
     let pos = output.galley_pos + rect.left_top().to_vec2() - egui::vec2(0.0, 4.0);
 
-    egui::Area::new(egui::Id::new("fc_signature_help"))
+    egui::Area::new(egui::Id::new("cav_signature_help"))
         .fixed_pos(pos)
         .pivot(egui::Align2::LEFT_BOTTOM)
         .movable(false)

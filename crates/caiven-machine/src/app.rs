@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
-use clap::Parser;
-use caiven_core::memory::SPRITE_SHEET_RAM_BASE;
 use caiven_cart::SectionKind;
+use caiven_core::memory::SPRITE_SHEET_RAM_BASE;
 use caiven_vm::runtime::{ConsoleCore, WindowGfx};
+use clap::Parser;
 use log::info;
 use std::path::{Path, PathBuf};
 use winit::event_loop::{ControlFlow, EventLoop};

@@ -52,9 +52,9 @@ impl Default for DebugState {
 }
 
 impl DebugState {
-    /// Points breakpoint persistence at `<cart>.fcdbg` and loads it.
+    /// Points breakpoint persistence at `<cart>.cavdbg` and loads it.
     pub fn on_cart_loaded(&mut self, path: &Path) {
-        self.dbg.set_fcdbg_path(path.with_extension("fcdbg"));
+        self.dbg.set_dbg_path(path.with_extension("cavdbg"));
         self.last_error = None;
     }
 
