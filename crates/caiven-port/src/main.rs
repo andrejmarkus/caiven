@@ -36,7 +36,12 @@ async fn main() -> Result<()> {
     tokio::fs::create_dir_all(args.data_dir.join("screenshots")).await?;
 
     let db_path = args.data_dir.join("port.db");
-    let db_url = format!("sqlite://{}?mode=rwc", db_path.display());
+    // sqlx's sqlite URL parser rejects backslashes, which `Path::display()`
+    // emits on Windows — normalize to forward slashes for the connection string.
+    let db_url = format!(
+        "sqlite://{}?mode=rwc",
+        db_path.display().to_string().replace('\\', "/")
+    );
     let db = Database::connect(&db_url).await?;
     migration::Migrator::up(&db, None).await?;
 
