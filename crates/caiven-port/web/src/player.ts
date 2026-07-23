@@ -72,15 +72,24 @@ function loadScript(src: string): Promise<void> {
   return scriptLoadPromise;
 }
 
-// Synthesizes audio on the main thread via the deprecated but universally
-// supported ScriptProcessorNode — the emscripten module instance lives on
-// the main thread, and AudioWorklet's separate global scope would need its
-// own copy of the wasm module loaded cross-thread for no real latency win
-// on this kind of chiptune-scale synth.
+// Renders audio on the main thread (the only place the emscripten module
+// lives) and hands pre-rendered PCM chunks to an AudioWorklet
+// (public/caiven-audio-worklet.js) for playback — the worklet's separate
+// realm never touches wasm directly, it just plays back what it's given.
 class AudioEngine {
   private module: CaivenModuleInstance;
   private ctx: AudioContext | null = null;
-  private node: ScriptProcessorNode | null = null;
+  private node: AudioWorkletNode | null = null;
+  // How far ahead of the audio clock we've scheduled samples. rAF frequency
+  // tracks the display's refresh rate, not the audio clock — on a >60Hz
+  // monitor a naive "one ~16ms chunk per tick" schedule overproduces audio
+  // faster than it plays back, so the queue (and latency) grows without
+  // bound. Pacing off ctx.currentTime instead keeps production matched to
+  // real playback regardless of rAF rate. Each chunk renders from whatever
+  // Sound state exists at render time, so LOOKAHEAD_SEC also doubles as the
+  // worst-case button-press-to-sound delay — kept small on purpose.
+  private nextChunkTime = 0;
+  private static readonly LOOKAHEAD_SEC = 0.03;
 
   constructor(module: CaivenModuleInstance) {
     this.module = module;
@@ -92,17 +101,42 @@ class AudioEngine {
       return;
     }
     const AudioCtx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    this.ctx = new AudioCtx();
-    const node = this.ctx.createScriptProcessor(1024, 0, 1);
+    const ctx = new AudioCtx();
+    this.ctx = ctx;
+    void ctx.audioWorklet.addModule('/caiven-audio-worklet.js').then(() => {
+      const node = new AudioWorkletNode(ctx, 'caiven-audio-processor', {
+        numberOfInputs: 0,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+      });
+      node.connect(ctx.destination);
+      this.node = node;
+      this.nextChunkTime = ctx.currentTime;
+    });
+  }
+
+  /// Tops up the worklet's queue to stay ~LOOKAHEAD_SEC ahead of the audio
+  /// clock (`ctx.currentTime`), scheduling nothing if already buffered far
+  /// enough — called once per rAF tick, a no-op until the worklet module has
+  /// finished loading. Driving this off the audio clock rather than a fixed
+  /// per-tick chunk keeps latency bounded and self-corrects after any stall
+  /// (a hidden tab, GC pause) instead of drifting further behind forever.
+  pump(): void {
+    if (!this.ctx || !this.node) return;
     const sampleRate = this.ctx.sampleRate;
-    node.onaudioprocess = (e) => {
-      const out = e.outputBuffer.getChannelData(0);
-      this.module.ccall('caiven_audio_fill', null, ['number', 'number'], [out.length, sampleRate]);
+    if (this.nextChunkTime < this.ctx.currentTime) {
+      this.nextChunkTime = this.ctx.currentTime;
+    }
+    while (this.nextChunkTime < this.ctx.currentTime + AudioEngine.LOOKAHEAD_SEC) {
+      const numFrames = Math.ceil(sampleRate / 60);
+      this.module.ccall('caiven_audio_fill', null, ['number', 'number'], [numFrames, sampleRate]);
       const ptr = (this.module.ccall('caiven_audio_ptr', 'number', [], []) as number) / 4;
-      out.set(this.module.HEAPF32.subarray(ptr, ptr + out.length));
-    };
-    node.connect(this.ctx.destination);
-    this.node = node;
+      // .slice() (not .subarray()) — must copy out of the wasm heap before
+      // transferring, since a transfer would detach the shared buffer.
+      const chunk = this.module.HEAPF32.slice(ptr, ptr + numFrames);
+      this.node.port.postMessage(chunk, [chunk.buffer]);
+      this.nextChunkTime += numFrames / sampleRate;
+    }
   }
 
   stop(): void {
@@ -110,6 +144,7 @@ class AudioEngine {
     this.node = null;
     void this.ctx?.close();
     this.ctx = null;
+    this.nextChunkTime = 0;
   }
 }
 
@@ -256,6 +291,7 @@ export class CartPlayer {
       this.pollGamepad();
       if (!this.faulted) {
         this.module.ccall('caiven_tick', null, ['number'], [1]);
+        this.audio.pump();
         const hasFault = this.module.ccall('caiven_has_fault', 'number', [], []) as number;
         if (hasFault) {
           this.faulted = true;
