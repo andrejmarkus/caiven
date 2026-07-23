@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>caiven-web smoke test</title>
+    <style>
+      body {
+        background: #222;
+        color: #eee;
+        font-family: monospace;
+      }
+      canvas {
+        image-rendering: pixelated;
+        width: 512px;
+        height: 512px;
+        border: 1px solid #555;
+      }
+    </style>
+  </head>
+  <body>
+    <p>cart: <span id="cart">../../games/carts/stdlib_demo.cav</span></p>
+    <canvas id="screen" width="128" height="128"></canvas>
+    <pre id="log"></pre>
+    <script src="./target/wasm32-unknown-emscripten/release/caiven_web.js"></script>
+    <script>
+      const log = (msg) => {
+        document.getElementById("log").textContent += msg + "\n";
+        console.log(msg);
+      };
+
+      CaivenModule().then(async (Module) => {
+        log("module loaded");
+
+        const newRc = Module.ccall("caiven_new", "number", [], []);
+        log("caiven_new -> " + newRc);
+
+        const cartUrl = "../../games/carts/stdlib_demo.cav";
+        const bytes = new Uint8Array(await (await fetch(cartUrl)).arrayBuffer());
+        log("fetched cart, " + bytes.length + " bytes");
+
+        const ptr = Module._malloc(bytes.length);
+        Module.HEAPU8.set(bytes, ptr);
+        const loadRc = Module.ccall(
+          "caiven_load_cart",
+          "number",
+          ["number", "number"],
+          [ptr, bytes.length],
+        );
+        Module._free(ptr);
+        log("caiven_load_cart -> " + loadRc);
+
+        const width = Module.ccall("caiven_width", "number", [], []);
+        const height = Module.ccall("caiven_height", "number", [], []);
+        log("dims: " + width + "x" + height);
+
+        const canvas = document.getElementById("screen");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+
+        function frame() {
+          Module.ccall("caiven_tick", null, ["number"], [1]);
+          const pixPtr = Module.ccall("caiven_pixels", "number", [], []);
+          const buf = Module.HEAPU8.subarray(pixPtr, pixPtr + width * height * 4);
+          const imageData = new ImageData(new Uint8ClampedArray(buf), width, height);
+          ctx.putImageData(imageData, 0, 0);
+          requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+      });
+    </script>
+  </body>
+</html>

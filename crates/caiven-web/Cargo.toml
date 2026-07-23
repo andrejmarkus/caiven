@@ -1,0 +1,17 @@
+[package]
+name = "caiven-web"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "caiven_web"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+caiven-cart = { workspace = true }
+caiven-core = { workspace = true }
+caiven-vm = { path = "../caiven-vm", default-features = false }

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/caiven-core", "crates/caiven-cart", "crates/caiven-machine", "crates/caiven-vm", "crates/caiven-studio", "crates/caiven-port", "crates/migration"]
+members = ["crates/caiven-core", "crates/caiven-cart", "crates/caiven-machine", "crates/caiven-vm", "crates/caiven-studio", "crates/caiven-port", "crates/caiven-web", "crates/migration"]
 resolver = "2"
 
 [workspace.lints.clippy]
