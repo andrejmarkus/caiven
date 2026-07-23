@@ -327,11 +327,42 @@ cookie; the same account can also mint per-user API tokens (Profile page) for
 Legacy `/api/carts*` routes (v1 shape, single cart file per cart) remain for
 backward compatibility — `caiven-studio publish` still targets them internally.
 
+### 🕹️ Web Play
+
+Every cart on the hub has a **Play** button (gallery card and detail page) that
+opens `/play/:id` — a zero-install browser build of the runtime, no download
+required. Backed by `crates/caiven-web`, a WASM (`wasm32-unknown-emscripten`)
+build of the VM that fetches the cart over the same REST API and renders to a
+`<canvas>` at 60fps.
+
+- **Controls:** arrows/WASD to move, `J`/`Z` = A, `K`/`X` = B, standard
+  Gamepad API support, and an on-screen touch d-pad + A/B on coarse-pointer
+  (mobile) viewports.
+- **Audio:** the same square/noise synth used natively, driven by a
+  `ScriptProcessorNode` instead of `cpal`.
+- **Crash handling:** a Lua runtime error stops the cart and shows the error
+  and line number over the last frame, instead of hanging silently.
+- Click the canvas or press a key once to start audio — browsers require a
+  user gesture before playing sound.
+
+Rebuilding `caiven-web` requires the Emscripten SDK (`emcc`/`emar` on `PATH`).
+A throwaway Docker recipe (run from the repo root):
+
+```bash
+docker run --rm -v "$(pwd):/work" -w /work emscripten/emsdk:latest \
+  bash crates/caiven-web/build-web.sh
+```
+
+Then copy `target/wasm32-unknown-emscripten/release/caiven_web.{js,wasm}`
+into `crates/caiven-port/web/public/wasm/` and `npm run build` in
+`crates/caiven-port/web/` — the built artifact ships with the repo since
+there's no CI wasm pipeline yet.
+
 ---
 
 ## 📂 Project Structure
 
-Cargo workspace with seven crates:
+Cargo workspace with eight crates:
 
 | Crate | Description |
 | :---- | :---------- |
@@ -341,6 +372,7 @@ Cargo workspace with seven crates:
 | `crates/caiven-studio` | Main binary: Caiven Studio editor suite (edit mode only), cart browser, CLI |
 | `crates/caiven-machine` | Standalone cart runner (run mode: `.cav` only, no editor/port) |
 | `crates/caiven-port` | Cart sharing server |
+| `crates/caiven-web` | WASM cart player (`wasm32-unknown-emscripten`) served by caiven-port's `/play/:id` |
 | `crates/migration` | `sea-orm` database migrations for caiven-port |
 
 `games/carts/` — example carts, ready to run: `cargo run -p caiven-machine -- games/carts/catch.cav`, or open in Caiven Studio via `caiven-studio edit`.

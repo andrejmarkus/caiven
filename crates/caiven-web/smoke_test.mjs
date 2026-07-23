@@ -37,4 +37,14 @@ for (const b of buf) {
 }
 console.log(`checksum=${checksum} nonZeroBytes=${nonZero}/${buf.length}`);
 if (checksum === 0) throw new Error("framebuffer is all zero after 30 frames");
+
+Module.ccall("caiven_audio_fill", null, ["number", "number"], [256, 44100]);
+const audioPtr = Module.ccall("caiven_audio_ptr", "number", [], []) / 4;
+const samples = Module.HEAPF32.subarray(audioPtr, audioPtr + 256);
+console.log(`audio: first sample=${samples[0]}`);
+
+const hasFault = Module.ccall("caiven_has_fault", "number", [], []);
+console.log(`hasFault=${hasFault}`);
+if (hasFault !== 0) throw new Error("unexpected fault after a clean run");
+
 console.log("OK");

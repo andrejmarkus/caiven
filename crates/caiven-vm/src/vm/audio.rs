@@ -8,12 +8,59 @@ use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 /// Per-channel scale so square+noise summing doesn't hard-clip at full volume.
-#[cfg(feature = "native")]
 const CHANNEL_HEADROOM: f32 = 0.5;
 /// Overall output attenuation — raw full-scale square/noise waves read as
 /// much louder than typical game audio at the same numeric volume.
-#[cfg(feature = "native")]
 const MASTER_GAIN: f32 = 0.35;
+
+/// Square+noise synth, one sample at a time. Portable (no cpal) so both the
+/// native `Audio` stream callback and the web player's `AudioWorklet` fill
+/// export can share the exact same waveform math.
+pub struct Synth {
+    square_phase: f32,
+    noise_phase: f32,
+    lfsr: u16,
+}
+
+impl Default for Synth {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Synth {
+    pub fn new() -> Self {
+        Self {
+            square_phase: 0.0,
+            noise_phase: 0.0,
+            lfsr: 0xACE1,
+        }
+    }
+
+    /// Advances the synth by one output sample and returns it in `[-1, 1]`.
+    pub fn next_sample(&mut self, sound: &Sound, sample_rate: f32) -> f32 {
+        let mut mix = 0.0f32;
+
+        if sound.square.enabled && sound.square.volume > 0.0 {
+            let v = if self.square_phase < 0.5 { 1.0 } else { -1.0 };
+            self.square_phase = (self.square_phase + sound.square.frequency / sample_rate) % 1.0;
+            mix += v * sound.square.volume * CHANNEL_HEADROOM;
+        }
+
+        if sound.noise.enabled && sound.noise.volume > 0.0 {
+            self.noise_phase += sound.noise.rate / sample_rate;
+            if self.noise_phase >= 1.0 {
+                self.noise_phase -= 1.0;
+                let bit = (self.lfsr ^ (self.lfsr >> 2) ^ (self.lfsr >> 3) ^ (self.lfsr >> 5)) & 1;
+                self.lfsr = (self.lfsr >> 1) | (bit << 15);
+            }
+            let v = if (self.lfsr & 1) == 0 { 1.0 } else { -1.0 };
+            mix += v * sound.noise.volume * CHANNEL_HEADROOM;
+        }
+
+        (mix * MASTER_GAIN).clamp(-1.0, 1.0)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct SquareChannel {
@@ -57,9 +104,7 @@ impl Audio {
         let channels = config.channels() as usize;
         let sample_rate = config.sample_rate() as f32;
 
-        let mut square_phase = 0.0f32;
-        let mut noise_phase = 0.0f32;
-        let mut lfsr: u16 = 0xACE1;
+        let mut synth = Synth::new();
 
         macro_rules! build_stream {
             ($t:ty, $conv:expr) => {{
@@ -72,28 +117,7 @@ impl Audio {
                             Err(_) => return,
                         };
                         for frame in out.chunks_mut(channels) {
-                            let mut mix = 0.0f32;
-
-                            if s.square.enabled && s.square.volume > 0.0 {
-                                let v = if square_phase < 0.5 { 1.0 } else { -1.0 };
-                                square_phase =
-                                    (square_phase + s.square.frequency / sample_rate) % 1.0;
-                                mix += v * s.square.volume * CHANNEL_HEADROOM;
-                            }
-
-                            if s.noise.enabled && s.noise.volume > 0.0 {
-                                noise_phase += s.noise.rate / sample_rate;
-                                if noise_phase >= 1.0 {
-                                    noise_phase -= 1.0;
-                                    let bit =
-                                        ((lfsr >> 0) ^ (lfsr >> 2) ^ (lfsr >> 3) ^ (lfsr >> 5)) & 1;
-                                    lfsr = (lfsr >> 1) | (bit << 15);
-                                }
-                                let v = if (lfsr & 1) == 0 { 1.0 } else { -1.0 };
-                                mix += v * s.noise.volume * CHANNEL_HEADROOM;
-                            }
-
-                            let sample_value = (mix * MASTER_GAIN).clamp(-1.0, 1.0);
+                            let sample_value = synth.next_sample(&s, sample_rate);
                             let final_sample: $t = $conv(sample_value);
                             for sample in frame.iter_mut() {
                                 *sample = final_sample;

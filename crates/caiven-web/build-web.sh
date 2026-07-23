@@ -22,9 +22,9 @@ export CARGO_TARGET_WASM32_UNKNOWN_EMSCRIPTEN_LINKER=emcc
 # mismatch (undefined symbol: __cxa_find_matching_catch_3).
 export EMCC_CFLAGS="-fwasm-exceptions"
 
-EXPORTED_FUNCS='["_caiven_new","_caiven_load_cart","_caiven_set_button","_caiven_tick","_caiven_pixels","_caiven_width","_caiven_height","_malloc","_free"]'
+EXPORTED_FUNCS='["_caiven_new","_caiven_load_cart","_caiven_set_button","_caiven_tick","_caiven_pixels","_caiven_width","_caiven_height","_caiven_audio_fill","_caiven_audio_ptr","_caiven_has_fault","_caiven_fault_ptr","_caiven_fault_len","_malloc","_free"]'
 
-export EMCC_CFLAGS="$EMCC_CFLAGS -sEXPORTED_FUNCTIONS=$EXPORTED_FUNCS -sEXPORTED_RUNTIME_METHODS=[ccall,cwrap,HEAPU8] -sMODULARIZE=1 -sEXPORT_NAME=CaivenModule -sENVIRONMENT=web,node -sALLOW_MEMORY_GROWTH=1"
+export EMCC_CFLAGS="$EMCC_CFLAGS -sEXPORTED_FUNCTIONS=$EXPORTED_FUNCS -sEXPORTED_RUNTIME_METHODS=[ccall,cwrap,HEAPU8,HEAPF32] -sMODULARIZE=1 -sEXPORT_NAME=CaivenModule -sENVIRONMENT=web,node -sALLOW_MEMORY_GROWTH=1"
 
 cargo build -p caiven-web --release --target wasm32-unknown-emscripten
 

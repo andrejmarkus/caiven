@@ -10,9 +10,10 @@ use caiven_core::memory::RGBA_BYTES;
 use caiven_vm::input::{Button, Input};
 use caiven_vm::rendering::font::Font;
 use caiven_vm::rendering::screen::Screen;
-use caiven_vm::vm::audio::AudioPeripheral;
-use caiven_vm::{Vm, VmConfig};
+use caiven_vm::vm::audio::{AudioPeripheral, Sound, Synth};
+use caiven_vm::{LuaRunOutcome, Vm, VmConfig};
 use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
 
 const FONT_BYTES: &[u8] = include_bytes!("../../../assets/font.png");
 const FONT_GLYPHS: &str = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!?\"'()+-=.:,[]<>";
@@ -25,6 +26,11 @@ struct Player {
     out: Vec<u8>,
     width: u32,
     height: u32,
+    sound: Arc<Mutex<Sound>>,
+    synth: Synth,
+    audio_buf: Vec<f32>,
+    fault: bool,
+    fault_bytes: Vec<u8>,
 }
 
 impl Player {
@@ -32,7 +38,8 @@ impl Player {
         let font = Font::from_bytes(FONT_BYTES, FONT_GLYPHS, 3, 5)?;
         let config = VmConfig::default();
         let mut vm = Vm::new(config);
-        vm.register_peripheral(AudioPeripheral::new(vm.get_sound_shared()));
+        let sound = vm.get_sound_shared();
+        vm.register_peripheral(AudioPeripheral::new(sound.clone()));
 
         Ok(Self {
             screen: Screen::new(config.width, config.height),
@@ -42,6 +49,11 @@ impl Player {
             out: vec![0; config.width as usize * config.height as usize * RGBA_BYTES],
             width: config.width,
             height: config.height,
+            sound,
+            synth: Synth::new(),
+            audio_buf: Vec::new(),
+            fault: false,
+            fault_bytes: Vec::new(),
         })
     }
 
@@ -68,7 +80,19 @@ impl Player {
 
     fn tick(&mut self, frames: u32) {
         for _ in 0..frames {
-            self.vm.run_frame(&self.input, &self.font);
+            if self.fault {
+                break;
+            }
+            if let LuaRunOutcome::Error(line, message) =
+                self.vm.run_frame_lua_bp(&self.input, &self.font, &[])
+            {
+                let text = match line {
+                    Some(l) => format!("line {l}: {message}"),
+                    None => message,
+                };
+                self.fault_bytes = text.into_bytes();
+                self.fault = true;
+            }
             self.input.end_frame();
         }
         self.screen
@@ -78,6 +102,25 @@ impl Player {
     fn set_button(&mut self, idx: u8, down: bool) {
         if let Some(button) = Button::from_u8(idx) {
             self.input.set_button(button, down);
+        }
+    }
+
+    /// Fills `audio_buf` with `num_frames` mono samples at `sample_rate`,
+    /// growing the buffer if needed. Silence (not an error) if the shared
+    /// `Sound` state is momentarily locked elsewhere.
+    fn fill_audio(&mut self, num_frames: usize, sample_rate: f32) {
+        if self.audio_buf.len() < num_frames {
+            self.audio_buf.resize(num_frames, 0.0);
+        }
+        match self.sound.try_lock() {
+            Ok(s) => {
+                for sample in self.audio_buf[..num_frames].iter_mut() {
+                    *sample = self.synth.next_sample(&s, sample_rate);
+                }
+            }
+            Err(_) => {
+                self.audio_buf[..num_frames].fill(0.0);
+            }
         }
     }
 }
@@ -175,6 +218,54 @@ pub extern "C" fn caiven_width() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn caiven_height() -> u32 {
     PLAYER.with(|cell| cell.borrow().as_ref().map_or(0, |p| p.height))
+}
+
+/// Synthesizes `num_frames` mono samples at `sample_rate` into an internal
+/// buffer, read back via [`caiven_audio_ptr`]. Called from JS once per
+/// audio-callback tick (`ScriptProcessorNode`/`AudioWorklet`).
+#[unsafe(no_mangle)]
+pub extern "C" fn caiven_audio_fill(num_frames: u32, sample_rate: f32) {
+    PLAYER.with(|cell| {
+        if let Some(player) = cell.borrow_mut().as_mut() {
+            player.fill_audio(num_frames as usize, sample_rate);
+        }
+    });
+}
+
+/// Pointer into the wasm heap where the last [`caiven_audio_fill`] wrote its
+/// `f32` samples. Valid until the next `caiven_audio_fill` call.
+#[unsafe(no_mangle)]
+pub extern "C" fn caiven_audio_ptr() -> *const f32 {
+    PLAYER.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .map_or(std::ptr::null(), |p| p.audio_buf.as_ptr())
+    })
+}
+
+/// Non-zero once the cart's Lua script has hit a runtime error. `caiven_tick`
+/// stops advancing frames after this; the last-rendered framebuffer stays put.
+#[unsafe(no_mangle)]
+pub extern "C" fn caiven_has_fault() -> i32 {
+    PLAYER.with(|cell| cell.borrow().as_ref().is_some_and(|p| p.fault) as i32)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn caiven_fault_ptr() -> *const u8 {
+    PLAYER.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .map_or(std::ptr::null(), |p| p.fault_bytes.as_ptr())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn caiven_fault_len() -> u32 {
+    PLAYER.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .map_or(0, |p| p.fault_bytes.len() as u32)
+    })
 }
 
 fn main() {}
