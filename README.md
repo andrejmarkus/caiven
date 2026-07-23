@@ -199,8 +199,13 @@ Press function keys at any time to switch tabs:
 | `F6` | 🎨 Palette |
 | `F7` | 📋 Cart meta |
 | `F8` | 📂 Browser (local + port) |
+| `F9` | 📖 Help (searchable builtin/stdlib reference) |
 
-`Ctrl+S` saves the cart from any tab. The Run/Pause/Reset toolbar and FPS counter are always visible; the game view renders as an integer-scaled, nearest-neighbor 128×128 texture. Opening a cart (or launching `caiven-studio edit game.cav`) loads it **paused** — hit ▶ Run to start it.
+`Ctrl+S` saves the cart from any tab. `Ctrl+P` (or `Ctrl+Shift+P`) opens a command palette — fuzzy search over every menu/toolbar action, tab switch, "new from template," and "insert builtin" call. The Run/Pause/Reset toolbar and FPS counter are always visible; the game view renders as an integer-scaled, nearest-neighbor 128×128 texture. Opening a cart (or launching `caiven-studio edit game.cav`) loads it **paused** — hit ▶ Run to start it.
+
+Launching with no cart open shows a **welcome screen**: NEW CART / OPEN, a recent-carts list, and starter templates (top-down mover, tap-to-score, tile world) that compile and run immediately — a readable alternative to poking at a binary `.cav`.
+
+`File > Export` (or the command palette) captures the live game view: **Screenshot (PNG)** grabs the current frame, **Record GIF (3s)** samples the next three seconds of gameplay at 30fps. Both prompt for a save location.
 
 ### 📝 Code Editor
 
@@ -216,11 +221,11 @@ None of the three fire inside string literals or comments.
 
 ### 🖼️ Sprite Editor
 
-8×8 canvas at 32× zoom: pencil/fill/line/rect tools (drag preview), right-click eyedropper, palette row, per-sprite flag checkboxes, 16×16 sheet picker, per-sprite undo/redo (`Ctrl+Z`/`Y`, `Ctrl+C`/`V` copy/paste).
+8×8 canvas at 32× zoom: pencil/fill/line/rect tools (drag preview), right-click eyedropper, palette row, per-sprite flag checkboxes, 16×16 sheet picker, per-sprite undo/redo (`Ctrl+Z`/`Y`, `Ctrl+C`/`V` copy/paste). An ops row adds flip horizontal/vertical, rotate 90°, wrap-around shift (↑↓←→), and clear — all undoable.
 
 ### 🗺️ Map Editor
 
-Scrollable 64×64 tile canvas, pencil/fill/rect tools, right-click tile eyedropper, 1×/2×/4× zoom, full-map undo/redo.
+Scrollable 64×64 tile canvas, pencil/fill/rect tools, right-click tile eyedropper, 1×/2×/4× zoom, full-map undo/redo. A FLAGS toggle tints each tile by its sprite's flag byte, so solidity/metadata stays visible while painting.
 
 ### 🎵 SFX / 🎶 Music Editors
 

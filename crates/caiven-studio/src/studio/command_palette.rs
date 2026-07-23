@@ -21,6 +21,8 @@ pub enum PaletteAction {
     Reset,
     SwitchTab(Tab),
     InsertBuiltin(String),
+    ExportScreenshot,
+    ExportGif,
 }
 
 struct Entry {
@@ -88,6 +90,14 @@ fn entries(running: bool) -> Vec<Entry> {
         Entry {
             label: "Reset".into(),
             action: PaletteAction::Reset,
+        },
+        Entry {
+            label: "Export Screenshot (PNG)".into(),
+            action: PaletteAction::ExportScreenshot,
+        },
+        Entry {
+            label: "Export GIF (3s)".into(),
+            action: PaletteAction::ExportGif,
         },
     ];
     for tab in Tab::ALL {

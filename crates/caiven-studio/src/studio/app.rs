@@ -2,7 +2,7 @@
 //! tab selection and per-frame VM stepping + framebuffer texture upload.
 
 use super::{
-    browser_panel, cart, code_panel, command_palette, debug_panel, game_panel, help_panel,
+    browser_panel, cart, code_panel, command_palette, debug_panel, export, game_panel, help_panel,
     map_panel, menu_bar, meta_panel, music_panel, palette_panel, recent, sfx_panel, sprite_panel,
     templates, theme, toolbar, welcome_panel,
 };
@@ -67,6 +67,20 @@ pub struct SourceFile {
     pub dirty: bool,
 }
 
+/// GIF export: 3 seconds of VM frames at the fixed 60Hz tick rate, sampled
+/// down to 30fps output (the VM's own frame timing already runs
+/// wall-clock-accurate via `ConsoleCore::frame_steps`, so sampling every Nth
+/// tick — rather than every eframe UI repaint — keeps the recording's speed
+/// correct regardless of display refresh rate).
+const GIF_RECORD_VM_FRAMES: usize = 180;
+const GIF_SAMPLE_EVERY: usize = 2;
+const GIF_DELAY_MS: u64 = 1000 / 30;
+
+struct GifRecording {
+    frames: Vec<Vec<u8>>,
+    vm_frame_count: usize,
+}
+
 /// A project action deferred behind the unsaved-changes confirmation modal.
 enum PendingAction {
     New(&'static str),
@@ -95,6 +109,7 @@ pub struct StudioApp {
     debug: debug_panel::DebugState,
     help: help_panel::HelpState,
     cmd_palette: command_palette::PaletteState,
+    gif_recording: Option<GifRecording>,
     pending_action: Option<PendingAction>,
     recent: Vec<PathBuf>,
     last_title: String,
@@ -129,6 +144,7 @@ impl StudioApp {
             debug: debug_panel::DebugState::default(),
             help: help_panel::HelpState::default(),
             cmd_palette: command_palette::PaletteState::default(),
+            gif_recording: None,
             pending_action: None,
             recent: recent::load(),
             last_title: String::new(),
@@ -451,6 +467,9 @@ impl StudioApp {
         let mut outcome = caiven_vm::LuaRunOutcome::Completed;
         for _ in 0..steps {
             outcome = self.core.run_frame_lua_bp(&bps);
+            if self.gif_recording.is_some() {
+                self.record_gif_frame();
+            }
             if !matches!(outcome, caiven_vm::LuaRunOutcome::Completed) {
                 break;
             }
@@ -497,18 +516,112 @@ impl StudioApp {
         self.tab = Tab::Code;
     }
 
-    fn update_game_texture(&mut self, ctx: &egui::Context) {
+    /// Composites the current world+UI framebuffers into one RGBA frame —
+    /// the exact image shown in the game preview. Shared by the preview
+    /// texture upload and screenshot/GIF export, so exports always match
+    /// what's on screen.
+    fn compose_frame(&self) -> Vec<u8> {
         let w = self.core.config.width as usize;
         let h = self.core.config.height as usize;
-        self.compose_buf.resize(w * h * 4, 0);
+        let mut buf = vec![0u8; w * h * 4];
         self.core.screen.construct(
-            &mut self.compose_buf,
+            &mut buf,
             self.core.vm.world_pixels(),
             self.core.vm.ui_pixels(),
         );
-        for px in self.compose_buf.chunks_exact_mut(4) {
+        for px in buf.chunks_exact_mut(4) {
             px[3] = 255;
         }
+        buf
+    }
+
+    /// Called once per VM tick (not per UI repaint) while a GIF recording is
+    /// in progress, so playback speed tracks the VM's real 60Hz timing
+    /// regardless of the display's refresh rate.
+    fn record_gif_frame(&mut self) {
+        let buf = self.compose_frame();
+        let done = {
+            let Some(rec) = self.gif_recording.as_mut() else {
+                return;
+            };
+            rec.vm_frame_count += 1;
+            if rec.vm_frame_count % GIF_SAMPLE_EVERY == 0 {
+                rec.frames.push(buf);
+            }
+            rec.vm_frame_count >= GIF_RECORD_VM_FRAMES
+        };
+        if done {
+            let frames = self
+                .gif_recording
+                .take()
+                .map(|r| r.frames)
+                .unwrap_or_default();
+            self.finish_gif_recording(frames);
+        }
+    }
+
+    fn export_screenshot(&mut self) {
+        if self.cart.is_none() && self.source.is_none() {
+            self.set_status("no cart loaded", true);
+            return;
+        }
+        let buf = self.compose_frame();
+        let (w, h) = (self.core.config.width, self.core.config.height);
+        match export::encode_png(w, h, &buf) {
+            Ok(png) => self.save_export_bytes(&png, "png", "PNG Image"),
+            Err(e) => self.set_status(format!("export failed: {e:#}"), true),
+        }
+    }
+
+    fn start_gif_recording(&mut self) {
+        if self.cart.is_none() && self.source.is_none() {
+            self.set_status("no cart loaded", true);
+            return;
+        }
+        if self.run_state != RunState::Running {
+            self.run_or_resume();
+        }
+        self.gif_recording = Some(GifRecording {
+            frames: Vec::new(),
+            vm_frame_count: 0,
+        });
+        self.set_status("recording 3s GIF...", false);
+    }
+
+    fn finish_gif_recording(&mut self, frames: Vec<Vec<u8>>) {
+        if frames.is_empty() {
+            self.set_status("GIF recording produced no frames", true);
+            return;
+        }
+        let (w, h) = (self.core.config.width, self.core.config.height);
+        match export::encode_gif(w, h, &frames, GIF_DELAY_MS) {
+            Ok(bytes) => self.save_export_bytes(&bytes, "gif", "GIF Image"),
+            Err(e) => self.set_status(format!("GIF export failed: {e:#}"), true),
+        }
+    }
+
+    /// Prompts for a destination and writes `bytes` there — shared tail end
+    /// of both export actions.
+    fn save_export_bytes(&mut self, bytes: &[u8], ext: &str, filter_name: &str) {
+        let stem = self.cart_name();
+        let stem = stem.strip_suffix(".cav").unwrap_or(&stem);
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter(filter_name, &[ext])
+            .set_file_name(format!("{stem}.{ext}"))
+            .save_file()
+        else {
+            return;
+        };
+        match std::fs::write(&path, bytes) {
+            Ok(()) => self.set_status(format!("exported {}", path.display()), false),
+            Err(e) => self.set_status(format!("export failed: {e}"), true),
+        }
+    }
+
+    fn update_game_texture(&mut self, ctx: &egui::Context) {
+        let w = self.core.config.width as usize;
+        let h = self.core.config.height as usize;
+        self.compose_buf = self.compose_frame();
         let image = egui::ColorImage::from_rgba_unmultiplied([w, h], &self.compose_buf);
         match &mut self.game_tex {
             Some(tex) => tex.set(image, egui::TextureOptions::NEAREST),
@@ -629,6 +742,8 @@ impl eframe::App for StudioApp {
                     self.save_as(path);
                 }
             }
+            menu_bar::MenuAction::ExportScreenshot => self.export_screenshot(),
+            menu_bar::MenuAction::ExportGif => self.start_gif_recording(),
             menu_bar::MenuAction::Close => self.request_close(),
             menu_bar::MenuAction::Exit => self.request_exit(ctx),
             menu_bar::MenuAction::None => {}
@@ -673,6 +788,8 @@ impl eframe::App for StudioApp {
                 command_palette::PaletteAction::InsertBuiltin(text) => {
                     self.insert_at_cursor(ctx, &text)
                 }
+                command_palette::PaletteAction::ExportScreenshot => self.export_screenshot(),
+                command_palette::PaletteAction::ExportGif => self.start_gif_recording(),
             }
         }
 

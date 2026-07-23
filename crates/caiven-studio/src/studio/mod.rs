@@ -8,6 +8,7 @@ pub(crate) mod cart;
 mod code_panel;
 mod command_palette;
 mod debug_panel;
+mod export;
 mod game_panel;
 mod help_panel;
 mod intellisense;

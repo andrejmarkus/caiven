@@ -11,6 +11,8 @@ pub enum MenuAction {
     ClearRecent,
     Save,
     SaveAs,
+    ExportScreenshot,
+    ExportGif,
     Close,
     Exit,
 }
@@ -45,7 +47,11 @@ pub fn show(ctx: &egui::Context, recent: &[PathBuf]) -> MenuAction {
                         ui.label("(empty)");
                     } else {
                         for path in recent {
-                            if ui.button(recent_label(path)).on_hover_text(path.display().to_string()).clicked() {
+                            if ui
+                                .button(recent_label(path))
+                                .on_hover_text(path.display().to_string())
+                                .clicked()
+                            {
                                 action = MenuAction::OpenRecent(path.clone());
                                 ui.close();
                             }
@@ -66,6 +72,17 @@ pub fn show(ctx: &egui::Context, recent: &[PathBuf]) -> MenuAction {
                     action = MenuAction::SaveAs;
                     ui.close();
                 }
+                ui.separator();
+                ui.menu_button("Export", |ui| {
+                    if ui.button("Screenshot (PNG)...").clicked() {
+                        action = MenuAction::ExportScreenshot;
+                        ui.close();
+                    }
+                    if ui.button("Record GIF (3s)...").clicked() {
+                        action = MenuAction::ExportGif;
+                        ui.close();
+                    }
+                });
                 ui.separator();
                 if ui.button("Close").clicked() {
                     action = MenuAction::Close;
