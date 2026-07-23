@@ -54,6 +54,7 @@ export function matchRoute(p: string): RouteMatch {
   if (segs[0] === 'upload') return { name: 'upload', params: {} };
   if (segs[0] === 'profile') return { name: 'profile', params: {} };
   if (segs[0] === 'cart' && segs[1]) return { name: 'cart', params: { id: segs[1] } };
+  if (segs[0] === 'play' && segs[1]) return { name: 'play', params: { id: segs[1] } };
   if (segs[0] === 'author' && segs[1]) return { name: 'author', params: { username: segs[1] } };
   return { name: 'notfound', params: {} };
 }

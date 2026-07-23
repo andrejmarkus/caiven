@@ -5,6 +5,7 @@
   import Home from './pages/Home.svelte';
   import Browse from './pages/Browse.svelte';
   import CartDetail from './pages/CartDetail.svelte';
+  import Play from './pages/Play.svelte';
   import Author from './pages/Author.svelte';
   import Login from './pages/Login.svelte';
   import Register from './pages/Register.svelte';
@@ -26,6 +27,8 @@
   <Browse />
 {:else if match.name === 'cart'}
   <CartDetail id={match.params.id} />
+{:else if match.name === 'play'}
+  <Play id={match.params.id} />
 {:else if match.name === 'author'}
   <Author username={match.params.username} />
 {:else if match.name === 'login'}

@@ -84,7 +84,8 @@
         <p>{cart.description}</p>
 
         <div class="row actions">
-          <a href={api.cartUrl(cart.id)}><button>Download Cart</button></a>
+          <a href="/play/{cart.id}" use:link><button>Play</button></a>
+          <a href={api.cartUrl(cart.id)}><button class="secondary">Download Cart</button></a>
           {#if isOwner}
             <a href="/upload?cart={cart.id}" use:link><button class="secondary">New version</button></a>
             <button class="danger" disabled={deleteBusy} onclick={removeCart}>Delete</button>
