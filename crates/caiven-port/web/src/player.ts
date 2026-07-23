@@ -86,10 +86,12 @@ class AudioEngine {
   // faster than it plays back, so the queue (and latency) grows without
   // bound. Pacing off ctx.currentTime instead keeps production matched to
   // real playback regardless of rAF rate. Each chunk renders from whatever
-  // Sound state exists at render time, so LOOKAHEAD_SEC also doubles as the
-  // worst-case button-press-to-sound delay — kept small on purpose.
+  // Sound state exists at render time, so LOOKAHEAD_SEC is also the
+  // worst-case button-press-to-sound delay this code contributes (on top of
+  // unavoidable OS/hardware audio buffering) — kept as small as is safe
+  // against a single rAF tick's worth of jitter (~16.6ms at 60Hz).
   private nextChunkTime = 0;
-  private static readonly LOOKAHEAD_SEC = 0.03;
+  private static readonly LOOKAHEAD_SEC = 0.015;
 
   constructor(module: CaivenModuleInstance) {
     this.module = module;
