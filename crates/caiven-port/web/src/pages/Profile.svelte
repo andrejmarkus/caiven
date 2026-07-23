@@ -2,6 +2,21 @@
   import { api, ApiError, type Cart, type TokenInfo } from '../api';
   import { currentUser } from '../stores.svelte';
   import { link } from '../router.svelte';
+  import * as Card from '$lib/components/ui/card';
+  import * as Field from '$lib/components/ui/field';
+  import { Input } from '$lib/components/ui/input';
+  import { Textarea } from '$lib/components/ui/textarea';
+  import { Button, buttonVariants } from '$lib/components/ui/button';
+  import * as AlertDialog from '$lib/components/ui/alert-dialog';
+  import * as Alert from '$lib/components/ui/alert';
+  import * as Empty from '$lib/components/ui/empty';
+  import { toast } from 'svelte-sonner';
+  import KeyRoundIcon from '@lucide/svelte/icons/key-round';
+  import PackageIcon from '@lucide/svelte/icons/package';
+  import PencilIcon from '@lucide/svelte/icons/pencil';
+  import Trash2Icon from '@lucide/svelte/icons/trash-2';
+  import CopyIcon from '@lucide/svelte/icons/copy';
+  import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
 
   let tokens = $state<TokenInfo[]>([]);
   let carts = $state<Cart[]>([]);
@@ -41,6 +56,12 @@
     }
   }
 
+  function copyToken() {
+    if (!justCreated) return;
+    navigator.clipboard.writeText(justCreated.token);
+    toast.success('Token copied to clipboard');
+  }
+
   async function revoke(id: string) {
     try {
       await api.revokeToken(id);
@@ -67,13 +88,13 @@
       });
       editingId = null;
       await load();
+      toast.success('Cart updated');
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }
   }
 
-  async function removeCart(id: string, title: string) {
-    if (!confirm(`Delete "${title}"? This cannot be undone.`)) return;
+  async function removeCart(id: string) {
     try {
       await api.deleteCart(id);
       await load();
@@ -83,98 +104,119 @@
   }
 </script>
 
-<div class="container">
-  {#if error}<p class="error">{error}</p>{/if}
+<div class="container-page py-10">
+  <h1 class="mb-6 text-2xl font-semibold">Profile</h1>
 
-  <h1>Profile</h1>
+  {#if error}
+    <Alert.Root variant="destructive" class="mb-6">
+      <CircleAlertIcon />
+      <Alert.Description>{error}</Alert.Description>
+    </Alert.Root>
+  {/if}
 
-  <section class="panel">
-    <h2>API tokens</h2>
-    <p class="muted">Use a token with the <code>X-Api-Key</code> header from the CLI or Studio.</p>
-    {#if justCreated}
-      <p class="panel token-reveal">
-        Token <strong>{justCreated.name}</strong> created — copy it now, it won't be shown again:<br />
-        <code>{justCreated.token}</code>
-      </p>
-    {/if}
-    <ul>
-      {#each tokens as t (t.id)}
-        <li class="row">
-          <strong>{t.name}</strong>
-          <span class="muted">created {t.created_at}</span>
-          <span class="muted">{t.last_used_at ? `last used ${t.last_used_at}` : 'never used'}</span>
-          <button class="secondary danger-link" onclick={() => revoke(t.id)}>revoke</button>
-        </li>
-      {:else}
-        <li class="muted">No tokens yet.</li>
-      {/each}
-    </ul>
-    <form class="row" onsubmit={createToken}>
-      <input bind:value={newTokenName} placeholder="Token name (e.g. Studio)" />
-      <button type="submit">Create token</button>
-    </form>
-  </section>
+  <Card.Root class="mb-6">
+    <Card.Header>
+      <Card.Title class="flex items-center gap-2 text-base"><KeyRoundIcon class="size-4 text-primary" /> API tokens</Card.Title>
+      <Card.Description>Use a token with the <code class="text-xs">X-Api-Key</code> header from the CLI or Studio.</Card.Description>
+    </Card.Header>
+    <Card.Content>
+      {#if justCreated}
+        <div class="mb-4 flex items-center justify-between gap-3 rounded-lg border border-primary/40 bg-accent/40 p-3">
+          <div class="min-w-0">
+            <p class="text-sm text-foreground">Token <strong>{justCreated.name}</strong> created — copy it now, it won't be shown again:</p>
+            <code class="mt-1 block truncate text-xs text-foreground">{justCreated.token}</code>
+          </div>
+          <Button size="icon" variant="secondary" onclick={copyToken} aria-label="Copy token" class="shrink-0">
+            <CopyIcon />
+          </Button>
+        </div>
+      {/if}
 
-  <section class="panel">
-    <h2>My carts</h2>
-    {#each carts as cart (cart.id)}
-      <div class="cart-row">
-        {#if editingId === cart.id}
-          <div class="field">
-            <label for="et">Title</label>
-            <input id="et" bind:value={editTitle} maxlength="64" />
-          </div>
-          <div class="field">
-            <label for="ed">Description</label>
-            <textarea id="ed" bind:value={editDescription} rows="3" maxlength="512"></textarea>
-          </div>
-          <div class="field">
-            <label for="etg">Tags</label>
-            <input id="etg" bind:value={editTags} />
-          </div>
-          <div class="row">
-            <button onclick={saveEdit}>Save</button>
-            <button class="secondary" onclick={() => (editingId = null)}>Cancel</button>
-          </div>
+      <ul class="mb-4 flex flex-col divide-y divide-border text-sm">
+        {#each tokens as t (t.id)}
+          <li class="flex flex-wrap items-center gap-3 py-2.5">
+            <strong class="text-foreground">{t.name}</strong>
+            <span class="text-muted-foreground">created {t.created_at}</span>
+            <span class="text-muted-foreground">{t.last_used_at ? `last used ${t.last_used_at}` : 'never used'}</span>
+            <button type="button" onclick={() => revoke(t.id)} class="ml-auto text-destructive hover:underline">revoke</button>
+          </li>
         {:else}
-          <div class="row">
-            <a href="/cart/{cart.id}" use:link><strong>{cart.title}</strong></a>
-            <span class="muted">v{cart.latest_version} · {cart.downloads} dl</span>
-            <button class="secondary" onclick={() => startEdit(cart)}>Edit</button>
-            <button class="danger" onclick={() => removeCart(cart.id, cart.title)}>Delete</button>
-          </div>
-        {/if}
-      </div>
-    {:else}
-      <p class="muted">You haven't published any carts yet.</p>
-    {/each}
-  </section>
-</div>
+          <li class="py-2.5 text-muted-foreground">No tokens yet.</li>
+        {/each}
+      </ul>
+      <form onsubmit={createToken} class="flex gap-2">
+        <Input bind:value={newTokenName} placeholder="Token name (e.g. Studio)" />
+        <Button type="submit" class="shrink-0">Create</Button>
+      </form>
+    </Card.Content>
+  </Card.Root>
 
-<style>
-  section {
-    margin-bottom: 1.5rem;
-  }
-  ul {
-    list-style: none;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    margin: 0.5rem 0 1rem;
-  }
-  .token-reveal {
-    word-break: break-all;
-    margin: 0.75rem 0;
-  }
-  .cart-row {
-    padding: 0.5rem 0;
-    border-bottom: 1px solid var(--border);
-  }
-  .cart-row:last-child {
-    border-bottom: none;
-  }
-  .danger-link {
-    margin-left: auto;
-  }
-</style>
+  <Card.Root>
+    <Card.Header>
+      <Card.Title class="flex items-center gap-2 text-base"><PackageIcon class="size-4 text-primary" /> My carts</Card.Title>
+    </Card.Header>
+    <Card.Content>
+      {#if carts.length === 0}
+        <Empty.Root>
+          <Empty.Header>
+            <Empty.Media variant="icon"><PackageIcon /></Empty.Media>
+            <Empty.Title>No carts published</Empty.Title>
+            <Empty.Description>Head to Upload to publish your first cart.</Empty.Description>
+          </Empty.Header>
+        </Empty.Root>
+      {:else}
+        <div class="flex flex-col divide-y divide-border">
+          {#each carts as cart (cart.id)}
+            <div class="py-4 first:pt-0 last:pb-0">
+              {#if editingId === cart.id}
+                <Field.FieldGroup>
+                  <Field.Field>
+                    <Field.FieldLabel for="et">Title</Field.FieldLabel>
+                    <Input id="et" bind:value={editTitle} maxlength={64} />
+                  </Field.Field>
+                  <Field.Field>
+                    <Field.FieldLabel for="ed">Description</Field.FieldLabel>
+                    <Textarea id="ed" bind:value={editDescription} rows={3} maxlength={512} />
+                  </Field.Field>
+                  <Field.Field>
+                    <Field.FieldLabel for="etg">Tags</Field.FieldLabel>
+                    <Input id="etg" bind:value={editTags} />
+                  </Field.Field>
+                  <div class="flex gap-2">
+                    <Button size="sm" onclick={saveEdit}>Save</Button>
+                    <Button size="sm" variant="secondary" onclick={() => (editingId = null)}>Cancel</Button>
+                  </div>
+                </Field.FieldGroup>
+              {:else}
+                <div class="flex flex-wrap items-center gap-3">
+                  <a href="/cart/{cart.id}" use:link class="font-medium text-foreground hover:text-primary">{cart.title}</a>
+                  <span class="text-xs text-muted-foreground">v{cart.latest_version} · {cart.downloads} dl</span>
+                  <div class="ml-auto flex gap-2">
+                    <Button size="icon" variant="secondary" onclick={() => startEdit(cart)} aria-label="Edit {cart.title}">
+                      <PencilIcon />
+                    </Button>
+                    <AlertDialog.Root>
+                      <AlertDialog.Trigger class={buttonVariants({ variant: 'destructive', size: 'icon' })} aria-label="Delete {cart.title}">
+                        <Trash2Icon />
+                      </AlertDialog.Trigger>
+                      <AlertDialog.Content>
+                        <AlertDialog.Header>
+                          <AlertDialog.Title>Delete "{cart.title}"?</AlertDialog.Title>
+                          <AlertDialog.Description>This removes the cart and every published version. This cannot be undone.</AlertDialog.Description>
+                        </AlertDialog.Header>
+                        <AlertDialog.Footer>
+                          <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+                          <AlertDialog.Action variant="destructive" onclick={() => removeCart(cart.id)}>Delete</AlertDialog.Action>
+                        </AlertDialog.Footer>
+                      </AlertDialog.Content>
+                    </AlertDialog.Root>
+                  </div>
+                </div>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </Card.Content>
+  </Card.Root>
+</div>

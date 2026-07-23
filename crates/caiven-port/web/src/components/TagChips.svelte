@@ -1,34 +1,21 @@
 <script lang="ts">
-  import { link } from '../router.svelte';
+  import { Badge } from '$lib/components/ui/badge';
+  import { navigate } from '../router.svelte';
 
   let { tags }: { tags: string[] } = $props();
+
+  function go(e: MouseEvent, tag: string) {
+    e.preventDefault();
+    navigate(`/browse?tag=${encodeURIComponent(tag)}`);
+  }
 </script>
 
 {#if tags.length}
-  <span class="chips">
+  <span class="inline-flex flex-wrap gap-1.5">
     {#each tags as tag (tag)}
-      <a href="/browse?tag={encodeURIComponent(tag)}" use:link class="chip">{tag}</a>
+      <Badge variant="secondary" href="/browse?tag={encodeURIComponent(tag)}" onclick={(e: MouseEvent) => go(e, tag)} class="hover:bg-primary/20 hover:text-accent-foreground">
+        {tag}
+      </Badge>
     {/each}
   </span>
 {/if}
-
-<style>
-  .chips {
-    display: inline-flex;
-    flex-wrap: wrap;
-    gap: 0.35em;
-  }
-  .chip {
-    font-size: 0.8em;
-    background: var(--bg-panel-2);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 0.15em 0.6em;
-    color: var(--text-dim);
-  }
-  .chip:hover {
-    color: var(--accent);
-    text-decoration: none;
-    border-color: var(--accent);
-  }
-</style>

@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { Button } from '$lib/components/ui/button';
+  import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
+  import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+
   let {
     page,
     perPage,
@@ -15,16 +19,15 @@
 </script>
 
 {#if pageCount > 1}
-  <div class="row pager">
-    <button class="secondary" disabled={page <= 0} onclick={() => onchange(page - 1)}>&larr; prev</button>
-    <span class="muted">page {page + 1} / {pageCount}</span>
-    <button class="secondary" disabled={page + 1 >= pageCount} onclick={() => onchange(page + 1)}>next &rarr;</button>
+  <div class="mt-10 flex items-center justify-center gap-3">
+    <Button variant="secondary" size="sm" disabled={page <= 0} onclick={() => onchange(page - 1)}>
+      <ChevronLeftIcon data-icon="inline-start" />
+      Prev
+    </Button>
+    <span class="text-sm text-muted-foreground">Page {page + 1} of {pageCount}</span>
+    <Button variant="secondary" size="sm" disabled={page + 1 >= pageCount} onclick={() => onchange(page + 1)}>
+      Next
+      <ChevronRightIcon data-icon="inline-end" />
+    </Button>
   </div>
 {/if}
-
-<style>
-  .pager {
-    justify-content: center;
-    margin: 1.5rem 0;
-  }
-</style>

@@ -2,7 +2,8 @@
   import type { Cart } from '../api';
   import { link, navigate } from '../router.svelte';
   import ScreenshotImg from './ScreenshotImg.svelte';
-  import RatingStars from './RatingStars.svelte';
+  import PlayIcon from '@lucide/svelte/icons/play';
+  import StarIcon from '@lucide/svelte/icons/star';
 
   let { cart }: { cart: Cart } = $props();
 
@@ -13,66 +14,41 @@
   }
 </script>
 
-<a class="card" href="/cart/{cart.id}" use:link>
-  <div class="shot">
+<a
+  href="/cart/{cart.id}"
+  use:link
+  class="cart-notch group relative block aspect-square overflow-hidden bg-secondary ring-1 ring-white/5 transition-shadow hover:no-underline hover:ring-primary/30"
+>
+  <div class="absolute inset-0 transition-transform duration-300 ease-out group-hover:scale-[1.06]">
     <ScreenshotImg id={cart.id} hasScreenshot={cart.has_screenshot} alt={cart.title} />
-    <button class="play-btn" onclick={play}>Play</button>
   </div>
-  <div class="body">
-    <h3>{cart.title}</h3>
-    <p class="author">by {cart.author}</p>
-    <div class="row meta">
-      <RatingStars value={cart.rating_avg} />
-      <span class="muted">({cart.rating_count})</span>
-      <span class="muted">· {cart.downloads} dl</span>
+
+  <div class="absolute inset-0 bg-gradient-to-t from-black/95 via-black/10 to-transparent"></div>
+  <div class="scanline-overlay pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-50"></div>
+
+  <div class="label-mono absolute top-2 left-2 rounded-sm bg-black/55 px-1.5 py-0.5 text-[10px] text-white/65 backdrop-blur-sm">
+    #{cart.id.slice(0, 6)}
+  </div>
+
+  {#if cart.rating_count > 0}
+    <div class="absolute top-2 right-2 flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-xs font-medium text-white backdrop-blur-sm">
+      <StarIcon class="size-3 fill-primary text-primary" />
+      {cart.rating_avg.toFixed(1)}
     </div>
+  {/if}
+
+  <div class="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
+    <button
+      onclick={play}
+      aria-label="Play {cart.title}"
+      class="pointer-events-auto flex size-12 items-center justify-center rounded-full bg-white/95 text-black shadow-xl transition-transform hover:scale-105"
+    >
+      <PlayIcon class="ml-0.5 size-5" fill="currentColor" />
+    </button>
+  </div>
+
+  <div class="absolute inset-x-0 bottom-0 p-3">
+    <h3 class="truncate text-sm font-semibold text-white">{cart.title}</h3>
+    <p class="label-mono mt-0.5 truncate text-[10px] text-white/50">{cart.author}</p>
   </div>
 </a>
-
-<style>
-  .card {
-    display: block;
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    overflow: hidden;
-    color: inherit;
-  }
-  .card:hover {
-    border-color: var(--accent);
-    text-decoration: none;
-  }
-  .shot {
-    position: relative;
-  }
-  .play-btn {
-    position: absolute;
-    inset: 0;
-    margin: auto;
-    width: 3.5rem;
-    height: 3.5rem;
-    border-radius: 50%;
-    opacity: 0;
-    transition: opacity 0.15s;
-  }
-  .shot:hover .play-btn {
-    opacity: 1;
-  }
-  .body {
-    padding: 0.6rem 0.75rem;
-  }
-  h3 {
-    margin: 0 0 0.15em;
-    font-size: 1em;
-    color: var(--text);
-  }
-  .author {
-    margin: 0;
-    font-size: 0.85em;
-    color: var(--text-dim);
-  }
-  .meta {
-    margin-top: 0.4em;
-    font-size: 0.85em;
-  }
-</style>

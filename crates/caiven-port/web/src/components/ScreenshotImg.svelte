@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api } from '../api';
+  import Gamepad2Icon from '@lucide/svelte/icons/gamepad-2';
 
   let { id, hasScreenshot, version, alt = '' }: {
     id: string;
@@ -10,29 +11,9 @@
 </script>
 
 {#if hasScreenshot}
-  <img src={api.screenshotUrl(id, version)} {alt} loading="lazy" />
+  <img class="size-full bg-secondary object-cover" src={api.screenshotUrl(id, version)} {alt} loading="lazy" />
 {:else}
-  <div class="placeholder" aria-label={alt}>no screenshot</div>
+  <div class="flex size-full items-center justify-center bg-secondary" aria-label={alt}>
+    <Gamepad2Icon class="size-8 text-muted-foreground" />
+  </div>
 {/if}
-
-<style>
-  img {
-    width: 100%;
-    aspect-ratio: 4 / 3;
-    object-fit: cover;
-    background: var(--bg-panel-2);
-    border-radius: var(--radius);
-    display: block;
-  }
-  .placeholder {
-    width: 100%;
-    aspect-ratio: 4 / 3;
-    background: var(--bg-panel-2);
-    border-radius: var(--radius);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-dim);
-    font-size: 0.85em;
-  }
-</style>

@@ -1,6 +1,11 @@
 <script lang="ts">
   import { api, type CommentInfo } from '../api';
   import { currentUser } from '../stores.svelte';
+  import { Textarea } from '$lib/components/ui/textarea';
+  import { Button } from '$lib/components/ui/button';
+  import { Skeleton } from '$lib/components/ui/skeleton';
+  import * as Alert from '$lib/components/ui/alert';
+  import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
 
   let { cartId, ownerUsername }: { cartId: string; ownerUsername: string | null } = $props();
 
@@ -57,62 +62,44 @@
   }
 </script>
 
-<div class="comments">
-  <h3>Comments</h3>
-  {#if error}<p class="error">{error}</p>{/if}
+<div>
+  <h2 class="mb-4 text-lg font-semibold">Comments</h2>
+
+  {#if error}
+    <Alert.Root variant="destructive" class="mb-3">
+      <CircleAlertIcon />
+      <Alert.Description>{error}</Alert.Description>
+    </Alert.Root>
+  {/if}
+
   {#if loading}
-    <p class="muted">loading…</p>
+    <div class="flex flex-col gap-2">
+      <Skeleton class="h-16 w-full" />
+      <Skeleton class="h-16 w-full" />
+    </div>
   {:else if comments.length === 0}
-    <p class="muted">No comments yet.</p>
+    <p class="mb-4 text-sm text-muted-foreground">No comments yet.</p>
   {:else}
-    <ul>
+    <ul class="mb-5 flex flex-col gap-2">
       {#each comments as c (c.id)}
-        <li class="panel comment">
-          <div class="row">
-            <strong>{c.author}</strong>
-            <span class="muted">{c.created_at}</span>
+        <li class="rounded-lg bg-secondary/50 p-3">
+          <div class="flex items-center gap-2">
+            <strong class="text-sm text-foreground">{c.author}</strong>
+            <span class="text-xs text-muted-foreground">{c.created_at}</span>
             {#if canDelete(c)}
-              <button class="secondary danger-link" onclick={() => remove(c.id)}>delete</button>
+              <button type="button" onclick={() => remove(c.id)} class="ml-auto text-xs text-destructive hover:underline">delete</button>
             {/if}
           </div>
-          <p>{c.body}</p>
+          <p class="mt-1.5 text-sm text-foreground/90">{c.body}</p>
         </li>
       {/each}
     </ul>
   {/if}
 
   {#if currentUser.value}
-    <div class="field">
-      <textarea bind:value={body} rows="3" maxlength="1000" placeholder="Add a comment…"></textarea>
-    </div>
-    <button onclick={submit} disabled={posting || !body.trim()}>Post comment</button>
+    <Textarea bind:value={body} rows={3} maxlength={1000} placeholder="Add a comment…" class="mb-2" />
+    <Button onclick={submit} disabled={posting || !body.trim()}>Post comment</Button>
   {:else}
-    <p class="muted"><a href="/login">Log in</a> to comment.</p>
+    <p class="text-sm text-muted-foreground"><a href="/login">Log in</a> to comment.</p>
   {/if}
 </div>
-
-<style>
-  ul {
-    list-style: none;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
-    margin: 0.75rem 0;
-  }
-  .comment p {
-    margin: 0.4em 0 0;
-  }
-  .danger-link {
-    margin-left: auto;
-    color: var(--danger);
-    background: transparent;
-    border: none;
-    padding: 0;
-    font-size: 0.85em;
-  }
-  .danger-link:hover {
-    background: transparent;
-    text-decoration: underline;
-  }
-</style>

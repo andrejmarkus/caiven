@@ -3,8 +3,21 @@
   import CartCard from '../components/CartCard.svelte';
   import Pagination from '../components/Pagination.svelte';
   import { route, navigate } from '../router.svelte';
+  import * as InputGroup from '$lib/components/ui/input-group';
+  import * as Select from '$lib/components/ui/select';
+  import { Button } from '$lib/components/ui/button';
+  import { Badge } from '$lib/components/ui/badge';
+  import { Skeleton } from '$lib/components/ui/skeleton';
+  import * as Alert from '$lib/components/ui/alert';
+  import * as Empty from '$lib/components/ui/empty';
+  import SearchIcon from '@lucide/svelte/icons/search';
+  import XIcon from '@lucide/svelte/icons/x';
+  import DiscIcon from '@lucide/svelte/icons/disc';
+  import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
 
   const PER_PAGE = 24;
+
+  const SORTS: Record<Sort, string> = { new: 'Newest', popular: 'Most downloaded', top: 'Top rated' };
 
   let carts = $state<Cart[]>([]);
   let total = $state(0);
@@ -61,7 +74,8 @@
     pushUrl();
   }
 
-  function onSortChange() {
+  function onSortChange(v: string) {
+    sort = v as Sort;
     page = 0;
     pushUrl();
   }
@@ -78,31 +92,65 @@
   }
 </script>
 
-<div class="container">
-  <h1>Browse</h1>
-  <form class="panel row filters" onsubmit={onSubmit}>
-    <input placeholder="Search…" bind:value={q} />
-    <select bind:value={sort} onchange={onSortChange}>
-      <option value="new">Newest</option>
-      <option value="popular">Most downloaded</option>
-      <option value="top">Top rated</option>
-    </select>
-    <button type="submit">Search</button>
+<div class="container-page py-10">
+  <h1 class="mb-6 text-2xl font-semibold">Browse carts</h1>
+
+  <form onsubmit={onSubmit} class="mb-8 flex flex-wrap items-center gap-3">
+    <InputGroup.Root class="w-full max-w-xs">
+      <InputGroup.Addon>
+        <SearchIcon />
+      </InputGroup.Addon>
+      <InputGroup.Input placeholder="Search carts…" bind:value={q} />
+    </InputGroup.Root>
+
+    <Select.Root type="single" value={sort} onValueChange={onSortChange}>
+      <Select.Trigger class="w-48">
+        {SORTS[sort]}
+      </Select.Trigger>
+      <Select.Content>
+        <Select.Group>
+          {#each Object.entries(SORTS) as [value, label] (value)}
+            <Select.Item {value} {label} />
+          {/each}
+        </Select.Group>
+      </Select.Content>
+    </Select.Root>
+
+    <Button type="submit" variant="secondary">Search</Button>
+
     {#if tag}
-      <span class="row">
-        <span class="muted">tag: {tag}</span>
-        <button type="button" class="secondary" onclick={clearTag}>×</button>
-      </span>
+      <Badge variant="secondary" class="h-9 gap-1.5 px-3">
+        tag: {tag}
+        <button type="button" onclick={clearTag} aria-label="Clear tag filter" class="ml-0.5">
+          <XIcon class="size-3" />
+        </button>
+      </Badge>
     {/if}
   </form>
 
-  {#if error}<p class="error">{error}</p>{/if}
+  {#if error}
+    <Alert.Root variant="destructive" class="mb-6">
+      <CircleAlertIcon />
+      <Alert.Description>{error}</Alert.Description>
+    </Alert.Root>
+  {/if}
+
   {#if loading}
-    <p class="muted">loading…</p>
+    <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+      {#each Array(12) as _}
+        <Skeleton class="aspect-square w-full rounded-lg" />
+      {/each}
+    </div>
   {:else if carts.length === 0}
-    <p class="muted">No carts found.</p>
+    <Empty.Root>
+      <Empty.Header>
+        <Empty.Media variant="icon"><DiscIcon /></Empty.Media>
+        <Empty.Title>No carts found</Empty.Title>
+        <Empty.Description>Try a different search term, or clear the tag filter.</Empty.Description>
+      </Empty.Header>
+    </Empty.Root>
   {:else}
-    <div class="grid">
+    <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
       {#each carts as cart (cart.id)}
         <CartCard {cart} />
       {/each}
@@ -110,14 +158,3 @@
     <Pagination {page} perPage={PER_PAGE} {total} onchange={onPageChange} />
   {/if}
 </div>
-
-<style>
-  .filters {
-    margin: 1rem 0 1.5rem;
-    flex-wrap: wrap;
-  }
-  .filters input {
-    flex: 1;
-    min-width: 160px;
-  }
-</style>

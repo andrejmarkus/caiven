@@ -2,6 +2,12 @@
   import { api, ApiError, type CartDetail } from '../api';
   import { CartPlayer } from '../player';
   import { link } from '../router.svelte';
+  import { Button } from '$lib/components/ui/button';
+  import * as Alert from '$lib/components/ui/alert';
+  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
+  import Maximize2Icon from '@lucide/svelte/icons/maximize-2';
+  import Minimize2Icon from '@lucide/svelte/icons/minimize-2';
+  import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
 
   let { id }: { id: string } = $props();
 
@@ -63,94 +69,73 @@
   });
 </script>
 
-<div class="container">
-  <p><a href="/cart/{id}" use:link>&larr; back to {cart?.title ?? 'cart'}</a></p>
-  {#if error}<p class="error">{error}</p>{/if}
-  {#if loading}
-    <p class="muted">loading…</p>
+<div class="container-page py-8">
+  <a href="/cart/{id}" use:link class="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+    <ArrowLeftIcon class="size-3.5" />
+    Back to {cart?.title ?? 'cart'}
+  </a>
+
+  {#if error}
+    <Alert.Root variant="destructive" class="mb-4">
+      <CircleAlertIcon />
+      <Alert.Description>{error}</Alert.Description>
+    </Alert.Root>
   {/if}
-  <div class="stage" class:hidden={loading || error} bind:this={stage}>
-    <canvas bind:this={canvas} width="128" height="128"></canvas>
-    {#if fault}
-      <div class="fault-overlay">
-        <p class="fault-title">Cart crashed</p>
-        <p class="fault-message">{fault}</p>
-      </div>
-    {/if}
-    <div class="touch-overlay" bind:this={touchContainer}></div>
+
+  {#if loading}
+    <p class="text-sm text-muted-foreground">Loading…</p>
+  {/if}
+
+  <div class="stage flex justify-center" class:hidden={loading || error} bind:this={stage}>
+    <div class="relative">
+      <canvas
+        bind:this={canvas}
+        width="128"
+        height="128"
+        class="animate-power-on block rounded-xl bg-black shadow-2xl shadow-black/50"
+        style="image-rendering: pixelated; width: min(82vw, 560px); height: min(82vw, 560px);"
+      ></canvas>
+      <div class="crt-vignette scanline-overlay pointer-events-none absolute inset-0 rounded-xl opacity-70"></div>
+      {#if fault}
+        <div class="fault-overlay absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl bg-black/90 p-4 text-center text-white">
+          <p class="m-0 font-mono text-sm font-bold text-destructive">Cart crashed</p>
+          <p class="m-0 max-w-full font-mono text-xs break-words">{fault}</p>
+        </div>
+      {/if}
+      <div class="touch-overlay pointer-events-none absolute inset-0" bind:this={touchContainer}></div>
+    </div>
   </div>
+
   {#if !loading && !error}
-    <p class="muted hint">
-      Arrows/WASD to move · J/Z = A · K/X = B · gamepad supported
-      <button class="fullscreen-btn" onclick={toggleFullscreen}>
-        {isFullscreen ? 'exit fullscreen' : 'fullscreen'}
-      </button>
-    </p>
+    <div class="mt-4 flex flex-wrap items-center justify-center gap-3 text-sm text-muted-foreground">
+      <span>Arrows/WASD move · J/Z = A · K/X = B · gamepad supported</span>
+      <Button variant="secondary" size="sm" onclick={toggleFullscreen}>
+        {#if isFullscreen}
+          <Minimize2Icon data-icon="inline-start" />
+          Exit fullscreen
+        {:else}
+          <Maximize2Icon data-icon="inline-start" />
+          Fullscreen
+        {/if}
+      </Button>
+    </div>
   {/if}
 </div>
 
 <style>
-  .stage {
-    position: relative;
-    display: flex;
-    justify-content: center;
-    margin: 1rem 0;
-  }
   .stage.hidden {
     display: none;
-  }
-  canvas {
-    image-rendering: pixelated;
-    width: min(90vw, 640px);
-    height: min(90vw, 640px);
-    border: 1px solid var(--border);
-    background: #000;
   }
   .stage:fullscreen {
     align-items: center;
     height: 100vh;
     background: #000;
   }
-  .stage:fullscreen canvas {
-    width: min(90vw, 90vh);
-    height: min(90vw, 90vh);
-  }
-  .hint {
-    text-align: center;
-  }
-  .fullscreen-btn {
-    margin-left: 0.5rem;
-    padding: 0.15rem 0.6rem;
-    cursor: pointer;
-  }
-  .fault-overlay {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    padding: 1rem;
-    background: rgba(0, 0, 0, 0.85);
-    color: #fff;
-    text-align: center;
-  }
-  .fault-title {
-    color: #f66;
-    font-weight: bold;
-    margin: 0;
-  }
-  .fault-message {
-    font-family: monospace;
-    font-size: 0.85rem;
-    margin: 0;
-    word-break: break-word;
+  .stage:fullscreen :global(canvas) {
+    width: min(90vw, 90vh) !important;
+    height: min(90vw, 90vh) !important;
   }
   .touch-overlay {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
     display: none;
   }
   @media (hover: none) and (pointer: coarse) {

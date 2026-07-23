@@ -1,10 +1,12 @@
 //! Retro dark theme for Caiven Studio: monospace everywhere, near-black panels,
-//! amber accent — keeps the fantasy-console feel on a desktop UI.
+//! ember accent — keeps the fantasy-console feel on a desktop UI.
+//! Brand colors (ACCENT, ERROR) are shared with Caiven Port — see docs/brand-colors.md.
 
 use egui::{Color32, FontFamily, FontId, TextStyle};
 
-pub const ACCENT: Color32 = Color32::from_rgb(255, 220, 60);
-pub const ERROR: Color32 = Color32::from_rgb(235, 90, 90);
+/// brand ember (#FEB05D) — already light enough for small dense text, no tint needed.
+pub const ACCENT: Color32 = Color32::from_rgb(254, 176, 93);
+pub const ERROR: Color32 = Color32::from_rgb(229, 85, 95);
 pub const OK: Color32 = Color32::from_rgb(90, 200, 110);
 pub const DIM: Color32 = Color32::from_rgb(140, 140, 150);
 
