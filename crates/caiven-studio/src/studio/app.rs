@@ -92,6 +92,11 @@ pub struct StudioApp {
     pending_action: Option<PendingAction>,
     recent: Vec<PathBuf>,
     last_title: String,
+    /// Set right before re-issuing `ViewportCommand::Close` after the user
+    /// already answered the unsaved-changes modal, so the close-requested
+    /// check below doesn't treat our own follow-up close as a fresh request
+    /// and loop back into the same modal forever.
+    exit_confirmed: bool,
 }
 
 impl StudioApp {
@@ -123,6 +128,7 @@ impl StudioApp {
             pending_action: None,
             recent: recent::load(),
             last_title: String::new(),
+            exit_confirmed: false,
         };
 
         if let Some(path) = file
@@ -130,6 +136,12 @@ impl StudioApp {
         {
             app.set_status(format!("{e:#}"), true);
         }
+        // `open_file` starts the game running (the normal behavior when
+        // opening a cart mid-session); on startup we want it loaded but
+        // paused until the user hits run. `_init()` may already have
+        // triggered audio during that load, so silence it too.
+        app.run_state = RunState::Stopped;
+        app.core.vm.stop_audio();
 
         Ok(app)
     }
@@ -222,6 +234,7 @@ impl StudioApp {
                     .to_string();
                 self.code.error = Some(e);
                 self.run_state = RunState::Stopped;
+                self.core.vm.stop_audio();
                 self.set_status(format!("compile error: {first}"), true);
             }
         }
@@ -360,6 +373,7 @@ impl StudioApp {
             self.save();
             let action = self.pending_action.take().unwrap();
             if is_exit {
+                self.exit_confirmed = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             } else {
                 self.run_pending(action);
@@ -367,6 +381,7 @@ impl StudioApp {
         } else if discard {
             let action = self.pending_action.take().unwrap();
             if is_exit {
+                self.exit_confirmed = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             } else {
                 self.run_pending(action);
@@ -420,12 +435,14 @@ impl StudioApp {
             caiven_vm::LuaRunOutcome::Completed => {}
             caiven_vm::LuaRunOutcome::Breakpoint(line) => {
                 self.run_state = RunState::Paused;
+                self.core.vm.stop_audio();
                 self.debug.on_break(line);
                 self.debug.last_error = None;
                 self.set_status(format!("breakpoint hit at line {line}"), false);
             }
             caiven_vm::LuaRunOutcome::Error(msg) => {
                 self.run_state = RunState::Paused;
+                self.core.vm.stop_audio();
                 self.debug.last_error = Some(msg.clone());
                 self.set_status(format!("lua error: {msg}"), true);
             }
@@ -540,6 +557,7 @@ impl eframe::App for StudioApp {
 
         if self.pending_action.is_none()
             && self.is_dirty()
+            && !self.exit_confirmed
             && ctx.input(|i| i.viewport().close_requested())
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -584,7 +602,10 @@ impl eframe::App for StudioApp {
                     self.set_status("no cart loaded", true);
                 }
             }
-            toolbar::ToolbarAction::Pause => self.run_state = RunState::Paused,
+            toolbar::ToolbarAction::Pause => {
+                self.run_state = RunState::Paused;
+                self.core.vm.stop_audio();
+            }
             toolbar::ToolbarAction::Reset => self.reset(),
             toolbar::ToolbarAction::Save => self.save(),
             toolbar::ToolbarAction::None => {}

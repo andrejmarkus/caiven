@@ -4,6 +4,7 @@
 
 use super::app::SourceFile;
 use super::cart::CompileError;
+use super::intellisense;
 use super::theme;
 use crate::debugger::Debugger;
 use egui::text::{CCursor, CCursorRange, LayoutJob, TextFormat};
@@ -13,33 +14,11 @@ const KEYWORDS: &[&str] = &[
     "local", "nil", "not", "or", "repeat", "return", "then", "true", "until", "while",
 ];
 
-/// Our own console API (see `caiven-vm/src/vm/lua_exec.rs`), plus Lua's own
-/// stdlib globals — `string`/`table`/etc. are highlighted as namespaces;
-/// their members (`string.format`) aren't, same as most editors.
-const BUILTINS: &[&str] = &[
-    "clear_screen",
-    "set_pixel",
-    "sprite",
-    "button_down",
-    "button_pressed",
-    "draw_text",
-    "draw_number",
-    "fill_screen",
-    "draw_line",
-    "draw_rect",
-    "fill_rect",
-    "draw_circle",
-    "fill_circle",
-    "set_camera",
-    "set_palette_color",
-    "draw_map",
-    "get_tile",
-    "set_tile",
-    "get_sprite_flags",
-    "set_sprite_flags",
-    "play_sfx",
-    "play_music",
-    "stop_music",
+/// Extra names not in `caiven_vm::vm::api_registry` (script entry points and
+/// Lua's own stdlib globals/namespaces) — `string`/`table`/etc. are
+/// highlighted as namespaces; their members (`string.format`) aren't, same
+/// as most editors.
+const EXTRA_BUILTINS: &[&str] = &[
     "_init",
     "_update",
     "assert",
@@ -65,12 +44,31 @@ const BUILTINS: &[&str] = &[
     "coroutine",
 ];
 
+/// Console builtins from the registry (single source of truth, see
+/// `caiven-vm/src/vm/api_registry.rs`) plus `EXTRA_BUILTINS` above. Registry
+/// names like `math.sin` include a `.` and won't match any single identifier
+/// token, so they're harmless to include here — `next_token`'s word-scan
+/// simply never produces them as one token.
+fn is_builtin(word: &str) -> bool {
+    EXTRA_BUILTINS.contains(&word)
+        || caiven_vm::vm::api_registry::all_names().any(|n| n == word)
+}
+
 const EDITOR_ID: &str = "fc_code_editor";
 
 struct Goto {
     char_start: usize,
     char_end: usize,
     line: usize,
+}
+
+/// Autocomplete popup state — see [`update_autocomplete`].
+#[derive(Default)]
+struct Autocomplete {
+    open: bool,
+    candidates: Vec<String>,
+    selected: usize,
+    replace_start: usize,
 }
 
 #[derive(Default)]
@@ -80,6 +78,7 @@ pub struct CodeState {
     find_focus: bool,
     query: String,
     goto: Option<Goto>,
+    ac: Autocomplete,
 }
 
 pub fn show(
@@ -204,6 +203,13 @@ fn editor(
         st.store(ui.ctx(), editor_id);
     }
 
+    // Autocomplete keyboard handling must run BEFORE the TextEdit sees this
+    // frame's input — otherwise the multiline editor consumes Enter
+    // (newline) / Up / Down (cursor move) itself first, and by the time we
+    // look for them they're already gone.
+    let just_accepted = state.ac.open && handle_autocomplete_keys(ui, state, source, editor_id);
+    let manual_trigger = ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Space));
+
     let error_line = state.error.as_ref().and_then(|e| e.line);
     let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, _wrap: f32| {
         let font = egui::TextStyle::Monospace.resolve(ui.style());
@@ -227,8 +233,317 @@ fn editor(
             if goto.is_some() {
                 output.response.request_focus();
             }
+
+            if !just_accepted {
+                refresh_autocomplete(state, source, &output, manual_trigger);
+            }
+            if state.ac.open {
+                // egui surrenders keyboard focus from any focused widget on
+                // Escape unless that widget's focus-lock filter says
+                // otherwise — a core behavior that runs before our own
+                // Escape handling above ever gets a chance. Without this,
+                // dismissing the popup also kicks focus out of the editor.
+                ui.memory_mut(|mem| {
+                    mem.set_focus_lock_filter(
+                        editor_id,
+                        egui::EventFilter {
+                            escape: true,
+                            horizontal_arrows: true,
+                            vertical_arrows: true,
+                            tab: false,
+                        },
+                    );
+                });
+                render_autocomplete_popup(ui, state, source, editor_id, &output);
+            } else {
+                let symbols = intellisense::scan_buffer(&source.text);
+                show_hover_doc(ui, &output, &source.text, &symbols);
+                show_signature_help(ui, &output, &source.text);
+            }
         });
     });
+}
+
+/// Consumes popup-navigation keys before the `TextEdit` widget gets a
+/// chance to (it would otherwise handle Enter/Up/Down itself). Returns
+/// `true` if a candidate was accepted this frame, so the caller skips
+/// re-triggering the popup off the resulting text change.
+fn handle_autocomplete_keys(
+    ui: &mut egui::Ui,
+    state: &mut CodeState,
+    source: &mut SourceFile,
+    editor_id: egui::Id,
+) -> bool {
+    if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+        state.ac.open = false;
+        return false;
+    }
+    if state.ac.candidates.is_empty() {
+        return false;
+    }
+    if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)) {
+        state.ac.selected = (state.ac.selected + 1) % state.ac.candidates.len();
+    }
+    if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)) {
+        state.ac.selected =
+            (state.ac.selected + state.ac.candidates.len() - 1) % state.ac.candidates.len();
+    }
+    let accept = ui.input_mut(|i| {
+        i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+            || i.consume_key(egui::Modifiers::NONE, egui::Key::Tab)
+    });
+    if !accept {
+        return false;
+    }
+    accept_candidate(ui.ctx(), state, source, editor_id);
+    true
+}
+
+/// Splices the selected candidate into `source.text` in place of the
+/// in-progress prefix, and moves the cursor to just after it.
+fn accept_candidate(
+    ctx: &egui::Context,
+    state: &mut CodeState,
+    source: &mut SourceFile,
+    editor_id: egui::Id,
+) {
+    let candidate = state.ac.candidates[state.ac.selected].clone();
+    let cursor = egui::TextEdit::load_state(ctx, editor_id)
+        .and_then(|s| s.cursor.char_range())
+        .map(|r| r.primary.index)
+        .unwrap_or(state.ac.replace_start);
+
+    let chars: Vec<char> = source.text.chars().collect();
+    let start = state.ac.replace_start.min(chars.len());
+    let end = cursor.min(chars.len()).max(start);
+    let before: String = chars[..start].iter().collect();
+    let after: String = chars[end..].iter().collect();
+    source.text = format!("{before}{candidate}{after}");
+
+    let new_cursor = start + candidate.chars().count();
+    let mut st = egui::TextEdit::load_state(ctx, editor_id).unwrap_or_default();
+    st.cursor
+        .set_char_range(Some(CCursorRange::one(CCursor::new(new_cursor))));
+    st.store(ctx, editor_id);
+
+    state.ac.open = false;
+}
+
+/// Recomputes the in-progress identifier at the cursor and opens/updates/
+/// closes the popup accordingly. Only *opens* a closed popup when the text
+/// actually changed this frame (typing) or `manual` is set (an explicit
+/// Ctrl+Space) — merely moving the cursor around (arrow keys, clicking)
+/// must never pop it up on its own. Once open, it stays synced to the
+/// cursor every frame until dismissed or the context no longer applies.
+fn refresh_autocomplete(
+    state: &mut CodeState,
+    source: &mut SourceFile,
+    output: &egui::text_edit::TextEditOutput,
+    manual: bool,
+) {
+    if !output.response.has_focus() {
+        state.ac.open = false;
+        return;
+    }
+    if !manual && !output.response.changed() && !state.ac.open {
+        return;
+    }
+
+    let Some(range) = output.state.cursor.char_range() else {
+        state.ac.open = false;
+        return;
+    };
+    if range.primary.index != range.secondary.index {
+        state.ac.open = false;
+        return;
+    }
+    let cursor = range.primary.index;
+
+    let (replace_start, prefix) = if manual {
+        intellisense::completion_context_or_empty(&source.text, cursor)
+    } else {
+        let Some(ctx) = intellisense::completion_context(&source.text, cursor) else {
+            state.ac.open = false;
+            return;
+        };
+        ctx
+    };
+    let in_code = !matches!(
+        token_class_at_char(&source.text, cursor.saturating_sub(1)),
+        TokenClass::String | TokenClass::Comment
+    );
+    if !in_code {
+        state.ac.open = false;
+        return;
+    }
+
+    let symbols = intellisense::scan_buffer(&source.text);
+    let mut candidates: Vec<String> = caiven_vm::vm::api_registry::all_names()
+        .map(str::to_string)
+        .chain(symbols.into_iter().map(|s| s.name))
+        .filter(|n| n.starts_with(&prefix) && n != &prefix)
+        .collect();
+    candidates.sort();
+    candidates.dedup();
+    candidates.truncate(50);
+
+    if candidates.is_empty() {
+        state.ac.open = false;
+        return;
+    }
+
+    let previous = state.ac.candidates.get(state.ac.selected).cloned();
+    state.ac.selected = previous
+        .and_then(|p| candidates.iter().position(|c| *c == p))
+        .unwrap_or(0);
+    state.ac.candidates = candidates;
+    state.ac.replace_start = replace_start;
+    state.ac.open = true;
+}
+
+/// Renders the floating candidate list at the cursor and applies a click.
+fn render_autocomplete_popup(
+    ui: &mut egui::Ui,
+    state: &mut CodeState,
+    source: &mut SourceFile,
+    editor_id: egui::Id,
+    output: &egui::text_edit::TextEditOutput,
+) {
+    let Some(range) = output.state.cursor.char_range() else {
+        return;
+    };
+    let rect = output.galley.pos_from_cursor(CCursor::new(range.primary.index));
+    let pos = output.galley_pos + rect.left_bottom().to_vec2();
+
+    let mut clicked = None;
+    egui::Area::new(egui::Id::new("fc_autocomplete_popup"))
+        .fixed_pos(pos)
+        .movable(false)
+        .order(egui::Order::Foreground)
+        .show(ui.ctx(), |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                for (i, cand) in state.ac.candidates.iter().enumerate() {
+                    let resp = ui
+                        .selectable_label(i == state.ac.selected, egui::RichText::new(cand).monospace());
+                    if resp.clicked() {
+                        clicked = Some(i);
+                    }
+                }
+            });
+        });
+
+    if let Some(i) = clicked {
+        state.ac.selected = i;
+        accept_candidate(ui.ctx(), state, source, editor_id);
+    }
+}
+
+/// Tooltip with signature + one-line doc when hovering a builtin, stdlib
+/// member, or a symbol declared elsewhere in this buffer.
+fn show_hover_doc(
+    ui: &mut egui::Ui,
+    output: &egui::text_edit::TextEditOutput,
+    text: &str,
+    symbols: &[intellisense::Symbol],
+) {
+    if !output.response.hovered() {
+        return;
+    }
+    let Some(pointer) = ui.ctx().pointer_hover_pos() else {
+        return;
+    };
+    let local = pointer - output.galley_pos;
+    let cursor = output.galley.cursor_from_pos(local);
+    let Some(word) = intellisense::token_at_char(text, cursor.index) else {
+        return;
+    };
+    if matches!(
+        token_class_at_char(text, cursor.index),
+        TokenClass::String | TokenClass::Comment
+    ) {
+        return;
+    }
+
+    let qualified =
+        intellisense::qualified_token_at_char(text, cursor.index).unwrap_or_else(|| word.clone());
+    let entry = caiven_vm::vm::api_registry::lookup(&qualified);
+    let symbol = symbols.iter().find(|s| s.name == word);
+    if entry.is_none() && symbol.is_none() {
+        return;
+    }
+
+    egui::Tooltip::always_open(
+        ui.ctx().clone(),
+        output.response.layer_id,
+        egui::Id::new("fc_hover_doc"),
+        egui::PopupAnchor::Pointer,
+    )
+    .at_pointer()
+    .show(|ui| {
+        if let Some(entry) = entry {
+            let params = entry
+                .params
+                .iter()
+                .map(|p| format!("{}: {}", p.name, p.ty))
+                .collect::<Vec<_>>()
+                .join(", ");
+            ui.monospace(format!("{}({}) -> {}", entry.name, params, entry.returns));
+            ui.label(entry.doc);
+        } else if let Some(sym) = symbol {
+            let kind = match sym.kind {
+                intellisense::SymbolKind::Local => "local",
+                intellisense::SymbolKind::Function => "function",
+            };
+            ui.label(format!("{kind} {} — declared at line {}", sym.name, sym.line));
+        }
+    });
+}
+
+/// Overlay showing a builtin/stdlib function's full signature, with the
+/// parameter under the cursor bolded, while typing inside a call's parens.
+fn show_signature_help(ui: &mut egui::Ui, output: &egui::text_edit::TextEditOutput, text: &str) {
+    let Some(range) = output.state.cursor.char_range() else {
+        return;
+    };
+    let cursor = range.primary.index;
+    let Some((name, active)) = intellisense::call_context_at_cursor(text, cursor) else {
+        return;
+    };
+    let Some(entry) = caiven_vm::vm::api_registry::lookup(&name) else {
+        return;
+    };
+    if entry.params.is_empty() {
+        return;
+    }
+
+    let rect = output.galley.pos_from_cursor(CCursor::new(cursor));
+    let pos = output.galley_pos + rect.left_top().to_vec2() - egui::vec2(0.0, 4.0);
+
+    egui::Area::new(egui::Id::new("fc_signature_help"))
+        .fixed_pos(pos)
+        .pivot(egui::Align2::LEFT_BOTTOM)
+        .movable(false)
+        .order(egui::Order::Foreground)
+        .show(ui.ctx(), |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.monospace(format!("{}(", entry.name));
+                    for (i, p) in entry.params.iter().enumerate() {
+                        if i > 0 {
+                            ui.monospace(", ");
+                        }
+                        let text = egui::RichText::new(format!("{}: {}", p.name, p.ty)).monospace();
+                        let text = if i == active {
+                            text.color(theme::ACCENT)
+                        } else {
+                            text
+                        };
+                        ui.label(text);
+                    }
+                    ui.monospace(format!(") -> {}", entry.returns));
+                });
+            });
+        });
 }
 
 /// Line numbers, clickable to toggle a breakpoint (shown as a filled dot).
@@ -337,6 +652,27 @@ fn byte_to_char(s: &str, bi: usize) -> usize {
     s[..bi].chars().count()
 }
 
+/// Classifies the token containing char index `ch`, so callers (autocomplete,
+/// hover docs) can suppress themselves inside string literals and comments —
+/// `next_token`'s word-scan can't otherwise tell "hello" the identifier from
+/// "hello" the string content.
+fn token_class_at_char(text: &str, ch: usize) -> TokenClass {
+    if text.is_empty() {
+        return TokenClass::Plain;
+    }
+    let target = char_to_byte(text, ch).min(text.len() - 1);
+    let mut i = 0;
+    while i < text.len() {
+        let (len, class) = next_token(&text[i..]);
+        let len = len.max(1);
+        if target < i + len {
+            return class;
+        }
+        i += len;
+    }
+    TokenClass::Plain
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum TokenClass {
     Plain,
@@ -426,7 +762,7 @@ fn next_token(rest: &str) -> (usize, TokenClass) {
         let word = &rest[..len];
         let class = if KEYWORDS.contains(&word) {
             TokenClass::Keyword
-        } else if BUILTINS.contains(&word) {
+        } else if is_builtin(word) {
             TokenClass::Builtin
         } else {
             TokenClass::Plain

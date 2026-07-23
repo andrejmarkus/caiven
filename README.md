@@ -174,6 +174,12 @@ Math (`sin`/`cos`/`abs`/`floor`/`sqrt`/`max`/`min`/`random`), strings (`..`, `su
 | `play_music(id)` | Play a music track |
 | `stop_music()` | Stop music |
 
+### System
+
+| Function | Description |
+| :------- | :---------- |
+| `real_time()` | Returns `(hour, minute, second)` from the host's real-time clock |
+
 ---
 
 ## 🖌️ Caiven Studio
@@ -191,11 +197,19 @@ Press function keys at any time to switch tabs:
 | `F7` | 📋 Cart meta |
 | `F8` | 📂 Browser (local + port) |
 
-`Ctrl+S` saves the cart from any tab. The Run/Pause/Reset toolbar and FPS counter are always visible; the game view renders as an integer-scaled, nearest-neighbor 128×128 texture.
+`Ctrl+S` saves the cart from any tab. The Run/Pause/Reset toolbar and FPS counter are always visible; the game view renders as an integer-scaled, nearest-neighbor 128×128 texture. Opening a cart (or launching `caiven-studio edit game.cav`) loads it **paused** — hit ▶ Run to start it.
 
 ### 📝 Code Editor
 
 Syntax highlighting for Lua keywords, this project's builtin API, and stdlib namespaces (`math`, `string`, `table`, ...). Click a line's gutter to toggle a breakpoint. `Ctrl+Z`/`Ctrl+Y` undo/redo, `Ctrl+F`/`Ctrl+G` find/find-next. A Lua error jumps the cursor to the offending line and shows the message in the status bar.
+
+**Intellisense**, backed by a structured registry of every builtin/stdlib function's name, parameters, return type, and description:
+
+- **Autocomplete** — pops up while typing an identifier, or after `namespace.` (e.g. `math.`); candidates include this buffer's own `local`/`function` declarations, not just the builtin API. `Ctrl+Space` opens it manually (e.g. with nothing typed yet, to browse everything). `↑`/`↓` to navigate, `Enter`/`Tab`/click to accept, `Esc` to dismiss without losing editor focus.
+- **Hover docs** — hover any builtin, stdlib member, or local/function name for its signature and description.
+- **Signature help** — while typing inside a call's `(...)`, an overlay above the cursor shows the full parameter list with the active parameter highlighted.
+
+None of the three fire inside string literals or comments.
 
 ### 🖼️ Sprite Editor
 

@@ -1041,6 +1041,7 @@ dependencies = [
  "env_logger",
  "image",
  "log",
+ "regex",
  "rfd",
  "serde",
  "serde_json",

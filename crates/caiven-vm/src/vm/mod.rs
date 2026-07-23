@@ -1,3 +1,4 @@
+pub mod api_registry;
 pub mod audio;
 pub mod camera;
 pub mod config;
@@ -96,6 +97,21 @@ impl Vm {
 
     pub fn get_sound_shared(&self) -> Arc<Mutex<Sound>> {
         self.sound.clone()
+    }
+
+    /// Stops any active SFX/music playback and silences the output
+    /// immediately. `tick_audio_players` keeps advancing playback even while
+    /// the game isn't running (so SFX/Music editor previews stay audible),
+    /// which otherwise means audio the game itself triggered — including
+    /// from `_init()` on cart load — just keeps sounding forever once
+    /// nothing else is stepping the VM to wind it down.
+    pub fn stop_audio(&mut self) {
+        self.sfx_player.stop();
+        self.music_player.stop();
+        if let Ok(mut sound) = self.sound.lock() {
+            sound.square.enabled = false;
+            sound.noise.enabled = false;
+        }
     }
 
     pub fn load_section_to_ram(&mut self, base: usize, data: &[u8]) {
