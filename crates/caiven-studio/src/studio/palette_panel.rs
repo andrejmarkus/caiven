@@ -67,7 +67,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut PaletteState, vm: &mut Vm) {
             painter.rect_stroke(
                 r.shrink(1.0),
                 2.0,
-                Stroke::new(2.0, theme::ACCENT),
+                Stroke::new(2.0_f32, theme::ACCENT),
                 StrokeKind::Inside,
             );
         }

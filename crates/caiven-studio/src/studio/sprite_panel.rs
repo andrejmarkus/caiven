@@ -380,7 +380,7 @@ fn show_canvas(ui: &mut egui::Ui, state: &mut SpriteState, vm: &mut Vm) {
     }
 
     // Grid + hover highlight
-    let grid = Stroke::new(1.0, Color32::from_rgb(45, 45, 55));
+    let grid = Stroke::new(1.0_f32, Color32::from_rgb(45, 45, 55));
     for i in 0..=SPRITE_SIZE {
         let t = i as f32 * ZOOM;
         painter.line_segment(
@@ -396,7 +396,7 @@ fn show_canvas(ui: &mut egui::Ui, state: &mut SpriteState, vm: &mut Vm) {
         painter.rect_stroke(
             cell_rect(cell),
             0.0,
-            Stroke::new(2.0, theme::ACCENT),
+            Stroke::new(2.0_f32, theme::ACCENT),
             StrokeKind::Inside,
         );
     }
@@ -459,7 +459,12 @@ fn show_palette_row(ui: &mut egui::Ui, state: &mut SpriteState, vm: &Vm) {
         );
         painter.rect_filled(r, 0.0, palette_color32(vm, i as u8));
         if i == state.color as usize {
-            painter.rect_stroke(r, 0.0, Stroke::new(2.0, Color32::WHITE), StrokeKind::Inside);
+            painter.rect_stroke(
+                r,
+                0.0,
+                Stroke::new(2.0_f32, Color32::WHITE),
+                StrokeKind::Inside,
+            );
         }
     }
     if resp.clicked()

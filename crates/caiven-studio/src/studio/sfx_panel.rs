@@ -238,13 +238,13 @@ fn draw_step_grid(painter: &egui::Painter, rect: Rect, playhead: Option<usize>) 
         );
         painter.rect_filled(r, 0.0, Color32::from_rgb(40, 40, 26));
     }
-    let grid = Stroke::new(1.0, Color32::from_rgb(35, 35, 45));
+    let grid = Stroke::new(1.0_f32, Color32::from_rgb(35, 35, 45));
     for i in 0..=STEPS {
         let x = step_x(rect, i);
         painter.line_segment([Pos2::new(x, rect.min.y), Pos2::new(x, rect.max.y)], grid);
     }
     // Beat guides every 4 steps
-    let beat = Stroke::new(1.0, Color32::from_rgb(60, 60, 75));
+    let beat = Stroke::new(1.0_f32, Color32::from_rgb(60, 60, 75));
     for i in (0..=STEPS).step_by(4) {
         let x = step_x(rect, i);
         painter.line_segment([Pos2::new(x, rect.min.y), Pos2::new(x, rect.max.y)], beat);
@@ -318,7 +318,7 @@ fn show_note_canvas(ui: &mut egui::Ui, state: &mut SfxState, vm: &mut Vm, playhe
                 Pos2::new(step_x(rect, step) + STEP_W, rect.max.y),
             ),
             0.0,
-            Stroke::new(1.0, theme::ACCENT),
+            Stroke::new(1.0_f32, theme::ACCENT),
             StrokeKind::Inside,
         );
         painter.text(

@@ -394,7 +394,7 @@ fn show_canvas(ui: &mut egui::Ui, state: &mut MapState, vm: &mut Vm) {
                 painter.rect_stroke(
                     cell_rect(cell),
                     0.0,
-                    Stroke::new(2.0, theme::ACCENT),
+                    Stroke::new(2.0_f32, theme::ACCENT),
                     StrokeKind::Inside,
                 );
             }
@@ -412,8 +412,8 @@ fn show_canvas(ui: &mut egui::Ui, state: &mut MapState, vm: &mut Vm) {
 
 /// Per-tile grid at 2×+ zoom, screen-boundary lines (every 16 tiles) always.
 fn draw_grid(painter: &egui::Painter, rect: Rect, cell_px: f32, zoom: usize) {
-    let fine = Stroke::new(1.0, Color32::from_rgba_unmultiplied(45, 45, 55, 120));
-    let screen = Stroke::new(1.0, Color32::from_rgba_unmultiplied(120, 120, 140, 160));
+    let fine = Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(45, 45, 55, 120));
+    let screen = Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(120, 120, 140, 160));
     let (w, h) = (rect.width(), rect.height());
     for i in 0..=MAP_W {
         let on_screen_edge = i % SCREEN_TILES == 0;

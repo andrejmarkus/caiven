@@ -89,7 +89,7 @@ pub fn show(
     painter.rect_stroke(
         sel,
         0.0,
-        Stroke::new(2.0, theme::ACCENT),
+        Stroke::new(2.0_f32, theme::ACCENT),
         StrokeKind::Outside,
     );
 }
