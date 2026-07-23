@@ -440,13 +440,25 @@ impl StudioApp {
                 self.debug.last_error = None;
                 self.set_status(format!("breakpoint hit at line {line}"), false);
             }
-            caiven_vm::LuaRunOutcome::Error(msg) => {
+            caiven_vm::LuaRunOutcome::Error(line, message) => {
                 self.run_state = RunState::Paused;
                 self.core.vm.stop_audio();
-                self.debug.last_error = Some(msg.clone());
-                self.set_status(format!("lua error: {msg}"), true);
+                self.set_status(format!("lua error: {message}"), true);
+                self.debug.last_error = Some(super::debug_panel::LuaError { line, message });
             }
         }
+    }
+
+    /// Switches to the Code tab and scrolls to the last runtime error's
+    /// source line, from the game view's error-overlay button.
+    fn jump_to_last_error(&mut self) {
+        let Some(line) = self.debug.last_error.as_ref().and_then(|e| e.line) else {
+            return;
+        };
+        if let Some(src) = &self.source {
+            self.code.goto_line(&src.text, line);
+        }
+        self.tab = Tab::Code;
     }
 
     fn update_game_texture(&mut self, ctx: &egui::Context) {
@@ -639,12 +651,16 @@ impl eframe::App for StudioApp {
                         debug_panel::show(ui, &mut self.debug, &mut self.core, &mut self.run_state);
                     });
                 egui::CentralPanel::default().show_inside(ui, |ui| {
-                    game_panel::show(
+                    let action = game_panel::show(
                         ui,
                         self.game_tex.as_ref(),
                         self.core.config.width as f32,
                         self.run_state,
+                        self.debug.last_error.as_ref(),
                     );
+                    if action == game_panel::GamePanelAction::JumpToError {
+                        self.jump_to_last_error();
+                    }
                 });
             });
 

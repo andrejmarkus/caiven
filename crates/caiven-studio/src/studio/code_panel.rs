@@ -81,6 +81,15 @@ pub struct CodeState {
     ac: Autocomplete,
 }
 
+impl CodeState {
+    /// Scrolls the editor to `line` and places the cursor there — same jump
+    /// used by the compile-error bar's click handler, exposed so other
+    /// panels (e.g. the game view's runtime-error overlay) can trigger it.
+    pub fn goto_line(&mut self, text: &str, line: usize) {
+        self.goto = Some(goto_line(text, line));
+    }
+}
+
 pub fn show(
     ui: &mut egui::Ui,
     state: &mut CodeState,

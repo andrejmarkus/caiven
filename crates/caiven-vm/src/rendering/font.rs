@@ -32,6 +32,18 @@ impl Font {
         self.height
     }
 
+    /// Test-only constructor for building a `Font` from in-memory glyphs,
+    /// bypassing `from_image`'s disk read (asset paths are relative to the
+    /// workspace root, not each crate's test working directory).
+    #[cfg(test)]
+    pub(crate) fn from_glyphs(glyphs: HashMap<char, Glyph>, width: usize, height: usize) -> Self {
+        Self {
+            glyphs,
+            width,
+            height,
+        }
+    }
+
     pub fn from_image(
         path: &str,
         chars: &str,

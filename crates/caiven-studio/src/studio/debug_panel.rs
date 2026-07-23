@@ -26,12 +26,18 @@ const RAM_REGIONS: [(&str, usize); 7] = [
     ("0x9600 MUSIC", MUSIC_RAM_BASE),
 ];
 
+/// Most recent Lua runtime error — `VmFault::LuaError` stays a unit variant
+/// (kept `Copy` on purpose, see `caiven-vm`), so the detail is tracked here
+/// instead, Studio-side only. `line` feeds the game-panel overlay's
+/// jump-to-line button.
+pub struct LuaError {
+    pub line: Option<usize>,
+    pub message: String,
+}
+
 pub struct DebugState {
     pub dbg: Debugger,
-    /// Most recent Lua runtime error text — `VmFault::LuaError` stays a unit
-    /// variant (kept `Copy` on purpose, see `caiven-vm`), so the message is
-    /// tracked here instead, Studio-side only.
-    pub last_error: Option<String>,
+    pub last_error: Option<LuaError>,
     ram_page: usize,
 }
 
@@ -112,8 +118,8 @@ fn apply_lua_outcome(state: &mut DebugState, outcome: caiven_vm::LuaRunOutcome) 
             state.on_break(line);
             state.last_error = None;
         }
-        caiven_vm::LuaRunOutcome::Error(msg) => {
-            state.last_error = Some(msg);
+        caiven_vm::LuaRunOutcome::Error(line, message) => {
+            state.last_error = Some(LuaError { line, message });
         }
     }
 }
@@ -130,7 +136,7 @@ fn status(ui: &mut egui::Ui, state: &DebugState, core: &ConsoleCore) {
         }
     });
     if let Some(err) = &state.last_error {
-        ui.colored_label(theme::ERROR, err);
+        ui.colored_label(theme::ERROR, &err.message);
     } else if let Some(fault) = core.vm.get_fault() {
         ui.colored_label(theme::ERROR, format!("FAULT: {fault:?}"));
     }

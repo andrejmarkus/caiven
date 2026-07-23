@@ -119,8 +119,9 @@ pub enum LuaRunOutcome {
     /// Execution stopped at a breakpointed source line; the rest of this
     /// frame's `_update()` did not run.
     Breakpoint(usize),
-    /// A genuine Lua runtime error (not a breakpoint stop).
-    Error(String),
+    /// A genuine Lua runtime error (not a breakpoint stop), with the
+    /// 1-based source line when [`describe_lua_error`] could recover one.
+    Error(Option<usize>, String),
 }
 
 /// Extracts the raw Lua message (no `syntax error:`/`runtime error:` wrapper)
@@ -774,7 +775,8 @@ impl Vm {
             (None, Err(e)) => {
                 log::error!("Lua runtime error: {e}");
                 self.set_fault(VmFault::LuaError);
-                LuaRunOutcome::Error(e.to_string())
+                let (line, message) = describe_lua_error(&e);
+                LuaRunOutcome::Error(line, message)
             }
         }
     }
