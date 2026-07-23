@@ -4,9 +4,12 @@
 
 use super::templates::{CartTemplate, TEMPLATES};
 use super::theme;
-use egui::text::LayoutJob;
-use egui::{FontId, TextFormat};
 use std::path::{Path, PathBuf};
+
+/// Width reserved for the name column so every description starts at the
+/// same x, monospace-font characters wide (fixed pixel width would need
+/// exact glyph metrics; padding a monospace string is exact by construction).
+const NAME_COLUMN_CHARS: usize = 18;
 
 pub enum WelcomeAction {
     None,
@@ -37,35 +40,73 @@ pub fn show(ui: &mut egui::Ui, recent: &[PathBuf]) -> WelcomeAction {
     });
     ui.add_space(16.0);
 
-    ui.columns(2, |cols| {
-        cols[0].colored_label(theme::DIM, "NEW FROM TEMPLATE");
-        cols[0].add_space(4.0);
-        for CartTemplate {
+    // Stacked full-width sections, not side-by-side `ui.columns` — columns
+    // only offset each sub-`Ui`'s starting cursor, they don't clip width, so
+    // an unwrapped or wrapped-wider-than-expected description would overflow
+    // straight into the other column and render on top of it.
+    ui.colored_label(theme::DIM, "NEW FROM TEMPLATE");
+    ui.add_space(4.0);
+    for (
+        i,
+        CartTemplate {
             name,
             description,
             source,
-        } in TEMPLATES
-        {
-            if cols[0]
-                .selectable_label(false, template_row(name, description))
-                .clicked()
-            {
-                action = WelcomeAction::NewTemplate(source);
-            }
+        },
+    ) in TEMPLATES.into_iter().enumerate()
+    {
+        let row = ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format!("{name:<NAME_COLUMN_CHARS$}"))
+                    .color(theme::ACCENT)
+                    .monospace(),
+            );
+            // `.wrap()` is required: a `Label` inside `ui.horizontal()`
+            // defaults to no-wrap (`Extend`) so rows of widgets don't
+            // awkwardly break — without it, long descriptions were
+            // overflowing past the panel edge instead of wrapping.
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(description)
+                        .color(theme::DIM)
+                        .monospace(),
+                )
+                .wrap(),
+            );
+        });
+        let resp = ui.interact(
+            row.response.rect,
+            egui::Id::new(("welcome_template", i)),
+            egui::Sense::click(),
+        );
+        if resp.hovered() {
+            ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
         }
+        if resp.clicked() {
+            action = WelcomeAction::NewTemplate(source);
+        }
+    }
 
-        cols[1].colored_label(theme::DIM, "RECENT");
-        cols[1].add_space(4.0);
-        if recent.is_empty() {
-            cols[1].colored_label(theme::DIM, "(nothing opened yet)");
+    ui.add_space(16.0);
+    ui.colored_label(theme::DIM, "RECENT");
+    ui.add_space(4.0);
+    if recent.is_empty() {
+        ui.colored_label(theme::DIM, "(nothing opened yet)");
+    }
+    for (i, path) in recent.iter().enumerate() {
+        let resp = ui.label(display_name(path));
+        let resp = ui.interact(
+            resp.rect,
+            egui::Id::new(("welcome_recent", i)),
+            egui::Sense::click(),
+        );
+        if resp.hovered() {
+            ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
         }
-        for path in recent {
-            let label = display_name(path);
-            if cols[1].selectable_label(false, label).clicked() {
-                action = WelcomeAction::OpenRecent(path.clone());
-            }
+        if resp.clicked() {
+            action = WelcomeAction::OpenRecent(path.clone());
         }
-    });
+    }
 
     action
 }
@@ -74,31 +115,4 @@ fn display_name(path: &Path) -> String {
     path.file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.display().to_string())
-}
-
-/// Name in accent/bold, description dimmed — so the two don't read as one
-/// run-on phrase (the plain `"{name:<16}{description}"` string they replace
-/// rendered as flat, same-weight text with no visual break between them).
-fn template_row(name: &str, description: &str) -> LayoutJob {
-    let mut job = LayoutJob::default();
-    let font_id = FontId::monospace(14.0);
-    job.append(
-        &format!("{name:<18}"),
-        0.0,
-        TextFormat {
-            font_id: font_id.clone(),
-            color: theme::ACCENT,
-            ..Default::default()
-        },
-    );
-    job.append(
-        description,
-        0.0,
-        TextFormat {
-            font_id,
-            color: theme::DIM,
-            ..Default::default()
-        },
-    );
-    job
 }
