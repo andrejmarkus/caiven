@@ -905,7 +905,15 @@ impl eframe::App for StudioApp {
             self.last_title = title;
         }
 
-        ctx.request_repaint();
+        // Running needs a steady redraw to animate the game view; idle
+        // (Stopped/Paused) doesn't burn a full render loop for a static
+        // editor UI — egui already repaints on input, text-cursor blink,
+        // etc. on its own.
+        if self.run_state == RunState::Running {
+            ctx.request_repaint();
+        } else {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
     }
 }
 

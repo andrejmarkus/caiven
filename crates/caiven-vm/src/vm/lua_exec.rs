@@ -757,16 +757,21 @@ impl Vm {
         let height = self.config.height;
 
         let hit: Rc<Cell<Option<usize>>> = Rc::new(Cell::new(None));
-        let hit_hook = hit.clone();
-        let bps: Vec<usize> = breakpoints.to_vec();
-        lua.set_hook(HookTriggers::EVERY_LINE, move |_lua, debug| {
-            let line = debug.curr_line();
-            if line > 0 && bps.contains(&(line as usize)) {
-                hit_hook.set(Some(line as usize));
-                return Err(mlua::Error::runtime("breakpoint"));
-            }
-            Ok(VmState::Continue)
-        });
+        // EVERY_LINE fires a Rust callback per Lua instruction executed —
+        // real overhead on any script with loops. Only pay for it when
+        // there's actually something to break on.
+        if !breakpoints.is_empty() {
+            let hit_hook = hit.clone();
+            let bps: Vec<usize> = breakpoints.to_vec();
+            lua.set_hook(HookTriggers::EVERY_LINE, move |_lua, debug| {
+                let line = debug.curr_line();
+                if line > 0 && bps.contains(&(line as usize)) {
+                    hit_hook.set(Some(line as usize));
+                    return Err(mlua::Error::runtime("breakpoint"));
+                }
+                Ok(VmState::Continue)
+            });
+        }
 
         let result: mlua::Result<()> = lua.scope(|scope| {
             let globals = lua.globals();
