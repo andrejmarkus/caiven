@@ -18,8 +18,10 @@ mod recent;
 mod sfx_panel;
 mod sheet;
 mod sprite_panel;
+mod templates;
 mod theme;
 mod toolbar;
+mod welcome_panel;
 
 use anyhow::Result;
 use std::path::PathBuf;

@@ -3,7 +3,8 @@
 
 use super::{
     browser_panel, cart, code_panel, debug_panel, game_panel, map_panel, menu_bar, meta_panel,
-    music_panel, palette_panel, recent, sfx_panel, sprite_panel, theme, toolbar,
+    music_panel, palette_panel, recent, sfx_panel, sprite_panel, templates, theme, toolbar,
+    welcome_panel,
 };
 use crate::app::cart_io::{self, CartMeta};
 use anyhow::Result;
@@ -65,7 +66,7 @@ pub struct SourceFile {
 
 /// A project action deferred behind the unsaved-changes confirmation modal.
 enum PendingAction {
-    New,
+    New(&'static str),
     Open(PathBuf),
     Close,
     Exit,
@@ -107,11 +108,7 @@ impl StudioApp {
             core: ConsoleCore::new()?,
             cart: None,
             source: None,
-            tab: if file.is_some() {
-                Tab::Code
-            } else {
-                Tab::Browser
-            },
+            tab: Tab::Code,
             run_state: RunState::Stopped,
             game_tex: None,
             compose_buf: Vec::new(),
@@ -181,13 +178,11 @@ impl StudioApp {
         Ok(())
     }
 
-    /// Starts editing a brand-new blank cart, seeded with a minimal
-    /// `_init`/`_update` stub. Not yet on disk — `Ctrl+S` writes it to a
-    /// free `untitled*.cav` name in the browser's current folder.
-    fn new_cart(&mut self) {
-        const BOILERPLATE: &str =
-            "function _init()\nend\n\nfunction _update()\n  clear_screen()\nend\n";
-
+    /// Starts editing a brand-new cart seeded with `source` (the blank
+    /// stub, or one of `templates::TEMPLATES`). Not yet on disk — `Ctrl+S`
+    /// writes it to a free `untitled*.cav` name in the browser's current
+    /// folder.
+    fn new_cart_from(&mut self, source: &str) {
         self.core.reset_vm();
         let path = free_untitled_path(self.browser.scan_dir());
         self.cart = Some(CartMeta {
@@ -195,11 +190,11 @@ impl StudioApp {
             header: caiven_cart::CartHeader::default_for("untitled"),
             program: Vec::new(),
             sections: cart::default_section_layout(),
-            lua_source: Some(BOILERPLATE.to_string()),
+            lua_source: Some(source.to_string()),
         });
         self.source = Some(SourceFile {
             path,
-            text: BOILERPLATE.to_string(),
+            text: source.to_string(),
             dirty: true,
         });
         self.code.error = None;
@@ -315,7 +310,11 @@ impl StudioApp {
     }
 
     fn request_new(&mut self) {
-        self.guard(PendingAction::New);
+        self.guard(PendingAction::New(templates::BLANK));
+    }
+
+    fn request_new_template(&mut self, source: &'static str) {
+        self.guard(PendingAction::New(source));
     }
 
     fn request_open(&mut self, path: PathBuf) {
@@ -336,7 +335,7 @@ impl StudioApp {
 
     fn run_pending(&mut self, action: PendingAction) {
         match action {
-            PendingAction::New => self.new_cart(),
+            PendingAction::New(source) => self.new_cart_from(source),
             PendingAction::Open(path) => match self.open_file(&path) {
                 Ok(()) => self.tab = Tab::Code,
                 Err(e) => self.set_status(format!("{e:#}"), true),
@@ -664,40 +663,57 @@ impl eframe::App for StudioApp {
                 });
             });
 
-        egui::CentralPanel::default().show(ctx, |ui| match self.tab {
-            Tab::Code => match &mut self.source {
-                Some(src) => code_panel::show(ui, &mut self.code, src, &mut self.debug.dbg),
-                None => {
-                    ui.add_space(8.0);
-                    ui.heading("CODE EDITOR");
-                    ui.colored_label(
-                        theme::DIM,
-                        "no cart open — caiven-studio edit <file.cav>, or NEW CART in the browser",
-                    );
+        let welcome_action = egui::CentralPanel::default()
+            .show(ctx, |ui| match self.tab {
+                Tab::Code => match &mut self.source {
+                    Some(src) => {
+                        code_panel::show(ui, &mut self.code, src, &mut self.debug.dbg);
+                        welcome_panel::WelcomeAction::None
+                    }
+                    None => welcome_panel::show(ui, &self.recent),
+                },
+                Tab::Sprite => {
+                    sprite_panel::show(ui, &mut self.sprite, &mut self.core.vm);
+                    welcome_panel::WelcomeAction::None
                 }
-            },
-            Tab::Sprite => {
-                sprite_panel::show(ui, &mut self.sprite, &mut self.core.vm);
+                Tab::Map => {
+                    map_panel::show(ui, &mut self.map, &mut self.core.vm);
+                    welcome_panel::WelcomeAction::None
+                }
+                Tab::Palette => {
+                    palette_panel::show(ui, &mut self.palette, &mut self.core.vm);
+                    welcome_panel::WelcomeAction::None
+                }
+                Tab::Sfx => {
+                    sfx_panel::show(ui, &mut self.sfx, &mut self.core.vm);
+                    welcome_panel::WelcomeAction::None
+                }
+                Tab::Music => {
+                    music_panel::show(ui, &mut self.music, &mut self.core.vm);
+                    welcome_panel::WelcomeAction::None
+                }
+                Tab::Meta => {
+                    meta_panel::show(ui, self.cart.as_mut());
+                    welcome_panel::WelcomeAction::None
+                }
+                Tab::Browser => {
+                    browser_panel::show(ui, &mut self.browser, ctx, self.cart.as_ref());
+                    welcome_panel::WelcomeAction::None
+                }
+            })
+            .inner;
+
+        match welcome_action {
+            welcome_panel::WelcomeAction::None => {}
+            welcome_panel::WelcomeAction::NewBlank => self.request_new(),
+            welcome_panel::WelcomeAction::NewTemplate(source) => self.request_new_template(source),
+            welcome_panel::WelcomeAction::Open => {
+                if let Some(path) = pick_open_path() {
+                    self.request_open(path);
+                }
             }
-            Tab::Map => {
-                map_panel::show(ui, &mut self.map, &mut self.core.vm);
-            }
-            Tab::Palette => {
-                palette_panel::show(ui, &mut self.palette, &mut self.core.vm);
-            }
-            Tab::Sfx => {
-                sfx_panel::show(ui, &mut self.sfx, &mut self.core.vm);
-            }
-            Tab::Music => {
-                music_panel::show(ui, &mut self.music, &mut self.core.vm);
-            }
-            Tab::Meta => {
-                meta_panel::show(ui, self.cart.as_mut());
-            }
-            Tab::Browser => {
-                browser_panel::show(ui, &mut self.browser, ctx, self.cart.as_ref());
-            }
-        });
+            welcome_panel::WelcomeAction::OpenRecent(path) => self.request_open(path),
+        }
 
         let title = self.window_title();
         if title != self.last_title {
