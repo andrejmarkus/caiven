@@ -6,6 +6,8 @@ on:
   pull_request:
     branches: ["master"]
 
+  workflow_dispatch:
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -57,3 +59,61 @@ jobs:
           sudo apt-get install -y libasound2-dev libxkbcommon-dev pkg-config
       - name: Build docs
         run: cargo doc --no-deps
+
+  artifacts:
+    name: Release binaries (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+            archive: caiven-linux-x86_64.tar.gz
+          - name: windows-x86_64
+            os: windows-latest
+            archive: caiven-windows-x86_64.zip
+          - name: macos-arm64
+            os: macos-14
+            archive: caiven-macos-arm64.tar.gz
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libxkbcommon-dev pkg-config
+
+      - name: Build Studio and Machine
+        run: cargo build --release -p caiven-studio -p caiven-machine
+
+      - name: Package Unix binaries
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp target/release/caiven-studio dist/
+          cp target/release/caiven-machine dist/
+          cp README.md LICENSE CREATOR_RIGHTS.md dist/
+          tar -czf "${{ matrix.archive }}" -C dist .
+
+      - name: Package Windows binaries
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item target/release/caiven-studio.exe dist/
+          Copy-Item target/release/caiven-machine.exe dist/
+          Copy-Item README.md, LICENSE, CREATOR_RIGHTS.md dist/
+          Compress-Archive -Path dist/* -DestinationPath "${{ matrix.archive }}"
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: caiven-${{ matrix.name }}
+          path: ${{ matrix.archive }}
+          if-no-files-found: error
