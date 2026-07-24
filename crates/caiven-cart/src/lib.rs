@@ -1,3 +1,5 @@
+pub mod asset_png;
+mod bundle;
 mod error;
 mod format;
 mod header;
@@ -5,10 +7,11 @@ mod project;
 mod section;
 pub mod text;
 
+pub use bundle::{bundle_lua, list_lua_files, module_key};
 pub use error::CartError;
 pub use format::{Cart, load, parse, write};
 pub use header::CartHeader;
-pub use project::{is_project, load_project, save_project};
+pub use project::{is_project, load_project, project_lua_files, save_project};
 pub use section::{CartSection, SectionKind};
 
 use std::path::Path;

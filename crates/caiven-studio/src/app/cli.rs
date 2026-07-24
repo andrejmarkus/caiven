@@ -45,9 +45,10 @@ enum Command {
         /// Optional project dir or .cav file to open
         file: Option<PathBuf>,
     },
-    /// Publish a .cav file to a cart sharing port
+    /// Publish a cart to a cart sharing port
     Publish {
-        /// Path to the .cav file
+        /// Path to a .cav file, or a project dir (packed to a temp .cav
+        /// before uploading)
         cart: PathBuf,
         /// Port base URL
         #[arg(long, env = "CAIVEN_PORT_URL", default_value = "http://localhost:8080")]
@@ -234,23 +235,7 @@ pub fn run() -> Result<()> {
             Ok(())
         }
         Some(Command::Unpack { cart, out }) => {
-            let loaded = caiven_cart::load(cart)
-                .with_context(|| format!("failed to load cart from {}", cart.display()))?;
-            let lua = loaded
-                .sections
-                .iter()
-                .find(|s| s.kind == caiven_cart::SectionKind::LuaSource)
-                .map(|s| String::from_utf8_lossy(&s.data).into_owned())
-                .context(
-                    "cart has no Lua source section (bytecode carts are no longer supported)",
-                )?;
-            let extra: Vec<(caiven_cart::SectionKind, Vec<u8>)> = loaded
-                .sections
-                .into_iter()
-                .map(|s| (s.kind, s.data))
-                .collect();
-            caiven_cart::save_project(out, &loaded.header, &lua, &extra)
-                .with_context(|| format!("failed to write project to {}", out.display()))?;
+            crate::studio::cart::unpack_cart(cart, out)?;
             println!("unpacked {}", out.display());
             Ok(())
         }
@@ -265,8 +250,28 @@ pub fn run() -> Result<()> {
             frames,
             no_screenshot,
         }) => {
-            publish_cart(PublishArgs {
-                cart_path: cart,
+            // Publish always uploads a packed .cav — a project dir arg is
+            // packed to a throwaway temp file first so the port never sees
+            // raw source files.
+            let packed_temp = if caiven_cart::is_project(cart) {
+                let temp = crate::studio::cart::temp_cav_path();
+                let project = caiven_cart::load_project(cart)
+                    .with_context(|| format!("failed to load project from {}", cart.display()))?;
+                let extra: Vec<(caiven_cart::SectionKind, Vec<u8>)> = project
+                    .sections
+                    .into_iter()
+                    .map(|s| (s.kind, s.data))
+                    .collect();
+                caiven_cart::write(&temp, &project.header, &project.program, &extra)
+                    .with_context(|| format!("failed to pack project to {}", temp.display()))?;
+                Some(temp)
+            } else {
+                None
+            };
+            let cart_path = packed_temp.as_deref().unwrap_or(cart.as_path());
+
+            let result = publish_cart(PublishArgs {
+                cart_path,
                 port_url: url,
                 api_key,
                 title: title.as_deref(),
@@ -275,7 +280,12 @@ pub fn run() -> Result<()> {
                 tags,
                 frames: *frames,
                 no_screenshot: *no_screenshot,
-            })?;
+            });
+
+            if let Some(temp) = &packed_temp {
+                let _ = std::fs::remove_file(temp);
+            }
+            result?;
             Ok(())
         }
         Some(Command::Edit { file }) => crate::studio::run_studio(file.clone()),

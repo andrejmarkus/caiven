@@ -22,4 +22,7 @@ pub enum CartError {
 
     #[error("bad hex data in {file}: {message}")]
     BadHex { file: String, message: String },
+
+    #[error("bad PNG data in {file}: {message}")]
+    BadPng { file: String, message: String },
 }

@@ -17,6 +17,7 @@ mod menu_bar;
 mod meta_panel;
 mod music_panel;
 mod palette_panel;
+mod project_tree;
 mod recent;
 mod sfx_panel;
 mod sheet;

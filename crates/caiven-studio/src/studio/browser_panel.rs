@@ -230,6 +230,7 @@ pub struct BrowserState {
     rx: Receiver<PortMsg>,
     pending_load: Option<PathBuf>,
     pending_new: bool,
+    pending_unpack: Option<PathBuf>,
 }
 
 fn token_file_path() -> Option<PathBuf> {
@@ -330,13 +331,37 @@ fn decode_png_to_color_image(bytes: &[u8]) -> Option<egui::ColorImage> {
     ))
 }
 
+/// Publishing always uploads a packed `.cav` — if `job.cart_path` is a
+/// project directory it's packed to a throwaway temp file first (from
+/// disk, the same as `caiven-studio build`; unsaved editor buffers aren't
+/// included, so a project should be saved before publishing).
 fn run_publish(job: &PublishJob) -> Result<String, String> {
-    let cart =
-        caiven_cart::load(&job.cart_path).map_err(|e| format!("failed to load cart: {e:#}"))?;
-    let cart_bytes =
-        std::fs::read(&job.cart_path).map_err(|e| format!("failed to read cart: {e}"))?;
-    let filename = job
-        .cart_path
+    let packed_temp = if caiven_cart::is_project(&job.cart_path) {
+        let temp = crate::studio::cart::temp_cav_path();
+        let project = caiven_cart::load_project(&job.cart_path)
+            .map_err(|e| format!("failed to load project: {e:#}"))?;
+        let extra: Vec<(caiven_cart::SectionKind, Vec<u8>)> = project
+            .sections
+            .into_iter()
+            .map(|s| (s.kind, s.data))
+            .collect();
+        caiven_cart::write(&temp, &project.header, &project.program, &extra)
+            .map_err(|e| format!("failed to pack project: {e:#}"))?;
+        Some(temp)
+    } else {
+        None
+    };
+    let result = run_publish_packed(job, packed_temp.as_deref().unwrap_or(&job.cart_path));
+    if let Some(temp) = &packed_temp {
+        let _ = std::fs::remove_file(temp);
+    }
+    result
+}
+
+fn run_publish_packed(job: &PublishJob, cart_path: &std::path::Path) -> Result<String, String> {
+    let cart = caiven_cart::load(cart_path).map_err(|e| format!("failed to load cart: {e:#}"))?;
+    let cart_bytes = std::fs::read(cart_path).map_err(|e| format!("failed to read cart: {e}"))?;
+    let filename = cart_path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("cart.cav");
@@ -459,6 +484,7 @@ impl Default for BrowserState {
             rx,
             pending_load: None,
             pending_new: false,
+            pending_unpack: None,
         }
     }
 }
@@ -477,6 +503,10 @@ impl BrowserState {
 
     pub fn take_pending_new(&mut self) -> bool {
         std::mem::take(&mut self.pending_new)
+    }
+
+    pub fn take_pending_unpack(&mut self) -> Option<PathBuf> {
+        self.pending_unpack.take()
     }
 
     pub fn scan_dir(&self) -> &std::path::Path {
@@ -813,8 +843,12 @@ fn show_local(ui: &mut egui::Ui, state: &mut BrowserState) {
         return;
     }
 
-    ui.colored_label(theme::DIM, "double-click to open");
+    ui.colored_label(
+        theme::DIM,
+        "double-click to open, right-click a .cav to unpack",
+    );
     let mut load: Option<PathBuf> = None;
+    let mut unpack: Option<PathBuf> = None;
     egui::ScrollArea::vertical()
         .auto_shrink([false; 2])
         .show(ui, |ui| {
@@ -824,10 +858,22 @@ fn show_local(ui: &mut egui::Ui, state: &mut BrowserState) {
                 if resp.double_clicked() {
                     load = Some(entry.path.clone());
                 }
+                let is_cav = entry.path.extension().and_then(|e| e.to_str()) == Some("cav");
+                if is_cav {
+                    resp.context_menu(|ui| {
+                        if ui.button("Unpack to folder…").clicked() {
+                            unpack = Some(entry.path.clone());
+                            ui.close();
+                        }
+                    });
+                }
             }
         });
     if load.is_some() {
         state.pending_load = load;
+    }
+    if unpack.is_some() {
+        state.pending_unpack = unpack;
     }
 }
 

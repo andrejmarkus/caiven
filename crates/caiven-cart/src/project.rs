@@ -1,25 +1,35 @@
-//! Project-directory authoring format: a `caiven.toml` manifest plus a plain
-//! `.lua` entry file and one `.hex` file per non-empty asset section. This is
-//! the git-friendly authoring counterpart to the binary `.cav` distribution
-//! format — code diffs line-by-line, assets diff per hex line, no merge
-//! conflicts across unrelated edits.
+//! Project-directory authoring format: a `caiven.toml` manifest, a `.lua`
+//! entry file (plus any sibling `.lua` modules, bundled together — see
+//! `bundle.rs`), and one asset file per non-empty section. This is the
+//! git-friendly authoring counterpart to the binary `.cav` distribution
+//! format — code diffs line-by-line, sprites/palette/map are real PNGs,
+//! flags/sfx/music are per-line hex — no merge conflicts across unrelated
+//! edits.
 //!
 //! ```text
 //! my-game/
 //!   caiven.toml
 //!   main.lua
-//!   sprites.hex       (__gfx__)
+//!   sprites.png       (__gfx__,   or sprites.hex)
+//!   map.png           (__map__,   or map.hex)
+//!   palette.png       (__pal__,   or palette.hex)
 //!   sprite_flags.hex  (__flags__)
-//!   map.hex           (__map__)
-//!   palette.hex       (__pal__)
 //!   sfx.hex           (__sfx__)
 //!   music.hex         (__music__)
 //! ```
+//!
+//! Sprites, map, and palette each support both `.png` (visual, editable in
+//! any image tool) and `.hex` (per-line text diffs) — whichever file is
+//! already on disk is preserved on save; a brand-new asset is written as
+//! `.png`. Sprite flags, SFX, and music are index/audio data rather than
+//! images, so they're `.hex` only.
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::asset_png;
+use crate::bundle::{bundle_lua, list_lua_files, module_key};
 use crate::error::CartError;
 use crate::format::Cart;
 use crate::header::CartHeader;
@@ -29,20 +39,33 @@ use crate::text::{decode_hex_block, encode_hex_block, trim_trailing_zeros};
 const MANIFEST_FILE: &str = "caiven.toml";
 const DEFAULT_ENTRY: &str = "main.lua";
 
-const SECTION_FILES: [(SectionKind, &str); 6] = [
-    (SectionKind::SpriteSheet, "sprites.hex"),
-    (SectionKind::Map, "map.hex"),
-    (SectionKind::SpriteFlags, "sprite_flags.hex"),
-    (SectionKind::Palette, "palette.hex"),
-    (SectionKind::SfxBank, "sfx.hex"),
-    (SectionKind::MusicBank, "music.hex"),
+/// Asset section kinds and their file stem, in load order — `Palette` comes
+/// first so its bytes are available for `SpriteSheet`'s PNG decode/encode
+/// (an indexed PNG's own PLTE is used when present; the loaded palette is
+/// only a fallback for nearest-color matching a plain RGB PNG).
+const SECTION_STEMS: [(SectionKind, &str); 6] = [
+    (SectionKind::Palette, "palette"),
+    (SectionKind::SpriteSheet, "sprites"),
+    (SectionKind::Map, "map"),
+    (SectionKind::SpriteFlags, "sprite_flags"),
+    (SectionKind::SfxBank, "sfx"),
+    (SectionKind::MusicBank, "music"),
 ];
 
-fn file_for(kind: SectionKind) -> Option<&'static str> {
-    SECTION_FILES
+fn stem_for(kind: SectionKind) -> Option<&'static str> {
+    SECTION_STEMS
         .iter()
         .find(|(k, _)| *k == kind)
-        .map(|(_, f)| *f)
+        .map(|(_, s)| *s)
+}
+
+/// Sprites, palette, and map are images; sprite flags/SFX/music are
+/// index/audio data with no meaningful visual form.
+fn supports_png(kind: SectionKind) -> bool {
+    matches!(
+        kind,
+        SectionKind::SpriteSheet | SectionKind::Palette | SectionKind::Map
+    )
 }
 
 #[derive(Serialize, Deserialize)]
@@ -93,13 +116,30 @@ fn resolve_dir(path: &Path) -> PathBuf {
     }
 }
 
+fn parse_manifest(dir: &Path) -> Result<CaivenToml, CartError> {
+    let manifest_path = dir.join(MANIFEST_FILE);
+    let manifest_text = std::fs::read_to_string(&manifest_path)?;
+    Ok(toml::from_str(&manifest_text)?)
+}
+
+/// Resolves a project's entry file and its sibling `.lua` module paths
+/// (both absolute, entry first), without reading or bundling their
+/// contents. Used by Caiven Studio to load each file into its own editable
+/// buffer, unlike [`load_project`] whose `LuaSource` section is already the
+/// bundled compile output.
+pub fn project_lua_files(path: &Path) -> Result<(PathBuf, Vec<PathBuf>), CartError> {
+    let dir = resolve_dir(path);
+    let manifest = parse_manifest(&dir)?;
+    let entry_rel = PathBuf::from(&manifest.cart.entry);
+    let entry_path = dir.join(&entry_rel);
+    Ok((entry_path, list_lua_files(&dir, &entry_rel)))
+}
+
 /// Loads a project directory (or its `caiven.toml`) into the same in-memory
 /// `Cart` shape the binary `.cav` loader produces.
 pub fn load_project(path: &Path) -> Result<Cart, CartError> {
     let dir = resolve_dir(path);
-    let manifest_path = dir.join(MANIFEST_FILE);
-    let manifest_text = std::fs::read_to_string(&manifest_path)?;
-    let manifest: CaivenToml = toml::from_str(&manifest_text)?;
+    let manifest = parse_manifest(&dir)?;
 
     let header = CartHeader {
         title: manifest.cart.title,
@@ -108,25 +148,48 @@ pub fn load_project(path: &Path) -> Result<Cart, CartError> {
         flags: manifest.cart.flags,
     };
 
-    let entry_path = dir.join(&manifest.cart.entry);
-    let lua = std::fs::read_to_string(&entry_path)
+    let entry_rel = PathBuf::from(&manifest.cart.entry);
+    let entry_path = dir.join(&entry_rel);
+    let entry_src = std::fs::read_to_string(&entry_path)
         .map_err(|_| CartError::MissingEntry(entry_path.display().to_string()))?;
+
+    let mut modules = Vec::new();
+    for module_path in list_lua_files(&dir, &entry_rel) {
+        let key = module_key(&dir, &module_path);
+        let src = std::fs::read_to_string(&module_path)?;
+        modules.push((key, src));
+    }
+    let lua = bundle_lua(&entry_src, &modules);
 
     let mut sections = vec![CartSection {
         kind: SectionKind::LuaSource,
         data: lua.into_bytes(),
     }];
 
-    for (kind, filename) in SECTION_FILES {
-        let asset_path = dir.join(filename);
-        if !asset_path.is_file() {
+    let mut palette: Vec<u8> = Vec::new();
+    for (kind, stem) in SECTION_STEMS {
+        let png_path = dir.join(format!("{stem}.png"));
+        let hex_path = dir.join(format!("{stem}.hex"));
+
+        let data = if supports_png(kind) && png_path.is_file() {
+            let bytes = std::fs::read(&png_path)?;
+            decode_png_section(kind, &bytes, &palette).map_err(|message| CartError::BadPng {
+                file: format!("{stem}.png"),
+                message,
+            })?
+        } else if hex_path.is_file() {
+            let text = std::fs::read_to_string(&hex_path)?;
+            decode_hex_block(&text).map_err(|message| CartError::BadHex {
+                file: format!("{stem}.hex"),
+                message,
+            })?
+        } else {
             continue;
+        };
+
+        if kind == SectionKind::Palette {
+            palette = data.clone();
         }
-        let text = std::fs::read_to_string(&asset_path)?;
-        let data = decode_hex_block(&text).map_err(|message| CartError::BadHex {
-            file: filename.to_string(),
-            message,
-        })?;
         if !data.is_empty() {
             sections.push(CartSection { kind, data });
         }
@@ -146,16 +209,19 @@ pub fn load_project(path: &Path) -> Result<Cart, CartError> {
     })
 }
 
-/// Writes `header`, `lua` source, and `sections` out as a project directory
-/// at `dir`, creating it if needed. Sections with no asset file mapping
-/// (`Program`, `Meta`, `LuaSource`) are ignored; `ModManifest` is folded into
-/// `caiven.toml`'s `[mods].require` instead of a `.hex` file. Asset sections
-/// that trim to empty have their `.hex` file removed if present, so deleting
-/// all sprites in the editor cleans up the file instead of leaving zeros.
+/// Writes `header`, entry `lua` source, sibling `modules` (project-relative
+/// path -> source, e.g. `ui/panel.lua`), and asset `sections` out as a
+/// project directory at `dir`, creating it if needed. Sections with no asset
+/// file mapping (`Program`, `Meta`, `LuaSource`) are ignored; `ModManifest`
+/// is folded into `caiven.toml`'s `[mods].require` instead of a `.hex` file.
+/// Asset sections that trim to empty have their `.hex`/`.png` file removed
+/// if present, so deleting all sprites in the editor cleans up the file
+/// instead of leaving zeros.
 pub fn save_project(
     dir: &Path,
     header: &CartHeader,
     lua: &str,
+    modules: &[(PathBuf, String)],
     sections: &[(SectionKind, Vec<u8>)],
 ) -> Result<(), CartError> {
     std::fs::create_dir_all(dir)?;
@@ -188,20 +254,69 @@ pub fn save_project(
     std::fs::write(dir.join(MANIFEST_FILE), manifest_text)?;
     std::fs::write(dir.join(DEFAULT_ENTRY), lua)?;
 
+    for (rel, src) in modules {
+        let module_path = dir.join(rel);
+        if let Some(parent) = module_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(module_path, src)?;
+    }
+
     for (kind, data) in sections {
-        let Some(filename) = file_for(*kind) else {
+        let Some(stem) = stem_for(*kind) else {
             continue;
         };
-        let asset_path = dir.join(filename);
+        let png_path = dir.join(format!("{stem}.png"));
+        let hex_path = dir.join(format!("{stem}.hex"));
+
         let trimmed = trim_trailing_zeros(data);
         if trimmed.is_empty() {
-            let _ = std::fs::remove_file(&asset_path);
+            let _ = std::fs::remove_file(&hex_path);
+            let _ = std::fs::remove_file(&png_path);
             continue;
         }
-        std::fs::write(&asset_path, encode_hex_block(trimmed))?;
+
+        // Preserve whichever format is already on disk; a brand-new asset
+        // (neither file present yet) defaults to PNG.
+        let write_png = supports_png(*kind) && (png_path.is_file() || !hex_path.is_file());
+        if write_png {
+            let palette = sections
+                .iter()
+                .find(|(k, _)| *k == SectionKind::Palette)
+                .map(|(_, d)| d.as_slice())
+                .unwrap_or(&[]);
+            let bytes =
+                encode_png_section(*kind, data, palette).map_err(|message| CartError::BadPng {
+                    file: format!("{stem}.png"),
+                    message,
+                })?;
+            std::fs::write(&png_path, bytes)?;
+            let _ = std::fs::remove_file(&hex_path);
+        } else {
+            std::fs::write(&hex_path, encode_hex_block(trimmed))?;
+            let _ = std::fs::remove_file(&png_path);
+        }
     }
 
     Ok(())
+}
+
+fn decode_png_section(kind: SectionKind, bytes: &[u8], palette: &[u8]) -> Result<Vec<u8>, String> {
+    match kind {
+        SectionKind::SpriteSheet => asset_png::png_to_sprites(bytes, palette),
+        SectionKind::Palette => asset_png::png_to_palette(bytes),
+        SectionKind::Map => asset_png::png_to_map(bytes),
+        _ => Err(format!("{kind:?} has no PNG codec")),
+    }
+}
+
+fn encode_png_section(kind: SectionKind, data: &[u8], palette: &[u8]) -> Result<Vec<u8>, String> {
+    match kind {
+        SectionKind::SpriteSheet => asset_png::sprites_to_png(data, palette),
+        SectionKind::Palette => asset_png::palette_to_png(data),
+        SectionKind::Map => asset_png::map_to_png(data),
+        _ => Err(format!("{kind:?} has no PNG codec")),
+    }
 }
 
 #[cfg(test)]
@@ -216,12 +331,15 @@ mod tests {
         header.entry_point = 5;
         header.flags = 2;
         let lua = "function _update() end\n";
+        // SpriteFlags is hex-only (no PNG codec) so this test exercises the
+        // generic save/load plumbing independent of asset format choice —
+        // PNG-vs-hex behavior gets its own tests below.
         let sections = vec![
-            (SectionKind::SpriteSheet, vec![1u8, 2, 3, 0]),
+            (SectionKind::SpriteFlags, vec![1u8, 2, 3, 0]),
             (SectionKind::ModManifest, b"rtc\ninput".to_vec()),
         ];
 
-        save_project(dir.path(), &header, lua, &sections).unwrap();
+        save_project(dir.path(), &header, lua, &[], &sections).unwrap();
         let cart = load_project(dir.path()).unwrap();
 
         assert_eq!(cart.header.title, "My Game");
@@ -234,14 +352,16 @@ mod tests {
             .iter()
             .find(|s| s.kind == SectionKind::LuaSource)
             .unwrap();
+        // No modules: the bundle is byte-identical to the entry source (no
+        // line-number shift for the common single-file case).
         assert_eq!(String::from_utf8_lossy(&lua_section.data), lua);
 
-        let gfx = cart
+        let flags = cart
             .sections
             .iter()
-            .find(|s| s.kind == SectionKind::SpriteSheet)
+            .find(|s| s.kind == SectionKind::SpriteFlags)
             .unwrap();
-        assert_eq!(gfx.data, vec![1, 2, 3]);
+        assert_eq!(flags.data, vec![1, 2, 3]);
 
         let manifest = cart
             .sections
@@ -255,7 +375,7 @@ mod tests {
     fn missing_asset_files_are_simply_absent() {
         let dir = tempfile::tempdir().unwrap();
         let header = CartHeader::new("Blank", "");
-        save_project(dir.path(), &header, "-- empty\n", &[]).unwrap();
+        save_project(dir.path(), &header, "-- empty\n", &[], &[]).unwrap();
 
         let cart = load_project(dir.path()).unwrap();
         assert!(
@@ -297,18 +417,113 @@ mod tests {
             dir.path(),
             &header,
             "-- code\n",
-            &[(SectionKind::SpriteSheet, vec![1, 2, 3])],
+            &[],
+            &[(SectionKind::SpriteFlags, vec![1, 2, 3])],
         )
         .unwrap();
-        assert!(dir.path().join("sprites.hex").is_file());
+        assert!(dir.path().join("sprite_flags.hex").is_file());
 
         save_project(
             dir.path(),
             &header,
             "-- code\n",
-            &[(SectionKind::SpriteSheet, vec![0, 0, 0])],
+            &[],
+            &[(SectionKind::SpriteFlags, vec![0, 0, 0])],
         )
         .unwrap();
+        assert!(!dir.path().join("sprite_flags.hex").is_file());
+    }
+
+    #[test]
+    fn new_sprite_sheet_defaults_to_png() {
+        let dir = tempfile::tempdir().unwrap();
+        let header = CartHeader::new("Game", "");
+        save_project(
+            dir.path(),
+            &header,
+            "-- code\n",
+            &[],
+            &[(SectionKind::SpriteSheet, vec![9u8; 64])],
+        )
+        .unwrap();
+        assert!(dir.path().join("sprites.png").is_file());
         assert!(!dir.path().join("sprites.hex").is_file());
+    }
+
+    #[test]
+    fn resaving_preserves_existing_hex_format_over_png_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let header = CartHeader::new("Game", "");
+        // Simulate an existing hex-authored asset (as if hand-written or
+        // migrated from before PNG support) that predates any save.
+        std::fs::write(dir.path().join("sprites.hex"), "0909090909090909\n").unwrap();
+
+        save_project(
+            dir.path(),
+            &header,
+            "-- code\n",
+            &[],
+            &[(SectionKind::SpriteSheet, vec![9u8; 64])],
+        )
+        .unwrap();
+
+        assert!(dir.path().join("sprites.hex").is_file());
+        assert!(!dir.path().join("sprites.png").is_file());
+    }
+
+    #[test]
+    fn load_prefers_png_over_hex_when_both_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let header = CartHeader::new("Game", "");
+        save_project(dir.path(), &header, "-- code\n", &[], &[]).unwrap();
+
+        let palette = vec![0u8; 48];
+        let mut sheet = vec![0u8; 64];
+        sheet[0] = 5;
+        std::fs::write(
+            dir.path().join("sprites.png"),
+            asset_png::sprites_to_png(&sheet, &palette).unwrap(),
+        )
+        .unwrap();
+        // A stale/conflicting .hex sitting alongside it must be ignored.
+        std::fs::write(dir.path().join("sprites.hex"), "ff\n").unwrap();
+
+        let cart = load_project(dir.path()).unwrap();
+        let gfx = cart
+            .sections
+            .iter()
+            .find(|s| s.kind == SectionKind::SpriteSheet)
+            .unwrap();
+        assert_eq!(gfx.data[0], 5);
+    }
+
+    #[test]
+    fn saved_module_is_bundled_and_require_key_matches_relative_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let header = CartHeader::new("Game", "");
+        let modules = [(
+            PathBuf::from("ui").join("panel.lua"),
+            "return { greet = function() return 'hi' end }".to_string(),
+        )];
+        save_project(
+            dir.path(),
+            &header,
+            "local p = require('ui.panel')\n",
+            &modules,
+            &[],
+        )
+        .unwrap();
+
+        assert!(dir.path().join("ui").join("panel.lua").is_file());
+
+        let cart = load_project(dir.path()).unwrap();
+        let lua = cart
+            .sections
+            .iter()
+            .find(|s| s.kind == SectionKind::LuaSource)
+            .unwrap();
+        let bundled = String::from_utf8_lossy(&lua.data);
+        assert!(bundled.contains("__pre[\"ui.panel\"]"));
+        assert!(bundled.contains("require('ui.panel')"));
     }
 }

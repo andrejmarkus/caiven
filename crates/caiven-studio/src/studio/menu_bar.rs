@@ -14,6 +14,7 @@ pub enum MenuAction {
     ExportScreenshot,
     ExportGif,
     ExportCartridge,
+    UnpackCartridge,
     Close,
     Exit,
 }
@@ -74,6 +75,11 @@ pub fn show(ctx: &egui::Context, recent: &[PathBuf]) -> MenuAction {
                     ui.close();
                 }
                 ui.separator();
+                if ui.button("Unpack Cartridge (.cav)...").clicked() {
+                    action = MenuAction::UnpackCartridge;
+                    ui.close();
+                }
+                ui.separator();
                 ui.menu_button("Export", |ui| {
                     if ui.button("Screenshot (PNG)...").clicked() {
                         action = MenuAction::ExportScreenshot;
@@ -83,7 +89,7 @@ pub fn show(ctx: &egui::Context, recent: &[PathBuf]) -> MenuAction {
                         action = MenuAction::ExportGif;
                         ui.close();
                     }
-                    if ui.button("Cartridge (.cav)...").clicked() {
+                    if ui.button("Pack Cartridge (.cav)...").clicked() {
                         action = MenuAction::ExportCartridge;
                         ui.close();
                     }

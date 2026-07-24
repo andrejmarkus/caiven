@@ -1,6 +1,7 @@
 //! Standalone cart loading for the studio: loads cart sections into VM RAM
 //! and produces a [`CartMeta`] usable with `cart_io::save`.
 
+use super::app::SourceFile;
 use crate::app::cart_io::{CartMeta, SectionLayout};
 use anyhow::{Context, Result};
 use caiven_cart::SectionKind;
@@ -106,6 +107,35 @@ pub fn load_cart(vm: &mut Vm, path: &Path, input: &Input, font: &Font) -> Result
     })
 }
 
+/// Reads a project's entry `.lua` file and its sibling modules into
+/// separate editable buffers (entry first) — unlike `load_cart`'s
+/// `CartMeta.lua_source`, which is the already-bundled compile output, this
+/// gives Studio's Code tab one buffer per on-disk file so `require()`d
+/// modules are independently editable and saveable.
+pub fn load_project_sources(path: &Path) -> Result<Vec<SourceFile>> {
+    let (entry_path, module_paths) = caiven_cart::project_lua_files(path)
+        .with_context(|| format!("failed to read project modules from {}", path.display()))?;
+
+    let mut sources = Vec::with_capacity(1 + module_paths.len());
+    let entry_text = std::fs::read_to_string(&entry_path)
+        .with_context(|| format!("failed to read {}", entry_path.display()))?;
+    sources.push(SourceFile {
+        path: entry_path,
+        text: entry_text,
+        dirty: false,
+    });
+    for module_path in module_paths {
+        let text = std::fs::read_to_string(&module_path)
+            .with_context(|| format!("failed to read {}", module_path.display()))?;
+        sources.push(SourceFile {
+            path: module_path,
+            text,
+            dirty: false,
+        });
+    }
+    Ok(sources)
+}
+
 /// Compile failure with the 1-based source line (when known) so the code
 /// editor can highlight and jump to it.
 pub struct CompileError {
@@ -113,25 +143,100 @@ pub struct CompileError {
     pub message: String,
 }
 
-/// Loads `.lua` source into the VM. Embedded asset blocks (`__gfx__` etc.)
-/// are split off and applied to RAM first: unlike the old bytecode path,
-/// loading Lua source runs `_init()` immediately, so map/sprite/etc. RAM
-/// needs to already be in place.
-pub fn compile_lua_into_vm(
+/// Compiles `sources[0]` (the entry buffer) plus any sibling module buffers,
+/// bundled together exactly like the project loader does from disk (see
+/// `caiven_cart::bundle_lua`), and (re)starts the VM. Embedded asset blocks
+/// (`__gfx__` etc.) in the entry buffer are split off and applied to RAM
+/// first, since loading Lua source runs `_init()` immediately. `dir` is the
+/// project directory `sources` was loaded from — pass `None` for a
+/// single-buffer `.cav`-sourced cart, which has no sibling modules to
+/// bundle.
+pub fn compile_sources_into_vm(
     vm: &mut Vm,
-    source: &str,
+    dir: Option<&Path>,
+    sources: &[SourceFile],
     input: &Input,
     font: &Font,
 ) -> std::result::Result<(), CompileError> {
+    let Some(entry) = sources.first() else {
+        return Err(CompileError {
+            line: None,
+            message: "no source loaded".to_string(),
+        });
+    };
     let (code, sections) =
-        caiven_cart::text::split_source(source).map_err(|message| CompileError {
+        caiven_cart::text::split_source(&entry.text).map_err(|message| CompileError {
             line: None,
             message,
         })?;
     apply_sections(vm, &sections);
-    vm.load_lua_source(&code, input, font)
+
+    let modules: Vec<(String, String)> = match dir {
+        Some(dir) => sources[1..]
+            .iter()
+            .map(|s| (caiven_cart::module_key(dir, &s.path), s.text.clone()))
+            .collect(),
+        None => Vec::new(),
+    };
+    let bundled = caiven_cart::bundle_lua(&code, &modules);
+
+    vm.load_lua_source(&bundled, input, font)
         .map_err(|e| caiven_vm::describe_lua_error(&e))
         .map_err(|(line, message)| CompileError { line, message })
+}
+
+/// Unpacks a binary `.cav` cart into an editable project directory at
+/// `out`. Module structure isn't preserved across the binary format (it
+/// only ever holds one flattened Lua source), so the result is always a
+/// single `main.lua` plus asset files.
+/// A unique path under the OS temp dir for packing a project into a
+/// throwaway `.cav` (e.g. before uploading to the port) without touching
+/// the project's own save location.
+pub(crate) fn temp_cav_path() -> std::path::PathBuf {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!("caiven-pack-{}-{unique}.cav", std::process::id()))
+}
+
+pub(crate) fn unpack_cart(cart: &Path, out: &Path) -> Result<()> {
+    ensure_empty_unpack_destination(out)?;
+    let loaded = caiven_cart::load(cart)
+        .with_context(|| format!("failed to load cart from {}", cart.display()))?;
+    let lua = loaded
+        .sections
+        .iter()
+        .find(|s| s.kind == SectionKind::LuaSource)
+        .map(|s| String::from_utf8_lossy(&s.data).into_owned())
+        .context("cart has no Lua source section (bytecode carts are no longer supported)")?;
+    let extra: Vec<(SectionKind, Vec<u8>)> = loaded
+        .sections
+        .into_iter()
+        .map(|s| (s.kind, s.data))
+        .collect();
+    caiven_cart::save_project(out, &loaded.header, &lua, &[], &extra)
+        .with_context(|| format!("failed to write project to {}", out.display()))?;
+    Ok(())
+}
+
+/// Unpacking creates a complete project, so only a fresh or empty directory
+/// is safe. This guard is shared by Studio and the CLI entry point.
+fn ensure_empty_unpack_destination(out: &Path) -> Result<()> {
+    match std::fs::read_dir(out) {
+        Ok(mut entries) => {
+            if entries.next().transpose()?.is_some() {
+                anyhow::bail!(
+                    "unpack destination must be a new or empty directory: {}",
+                    out.display()
+                );
+            }
+            Ok(())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error)
+            .with_context(|| format!("failed to inspect unpack destination {}", out.display())),
+    }
 }
 
 pub fn section_ram_base(kind: SectionKind) -> Option<usize> {
@@ -185,4 +290,43 @@ pub fn default_section_layout() -> Vec<SectionLayout> {
         len,
     })
     .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unpack_cart;
+    use caiven_cart::{CartHeader, SectionKind};
+
+    #[test]
+    fn nonempty_unpack_destination_is_rejected() {
+        let unique = format!(
+            "caiven-unpack-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let root = std::env::temp_dir().join(unique);
+        let destination = root.join("existing-project");
+        let cart = root.join("game.cav");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::create_dir(&destination).unwrap();
+        std::fs::write(destination.join("existing-project-file"), "keep me").unwrap();
+        caiven_cart::write(
+            &cart,
+            &CartHeader::new("Test", ""),
+            &[],
+            &[(SectionKind::LuaSource, b"-- test\n".to_vec())],
+        )
+        .unwrap();
+
+        assert!(unpack_cart(&cart, &destination).is_err());
+        assert_eq!(
+            std::fs::read_to_string(destination.join("existing-project-file")).unwrap(),
+            "keep me"
+        );
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

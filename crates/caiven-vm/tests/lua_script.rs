@@ -225,6 +225,39 @@ fn lua_globals_excludes_builtins_and_stdlib() {
     );
 }
 
+/// `caiven_cart::bundle_lua` is how the project-dir authoring format turns
+/// an entry file plus sibling `.lua` modules into the single `LuaSource`
+/// string the VM ever sees. This drives the actual bundle output through a
+/// real Lua interpreter to confirm `require()` resolves the preloaded
+/// module — not just that the bundled string looks right.
+#[test]
+fn bundled_module_resolves_via_require() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+
+    let entry = r#"
+        local util = require("util")
+        result = util.double(21)
+        function _update() end
+    "#;
+    let modules = [(
+        "util".to_string(),
+        "return { double = function(n) return n * 2 end }".to_string(),
+    )];
+    let bundled = caiven_cart::bundle_lua(entry, &modules);
+
+    vm.load_lua_source(&bundled, &input, &font)
+        .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    let globals = vm.lua_globals();
+    let result = globals
+        .iter()
+        .find(|(k, _)| k == "result")
+        .map(|(_, v)| v.as_str());
+    assert_eq!(result, Some("42"));
+}
+
 #[test]
 fn rtc_peripheral_ticks_and_is_readable_from_lua() {
     let mut vm = make_vm();
