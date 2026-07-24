@@ -21,7 +21,7 @@ You are responsible for ensuring that third-party code, assets, fonts, music, an
 
 ## Cartridge files and exported games
 
-A `.cav` cartridge created by a user is user content, not a derivative work of Caiven merely because it targets the Caiven runtime or uses Caiven's public APIs.
+A `.cav` cartridge created by a user is user content; the project does not claim it is a derivative work of Caiven solely because it targets the Caiven runtime or uses Caiven's public APIs.
 
 When Caiven runtime code is copied into or distributed with an exported game, that runtime code remains subject to its own licence. The game's separate code and assets may use terms chosen by the creator, subject to the licences of any third-party material they include.
 
