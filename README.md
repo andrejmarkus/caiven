@@ -13,6 +13,25 @@
 
 ---
 
+## ⬇️ Download Caiven
+
+Download the latest ready-to-run build — no Rust toolchain or source compilation required.
+
+| Platform | Download |
+| :------- | :------- |
+| **Windows 64-bit** | [Download ZIP](https://github.com/andrejmarkus/caiven/releases/latest/download/caiven-windows-x86_64.zip) |
+| **Linux 64-bit** | [Download tar.gz](https://github.com/andrejmarkus/caiven/releases/latest/download/caiven-linux-x86_64.tar.gz) |
+| **macOS Apple Silicon** | [Download tar.gz](https://github.com/andrejmarkus/caiven/releases/latest/download/caiven-macos-arm64.tar.gz) |
+
+Extract the archive and launch `caiven-studio` (`caiven-studio.exe` on Windows). The archive also includes `caiven-machine`, the standalone cart runner.
+
+> [!IMPORTANT]
+> Download links become available after the first tagged release is published. Maintainers can create one by pushing a tag such as `v0.1.0`.
+
+[View all releases](https://github.com/andrejmarkus/caiven/releases)
+
+---
+
 ## ✨ Features
 
 - 🌙 **Real Lua 5.4** — embedded via `mlua` (vendored, no system Lua required); `_init()` runs once, `_update()` runs every frame, optional `_draw()` runs right after it
@@ -28,19 +47,37 @@
 
 ## 🚀 Getting Started
 
-### Prerequisites
+### Running a downloaded build
+
+Launch Caiven Studio:
+
+```bash
+caiven-studio
+```
+
+Open a cart directly:
+
+```bash
+caiven-studio edit game.cav
+```
+
+To run a cart without the editor:
+
+```bash
+caiven-machine game.cav
+```
+
+### Building from source
 
 You'll need the [Rust toolchain](https://rustup.rs/) installed on your system.
-
-### Installation
 
 ```bash
 git clone https://github.com/andrejmarkus/caiven.git
 cd caiven
-cargo build --release
+cargo build --release -p caiven-studio -p caiven-machine
 ```
 
-### Running
+Run Studio from the source tree:
 
 ```bash
 cargo run -p caiven-studio -- [command]
@@ -52,12 +89,6 @@ cargo run -p caiven-studio -- [command]
 | `edit [file]` | Launch Caiven Studio, optionally opening a `.cav` file |
 | `inspect <file.cav>` | Print cart section table |
 | `publish <file.cav>` | Upload cart to a caiven-port instance |
-
-To just run a cart (no editor), use `caiven-machine`:
-
-```bash
-cargo run -p caiven-machine -- game.cav
-```
 
 **Publish flags:**
 
@@ -83,7 +114,7 @@ authored entirely in Caiven Studio, no external text files involved.
 1. **Launch Caiven Studio** and click **NEW CART** on the browser tab (`F8`):
 
 ```bash
-cargo run -p caiven-studio -- edit
+caiven-studio
 ```
 
 This opens a blank cart with a `_init`/`_update` stub in the `F1` code tab.
@@ -193,7 +224,7 @@ Pure Lua, loaded into every cart's globals automatically (no `require`) — read
 
 | Function | Description |
 | :------- | :---------- |
-| `lerp(a, b, t)` / `clamp(v, lo, hi)` | Linear interpolate / clamp to range |
+| `lerp(a, b, t)` / `clamp(v, lo, hi)` | Linear interpolate / clamp range |
 | `ease_linear/in_quad/out_quad/in_out_quad(t)` | Easing curves, `t` in `0..1` |
 | `aabb_overlap(x1, y1, w1, h1, x2, y2, w2, h2)` | Axis-aligned box overlap test |
 | `tile_solid(tx, ty)` | Whether the map tile at `(tx, ty)` has sprite flag bit 0 set |
