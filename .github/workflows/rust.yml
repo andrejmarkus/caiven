@@ -61,21 +61,54 @@ jobs:
         run: cargo doc --no-deps
 
   artifacts:
-    name: Release binaries (${{ matrix.name }})
+    name: ${{ matrix.product-label }} (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: linux-x86_64
+          - product: studio
+            product-label: Caiven Studio
+            package: caiven-studio
+            binary: caiven-studio
+            platform: linux-x86_64
             os: ubuntu-latest
-            archive: caiven-linux-x86_64.tar.gz
-          - name: windows-x86_64
+            archive: caiven-studio-linux-x86_64.tar.gz
+          - product: machine
+            product-label: Caiven Machine
+            package: caiven-machine
+            binary: caiven-machine
+            platform: linux-x86_64
+            os: ubuntu-latest
+            archive: caiven-machine-linux-x86_64.tar.gz
+          - product: studio
+            product-label: Caiven Studio
+            package: caiven-studio
+            binary: caiven-studio
+            platform: windows-x86_64
             os: windows-latest
-            archive: caiven-windows-x86_64.zip
-          - name: macos-arm64
+            archive: caiven-studio-windows-x86_64.zip
+          - product: machine
+            product-label: Caiven Machine
+            package: caiven-machine
+            binary: caiven-machine
+            platform: windows-x86_64
+            os: windows-latest
+            archive: caiven-machine-windows-x86_64.zip
+          - product: studio
+            product-label: Caiven Studio
+            package: caiven-studio
+            binary: caiven-studio
+            platform: macos-arm64
             os: macos-14
-            archive: caiven-macos-arm64.tar.gz
+            archive: caiven-studio-macos-arm64.tar.gz
+          - product: machine
+            product-label: Caiven Machine
+            package: caiven-machine
+            binary: caiven-machine
+            platform: macos-arm64
+            os: macos-14
+            archive: caiven-machine-macos-arm64.tar.gz
 
     steps:
       - uses: actions/checkout@v4
@@ -88,33 +121,31 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libxkbcommon-dev pkg-config
 
-      - name: Build Studio and Machine
-        run: cargo build --release -p caiven-studio -p caiven-machine
+      - name: Build ${{ matrix.product-label }}
+        run: cargo build --release -p ${{ matrix.package }}
 
-      - name: Package Unix binaries
+      - name: Package Unix binary
         if: runner.os != 'Windows'
         shell: bash
         run: |
           mkdir -p dist
-          cp target/release/caiven-studio dist/
-          cp target/release/caiven-machine dist/
+          cp "target/release/${{ matrix.binary }}" dist/
           cp README.md LICENSE CREATOR_RIGHTS.md dist/
           tar -czf "${{ matrix.archive }}" -C dist .
 
-      - name: Package Windows binaries
+      - name: Package Windows binary
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item target/release/caiven-studio.exe dist/
-          Copy-Item target/release/caiven-machine.exe dist/
+          Copy-Item "target/release/${{ matrix.binary }}.exe" dist/
           Copy-Item README.md, LICENSE, CREATOR_RIGHTS.md dist/
           Compress-Archive -Path dist/* -DestinationPath "${{ matrix.archive }}"
 
-      - name: Upload binaries
+      - name: Upload ${{ matrix.product-label }}
         uses: actions/upload-artifact@v4
         with:
-          name: caiven-${{ matrix.name }}
+          name: caiven-${{ matrix.product }}-${{ matrix.platform }}
           path: ${{ matrix.archive }}
           if-no-files-found: error
 
@@ -137,7 +168,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: |
-            release/caiven-linux-x86_64.tar.gz
-            release/caiven-windows-x86_64.zip
-            release/caiven-macos-arm64.tar.gz
+          files: release/*
