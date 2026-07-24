@@ -46,14 +46,17 @@ cargo run -p caiven-studio -- [command]
 | Command | Description |
 | :------ | :---------- |
 | _(no command)_ | Launch Caiven Studio (editor suite), opens on the cart browser |
-| `edit [file]` | Launch Caiven Studio, optionally opening a `.cav` file |
-| `inspect <file.cav>` | Print cart section table |
+| `edit [file]` | Launch Caiven Studio, optionally opening a project dir or `.cav` file |
+| `inspect <path>` | Print cart section table (project dir or `.cav`) |
+| `build <project> -o <out.cav>` | Build a project dir into a distribution `.cav` cartridge |
+| `unpack <file.cav> -o <out>` | Unpack a binary `.cav` into an editable project dir |
 | `publish <file.cav>` | Upload cart to a caiven-port instance |
 
 To just run a cart (no editor), use `caiven-machine`:
 
 ```bash
-cargo run -p caiven-machine -- game.cav
+cargo run -p caiven-machine -- my-game/    # project dir, hot-reloads with Ctrl+R
+cargo run -p caiven-machine -- game.cav    # distribution cartridge
 ```
 
 **Publish flags:**
@@ -73,9 +76,16 @@ cargo run -p caiven-machine -- game.cav
 
 ## 🐣 Tutorial: Your First Game
 
-Every cart is a single `.cav` file: a binary bundle (magic header + CRC32-checked
-sections) holding your Lua code alongside sprites, map, palette, SFX and music —
-authored entirely in Caiven Studio, no external text files involved.
+Caiven has two formats. You **author** a game as a plain project directory —
+`caiven.toml` + `main.lua` + one `.hex` file per non-empty asset (sprites, map,
+palette, SFX, music) — so `git diff` shows real Lua line changes and per-line
+hex diffs instead of a binary blob, and any editor or Lua language server works
+on `main.lua` directly. You **distribute** a game as a single `.cav` file: a
+binary bundle (magic header + CRC32-checked sections) built from the project
+dir with `caiven-studio build` (or Studio's Export Cartridge). Caiven Studio
+edits the project dir directly and writes both — `Ctrl+S` saves the dir, Export
+Cartridge builds the `.cav`. `caiven-studio unpack` goes the other way, turning
+an existing `.cav` into an editable project dir.
 
 1. **Launch Caiven Studio** and click **NEW CART** on the browser tab (`F8`):
 
@@ -121,7 +131,7 @@ end
 
 4. **Iterate** — click the code editor's gutter to set a line breakpoint, the toolbar's Run/Pause/Reset drives execution (or `Ctrl+R` to rerun). Lua errors show with a line number and message straight in the status bar.
 
-5. **Ship it** — `Ctrl+S` writes code + sprites + map + audio into the `.cav` (a new cart defaults to `untitled.cav` in the browser's folder — rename the file on disk, and set title/author on the `F7` meta tab), then run it standalone with `caiven-machine game.cav` (no editor needed), or `publish game.cav` to share it on a port.
+5. **Ship it** — `Ctrl+S` writes code + sprites + map + audio into the project dir (a new cart defaults to an `untitled/` folder in the browser's current folder — rename the folder on disk, and set title/author on the `F7` meta tab), then run it standalone with `caiven-machine my-game/` (hot-reloads with `Ctrl+R`, no editor needed), or build + publish a distribution cartridge: File → Export → Cartridge (.cav), then `publish game.cav` to share it on a port.
 
 ### Cart lifecycle functions
 
@@ -375,10 +385,10 @@ Cargo workspace with eight crates:
 | Crate | Description |
 | :---- | :---------- |
 | `crates/caiven-core` | Shared types and memory map — `Color`, `Vec2`, RAM layout constants |
-| `crates/caiven-cart` | Cart format: binary header, section layout, load/write helpers |
+| `crates/caiven-cart` | Cart formats: binary `.cav` (header, section layout, load/write) and the project-dir authoring format (`caiven.toml` + `.lua` + `.hex`) |
 | `crates/caiven-vm` | VM core: embedded Lua (`mlua`) execution, builtin API, renderer, audio, input, debugger hooks |
-| `crates/caiven-studio` | Main binary: Caiven Studio editor suite (edit mode only), cart browser, CLI |
-| `crates/caiven-machine` | Standalone cart runner (run mode: `.cav` only, no editor/port) |
+| `crates/caiven-studio` | Main binary: Caiven Studio editor suite (edit mode only), cart browser, CLI (`build`/`unpack`/`inspect`/`publish`) |
+| `crates/caiven-machine` | Standalone cart runner (run mode: project dir or `.cav`, no editor/port; `Ctrl+R` hot-reloads) |
 | `crates/caiven-port` | Cart sharing server |
 | `crates/caiven-web` | WASM cart player (`wasm32-unknown-emscripten`) served by caiven-port's `/play/:id` |
 | `crates/migration` | `sea-orm` database migrations for caiven-port |

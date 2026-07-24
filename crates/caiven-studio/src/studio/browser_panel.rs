@@ -562,17 +562,22 @@ impl BrowserState {
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext != "cav" {
+            let is_project = caiven_cart::is_project(&path);
+            if ext != "cav" && !is_project {
                 continue;
             }
             let name = path
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            let title = caiven_cart::load(&path)
-                .ok()
-                .map(|r| r.header.title)
-                .unwrap_or_default();
+            let title = if is_project {
+                caiven_cart::load_project(&path)
+                    .ok()
+                    .map(|r| r.header.title)
+            } else {
+                caiven_cart::load(&path).ok().map(|r| r.header.title)
+            }
+            .unwrap_or_default();
             let date = path
                 .metadata()
                 .ok()
@@ -804,7 +809,7 @@ fn show_local(ui: &mut egui::Ui, state: &mut BrowserState) {
     ui.add_space(4.0);
 
     if state.files.is_empty() {
-        ui.colored_label(theme::DIM, "no .cav files in this folder");
+        ui.colored_label(theme::DIM, "no projects or .cav carts in this folder");
         return;
     }
 

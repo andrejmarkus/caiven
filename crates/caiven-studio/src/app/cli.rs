@@ -19,14 +19,30 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Inspect a cart file and print its section table
+    /// Inspect a project dir or .cav cart and print its section table
     Inspect {
+        /// Path to a project dir, its caiven.toml, or a .cav file
+        cart: PathBuf,
+    },
+    /// Build a project directory into a distribution .cav cartridge
+    Build {
+        /// Path to a project dir (or its caiven.toml)
+        project: PathBuf,
+        /// Output .cav path
+        #[arg(short, long)]
+        out: PathBuf,
+    },
+    /// Unpack a binary .cav cart into an editable project directory
+    Unpack {
         /// Path to the .cav file
         cart: PathBuf,
+        /// Output project directory
+        #[arg(short, long)]
+        out: PathBuf,
     },
     /// Open Caiven Studio, the desktop editor suite
     Edit {
-        /// Optional .cav file to open
+        /// Optional project dir or .cav file to open
         file: Option<PathBuf>,
     },
     /// Publish a .cav file to a cart sharing port
@@ -191,7 +207,7 @@ pub fn run() -> Result<()> {
 
     match &command {
         Some(Command::Inspect { cart }) => {
-            let loaded = caiven_cart::load(cart)
+            let loaded = caiven_cart::open(cart)
                 .with_context(|| format!("failed to load cart from {}", cart.display()))?;
             println!("cart: {}", cart.display());
             println!("  title:  {}", loaded.header.title);
@@ -202,6 +218,40 @@ pub fn run() -> Result<()> {
             for (i, s) in loaded.sections.iter().enumerate() {
                 println!("    [{}] {:?}  {} bytes", i + 1, s.kind, s.data.len());
             }
+            Ok(())
+        }
+        Some(Command::Build { project, out }) => {
+            let cart = caiven_cart::load_project(project)
+                .with_context(|| format!("failed to load project from {}", project.display()))?;
+            let extra: Vec<(caiven_cart::SectionKind, Vec<u8>)> = cart
+                .sections
+                .into_iter()
+                .map(|s| (s.kind, s.data))
+                .collect();
+            caiven_cart::write(out, &cart.header, &cart.program, &extra)
+                .with_context(|| format!("failed to write cart to {}", out.display()))?;
+            println!("built {}", out.display());
+            Ok(())
+        }
+        Some(Command::Unpack { cart, out }) => {
+            let loaded = caiven_cart::load(cart)
+                .with_context(|| format!("failed to load cart from {}", cart.display()))?;
+            let lua = loaded
+                .sections
+                .iter()
+                .find(|s| s.kind == caiven_cart::SectionKind::LuaSource)
+                .map(|s| String::from_utf8_lossy(&s.data).into_owned())
+                .context(
+                    "cart has no Lua source section (bytecode carts are no longer supported)",
+                )?;
+            let extra: Vec<(caiven_cart::SectionKind, Vec<u8>)> = loaded
+                .sections
+                .into_iter()
+                .map(|s| (s.kind, s.data))
+                .collect();
+            caiven_cart::save_project(out, &loaded.header, &lua, &extra)
+                .with_context(|| format!("failed to write project to {}", out.display()))?;
+            println!("unpacked {}", out.display());
             Ok(())
         }
         Some(Command::Publish {

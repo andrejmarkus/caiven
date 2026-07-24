@@ -132,7 +132,7 @@ impl StudioApp {
             run_state: RunState::Stopped,
             game_tex: None,
             compose_buf: Vec::new(),
-            status: "no cart loaded — caiven-studio edit <file.cav>".into(),
+            status: "no cart loaded — caiven-studio edit <project dir | .cav>".into(),
             status_is_error: false,
             code: code_panel::CodeState::default(),
             sprite: sprite_panel::SpriteState::default(),
@@ -171,13 +171,17 @@ impl StudioApp {
         self.status_is_error = is_error;
     }
 
-    /// Opens a `.cav` cart file. Returns `Err` only for hard failures (I/O,
-    /// bad cart); a cart whose embedded Lua fails to run still opens in the
-    /// editor with the error shown, so it can be fixed in place.
+    /// Opens a project directory (or its `caiven.toml`) or a binary `.cav`
+    /// cart file. Returns `Err` only for hard failures (I/O, bad cart); a
+    /// cart whose embedded Lua fails to run still opens in the editor with
+    /// the error shown, so it can be fixed in place.
     fn open_file(&mut self, path: &std::path::Path) -> Result<()> {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        if ext != "cav" {
-            anyhow::bail!("unsupported file type: {} (expected .cav)", ext);
+        if !caiven_cart::is_project(path) && ext != "cav" {
+            anyhow::bail!(
+                "unsupported file type: {} (expected a project dir or .cav)",
+                ext
+            );
         }
         let meta = cart::load_cart(&mut self.core.vm, path, &self.core.input, &self.core.font)?;
         info!("studio: cart loaded from {}", path.display());
@@ -203,7 +207,7 @@ impl StudioApp {
 
     /// Starts editing a brand-new cart seeded with `source` (the blank
     /// stub, or one of `templates::TEMPLATES`). Not yet on disk — `Ctrl+S`
-    /// writes it to a free `untitled*.cav` name in the browser's current
+    /// writes it to a free `untitled*` project dir in the browser's current
     /// folder.
     fn new_cart_from(&mut self, source: &str) {
         self.core.reset_vm();
@@ -324,6 +328,22 @@ impl StudioApp {
         }
         self.save();
         recent::push(&mut self.recent, &path);
+    }
+
+    /// Builds a binary `.cav` distribution cartridge at `path` from the
+    /// current project without changing where the project itself is saved.
+    fn export_cartridge(&mut self, path: PathBuf) {
+        let Some(meta) = &mut self.cart else {
+            self.set_status("nothing to export", true);
+            return;
+        };
+        if let Some(src) = &self.source {
+            meta.lua_source = Some(src.text.clone());
+        }
+        match cart_io::export_binary(&self.core.vm, meta, &path) {
+            Ok(()) => self.set_status(format!("exported cartridge {}", path.display()), false),
+            Err(e) => self.set_status(format!("export failed: {e:#}"), true),
+        }
     }
 
     /// Unloads the current cart back to the empty/Browser state.
@@ -744,6 +764,11 @@ impl eframe::App for StudioApp {
             }
             menu_bar::MenuAction::ExportScreenshot => self.export_screenshot(),
             menu_bar::MenuAction::ExportGif => self.start_gif_recording(),
+            menu_bar::MenuAction::ExportCartridge => {
+                if let Some(path) = pick_export_cartridge_path(&self.cart_name()) {
+                    self.export_cartridge(path);
+                }
+            }
             menu_bar::MenuAction::Close => self.request_close(),
             menu_bar::MenuAction::Exit => self.request_exit(ctx),
             menu_bar::MenuAction::None => {}
@@ -790,6 +815,11 @@ impl eframe::App for StudioApp {
                 }
                 command_palette::PaletteAction::ExportScreenshot => self.export_screenshot(),
                 command_palette::PaletteAction::ExportGif => self.start_gif_recording(),
+                command_palette::PaletteAction::ExportCartridge => {
+                    if let Some(path) = pick_export_cartridge_path(&self.cart_name()) {
+                        self.export_cartridge(path);
+                    }
+                }
             }
         }
 
@@ -917,31 +947,38 @@ impl eframe::App for StudioApp {
     }
 }
 
-/// Opens a native "Open" dialog filtered to `.cav` carts.
+/// Opens a native "Open" dialog picking a project directory. Importing an
+/// existing binary `.cav` still works via the Browser tab, recent files, or
+/// the CLI's `edit`/`unpack` — this dialog is for the authoring workflow.
 fn pick_open_path() -> Option<PathBuf> {
-    rfd::FileDialog::new()
-        .add_filter("Caiven cart", &["cav"])
-        .pick_file()
+    rfd::FileDialog::new().pick_folder()
 }
 
-/// Opens a native "Save As" dialog filtered to `.cav` carts, defaulting to
-/// the current cart's name.
-fn pick_save_as_path(current_name: &str) -> Option<PathBuf> {
+/// Opens a native "Save As" dialog picking a destination project directory.
+fn pick_save_as_path(_current_name: &str) -> Option<PathBuf> {
+    rfd::FileDialog::new().pick_folder()
+}
+
+/// Opens a native "Export Cartridge" dialog filtered to `.cav`, defaulting
+/// to the current cart's name — the distribution artifact built from the
+/// project directory currently open.
+fn pick_export_cartridge_path(current_name: &str) -> Option<PathBuf> {
+    let stem = current_name.strip_suffix(".cav").unwrap_or(current_name);
     rfd::FileDialog::new()
         .add_filter("Caiven cart", &["cav"])
-        .set_file_name(current_name)
+        .set_file_name(format!("{stem}.cav"))
         .save_file()
 }
 
 /// First non-colliding `untitled.cav` / `untitled-2.cav` / ... path in `dir`.
 fn free_untitled_path(dir: &std::path::Path) -> PathBuf {
-    let candidate = dir.join("untitled.cav");
+    let candidate = dir.join("untitled");
     if !candidate.exists() {
         return candidate;
     }
     let mut n = 2;
     loop {
-        let candidate = dir.join(format!("untitled-{n}.cav"));
+        let candidate = dir.join(format!("untitled-{n}"));
         if !candidate.exists() {
             return candidate;
         }

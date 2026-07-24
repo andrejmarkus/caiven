@@ -120,17 +120,40 @@ pub fn join_source(code: &str, sections: &[(SectionKind, Vec<u8>)]) -> String {
         out.push('\n');
         out.push_str(marker);
         out.push('\n');
-        for chunk in trimmed.chunks(64) {
-            for b in chunk {
-                out.push_str(&format!("{b:02x}"));
-            }
-            out.push('\n');
-        }
+        out.push_str(&encode_hex_block(trimmed));
     }
     out
 }
 
-fn trim_trailing_zeros(data: &[u8]) -> &[u8] {
+/// Encodes bytes as line-wrapped hex, 64 bytes (128 hex chars) per line,
+/// each line newline-terminated. Shared by the `.fc` text sections and the
+/// project-dir `.hex` asset files.
+pub fn encode_hex_block(data: &[u8]) -> String {
+    let mut out = String::with_capacity(data.len() * 2 + data.len() / 64 + 1);
+    for chunk in data.chunks(64) {
+        for b in chunk {
+            out.push_str(&format!("{b:02x}"));
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// Decodes a block of line-wrapped hex (whitespace between lines ignored)
+/// into raw bytes. Shared by the `.fc` text sections and the project-dir
+/// `.hex` asset files.
+pub fn decode_hex_block(text: &str) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let hex = line.trim();
+        if !hex.is_empty() {
+            decode_hex_line(hex, &mut out)?;
+        }
+    }
+    Ok(out)
+}
+
+pub fn trim_trailing_zeros(data: &[u8]) -> &[u8] {
     let end = data.iter().rposition(|&b| b != 0).map_or(0, |i| i + 1);
     &data[..end]
 }

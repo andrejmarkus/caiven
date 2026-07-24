@@ -14,7 +14,7 @@ use caiven_vm::rendering::font::Font;
 use std::path::Path;
 
 pub fn load_cart(vm: &mut Vm, path: &Path, input: &Input, font: &Font) -> Result<CartMeta> {
-    let cart = caiven_cart::load(path)
+    let cart = caiven_cart::open(path)
         .with_context(|| format!("failed to load cart from {}", path.display()))?;
 
     for section in &cart.sections {

@@ -8,7 +8,9 @@ workspace = true
 
 [dependencies]
 crc32fast = { workspace = true }
+serde = { workspace = true }
 thiserror = { workspace = true }
+toml = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
