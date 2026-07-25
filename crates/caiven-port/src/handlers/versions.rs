@@ -1,9 +1,7 @@
 use rocket::{
     FromForm, State, data::Capped, form::Form, fs::TempFile, get, post, serde::json::Json,
 };
-use sea_orm::{
-    ActiveModelTrait, ConnectionTrait, DatabaseBackend, Set, Statement, TryGetable,
-};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, DatabaseBackend, Set, Statement, TryGetable};
 
 use super::{BinaryFile, safe_filename, valid_id};
 use crate::{
@@ -34,10 +32,7 @@ async fn resolve_version(
     found.ok_or_else(|| ApiError::not_found("version not found"))
 }
 
-async fn legacy_cart_path(
-    state: &PortState,
-    version_id: &str,
-) -> Result<Option<String>, ApiError> {
+async fn legacy_cart_path(state: &PortState, version_id: &str) -> Result<Option<String>, ApiError> {
     let backend = state.db.get_database_backend();
     let sql = match backend {
         DatabaseBackend::Postgres => "SELECT legacy_cart_path FROM cart_versions WHERE id = $1",
@@ -88,10 +83,7 @@ fn legacy_screenshot_rel_path(cart_id: &str, version: i32) -> String {
     }
 }
 
-async fn ensure_cart_blob(
-    state: &PortState,
-    v: &cart_versions::Model,
-) -> Result<(), ApiError> {
+async fn ensure_cart_blob(state: &PortState, v: &cart_versions::Model) -> Result<(), ApiError> {
     if db::get_cart_blob(&state.db, &v.id).await?.is_some() {
         return Ok(());
     }
