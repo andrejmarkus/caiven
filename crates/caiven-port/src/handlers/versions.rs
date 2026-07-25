@@ -1,7 +1,7 @@
 use rocket::{
     FromForm, State, data::Capped, form::Form, fs::TempFile, get, post, serde::json::Json,
 };
-use sea_orm::{ActiveModelTrait, ConnectionTrait, DatabaseBackend, Set, Statement, TryGetable};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, DatabaseBackend, Set, Statement};
 
 use super::{BinaryFile, safe_filename, valid_id};
 use crate::{
