@@ -1,7 +1,9 @@
 use rocket::{
     FromForm, State, data::Capped, form::Form, fs::TempFile, get, post, serde::json::Json,
 };
-use sea_orm::{ActiveModelTrait, Set};
+use sea_orm::{
+    ActiveModelTrait, ConnectionTrait, DatabaseBackend, Statement, TryGetable, Set,
+};
 
 use super::{BinaryFile, safe_filename, valid_id};
 use crate::{
@@ -32,10 +34,39 @@ async fn resolve_version(
     found.ok_or_else(|| ApiError::not_found("version not found"))
 }
 
-async fn read_legacy_cart(v: &cart_versions::Model) -> Result<Vec<u8>, ApiError> {
-    let rel = v
-        .legacy_cart_path
-        .as_deref()
+async fn legacy_cart_path(
+    state: &PortState,
+    version_id: &str,
+) -> Result<Option<String>, ApiError> {
+    let backend = state.db.get_database_backend();
+    let sql = match backend {
+        DatabaseBackend::Postgres => {
+            "SELECT legacy_cart_path FROM cart_versions WHERE id = $1"
+        }
+        _ => "SELECT legacy_cart_path FROM cart_versions WHERE id = ?",
+    };
+    let row = state
+        .db
+        .query_one(Statement::from_sql_and_values(
+            backend,
+            sql,
+            [version_id.into()],
+        ))
+        .await?;
+    match row {
+        Some(row) => row
+            .try_get::<Option<String>>("", "legacy_cart_path")
+            .map_err(|e| ApiError::internal(e.to_string())),
+        None => Ok(None),
+    }
+}
+
+async fn read_legacy_cart(
+    state: &PortState,
+    v: &cart_versions::Model,
+) -> Result<Vec<u8>, ApiError> {
+    let rel = legacy_cart_path(state, &v.id)
+        .await?
         .ok_or_else(|| ApiError::not_found("cart not found"))?;
     let root = crate::legacy_data_dir().ok_or_else(|| ApiError::not_found("cart not found"))?;
     tokio::fs::read(root.join(rel))
@@ -46,7 +77,7 @@ async fn read_legacy_cart(v: &cart_versions::Model) -> Result<Vec<u8>, ApiError>
 async fn cart_bytes(state: &PortState, v: &cart_versions::Model) -> Result<Vec<u8>, ApiError> {
     match db::get_cart_blob(&state.db, &v.id).await? {
         Some(bytes) => Ok(bytes),
-        None => read_legacy_cart(v).await,
+        None => read_legacy_cart(state, v).await,
     }
 }
 
@@ -66,7 +97,7 @@ async fn ensure_cart_blob(
         return Ok(());
     }
 
-    let bytes = read_legacy_cart(v).await?;
+    let bytes = read_legacy_cart(state, v).await?;
     cart_blobs::ActiveModel {
         version_id: Set(v.id.clone()),
         cart_data: Set(bytes),
