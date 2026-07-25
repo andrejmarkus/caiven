@@ -1,12 +1,14 @@
 use rocket::{
     FromForm, State, data::Capped, form::Form, fs::TempFile, get, post, serde::json::Json,
 };
+use sea_orm::{ActiveModelTrait, Set};
 
 use super::{BinaryFile, safe_filename, valid_id};
 use crate::{
     PortState,
     auth::AuthUser,
     db,
+    entities::{cart_blobs, cart_versions},
     error::ApiError,
     handlers::carts::require_owner,
     models::{CartVersionInfo, VersionMeta},
@@ -22,12 +24,57 @@ async fn resolve_version(
     state: &PortState,
     id: &str,
     version: Option<i32>,
-) -> Result<crate::entities::cart_versions::Model, ApiError> {
+) -> Result<cart_versions::Model, ApiError> {
     let found = match version {
         Some(v) => db::get_version(&state.db, id, v).await?,
         None => db::latest_version(&state.db, id).await?,
     };
     found.ok_or_else(|| ApiError::not_found("version not found"))
+}
+
+async fn read_legacy_cart(v: &cart_versions::Model) -> Result<Vec<u8>, ApiError> {
+    let rel = v
+        .legacy_cart_path
+        .as_deref()
+        .ok_or_else(|| ApiError::not_found("cart not found"))?;
+    let root = crate::legacy_data_dir().ok_or_else(|| ApiError::not_found("cart not found"))?;
+    tokio::fs::read(root.join(rel))
+        .await
+        .map_err(|_| ApiError::not_found("cart not found"))
+}
+
+async fn cart_bytes(state: &PortState, v: &cart_versions::Model) -> Result<Vec<u8>, ApiError> {
+    match db::get_cart_blob(&state.db, &v.id).await? {
+        Some(bytes) => Ok(bytes),
+        None => read_legacy_cart(v).await,
+    }
+}
+
+fn legacy_screenshot_rel_path(cart_id: &str, version: i32) -> String {
+    if version <= 1 {
+        format!("screenshots/{cart_id}.png")
+    } else {
+        format!("screenshots/{cart_id}-v{version}.png")
+    }
+}
+
+async fn ensure_cart_blob(
+    state: &PortState,
+    v: &cart_versions::Model,
+) -> Result<(), ApiError> {
+    if db::get_cart_blob(&state.db, &v.id).await?.is_some() {
+        return Ok(());
+    }
+
+    let bytes = read_legacy_cart(v).await?;
+    cart_blobs::ActiveModel {
+        version_id: Set(v.id.clone()),
+        cart_data: Set(bytes),
+        screenshot_data: Set(None),
+    }
+    .insert(&state.db)
+    .await?;
+    Ok(())
 }
 
 pub(crate) async fn download_cart_impl(
@@ -39,9 +86,7 @@ pub(crate) async fn download_cart_impl(
         return Err(ApiError::bad_request("invalid id"));
     }
     let v = resolve_version(state, id, version).await?;
-    let bytes = db::get_cart_blob(&state.db, &v.id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("cart not found"))?;
+    let bytes = cart_bytes(state, &v).await?;
 
     let title = db::get(&state.db, id)
         .await
@@ -72,9 +117,16 @@ pub(crate) async fn get_screenshot_impl(
     if !v.has_screenshot {
         return Err(ApiError::not_found("screenshot not found"));
     }
-    let bytes = db::get_screenshot_blob(&state.db, &v.id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("screenshot not found"))?;
+    let bytes = match db::get_screenshot_blob(&state.db, &v.id).await? {
+        Some(bytes) => bytes,
+        None => {
+            let root = crate::legacy_data_dir()
+                .ok_or_else(|| ApiError::not_found("screenshot not found"))?;
+            tokio::fs::read(root.join(legacy_screenshot_rel_path(id, v.version)))
+                .await
+                .map_err(|_| ApiError::not_found("screenshot not found"))?
+        }
+    };
 
     Ok(BinaryFile {
         content_type: "image/png",
@@ -125,6 +177,9 @@ pub(crate) async fn upload_screenshot_impl(
         return Err(ApiError::bad_request("must be a PNG"));
     }
 
+    // A pre-blob version needs its on-disk cartridge copied into a blob row
+    // before the existing atomic screenshot update can target that row.
+    ensure_cart_blob(state, &v).await?;
     db::set_screenshot(&state.db, &v.id, &bytes).await?;
     Ok(())
 }
