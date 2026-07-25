@@ -12,9 +12,18 @@ use caiven_core::memory::{
 use caiven_vm::Vm;
 use caiven_vm::input::Input;
 use caiven_vm::rendering::font::Font;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+fn stored_cart_path(path: &Path) -> PathBuf {
+    if caiven_cart::is_project(path) && path.is_file() {
+        path.parent().map(Path::to_path_buf).unwrap_or_default()
+    } else {
+        path.to_path_buf()
+    }
+}
 
 pub fn load_cart(vm: &mut Vm, path: &Path, input: &Input, font: &Font) -> Result<CartMeta> {
+    let stored_path = stored_cart_path(path);
     let cart = caiven_cart::open(path)
         .with_context(|| format!("failed to load cart from {}", path.display()))?;
 
@@ -38,18 +47,27 @@ pub fn load_cart(vm: &mut Vm, path: &Path, input: &Input, font: &Font) -> Result
 
     let mut sections: Vec<SectionLayout> = Vec::new();
     for section in &cart.sections {
-        let Some(ram_base) = section_ram_base(section.kind) else {
-            continue;
-        };
-        vm.load_section_to_ram(ram_base, &section.data);
-        if section.kind == SectionKind::Palette {
-            vm.set_palette_from_bytes(&section.data);
+        if let Some(ram_base) = section_ram_base(section.kind) {
+            vm.load_section_to_ram(ram_base, &section.data);
+            if section.kind == SectionKind::Palette {
+                vm.set_palette_from_bytes(&section.data);
+            }
+            sections.push(SectionLayout {
+                kind: section.kind,
+                ram_base,
+                len: section.data.len(),
+                preserved_data: None,
+            });
+        } else if !matches!(section.kind, SectionKind::Program | SectionKind::LuaSource) {
+            // Manifest, metadata and custom sections are not RAM-backed, but
+            // must survive Ctrl+S and binary export unchanged.
+            sections.push(SectionLayout {
+                kind: section.kind,
+                ram_base: 0,
+                len: section.data.len(),
+                preserved_data: Some(section.data.clone()),
+            });
         }
-        sections.push(SectionLayout {
-            kind: section.kind,
-            ram_base,
-            len: section.data.len(),
-        });
     }
 
     // Asset RAM must be in place before the Lua load, since it runs
@@ -72,6 +90,7 @@ pub fn load_cart(vm: &mut Vm, path: &Path, input: &Input, font: &Font) -> Result
             kind: SectionKind::Palette,
             ram_base: PALETTE_RAM_BASE,
             len: palette_bytes.len(),
+            preserved_data: None,
         });
     }
     for (kind, ram_base, len) in [
@@ -94,12 +113,13 @@ pub fn load_cart(vm: &mut Vm, path: &Path, input: &Input, font: &Font) -> Result
                 kind,
                 ram_base,
                 len,
+                preserved_data: None,
             });
         }
     }
 
     Ok(CartMeta {
-        path: path.to_path_buf(),
+        path: stored_path,
         header: cart.header,
         program: cart.program,
         sections,
@@ -288,14 +308,33 @@ pub fn default_section_layout() -> Vec<SectionLayout> {
         kind,
         ram_base,
         len,
+        preserved_data: None,
     })
     .collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::unpack_cart;
+    use super::{stored_cart_path, unpack_cart};
     use caiven_cart::{CartHeader, SectionKind};
+
+    #[test]
+    fn manifest_path_is_stored_as_project_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "caiven-manifest-path-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let manifest = root.join("caiven.toml");
+        std::fs::write(&manifest, "[cart]\ntitle = \"Test\"\n").unwrap();
+
+        assert_eq!(stored_cart_path(&manifest), root);
+        std::fs::remove_dir_all(manifest.parent().unwrap()).unwrap();
+    }
 
     #[test]
     fn nonempty_unpack_destination_is_rejected() {
