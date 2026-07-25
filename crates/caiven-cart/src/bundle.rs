@@ -50,17 +50,11 @@ pub fn module_key(dir: &Path, path: &Path) -> String {
 /// are cleared first so `require` can only resolve through `preload` —
 /// never the host filesystem, which the distributed `.cav` doesn't have.
 ///
-/// With no modules, returns `entry_src` completely unchanged (not even a
-/// trivial prefix line) — line numbers in compile errors and breakpoints
-/// must keep matching the entry buffer exactly for the (overwhelmingly
-/// common) single-file case. With modules, the preload block that's
-/// prepended shifts every line of `entry_src` down in the compiled chunk;
-/// Studio's breakpoint/error-jump line mapping does not currently correct
-/// for that shift, so gutter breakpoints and error-jump in the entry file
-/// can land on the wrong line whenever a project uses modules. Module files
-/// themselves compile as their own named chunk (`@module.lua`), so a syntax
-/// error there is at least reported against the module's own real line
-/// number — same as it would be for any other Lua `load()` caller.
+/// With no modules, returns `entry_src` completely unchanged. With modules,
+/// the generated preload setup executes first, then the entry source is
+/// compiled and executed as a separate chunk named `cart`. This keeps entry
+/// breakpoints and compile/runtime error lines identical to the editor even
+/// though setup code exists in the outer bundle.
 pub fn bundle_lua(entry_src: &str, modules: &[(String, String)]) -> String {
     if modules.is_empty() {
         return entry_src.to_string();
@@ -81,7 +75,14 @@ pub fn bundle_lua(entry_src: &str, modules: &[(String, String)]) -> String {
         }
     }
     out.push_str("end\n");
-    out.push_str(entry_src);
+
+    // Lua long strings discard the first newline after the opening bracket,
+    // so entry line 1 remains line 1 in this separately named chunk.
+    let level = bracket_level(entry_src);
+    let eq = "=".repeat(level);
+    out.push_str(&format!(
+        "return assert(load([{eq}[\n{entry_src}]{eq}], \"=cart\"))()\n"
+    ));
     out
 }
 
@@ -142,7 +143,7 @@ mod tests {
     }
 
     #[test]
-    fn bundle_registers_dotted_and_slashed_preload_keys() {
+    fn bundle_registers_modules_and_loads_entry_as_cart_chunk() {
         let out = bundle_lua(
             "return 1",
             &[("ui.panel".to_string(), "return 2".to_string())],
@@ -150,21 +151,19 @@ mod tests {
         assert!(out.contains("__pre[\"ui.panel\"]"));
         assert!(out.contains("__pre[\"ui/panel\"]"));
         assert!(out.contains("package.path = \"\""));
-        assert!(out.ends_with("return 1"));
+        assert!(out.contains("\"=cart\"))()"));
     }
 
     #[test]
     fn bundle_with_no_modules_is_byte_identical_to_entry() {
-        // No prefix line at all — must not shift breakpoint/error line
-        // numbers for the common single-file case.
         let out = bundle_lua("return 1", &[]);
         assert_eq!(out, "return 1");
     }
 
     #[test]
-    fn bundle_survives_module_source_containing_long_brackets() {
+    fn bundle_survives_module_and_entry_sources_containing_long_brackets() {
         let tricky = "local s = ]]  -- not real lua but exercises the scanner";
-        let out = bundle_lua("return 1", &[("tricky".to_string(), tricky.to_string())]);
-        assert!(out.contains("[=[\n"));
+        let out = bundle_lua(tricky, &[("tricky".to_string(), tricky.to_string())]);
+        assert!(out.matches("[=[\n").count() >= 2);
     }
 }
