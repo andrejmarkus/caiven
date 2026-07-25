@@ -13,6 +13,7 @@ enum CartVersions {
     Table,
     Id,
     CartPath,
+    LegacyCartPath,
 }
 
 #[derive(Iden)]
@@ -50,6 +51,24 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
+        // Existing SQLite installations still have cartridge files on disk.
+        // Retain their paths under an explicitly legacy column before removing
+        // the old schema field, so the server can fall back to those files
+        // until a later upload moves the version into `cart_blobs`.
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(CartVersions::Table)
+                    .add_column(ColumnDef::new(CartVersions::LegacyCartPath).string().null())
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .get_connection()
+            .execute_unprepared(
+                "UPDATE cart_versions SET legacy_cart_path = cart_path WHERE cart_path IS NOT NULL",
+            )
+            .await?;
         manager
             .alter_table(
                 Table::alter()
@@ -71,6 +90,20 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(""),
                     )
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .get_connection()
+            .execute_unprepared(
+                "UPDATE cart_versions SET cart_path = COALESCE(legacy_cart_path, '')",
+            )
+            .await?;
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(CartVersions::Table)
+                    .drop_column(CartVersions::LegacyCartPath)
                     .to_owned(),
             )
             .await?;
