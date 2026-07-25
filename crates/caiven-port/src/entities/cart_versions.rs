@@ -8,7 +8,6 @@ pub struct Model {
     pub id: String,
     pub cart_id: String,
     pub version: i32,
-    pub legacy_cart_path: Option<String>,
     pub cart_size: i64,
     pub changelog: String,
     pub has_screenshot: bool,
