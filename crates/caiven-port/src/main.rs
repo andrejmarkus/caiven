@@ -38,11 +38,13 @@ struct Args {
 async fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
+    caiven_port::set_legacy_data_dir(args.data_dir.clone());
 
     let db_url = match &args.database_url {
         Some(url) => url.clone(),
         None => {
-            tokio::fs::create_dir_all(&args.data_dir).await?;
+            tokio::fs::create_dir_all(args.data_dir.join("carts")).await?;
+            tokio::fs::create_dir_all(args.data_dir.join("screenshots")).await?;
             let db_path = args.data_dir.join("port.db");
             // sqlx's sqlite URL parser rejects backslashes, which
             // `Path::display()` emits on Windows — normalize to forward
