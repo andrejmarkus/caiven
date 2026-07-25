@@ -11,6 +11,9 @@ pub struct SectionLayout {
     pub kind: SectionKind,
     pub ram_base: usize,
     pub len: usize,
+    /// Non-RAM sections such as `ModManifest` must be copied verbatim when
+    /// saving; RAM-backed assets leave this as `None` and are read from the VM.
+    pub preserved_data: Option<Vec<u8>>,
 }
 
 pub struct CartMeta {
@@ -21,12 +24,18 @@ pub struct CartMeta {
     pub lua_source: Option<String>,
 }
 
-/// Reads each tracked RAM asset section back from the VM.
+/// Reads each tracked RAM asset section back from the VM while retaining
+/// metadata sections that were never mapped into RAM.
 fn gather_sections(vm: &Vm, meta: &CartMeta) -> Vec<(SectionKind, Vec<u8>)> {
     meta.sections
         .iter()
         .map(|s| {
-            let bytes: Vec<u8> = (0..s.len).map(|i| vm.peek_memory(s.ram_base + i)).collect();
+            let bytes = match &s.preserved_data {
+                Some(data) => data.clone(),
+                None => (0..s.len)
+                    .map(|i| vm.peek_memory(s.ram_base + i))
+                    .collect(),
+            };
             (s.kind, bytes)
         })
         .collect()
