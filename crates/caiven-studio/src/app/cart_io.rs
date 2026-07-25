@@ -32,9 +32,7 @@ fn gather_sections(vm: &Vm, meta: &CartMeta) -> Vec<(SectionKind, Vec<u8>)> {
         .map(|s| {
             let bytes = match &s.preserved_data {
                 Some(data) => data.clone(),
-                None => (0..s.len)
-                    .map(|i| vm.peek_memory(s.ram_base + i))
-                    .collect(),
+                None => (0..s.len).map(|i| vm.peek_memory(s.ram_base + i)).collect(),
             };
             (s.kind, bytes)
         })
