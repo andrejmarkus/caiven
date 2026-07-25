@@ -91,6 +91,7 @@ class AudioEngine {
   // unavoidable OS/hardware audio buffering) — kept as small as is safe
   // against a single rAF tick's worth of jitter (~16.6ms at 60Hz).
   private nextChunkTime = 0;
+  private muted = false;
   private static readonly LOOKAHEAD_SEC = 0.015;
 
   constructor(module: CaivenModuleInstance) {
@@ -98,6 +99,7 @@ class AudioEngine {
   }
 
   ensureStarted(): void {
+    if (this.muted) return;
     if (this.ctx) {
       if (this.ctx.state === 'suspended') void this.ctx.resume();
       return;
@@ -115,6 +117,13 @@ class AudioEngine {
       this.node = node;
       this.nextChunkTime = ctx.currentTime;
     });
+  }
+
+  setMuted(muted: boolean): void {
+    this.muted = muted;
+    if (!this.ctx) return;
+    if (muted) void this.ctx.suspend();
+    else void this.ctx.resume();
   }
 
   /// Tops up the worklet's queue to stay ~LOOKAHEAD_SEC ahead of the audio
@@ -162,6 +171,7 @@ export class CartPlayer {
   private audio: AudioEngine;
   private faulted = false;
   private onFault: ((message: string) => void) | null = null;
+  private onFps: ((fps: number) => void) | null = null;
   private touchEls: HTMLElement[] = [];
 
   private constructor(module: CaivenModuleInstance, canvas: HTMLCanvasElement, width: number, height: number) {
@@ -276,8 +286,13 @@ export class CartPlayer {
     container.appendChild(face);
   }
 
-  start(onFault?: (message: string) => void): void {
+  setMuted(muted: boolean): void {
+    this.audio.setMuted(muted);
+  }
+
+  start(onFault?: (message: string) => void, onFps?: (fps: number) => void): void {
     this.onFault = onFault ?? null;
+    this.onFps = onFps ?? null;
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('gamepadconnected', this.onGamepadConnected);
@@ -289,7 +304,16 @@ export class CartPlayer {
     });
     this.canvas.focus();
 
+    let frames = 0;
+    let fpsStarted = performance.now();
     const frame = () => {
+      frames += 1;
+      const elapsed = performance.now() - fpsStarted;
+      if (elapsed >= 1000) {
+        this.onFps?.(Math.round((frames * 1000) / elapsed));
+        frames = 0;
+        fpsStarted = performance.now();
+      }
       this.pollGamepad();
       if (!this.faulted) {
         this.module.ccall('caiven_tick', null, ['number'], [1]);

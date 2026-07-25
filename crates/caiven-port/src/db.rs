@@ -45,6 +45,7 @@ pub async fn insert_cart(
         owner_id: Set(Some(owner_id.to_string())),
         rating_count: Set(0),
         rating_sum: Set(0),
+        plays: Set(0),
     }
     .insert(&txn)
     .await?;
@@ -219,6 +220,7 @@ pub async fn get(db: &DatabaseConnection, id: &str) -> Result<Option<Cart>> {
 pub enum Sort {
     New,
     Popular,
+    Trending,
     Top,
 }
 
@@ -226,6 +228,7 @@ impl Sort {
     pub fn parse(s: Option<&str>) -> Self {
         match s {
             Some("popular") => Sort::Popular,
+            Some("trending") => Sort::Trending,
             Some("top") => Sort::Top,
             _ => Sort::New,
         }
@@ -266,6 +269,7 @@ pub async fn list(
     select = match sort {
         Sort::New => select.order_by_desc(carts::Column::UploadedAt),
         Sort::Popular => select.order_by_desc(carts::Column::Downloads),
+        Sort::Trending => select.order_by_desc(carts::Column::Plays),
         Sort::Top => {
             // `MAX(a, b)` is a SQLite 2-arg scalar; Postgres needs `GREATEST`.
             let top_expr = match db.get_database_backend() {

@@ -8,6 +8,7 @@ export interface Cart {
   tags: string[];
   uploaded_at: string;
   downloads: number;
+  plays: number;
   owner: string | null;
   rating_avg: number;
   rating_count: number;
@@ -47,6 +48,10 @@ export interface UserProfile {
   created_at: string;
   carts: Cart[];
   total: number;
+  total_plays: number;
+  follower_count: number;
+  following_count: number;
+  followed_by_me: boolean;
 }
 
 export interface UserInfo {
@@ -66,6 +71,13 @@ export interface TokenCreated extends TokenInfo {
   token: string;
 }
 
+export interface SessionInfo {
+  id: string;
+  created_at: string;
+  expires_at: string;
+  current: boolean;
+}
+
 export interface CommentInfo {
   id: string;
   author: string;
@@ -73,7 +85,76 @@ export interface CommentInfo {
   created_at: string;
 }
 
-export type Sort = 'new' | 'popular' | 'top';
+export type Sort = 'new' | 'popular' | 'trending' | 'top';
+
+export interface CollectionInfo {
+  slug: string;
+  title: string;
+  description: string;
+  kind: 'editorial' | 'player';
+  featured_rank: number | null;
+  owner: string;
+  cart_count: number;
+  follower_count: number;
+  followed_by_me: boolean;
+  carts: Cart[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JamInfo {
+  slug: string;
+  title: string;
+  description: string;
+  rules: string;
+  starts_at: string;
+  submissions_close_at: string;
+  ends_at: string;
+  status: 'upcoming' | 'open' | 'closed';
+  entry_count: number;
+  creator_count: number;
+  carts: Cart[];
+}
+
+export interface FeedEvent {
+  kind: 'cart_published' | 'version_published' | 'collection_addition' | 'jam_entry';
+  actor: string;
+  occurred_at: string;
+  cart: Cart;
+  version: number | null;
+  collection_slug: string | null;
+  collection_title: string | null;
+  jam_slug: string | null;
+  jam_title: string | null;
+}
+
+export interface FeedPage {
+  events: FeedEvent[];
+  page: number;
+  per_page: number;
+  total: number;
+}
+
+export interface MetricWindow {
+  current: number;
+  previous: number;
+}
+
+export interface DailyMetric {
+  date: string;
+  plays: number;
+  unique_players: number;
+}
+
+export interface DashboardInfo {
+  plays: MetricWindow;
+  unique_players: MetricWindow;
+  rating_avg: number;
+  followers: number;
+  new_followers: number;
+  daily: DailyMetric[];
+  carts: Cart[];
+}
 
 export class ApiError extends Error {
   status: number;
@@ -119,6 +200,14 @@ export const api = {
     request<UserInfo>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
   me: () => request<UserInfo>('/auth/me'),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<void>('/auth/password', {
+      method: 'POST',
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    }),
+  listSessions: () => request<SessionInfo[]>('/auth/sessions'),
+  revokeSession: (id: string) => request<void>(`/auth/sessions/${id}`, { method: 'DELETE' }),
+  revokeAllSessions: () => request<void>('/auth/sessions', { method: 'DELETE' }),
   listTokens: () => request<TokenInfo[]>('/auth/tokens'),
   createToken: (name: string) =>
     request<TokenCreated>('/auth/tokens', { method: 'POST', body: JSON.stringify({ name }) }),
@@ -157,4 +246,49 @@ export const api = {
   listTags: () => request<TagCount[]>('/tags'),
   userProfile: (username: string, page?: number, per_page?: number) =>
     request<UserProfile>(`/users/${username}${qs({ page, per_page })}`),
+
+  recordPlay: (id: string, session_id: string) =>
+    request<{ counted: boolean; plays: number }>(`/carts/${id}/play`, {
+      method: 'POST',
+      body: JSON.stringify({ session_id }),
+    }),
+  followUser: (username: string) => request<void>(`/users/${username}/follow`, { method: 'PUT' }),
+  unfollowUser: (username: string) => request<void>(`/users/${username}/follow`, { method: 'DELETE' }),
+  feed: (page = 0, per_page = 20) => request<FeedPage>(`/feed${qs({ page, per_page })}`),
+  dashboard: () => request<DashboardInfo>('/dashboard'),
+
+  listCollections: (opts: { kind?: string; owner?: string; page?: number; per_page?: number } = {}) =>
+    request<CollectionInfo[]>(`/collections${qs(opts)}`),
+  getCollection: (slug: string) => request<CollectionInfo>(`/collections/${slug}`),
+  createCollection: (input: { title: string; description?: string }) =>
+    request<CollectionInfo>('/collections', { method: 'POST', body: JSON.stringify(input) }),
+  createEditorialCollection: (input: { title: string; description?: string; featured_rank?: number | null }) =>
+    request<CollectionInfo>('/admin/collections', { method: 'POST', body: JSON.stringify(input) }),
+  updateCollection: (slug: string, input: { title?: string; description?: string; featured_rank?: number | null }) =>
+    request<CollectionInfo>(`/collections/${slug}`, { method: 'PATCH', body: JSON.stringify(input) }),
+  deleteCollection: (slug: string) => request<void>(`/collections/${slug}`, { method: 'DELETE' }),
+  addCollectionCart: (slug: string, cart_id: string) =>
+    request<CollectionInfo>(`/collections/${slug}/carts`, { method: 'POST', body: JSON.stringify({ cart_id }) }),
+  removeCollectionCart: (slug: string, cartId: string) =>
+    request<CollectionInfo>(`/collections/${slug}/carts/${cartId}`, { method: 'DELETE' }),
+  reorderCollection: (slug: string, cart_ids: string[]) =>
+    request<CollectionInfo>(`/collections/${slug}/order`, { method: 'PUT', body: JSON.stringify({ cart_ids }) }),
+  followCollection: (slug: string) => request<void>(`/collections/${slug}/follow`, { method: 'PUT' }),
+  unfollowCollection: (slug: string) => request<void>(`/collections/${slug}/follow`, { method: 'DELETE' }),
+
+  listJams: () => request<JamInfo[]>('/jams'),
+  getJam: (slug: string) => request<JamInfo>(`/jams/${slug}`),
+  createJam: (input: {
+    title: string;
+    slug?: string;
+    description?: string;
+    rules?: string;
+    starts_at: string;
+    submissions_close_at: string;
+    ends_at: string;
+  }) => request<JamInfo>('/admin/jams', { method: 'POST', body: JSON.stringify(input) }),
+  enterJam: (slug: string, cart_id: string) =>
+    request<JamInfo>(`/jams/${slug}/entries`, { method: 'POST', body: JSON.stringify({ cart_id }) }),
+  withdrawJam: (slug: string, cartId: string) =>
+    request<JamInfo>(`/jams/${slug}/entries/${cartId}`, { method: 'DELETE' }),
 };

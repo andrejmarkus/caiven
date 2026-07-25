@@ -3,16 +3,32 @@
 
 #![allow(clippy::unwrap_used)]
 
-use caiven_port::{PortState, auth::RateLimiter, build_rocket};
+use caiven_port::{
+    PortState,
+    auth::{self, RateLimiter, SESSION_COOKIE},
+    build_rocket,
+    entities::{sessions, users},
+};
 use migration::MigratorTrait;
 use rocket::data::{Limits, ToByteUnit};
-use rocket::http::{ContentType, Header, Status};
+use rocket::http::{ContentType, Header, SameSite, Status};
 use rocket::local::asynchronous::Client;
-use sea_orm::ConnectionTrait;
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, Set,
+};
 
 const BOUNDARY: &str = "X-CAIVEN-PORT-TEST-BOUNDARY";
+const TEST_PASSWORD: &str = "correct horse battery staple";
+const NEW_TEST_PASSWORD: &str = "new battery horse staple correct";
 
 async fn test_client(data_dir: &std::path::Path) -> Client {
+    test_client_with_cookie_security(data_dir, false).await
+}
+
+async fn test_client_with_cookie_security(
+    data_dir: &std::path::Path,
+    secure_cookies: bool,
+) -> Client {
     let web_dir = data_dir.join("web");
     std::fs::create_dir_all(&web_dir).unwrap();
 
@@ -31,6 +47,7 @@ async fn test_client(data_dir: &std::path::Path) -> Client {
         db,
         rate: RateLimiter::default(),
         web_dir,
+        secure_cookies,
     };
     Client::tracked(build_rocket(config, state)).await.unwrap()
 }
@@ -50,7 +67,7 @@ async fn register(client: &Client, username: &str, password: &str) -> Status {
 /// Register a default user (session cookie lands in the tracked client) and
 /// mint an API token for header-based upload auth.
 async fn auth_token(client: &Client) -> String {
-    assert_eq!(register(client, "tester", "password123").await, Status::Ok);
+    assert_eq!(register(client, "tester", TEST_PASSWORD).await, Status::Ok);
     let resp = client
         .post("/api/v2/auth/tokens")
         .header(ContentType::JSON)
@@ -93,7 +110,7 @@ fn sample_cart() -> Vec<u8> {
 /// cookie jar (shared across all these helpers) doesn't leak that user's
 /// session into later requests authenticated by a *different* user's token.
 async fn register_get_token_and_logout(client: &Client, username: &str) -> String {
-    assert_eq!(register(client, username, "password123").await, Status::Ok);
+    assert_eq!(register(client, username, TEST_PASSWORD).await, Status::Ok);
     let resp = client
         .post("/api/v2/auth/tokens")
         .header(ContentType::JSON)
@@ -129,7 +146,7 @@ async fn register_login_logout_flow() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
 
-    assert_eq!(register(&client, "alice", "password123").await, Status::Ok);
+    assert_eq!(register(&client, "alice", TEST_PASSWORD).await, Status::Ok);
 
     let resp = client.get("/api/v2/auth/me").dispatch().await;
     assert_eq!(resp.status(), Status::Ok);
@@ -144,7 +161,9 @@ async fn register_login_logout_flow() {
     let resp = client
         .post("/api/v2/auth/login")
         .header(ContentType::JSON)
-        .body(r#"{"username":"alice","password":"password123"}"#)
+        .body(format!(
+            r#"{{"username":"alice","password":"{TEST_PASSWORD}"}}"#
+        ))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok);
@@ -160,7 +179,9 @@ async fn first_user_is_admin_second_is_not() {
     let resp = client
         .post("/api/v2/auth/register")
         .header(ContentType::JSON)
-        .body(r#"{"username":"first","password":"password123"}"#)
+        .body(format!(
+            r#"{{"username":"first","password":"{TEST_PASSWORD}"}}"#
+        ))
         .dispatch()
         .await;
     let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
@@ -169,7 +190,9 @@ async fn first_user_is_admin_second_is_not() {
     let resp = client
         .post("/api/v2/auth/register")
         .header(ContentType::JSON)
-        .body(r#"{"username":"second","password":"password123"}"#)
+        .body(format!(
+            r#"{{"username":"second","password":"{TEST_PASSWORD}"}}"#
+        ))
         .dispatch()
         .await;
     let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
@@ -181,9 +204,9 @@ async fn duplicate_username_is_409() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
 
-    assert_eq!(register(&client, "bob", "password123").await, Status::Ok);
+    assert_eq!(register(&client, "bob", TEST_PASSWORD).await, Status::Ok);
     assert_eq!(
-        register(&client, "bob", "otherpassword").await,
+        register(&client, "bob", "other password long enough").await,
         Status::Conflict
     );
 }
@@ -194,11 +217,11 @@ async fn invalid_username_and_short_password_are_400() {
     let client = test_client(dir.path()).await;
 
     assert_eq!(
-        register(&client, "Bad Name", "password123").await,
+        register(&client, "Bad Name", TEST_PASSWORD).await,
         Status::BadRequest
     );
     assert_eq!(
-        register(&client, "ok", "password123").await,
+        register(&client, "ok", TEST_PASSWORD).await,
         Status::BadRequest
     );
     assert_eq!(
@@ -212,14 +235,266 @@ async fn wrong_password_is_401() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
 
-    assert_eq!(register(&client, "carol", "password123").await, Status::Ok);
+    assert_eq!(register(&client, "carol", TEST_PASSWORD).await, Status::Ok);
     let resp = client
         .post("/api/v2/auth/login")
         .header(ContentType::JSON)
-        .body(r#"{"username":"carol","password":"wrongpassword"}"#)
+        .body(r#"{"username":"carol","password":"wrong password long enough"}"#)
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Unauthorized);
+}
+
+#[rocket::async_test]
+async fn hardened_session_cookie_is_hashed_rotated_and_not_cached() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client_with_cookie_security(dir.path(), true).await;
+
+    let resp = client
+        .post("/api/v2/auth/register")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"username":"secureuser","password":"{TEST_PASSWORD}"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    assert_eq!(resp.headers().get_one("Cache-Control"), Some("no-store"));
+    let cookie = resp.cookies().get(SESSION_COOKIE).unwrap();
+    assert_eq!(cookie.http_only(), Some(true));
+    assert_eq!(cookie.same_site(), Some(SameSite::Lax));
+    assert_eq!(cookie.secure(), Some(true));
+    assert_eq!(cookie.path(), Some("/"));
+    assert!(cookie.max_age().is_some());
+
+    let first_token = client
+        .cookies()
+        .get(SESSION_COOKIE)
+        .unwrap()
+        .value()
+        .to_string();
+    let first_hash = auth::sha256_hex(&first_token);
+    let state = client.rocket().state::<PortState>().unwrap();
+    assert!(
+        sessions::Entity::find_by_id(&first_hash)
+            .one(&state.db)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        sessions::Entity::find_by_id(&first_token)
+            .one(&state.db)
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    let resp = client
+        .post("/api/v2/auth/login")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"username":"secureuser","password":"{TEST_PASSWORD}"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let second_token = client
+        .cookies()
+        .get(SESSION_COOKIE)
+        .unwrap()
+        .value()
+        .to_string();
+    assert_ne!(first_token, second_token);
+    assert!(
+        sessions::Entity::find_by_id(first_hash)
+            .one(&state.db)
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[rocket::async_test]
+async fn password_change_revokes_sessions_and_enforces_policy() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+
+    assert_eq!(
+        register(&client, "shortpass", "fourteenchars!").await,
+        Status::BadRequest
+    );
+    let unicode_password = "🔐".repeat(15);
+    assert_eq!(
+        register(&client, "unicodeuser", &unicode_password).await,
+        Status::Ok
+    );
+    client.post("/api/v2/auth/logout").dispatch().await;
+
+    assert_eq!(
+        register(&client, "passworduser", TEST_PASSWORD).await,
+        Status::Ok
+    );
+    let state = client.rocket().state::<PortState>().unwrap();
+    let user = users::Entity::find()
+        .filter(users::Column::Username.eq("passworduser"))
+        .one(&state.db)
+        .await
+        .unwrap()
+        .unwrap();
+    auth::create_session(&state.db, &user.id).await.unwrap();
+
+    let resp = client
+        .post("/api/v2/auth/password")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"current_password":"{TEST_PASSWORD}","new_password":"{NEW_TEST_PASSWORD}"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::NoContent);
+    assert_eq!(
+        sessions::Entity::find()
+            .filter(sessions::Column::UserId.eq(&user.id))
+            .count(&state.db)
+            .await
+            .unwrap(),
+        1
+    );
+
+    client.post("/api/v2/auth/logout").dispatch().await;
+    let resp = client
+        .post("/api/v2/auth/login")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"username":"passworduser","password":"{TEST_PASSWORD}"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Unauthorized);
+    let resp = client
+        .post("/api/v2/auth/login")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"username":"passworduser","password":"{NEW_TEST_PASSWORD}"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+}
+
+#[rocket::async_test]
+async fn session_management_is_owner_scoped_and_capped() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    assert_eq!(
+        register(&client, "sessionuser", TEST_PASSWORD).await,
+        Status::Ok
+    );
+    let state = client.rocket().state::<PortState>().unwrap();
+    let user = users::Entity::find()
+        .filter(users::Column::Username.eq("sessionuser"))
+        .one(&state.db)
+        .await
+        .unwrap()
+        .unwrap();
+    let (_, api_token) = auth::create_token(&state.db, &user.id, "session-test")
+        .await
+        .unwrap();
+
+    for _ in 0..25 {
+        auth::create_session(&state.db, &user.id).await.unwrap();
+    }
+    assert_eq!(
+        sessions::Entity::find()
+            .filter(sessions::Column::UserId.eq(&user.id))
+            .count(&state.db)
+            .await
+            .unwrap(),
+        20
+    );
+
+    let other = users::ActiveModel {
+        id: Set(uuid::Uuid::new_v4().to_string()),
+        username: Set("otheruser".into()),
+        password_hash: Set(auth::hash_password(TEST_PASSWORD).unwrap()),
+        is_admin: Set(false),
+        created_at: Set(chrono::Utc::now().to_rfc3339()),
+    }
+    .insert(&state.db)
+    .await
+    .unwrap();
+    let other_token = auth::create_session(&state.db, &other.id).await.unwrap();
+    let other_id = auth::sha256_hex(&other_token);
+
+    let resp = client
+        .get("/api/v2/auth/sessions")
+        .header(Header::new("X-Api-Key", api_token.clone()))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let listed: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(listed.as_array().unwrap().len(), 20);
+
+    let resp = client
+        .delete(format!("/api/v2/auth/sessions/{other_id}"))
+        .header(Header::new("X-Api-Key", api_token.clone()))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::NotFound);
+    assert!(
+        sessions::Entity::find_by_id(&other_id)
+            .one(&state.db)
+            .await
+            .unwrap()
+            .is_some()
+    );
+
+    let resp = client
+        .delete("/api/v2/auth/sessions")
+        .header(Header::new("X-Api-Key", api_token))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::NoContent);
+    assert_eq!(
+        sessions::Entity::find()
+            .filter(sessions::Column::UserId.eq(&user.id))
+            .count(&state.db)
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(
+        sessions::Entity::find_by_id(other_id)
+            .one(&state.db)
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[rocket::async_test]
+async fn login_canonicalizes_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+
+    assert_eq!(
+        register(&client, "  MixedCase  ", TEST_PASSWORD).await,
+        Status::Ok
+    );
+    client.post("/api/v2/auth/logout").dispatch().await;
+    let resp = client
+        .post("/api/v2/auth/login")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"username":" MIXEDCASE ","password":"{TEST_PASSWORD}"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(body["username"], "mixedcase");
 }
 
 #[rocket::async_test]
@@ -827,4 +1102,138 @@ async fn legacy_carts_are_migrated_to_legacy_owner_with_v1() {
     assert_eq!(cart.latest_version, 1);
     assert_eq!(cart.cart_size, 512);
     assert!(cart.has_screenshot);
+}
+
+#[rocket::async_test]
+async fn play_event_is_idempotent_per_cart_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    let token = auth_token(&client).await;
+    let response = upload(
+        &client,
+        &token,
+        &sample_cart(),
+        r#"{"title":"Playable","author":"tester","description":"","tags":[]}"#,
+    )
+    .await;
+    let uploaded: serde_json::Value =
+        serde_json::from_str(&response.into_string().await.unwrap()).unwrap();
+    let id = uploaded["id"].as_str().unwrap();
+
+    for expected_counted in [true, false] {
+        let response = client
+            .post(format!("/api/v2/carts/{id}/play"))
+            .header(ContentType::JSON)
+            .body(r#"{"session_id":"11111111-1111-4111-8111-111111111111"}"#)
+            .dispatch()
+            .await;
+        assert_eq!(response.status(), Status::Ok);
+        let body: serde_json::Value =
+            serde_json::from_str(&response.into_string().await.unwrap()).unwrap();
+        assert_eq!(body["counted"], expected_counted);
+        assert_eq!(body["plays"], 1);
+    }
+}
+
+#[rocket::async_test]
+async fn player_collection_is_public_and_contains_ordered_carts() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    let token = auth_token(&client).await;
+    let response = upload(
+        &client,
+        &token,
+        &sample_cart(),
+        r#"{"title":"Collected","author":"tester","description":"","tags":[]}"#,
+    )
+    .await;
+    let uploaded: serde_json::Value =
+        serde_json::from_str(&response.into_string().await.unwrap()).unwrap();
+    let id = uploaded["id"].as_str().unwrap();
+
+    let response = client
+        .post("/api/v2/collections")
+        .header(Header::new("X-Api-Key", token.clone()))
+        .header(ContentType::JSON)
+        .body(r#"{"title":"Tiny favorites","description":"Public shelf"}"#)
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Ok);
+    let collection: serde_json::Value =
+        serde_json::from_str(&response.into_string().await.unwrap()).unwrap();
+    let slug = collection["slug"].as_str().unwrap();
+
+    let response = client
+        .post(format!("/api/v2/collections/{slug}/carts"))
+        .header(Header::new("X-Api-Key", token))
+        .header(ContentType::JSON)
+        .body(format!(r#"{{"cart_id":"{id}"}}"#))
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Ok);
+
+    client.post("/api/v2/auth/logout").dispatch().await;
+    let response = client
+        .get(format!("/api/v2/collections/{slug}"))
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Ok);
+    let public: serde_json::Value =
+        serde_json::from_str(&response.into_string().await.unwrap()).unwrap();
+    assert_eq!(public["kind"], "player");
+    assert_eq!(public["carts"][0]["id"], id);
+}
+
+#[rocket::async_test]
+async fn admin_can_create_open_jam_and_owner_can_enter_cart() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    let token = auth_token(&client).await;
+    let response = upload(
+        &client,
+        &token,
+        &sample_cart(),
+        r#"{"title":"Jam Cart","author":"tester","description":"","tags":[]}"#,
+    )
+    .await;
+    let uploaded: serde_json::Value =
+        serde_json::from_str(&response.into_string().await.unwrap()).unwrap();
+    let id = uploaded["id"].as_str().unwrap();
+    let starts = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+    let closes = (chrono::Utc::now() + chrono::Duration::hours(2)).to_rfc3339();
+    let ends = (chrono::Utc::now() + chrono::Duration::hours(3)).to_rfc3339();
+    let response = client
+        .post("/api/v2/admin/jams")
+        .header(Header::new("X-Api-Key", token.clone()))
+        .header(ContentType::JSON)
+        .body(
+            serde_json::json!({
+                "title": "One Screen",
+                "description": "One frame",
+                "rules": "No camera",
+                "starts_at": starts,
+                "submissions_close_at": closes,
+                "ends_at": ends
+            })
+            .to_string(),
+        )
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Ok);
+    let jam: serde_json::Value =
+        serde_json::from_str(&response.into_string().await.unwrap()).unwrap();
+    let slug = jam["slug"].as_str().unwrap();
+    assert_eq!(jam["status"], "open");
+
+    let response = client
+        .post(format!("/api/v2/jams/{slug}/entries"))
+        .header(Header::new("X-Api-Key", token))
+        .header(ContentType::JSON)
+        .body(format!(r#"{{"cart_id":"{id}"}}"#))
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Ok);
+    let jam: serde_json::Value =
+        serde_json::from_str(&response.into_string().await.unwrap()).unwrap();
+    assert_eq!(jam["entry_count"], 1);
 }

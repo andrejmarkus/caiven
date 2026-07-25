@@ -3,7 +3,7 @@
 //! before), and a small in-memory per-IP rate limiter.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use argon2::{
@@ -14,7 +14,9 @@ use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
 };
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
+};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -23,6 +25,9 @@ use crate::entities::{api_tokens, sessions, users};
 
 pub const SESSION_COOKIE: &str = "caiven_session";
 pub const SESSION_DAYS: i64 = 30;
+pub const MAX_SESSIONS_PER_USER: usize = 20;
+
+static DUMMY_PASSWORD_HASH: OnceLock<String> = OnceLock::new();
 
 pub fn hash_password(password: &str) -> Result<String, String> {
     let salt = SaltString::generate(&mut OsRng);
@@ -40,6 +45,31 @@ pub fn verify_password(password: &str, hash: &str) -> bool {
                 .is_ok()
         })
         .unwrap_or(false)
+}
+
+pub async fn hash_password_async(password: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || hash_password(&password))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Always runs Argon2, including when no account exists, reducing login
+/// username-enumeration timing differences.
+pub async fn verify_login_password(password: String, hash: Option<String>) -> bool {
+    tokio::task::spawn_blocking(move || {
+        let has_user = hash.is_some();
+        let hash = hash.unwrap_or_else(|| {
+            DUMMY_PASSWORD_HASH
+                .get_or_init(|| {
+                    hash_password("caiven dummy password never used")
+                        .expect("static dummy password must hash")
+                })
+                .clone()
+        });
+        verify_password(&password, &hash) && has_user
+    })
+    .await
+    .unwrap_or(false)
 }
 
 fn to_hex(bytes: &[u8]) -> String {
@@ -62,7 +92,8 @@ fn now_rfc3339() -> String {
 }
 
 pub async fn create_session(db: &DatabaseConnection, user_id: &str) -> anyhow::Result<String> {
-    let id = random_secret();
+    let token = random_secret();
+    let id = sha256_hex(&token);
     let expires = chrono::Utc::now() + chrono::Duration::days(SESSION_DAYS);
     sessions::ActiveModel {
         id: Set(id.clone()),
@@ -72,11 +103,31 @@ pub async fn create_session(db: &DatabaseConnection, user_id: &str) -> anyhow::R
     }
     .insert(db)
     .await?;
-    Ok(id)
+
+    let rows = sessions::Entity::find()
+        .filter(sessions::Column::UserId.eq(user_id))
+        .order_by_desc(sessions::Column::CreatedAt)
+        .all(db)
+        .await?;
+    for stale in rows.iter().skip(MAX_SESSIONS_PER_USER) {
+        sessions::Entity::delete_by_id(&stale.id).exec(db).await?;
+    }
+
+    Ok(token)
 }
 
-pub async fn delete_session(db: &DatabaseConnection, session_id: &str) -> anyhow::Result<()> {
-    sessions::Entity::delete_by_id(session_id).exec(db).await?;
+pub async fn delete_session(db: &DatabaseConnection, session_token: &str) -> anyhow::Result<()> {
+    sessions::Entity::delete_by_id(sha256_hex(session_token))
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
+pub async fn delete_all_sessions(db: &DatabaseConnection, user_id: &str) -> anyhow::Result<()> {
+    sessions::Entity::delete_many()
+        .filter(sessions::Column::UserId.eq(user_id))
+        .exec(db)
+        .await?;
     Ok(())
 }
 
@@ -102,14 +153,15 @@ pub async fn create_token(
     Ok((id, token))
 }
 
-async fn user_for_session(db: &DatabaseConnection, session_id: &str) -> Option<users::Model> {
-    let session = sessions::Entity::find_by_id(session_id)
+async fn user_for_session(db: &DatabaseConnection, session_token: &str) -> Option<users::Model> {
+    let session_id = sha256_hex(session_token);
+    let session = sessions::Entity::find_by_id(&session_id)
         .one(db)
         .await
         .ok()??;
     let expires = chrono::DateTime::parse_from_rfc3339(&session.expires_at).ok()?;
     if expires < chrono::Utc::now() {
-        let _ = sessions::Entity::delete_by_id(session_id).exec(db).await;
+        let _ = sessions::Entity::delete_by_id(&session_id).exec(db).await;
         return None;
     }
     users::Entity::find_by_id(&session.user_id)
@@ -215,5 +267,10 @@ impl RateLimiter {
             Some((start, n)) if start.elapsed() <= window => *n,
             _ => 0,
         }
+    }
+
+    pub fn reset(&self, bucket: &str, key: &str) {
+        let mut map = self.windows.lock().unwrap_or_else(|e| e.into_inner());
+        map.remove(&(bucket.to_string(), key.to_string()));
     }
 }

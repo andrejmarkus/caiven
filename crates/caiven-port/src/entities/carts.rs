@@ -17,6 +17,7 @@ pub struct Model {
     pub owner_id: Option<String>,
     pub rating_count: i64,
     pub rating_sum: i64,
+    pub plays: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

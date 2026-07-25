@@ -2,9 +2,10 @@ use std::time::Duration;
 
 use rocket::{
     State, delete, get,
-    http::{Cookie, CookieJar, SameSite},
+    http::{Cookie, CookieJar, SameSite, Status},
     post,
     serde::json::Json,
+    time::Duration as CookieDuration,
 };
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set,
@@ -14,9 +15,11 @@ use uuid::Uuid;
 use crate::{
     PortState,
     auth::{self, AuthUser, ClientIp, SESSION_COOKIE},
-    entities::{api_tokens, users},
+    entities::{api_tokens, sessions, users},
     error::ApiError,
-    models::{Credentials, TokenCreate, TokenCreated, TokenInfo, UserInfo},
+    models::{
+        Credentials, PasswordChange, SessionInfo, TokenCreate, TokenCreated, TokenInfo, UserInfo,
+    },
 };
 
 const REGISTER_LIMIT: u32 = 5;
@@ -24,8 +27,11 @@ const REGISTER_WINDOW: Duration = Duration::from_secs(3600);
 const LOGIN_FAIL_LIMIT: u32 = 10;
 const LOGIN_FAIL_WINDOW: Duration = Duration::from_secs(15 * 60);
 
-fn validate_credentials(creds: &Credentials) -> Result<(), ApiError> {
-    let name = &creds.username;
+fn normalize_username(username: &str) -> String {
+    username.trim().to_ascii_lowercase()
+}
+
+fn validate_username(name: &str) -> Result<(), ApiError> {
     if name.len() < 3 || name.len() > 32 {
         return Err(ApiError::bad_request("username must be 3-32 chars"));
     }
@@ -37,8 +43,13 @@ fn validate_credentials(creds: &Credentials) -> Result<(), ApiError> {
             "username may only contain a-z, 0-9, _ and -",
         ));
     }
-    if creds.password.len() < 8 || creds.password.len() > 128 {
-        return Err(ApiError::bad_request("password must be 8-128 chars"));
+    Ok(())
+}
+
+fn validate_password(password: &str) -> Result<(), ApiError> {
+    let length = password.chars().count();
+    if !(15..=128).contains(&length) {
+        return Err(ApiError::bad_request("password must be 15-128 characters"));
     }
     Ok(())
 }
@@ -48,12 +59,17 @@ async fn start_session(
     jar: &CookieJar<'_>,
     user_id: &str,
 ) -> Result<(), ApiError> {
+    if let Some(cookie) = jar.get(SESSION_COOKIE) {
+        auth::delete_session(&state.db, cookie.value()).await?;
+    }
     let sid = auth::create_session(&state.db, user_id).await?;
     jar.add(
         Cookie::build((SESSION_COOKIE, sid))
             .http_only(true)
             .same_site(SameSite::Lax)
-            .path("/"),
+            .secure(state.secure_cookies)
+            .path("/")
+            .max_age(CookieDuration::days(auth::SESSION_DAYS)),
     );
     Ok(())
 }
@@ -68,10 +84,12 @@ pub async fn register(
     if state.rate.hit("register", &ip.0, REGISTER_WINDOW) > REGISTER_LIMIT {
         return Err(ApiError::TooManyRequests("try again later".into()));
     }
-    validate_credentials(&creds)?;
+    let username = normalize_username(&creds.username);
+    validate_username(&username)?;
+    validate_password(&creds.password)?;
 
     let existing = users::Entity::find()
-        .filter(users::Column::Username.eq(&creds.username))
+        .filter(users::Column::Username.eq(&username))
         .one(&state.db)
         .await
         .map_err(|e| ApiError::internal(e.to_string()))?;
@@ -87,8 +105,10 @@ pub async fn register(
 
     let user = users::ActiveModel {
         id: Set(Uuid::new_v4().to_string()),
-        username: Set(creds.username.clone()),
-        password_hash: Set(auth::hash_password(&creds.password).map_err(ApiError::internal)?),
+        username: Set(username),
+        password_hash: Set(auth::hash_password_async(creds.password.clone())
+            .await
+            .map_err(ApiError::internal)?),
         is_admin: Set(user_count == 0),
         created_at: Set(chrono::Utc::now().to_rfc3339()),
     }
@@ -117,20 +137,39 @@ pub async fn login(
         ));
     }
 
+    let username = normalize_username(&creds.username);
+    let login_key = format!("{}:{username}", ip.0);
+    if state
+        .rate
+        .count("login_identity_fail", &login_key, LOGIN_FAIL_WINDOW)
+        >= LOGIN_FAIL_LIMIT
+    {
+        return Err(ApiError::TooManyRequests(
+            "too many failed logins, try again later".into(),
+        ));
+    }
+
     let user = users::Entity::find()
-        .filter(users::Column::Username.eq(&creds.username))
+        .filter(users::Column::Username.eq(&username))
         .one(&state.db)
         .await
         .map_err(|e| ApiError::internal(e.to_string()))?;
 
-    let valid = user
-        .as_ref()
-        .is_some_and(|u| auth::verify_password(&creds.password, &u.password_hash));
+    let valid = auth::verify_login_password(
+        creds.password.clone(),
+        user.as_ref().map(|u| u.password_hash.clone()),
+    )
+    .await;
     if !valid {
         state.rate.hit("login_fail", &ip.0, LOGIN_FAIL_WINDOW);
+        state
+            .rate
+            .hit("login_identity_fail", &login_key, LOGIN_FAIL_WINDOW);
         return Err(ApiError::Unauthorized);
     }
     let user = user.expect("checked above");
+    state.rate.reset("login_fail", &ip.0);
+    state.rate.reset("login_identity_fail", &login_key);
 
     start_session(state, jar, &user.id).await?;
     Ok(Json(UserInfo {
@@ -156,6 +195,118 @@ pub async fn me(user: AuthUser) -> Json<UserInfo> {
         username: user.username,
         is_admin: user.is_admin,
     })
+}
+
+#[post("/api/v2/auth/password", data = "<req>")]
+pub async fn change_password(
+    state: &State<PortState>,
+    jar: &CookieJar<'_>,
+    user: AuthUser,
+    req: Json<PasswordChange>,
+) -> Result<Status, ApiError> {
+    validate_password(&req.new_password)?;
+    let model = users::Entity::find_by_id(&user.id)
+        .one(&state.db)
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?
+        .ok_or(ApiError::Unauthorized)?;
+
+    if !auth::verify_login_password(
+        req.current_password.clone(),
+        Some(model.password_hash.clone()),
+    )
+    .await
+    {
+        return Err(ApiError::Unauthorized);
+    }
+    if auth::verify_login_password(req.new_password.clone(), Some(model.password_hash.clone()))
+        .await
+    {
+        return Err(ApiError::bad_request(
+            "new password must differ from current password",
+        ));
+    }
+
+    let mut update: users::ActiveModel = model.into();
+    update.password_hash = Set(auth::hash_password_async(req.new_password.clone())
+        .await
+        .map_err(ApiError::internal)?);
+    update
+        .update(&state.db)
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+
+    auth::delete_all_sessions(&state.db, &user.id).await?;
+    start_session(state, jar, &user.id).await?;
+    Ok(Status::NoContent)
+}
+
+#[get("/api/v2/auth/sessions")]
+pub async fn list_sessions(
+    state: &State<PortState>,
+    jar: &CookieJar<'_>,
+    user: AuthUser,
+) -> Result<Json<Vec<SessionInfo>>, ApiError> {
+    let current_id = jar
+        .get(SESSION_COOKIE)
+        .map(|cookie| auth::sha256_hex(cookie.value()));
+    let now = chrono::Utc::now();
+    let rows = sessions::Entity::find()
+        .filter(sessions::Column::UserId.eq(&user.id))
+        .order_by_desc(sessions::Column::CreatedAt)
+        .all(&state.db)
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+    Ok(Json(
+        rows.into_iter()
+            .filter(|session| {
+                chrono::DateTime::parse_from_rfc3339(&session.expires_at)
+                    .is_ok_and(|expires| expires > now)
+            })
+            .map(|session| SessionInfo {
+                current: current_id.as_deref() == Some(session.id.as_str()),
+                id: session.id,
+                created_at: session.created_at,
+                expires_at: session.expires_at,
+            })
+            .collect(),
+    ))
+}
+
+#[delete("/api/v2/auth/sessions/<session_id>")]
+pub async fn revoke_session(
+    state: &State<PortState>,
+    jar: &CookieJar<'_>,
+    user: AuthUser,
+    session_id: &str,
+) -> Result<Status, ApiError> {
+    let result = sessions::Entity::delete_many()
+        .filter(sessions::Column::Id.eq(session_id))
+        .filter(sessions::Column::UserId.eq(&user.id))
+        .exec(&state.db)
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?;
+    if result.rows_affected == 0 {
+        return Err(ApiError::not_found("session not found"));
+    }
+    if jar
+        .get(SESSION_COOKIE)
+        .is_some_and(|cookie| auth::sha256_hex(cookie.value()) == session_id)
+    {
+        jar.remove(Cookie::build(SESSION_COOKIE).path("/"));
+    }
+    Ok(Status::NoContent)
+}
+
+#[delete("/api/v2/auth/sessions")]
+pub async fn revoke_all_sessions(
+    state: &State<PortState>,
+    jar: &CookieJar<'_>,
+    user: AuthUser,
+) -> Result<Status, ApiError> {
+    auth::delete_all_sessions(&state.db, &user.id).await?;
+    jar.remove(Cookie::build(SESSION_COOKIE).path("/"));
+    Ok(Status::NoContent)
 }
 
 #[get("/api/v2/auth/tokens")]

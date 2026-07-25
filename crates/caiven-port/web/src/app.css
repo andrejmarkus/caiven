@@ -79,7 +79,9 @@
   --border: var(--color-void-600);
   --input: var(--color-void-600);
   --ring: var(--color-ember);
-  --radius: 0.75rem;
+  --radius: 0.5rem;
+  --shadow-glow-ember: 0 0 0 1px rgb(254 176 93 / 0.35), 0 0 24px rgb(254 176 93 / 0.18);
+  --border-subtle: color-mix(in oklch, var(--color-void-600) 60%, transparent);
 
   /* logo mark is the mineral — obsidian, not the UI's ember interactive color */
   --color-brand: var(--color-obsidian);
@@ -99,8 +101,6 @@
   }
 
   #app {
-    display: flex;
-    flex-direction: column;
     min-height: 100vh;
   }
 
@@ -134,7 +134,7 @@
 
 @layer utilities {
   .container-page {
-    max-width: 80rem;
+    max-width: 92rem;
     margin-inline: auto;
     padding-inline: 1.5rem;
     width: 100%;
@@ -178,36 +178,28 @@
     background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
   }
 
-  @keyframes power-flicker {
-    0% {
-      opacity: 0;
-      filter: brightness(0.3);
-    }
-    8% {
-      opacity: 1;
-      filter: brightness(2.2);
-    }
-    12% {
-      opacity: 0.2;
-      filter: brightness(0.4);
-    }
-    20% {
-      opacity: 1;
-      filter: brightness(1);
-    }
-    100% {
-      opacity: 1;
-      filter: brightness(1);
-    }
+  .cart-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+    gap: 18px;
   }
 
-  .animate-power-on {
-    animation: power-flicker 0.7s steps(2, end) both;
+  .page-title {
+    @apply text-2xl font-bold tracking-tight;
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .animate-power-on {
-      animation: none;
+  .surface-panel {
+    @apply border-border bg-card border shadow-sm;
+  }
+
+  .ember-glow {
+    box-shadow: var(--shadow-glow-ember);
+  }
+
+  @media (max-width: 639px) {
+    .cart-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
     }
   }
 }

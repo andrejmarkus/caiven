@@ -1,19 +1,11 @@
 <script lang="ts">
-  import { api, ApiError } from '../api';
+  import { api, type JamInfo } from '../api';
+  import { currentUser } from '../stores.svelte';
   import { route, navigate } from '../router.svelte';
-  import * as Card from '$lib/components/ui/card';
-  import * as Field from '$lib/components/ui/field';
-  import { Input } from '$lib/components/ui/input';
-  import { Textarea } from '$lib/components/ui/textarea';
   import { Button } from '$lib/components/ui/button';
-  import { Spinner } from '$lib/components/ui/spinner';
-  import * as Alert from '$lib/components/ui/alert';
-  import { cn } from '$lib/utils';
-  import UploadCloudIcon from '@lucide/svelte/icons/upload-cloud';
-  import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
+  import UploadIcon from '@lucide/svelte/icons/upload-cloud';
 
   const cartId = $derived(route.search.get('cart') ?? '');
-
   let title = $state('');
   let author = $state('');
   let description = $state('');
@@ -23,113 +15,65 @@
   let dragOver = $state(false);
   let error = $state('');
   let busy = $state(false);
+  let jams = $state<JamInfo[]>([]);
+  let jamSlug = $state('');
 
-  function onDrop(e: DragEvent) {
-    e.preventDefault();
-    dragOver = false;
-    const f = e.dataTransfer?.files?.[0];
-    if (f) cartFile = f;
-  }
-
-  function onPick(e: Event) {
-    const f = (e.target as HTMLInputElement).files?.[0];
-    if (f) cartFile = f;
-  }
-
+  $effect(() => { author ||= currentUser.value?.username ?? ''; api.listJams().then((rows) => (jams = rows.filter((j) => j.status === 'open'))).catch(() => {}); });
+  function pick(file?: File) { if (file) cartFile = file; }
   async function submit(e: Event) {
     e.preventDefault();
-    if (!cartFile) {
-      error = 'Select a .cav file';
-      return;
-    }
-    busy = true;
-    error = '';
+    if (!cartFile) { error = 'Select a .cav file'; return; }
+    busy = true; error = '';
     try {
       if (cartId) {
         const cart = await api.createVersion(cartId, cartFile, changelog);
         navigate(`/cart/${cart.id}`);
       } else {
-        const tagList = tags.split(',').map((s) => s.trim()).filter(Boolean);
-        const cart = await api.createCart(cartFile, { title, author, description, tags: tagList });
+        const cart = await api.createCart(cartFile, { title, author, description, tags: tags.split(',').map((x) => x.trim()).filter(Boolean) });
+        if (jamSlug) await api.enterJam(jamSlug, cart.id);
         navigate(`/cart/${cart.id}`);
       }
-    } catch (e) {
-      error = e instanceof ApiError ? e.message : 'Upload failed';
-    } finally {
-      busy = false;
-    }
+    } catch (e) { error = e instanceof Error ? e.message : 'Upload failed'; }
+    finally { busy = false; }
   }
 </script>
 
-<div class="container-narrow py-16">
-  <Card.Root>
-    <Card.Header>
-      <Card.Title class="text-xl">{cartId ? 'Publish new version' : 'Upload a cart'}</Card.Title>
-    </Card.Header>
-    <Card.Content>
-      <form onsubmit={submit}>
-        {#if error}
-          <Alert.Root variant="destructive" class="mb-4">
-            <CircleAlertIcon />
-            <Alert.Description>{error}</Alert.Description>
-          </Alert.Root>
+<div class="container-page max-w-[820px] py-9 md:py-12">
+  <h1 class="page-title">{cartId ? 'Publish new version' : 'Publish a cart'}</h1>
+  <p class="mt-1 text-sm text-muted-foreground">Drop public <code class="text-foreground">.cav</code> built in Studio. Owner account becomes creator identity.</p>
+  <div class="mt-7 flex">
+    {#each ['Cart file', 'Details', 'Publish'] as label, i}
+      <div class="flex flex-1 items-center gap-2"><span class="flex size-7 items-center justify-center rounded-full font-mono text-xs font-semibold" class:bg-primary={i === 0} class:text-primary-foreground={i === 0} class:bg-secondary={i > 0} class:text-muted-foreground={i > 0}>{i + 1}</span><span class="text-sm" class:font-semibold={i === 0} class:text-muted-foreground={i > 0}>{label}</span>{#if i < 2}<span class="h-px flex-1 bg-border"></span>{/if}</div>
+    {/each}
+  </div>
+  {#if error}<div class="mt-5 rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">{error}</div>{/if}
+  <form onsubmit={submit} class="mt-7 space-y-5">
+    <div
+      role="button" tabindex="0"
+      class="surface-panel flex flex-col items-center rounded-xl border-dashed p-10 text-center transition-colors"
+      class:border-primary={dragOver}
+      ondragover={(e) => { e.preventDefault(); dragOver = true; }}
+      ondragleave={() => (dragOver = false)}
+      ondrop={(e) => { e.preventDefault(); dragOver = false; pick(e.dataTransfer?.files?.[0]); }}
+    >
+      <span class="flex size-13 items-center justify-center rounded-lg border border-border bg-background text-primary"><UploadIcon class="size-6" /></span>
+      <h2 class="mt-4 font-semibold">{cartFile ? cartFile.name : 'Drop your .cav here'}</h2>
+      <p class="mt-2 text-sm text-muted-foreground">{cartFile ? `${(cartFile.size / 1024).toFixed(1)} KB` : 'Or publish from terminal: caiven-studio publish game.cav'}</p>
+      <label class="mt-4 cursor-pointer rounded-md bg-secondary px-4 py-2 text-sm font-semibold">Browse files<input type="file" accept=".cav" class="sr-only" onchange={(e) => pick(e.currentTarget.files?.[0])} /></label>
+    </div>
+    <div class="surface-panel space-y-5 rounded-xl p-6">
+      {#if cartId}
+        <label class="block text-sm font-semibold">Changelog<textarea bind:value={changelog} rows={4} placeholder="What changed in this version?" class="mt-2 w-full rounded-md border border-border bg-background p-3 font-normal"></textarea></label>
+      {:else}
+        <label class="block text-sm font-semibold">Title<input bind:value={title} maxlength={64} required placeholder="Read from cart header" class="mt-2 h-10 w-full rounded-md border border-border bg-background px-3 font-normal" /></label>
+        <label class="block text-sm font-semibold">Author metadata<input bind:value={author} maxlength={64} required class="mt-2 h-10 w-full rounded-md border border-border bg-background px-3 font-normal" /><span class="mt-1 block text-xs font-normal text-muted-foreground">Public creator identity remains account owner.</span></label>
+        <label class="block text-sm font-semibold">Short description<textarea bind:value={description} maxlength={512} rows={3} class="mt-2 w-full rounded-md border border-border bg-background p-3 font-normal"></textarea><span class="mt-1 block text-xs font-normal text-muted-foreground">Say what player does, not what game is about.</span></label>
+        <label class="block text-sm font-semibold">Tags<input bind:value={tags} placeholder="platformer, dark" class="mt-2 h-10 w-full rounded-md border border-border bg-background px-3 font-normal" /><span class="mt-1 block text-xs font-normal text-muted-foreground">Comma separated.</span></label>
+        {#if jams.length}
+          <label class="block border-t border-[var(--border-subtle)] pt-5 text-sm font-semibold">Enter open jam<select bind:value={jamSlug} class="mt-2 h-10 w-full rounded-md border border-border bg-background px-3 font-normal"><option value="">No jam</option>{#each jams as jam}<option value={jam.slug}>{jam.title} · closes {new Date(jam.submissions_close_at).toLocaleDateString()}</option>{/each}</select></label>
         {/if}
-
-        <div
-          class={cn(
-            'mb-5 flex flex-col items-center gap-2 rounded-lg border border-dashed border-border p-6 text-center transition-colors',
-            dragOver && 'border-primary bg-accent/40'
-          )}
-          role="button"
-          tabindex="0"
-          ondragover={(e) => {
-            e.preventDefault();
-            dragOver = true;
-          }}
-          ondragleave={() => (dragOver = false)}
-          ondrop={onDrop}
-        >
-          <UploadCloudIcon class="size-6 text-muted-foreground" />
-          {#if cartFile}
-            <p class="text-sm text-foreground">{cartFile.name} ({(cartFile.size / 1024).toFixed(1)} KB)</p>
-          {:else}
-            <p class="text-sm text-muted-foreground">Drag a .cav file here, or browse</p>
-          {/if}
-          <input type="file" accept=".cav" onchange={onPick} class="text-xs" />
-        </div>
-
-        <Field.FieldGroup>
-          {#if cartId}
-            <Field.Field>
-              <Field.FieldLabel for="changelog">Changelog</Field.FieldLabel>
-              <Textarea id="changelog" bind:value={changelog} rows={3} />
-            </Field.Field>
-          {:else}
-            <Field.Field>
-              <Field.FieldLabel for="title">Title</Field.FieldLabel>
-              <Input id="title" bind:value={title} maxlength={64} required />
-            </Field.Field>
-            <Field.Field>
-              <Field.FieldLabel for="author">Author</Field.FieldLabel>
-              <Input id="author" bind:value={author} maxlength={64} required />
-            </Field.Field>
-            <Field.Field>
-              <Field.FieldLabel for="description">Description</Field.FieldLabel>
-              <Textarea id="description" bind:value={description} rows={4} maxlength={512} />
-            </Field.Field>
-            <Field.Field>
-              <Field.FieldLabel for="tags">Tags</Field.FieldLabel>
-              <Input id="tags" bind:value={tags} placeholder="platformer, retro" />
-              <Field.FieldDescription>Comma separated</Field.FieldDescription>
-            </Field.Field>
-          {/if}
-
-          <Button type="submit" disabled={busy}>
-            {#if busy}<Spinner data-icon="inline-start" />{/if}
-            Publish
-          </Button>
-        </Field.FieldGroup>
-      </form>
-    </Card.Content>
-  </Card.Root>
+      {/if}
+      <Button type="submit" disabled={busy || !cartFile}>{busy ? 'Publishing…' : cartId ? 'Publish version' : 'Publish cart'}</Button>
+    </div>
+  </form>
 </div>

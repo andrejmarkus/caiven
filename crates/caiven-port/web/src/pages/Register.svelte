@@ -53,7 +53,8 @@
           </Field.Field>
           <Field.Field>
             <Field.FieldLabel for="p">Password</Field.FieldLabel>
-            <Input id="p" type="password" bind:value={password} autocomplete="new-password" minlength={8} required />
+            <Input id="p" type="password" bind:value={password} autocomplete="new-password" minlength={15} maxlength={128} required />
+            <Field.FieldDescription>Use 15 or more characters. Long phrases work well.</Field.FieldDescription>
           </Field.Field>
           <Button type="submit" disabled={busy}>
             {#if busy}<Spinner data-icon="inline-start" />{/if}

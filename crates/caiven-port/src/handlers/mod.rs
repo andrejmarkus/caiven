@@ -2,6 +2,7 @@
 
 pub mod auth;
 pub mod carts;
+pub mod community;
 pub mod discovery;
 pub mod legacy;
 pub mod social;

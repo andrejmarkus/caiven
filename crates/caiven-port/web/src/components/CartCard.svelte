@@ -5,7 +5,8 @@
   import PlayIcon from '@lucide/svelte/icons/play';
   import StarIcon from '@lucide/svelte/icons/star';
 
-  let { cart }: { cart: Cart } = $props();
+  let { cart, compact = false }: { cart: Cart; compact?: boolean } = $props();
+  const creator = $derived(cart.owner ?? cart.author);
 
   function play(e: MouseEvent) {
     e.preventDefault();
@@ -17,38 +18,28 @@
 <a
   href="/cart/{cart.id}"
   use:link
-  class="cart-notch group relative block aspect-square overflow-hidden bg-secondary ring-1 ring-white/5 transition-shadow hover:no-underline hover:ring-primary/30"
+  class="group block overflow-hidden rounded-lg border border-border bg-card text-foreground shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-primary hover:text-foreground hover:no-underline hover:shadow-md"
 >
-  <div class="absolute inset-0 transition-transform duration-300 ease-out group-hover:scale-[1.06]">
+  <div class="cart-notch relative aspect-square overflow-hidden bg-secondary">
     <ScreenshotImg id={cart.id} hasScreenshot={cart.has_screenshot} alt={cart.title} />
-  </div>
-
-  <div class="absolute inset-0 bg-gradient-to-t from-black/95 via-black/10 to-transparent"></div>
-  <div class="scanline-overlay pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-50"></div>
-
-  <div class="label-mono absolute top-2 left-2 rounded-sm bg-black/55 px-1.5 py-0.5 text-[10px] text-white/65 backdrop-blur-sm">
-    #{cart.id.slice(0, 6)}
-  </div>
-
-  {#if cart.rating_count > 0}
-    <div class="absolute top-2 right-2 flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-xs font-medium text-white backdrop-blur-sm">
-      <StarIcon class="size-3 fill-primary text-primary" />
-      {cart.rating_avg.toFixed(1)}
-    </div>
-  {/if}
-
-  <div class="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
     <button
       onclick={play}
       aria-label="Play {cart.title}"
-      class="pointer-events-auto flex size-12 items-center justify-center rounded-full bg-white/95 text-black shadow-xl transition-transform hover:scale-105"
+      class="ember-glow absolute right-2 bottom-2 flex size-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition-transform hover:scale-105"
     >
-      <PlayIcon class="ml-0.5 size-5" fill="currentColor" />
+      <PlayIcon class="ml-0.5 size-4" fill="currentColor" />
     </button>
   </div>
-
-  <div class="absolute inset-x-0 bottom-0 p-3">
-    <h3 class="truncate text-sm font-semibold text-white">{cart.title}</h3>
-    <p class="label-mono mt-0.5 truncate text-[10px] text-white/50">{cart.author}</p>
+  <div class={compact ? 'p-3' : 'p-3.5'}>
+    <h3 class="truncate font-display text-base font-semibold">{cart.title}</h3>
+    <p class="label-mono mt-1 truncate text-[10px] text-muted-foreground">{creator}</p>
+    {#if !compact && cart.description}
+      <p class="mt-2 line-clamp-2 min-h-10 text-sm leading-snug text-muted-foreground">{cart.description}</p>
+    {/if}
+    <div class="mt-3 flex items-center gap-1.5 border-t border-[var(--border-subtle)] pt-3">
+      <StarIcon class="size-3 fill-primary text-primary" />
+      <span class="font-mono text-xs text-muted-foreground">{cart.rating_count ? cart.rating_avg.toFixed(1) : '—'}</span>
+      <span class="ml-auto font-mono text-xs text-muted-foreground">{cart.plays.toLocaleString()} plays</span>
+    </div>
   </div>
 </a>

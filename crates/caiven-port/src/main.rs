@@ -32,6 +32,11 @@ struct Args {
     /// Directory containing the built SPA (`npm run build` output)
     #[arg(long, default_value = "crates/caiven-port/web/dist")]
     web_dir: PathBuf,
+
+    /// Mark authentication cookies Secure. Enable whenever port is served
+    /// through HTTPS, including behind a trusted TLS reverse proxy.
+    #[arg(long, env = "CAIVEN_SECURE_COOKIES", default_value_t = false)]
+    secure_cookies: bool,
 }
 
 #[rocket::main]
@@ -77,6 +82,7 @@ async fn main() -> Result<()> {
         db,
         rate: caiven_port::auth::RateLimiter::default(),
         web_dir: args.web_dir,
+        secure_cookies: args.secure_cookies,
     };
 
     build_rocket(config, state)

@@ -64,6 +64,12 @@ impl From<anyhow::Error> for ApiError {
     }
 }
 
+impl From<sea_orm::DbErr> for ApiError {
+    fn from(e: sea_orm::DbErr) -> Self {
+        ApiError::Internal(e.to_string())
+    }
+}
+
 impl From<serde_json::Error> for ApiError {
     fn from(e: serde_json::Error) -> Self {
         ApiError::BadRequest(e.to_string())

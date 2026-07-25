@@ -1,7 +1,7 @@
 <script lang="ts">
   import { api, ApiError } from '../api';
   import { setUser } from '../stores.svelte';
-  import { navigate, link } from '../router.svelte';
+  import { navigate, link, route } from '../router.svelte';
   import * as Card from '$lib/components/ui/card';
   import * as Field from '$lib/components/ui/field';
   import { Input } from '$lib/components/ui/input';
@@ -22,7 +22,8 @@
     try {
       const u = await api.login(username, password);
       setUser(u);
-      navigate('/');
+      const next = route.search.get('next') ?? (route.path !== '/login' ? route.path : null);
+      navigate(next?.startsWith('/') ? next : '/');
     } catch (e) {
       error = e instanceof ApiError ? e.message : 'Login failed';
     } finally {

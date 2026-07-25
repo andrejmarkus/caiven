@@ -8,8 +8,15 @@ pub use super::cart_blobs::Entity as CartBlobs;
 pub use super::cart_versions::Entity as CartVersions;
 #[allow(unused_imports)]
 pub use super::carts::Entity as Carts;
+pub use super::collection_carts::Entity as CollectionCarts;
+pub use super::collection_follows::Entity as CollectionFollows;
+pub use super::collections::Entity as Collections;
 #[allow(unused_imports)]
 pub use super::comments::Entity as Comments;
+pub use super::follows::Entity as Follows;
+pub use super::jam_entries::Entity as JamEntries;
+pub use super::jams::Entity as Jams;
+pub use super::play_events::Entity as PlayEvents;
 #[allow(unused_imports)]
 pub use super::ratings::Entity as Ratings;
 #[allow(unused_imports)]

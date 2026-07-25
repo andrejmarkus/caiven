@@ -14,6 +14,7 @@ pub struct Cart {
     pub tags: Vec<String>,
     pub uploaded_at: String,
     pub downloads: i64,
+    pub plays: i64,
     pub owner: Option<String>,
     pub rating_avg: f64,
     pub rating_count: i64,
@@ -45,6 +46,7 @@ impl Cart {
             description: m.description,
             uploaded_at: m.uploaded_at,
             downloads: m.downloads,
+            plays: m.plays,
             owner,
             rating_avg,
             rating_count: m.rating_count,
@@ -136,6 +138,10 @@ pub struct UserProfile {
     pub created_at: String,
     pub carts: Vec<Cart>,
     pub total: u64,
+    pub total_plays: i64,
+    pub follower_count: u64,
+    pub following_count: u64,
+    pub followed_by_me: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -151,6 +157,22 @@ pub struct UserInfo {
     pub id: String,
     pub username: String,
     pub is_admin: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct PasswordChange {
+    pub current_password: String,
+    pub new_password: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct SessionInfo {
+    pub id: String,
+    pub created_at: String,
+    pub expires_at: String,
+    pub current: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -197,4 +219,161 @@ pub struct CommentInfo {
     pub author: String,
     pub body: String,
     pub created_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct PlayInput {
+    pub session_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct PlayResult {
+    pub counted: bool,
+    pub plays: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct CollectionCreate {
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub featured_rank: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct CollectionPatch {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub featured_rank: Option<Option<i32>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct CollectionCartInput {
+    pub cart_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct CollectionOrderInput {
+    pub cart_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct CollectionInfo {
+    pub slug: String,
+    pub title: String,
+    pub description: String,
+    pub kind: String,
+    pub featured_rank: Option<i32>,
+    pub owner: String,
+    pub cart_count: u64,
+    pub follower_count: u64,
+    pub followed_by_me: bool,
+    pub carts: Vec<Cart>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct JamCreate {
+    pub title: String,
+    pub slug: Option<String>,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub rules: String,
+    pub starts_at: String,
+    pub submissions_close_at: String,
+    pub ends_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct JamPatch {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub rules: Option<String>,
+    pub starts_at: Option<String>,
+    pub submissions_close_at: Option<String>,
+    pub ends_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct JamEntryInput {
+    pub cart_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct JamInfo {
+    pub slug: String,
+    pub title: String,
+    pub description: String,
+    pub rules: String,
+    pub starts_at: String,
+    pub submissions_close_at: String,
+    pub ends_at: String,
+    pub status: String,
+    pub entry_count: u64,
+    pub creator_count: u64,
+    pub carts: Vec<Cart>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct FeedEvent {
+    pub kind: String,
+    pub actor: String,
+    pub occurred_at: String,
+    pub cart: Cart,
+    pub version: Option<i32>,
+    pub collection_slug: Option<String>,
+    pub collection_title: Option<String>,
+    pub jam_slug: Option<String>,
+    pub jam_title: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct FeedPage {
+    pub events: Vec<FeedEvent>,
+    pub page: u32,
+    pub per_page: u32,
+    pub total: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct MetricWindow {
+    pub current: i64,
+    pub previous: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct DailyMetric {
+    pub date: String,
+    pub plays: i64,
+    pub unique_players: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct DashboardInfo {
+    pub plays: MetricWindow,
+    pub unique_players: MetricWindow,
+    pub rating_avg: f64,
+    pub followers: i64,
+    pub new_followers: i64,
+    pub daily: Vec<DailyMetric>,
+    pub carts: Vec<Cart>,
 }

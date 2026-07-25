@@ -7,6 +7,12 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+use rocket::{
+    Request, Response,
+    fairing::{Fairing, Info, Kind},
+    http::Header,
+};
+
 pub mod auth;
 pub mod db;
 pub mod entities;
@@ -30,6 +36,25 @@ pub struct PortState {
     pub db: sea_orm::DatabaseConnection,
     pub rate: auth::RateLimiter,
     pub web_dir: PathBuf,
+    pub secure_cookies: bool,
+}
+
+struct AuthNoStore;
+
+#[rocket::async_trait]
+impl Fairing for AuthNoStore {
+    fn info(&self) -> Info {
+        Info {
+            name: "Disable caching for authentication responses",
+            kind: Kind::Response,
+        }
+    }
+
+    async fn on_response<'r>(&self, request: &'r Request<'_>, response: &mut Response<'r>) {
+        if request.uri().path().as_str().starts_with("/api/v2/auth/") {
+            response.set_header(Header::new("Cache-Control", "no-store"));
+        }
+    }
 }
 
 /// Assemble the rocket with all routes and catchers mounted.
@@ -37,6 +62,7 @@ pub fn build_rocket(config: rocket::Config, state: PortState) -> rocket::Rocket<
     let web_dir = state.web_dir.clone();
     rocket::custom(config)
         .manage(state)
+        .attach(AuthNoStore)
         .mount("/", rocket::fs::FileServer::from(web_dir).rank(15))
         .mount(
             "/",
@@ -51,6 +77,10 @@ pub fn build_rocket(config: rocket::Config, state: PortState) -> rocket::Rocket<
                 handlers::auth::login,
                 handlers::auth::logout,
                 handlers::auth::me,
+                handlers::auth::change_password,
+                handlers::auth::list_sessions,
+                handlers::auth::revoke_session,
+                handlers::auth::revoke_all_sessions,
                 handlers::auth::list_tokens,
                 handlers::auth::create_token,
                 handlers::auth::revoke_token,
@@ -70,6 +100,28 @@ pub fn build_rocket(config: rocket::Config, state: PortState) -> rocket::Rocket<
                 handlers::social::list_comments,
                 handlers::social::add_comment,
                 handlers::social::delete_comment,
+                handlers::community::record_play,
+                handlers::community::follow_user,
+                handlers::community::unfollow_user,
+                handlers::community::list_collections,
+                handlers::community::get_collection,
+                handlers::community::create_collection,
+                handlers::community::create_editorial_collection,
+                handlers::community::update_collection,
+                handlers::community::delete_collection,
+                handlers::community::add_collection_cart,
+                handlers::community::remove_collection_cart,
+                handlers::community::reorder_collection,
+                handlers::community::follow_collection,
+                handlers::community::unfollow_collection,
+                handlers::community::list_jams,
+                handlers::community::get_jam,
+                handlers::community::create_jam,
+                handlers::community::update_jam,
+                handlers::community::enter_jam,
+                handlers::community::withdraw_jam_entry,
+                handlers::community::feed,
+                handlers::community::dashboard,
                 handlers::spa::fallback,
             ],
         )
