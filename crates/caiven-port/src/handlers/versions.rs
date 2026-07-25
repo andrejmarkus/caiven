@@ -2,7 +2,7 @@ use rocket::{
     FromForm, State, data::Capped, form::Form, fs::TempFile, get, post, serde::json::Json,
 };
 use sea_orm::{
-    ActiveModelTrait, ConnectionTrait, DatabaseBackend, Statement, TryGetable, Set,
+    ActiveModelTrait, ConnectionTrait, DatabaseBackend, Set, Statement, TryGetable,
 };
 
 use super::{BinaryFile, safe_filename, valid_id};
@@ -40,9 +40,7 @@ async fn legacy_cart_path(
 ) -> Result<Option<String>, ApiError> {
     let backend = state.db.get_database_backend();
     let sql = match backend {
-        DatabaseBackend::Postgres => {
-            "SELECT legacy_cart_path FROM cart_versions WHERE id = $1"
-        }
+        DatabaseBackend::Postgres => "SELECT legacy_cart_path FROM cart_versions WHERE id = $1",
         _ => "SELECT legacy_cart_path FROM cart_versions WHERE id = ?",
     };
     let row = state
@@ -52,7 +50,8 @@ async fn legacy_cart_path(
             sql,
             [version_id.into()],
         ))
-        .await?;
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?;
     match row {
         Some(row) => row
             .try_get::<Option<String>>("", "legacy_cart_path")
@@ -104,7 +103,8 @@ async fn ensure_cart_blob(
         screenshot_data: Set(None),
     }
     .insert(&state.db)
-    .await?;
+    .await
+    .map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(())
 }
 
