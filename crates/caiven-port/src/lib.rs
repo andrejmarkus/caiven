@@ -4,7 +4,8 @@
 //! directory into [`PortState`] and launches [`build_rocket`]. Tests build the
 //! same rocket against an in-memory database.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 pub mod auth;
 pub mod db;
@@ -13,9 +14,20 @@ pub mod error;
 pub mod handlers;
 pub mod models;
 
+static LEGACY_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Configure the on-disk data directory used only as a compatibility fallback
+/// for SQLite installations upgraded from path-backed cartridge storage.
+pub fn set_legacy_data_dir(path: PathBuf) {
+    let _ = LEGACY_DATA_DIR.set(path);
+}
+
+pub(crate) fn legacy_data_dir() -> Option<&'static Path> {
+    LEGACY_DATA_DIR.get().map(PathBuf::as_path)
+}
+
 pub struct PortState {
     pub db: sea_orm::DatabaseConnection,
-    pub data_dir: PathBuf,
     pub rate: auth::RateLimiter,
     pub web_dir: PathBuf,
 }

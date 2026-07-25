@@ -13,4 +13,16 @@ pub enum CartError {
 
     #[error("CRC32 mismatch: expected {expected:#010x}, got {actual:#010x}")]
     ChecksumMismatch { expected: u32, actual: u32 },
+
+    #[error("invalid caiven.toml: {0}")]
+    BadToml(#[from] toml::de::Error),
+
+    #[error("project has no entry Lua file: {0}")]
+    MissingEntry(String),
+
+    #[error("bad hex data in {file}: {message}")]
+    BadHex { file: String, message: String },
+
+    #[error("bad PNG data in {file}: {message}")]
+    BadPng { file: String, message: String },
 }

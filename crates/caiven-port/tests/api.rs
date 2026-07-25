@@ -13,8 +13,6 @@ use sea_orm::ConnectionTrait;
 const BOUNDARY: &str = "X-CAIVEN-PORT-TEST-BOUNDARY";
 
 async fn test_client(data_dir: &std::path::Path) -> Client {
-    std::fs::create_dir_all(data_dir.join("carts")).unwrap();
-    std::fs::create_dir_all(data_dir.join("screenshots")).unwrap();
     let web_dir = data_dir.join("web");
     std::fs::create_dir_all(&web_dir).unwrap();
 
@@ -31,7 +29,6 @@ async fn test_client(data_dir: &std::path::Path) -> Client {
     };
     let state = PortState {
         db,
-        data_dir: data_dir.to_path_buf(),
         rate: RateLimiter::default(),
         web_dir,
     };

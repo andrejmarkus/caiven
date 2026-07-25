@@ -9,7 +9,6 @@ pub mod spa;
 pub mod versions;
 
 use std::io::Cursor;
-use std::path::Path;
 
 use rocket::{
     http::{Header, Status},
@@ -18,18 +17,6 @@ use rocket::{
 };
 
 use crate::error::ApiError;
-
-pub(crate) async fn move_file(src: &Path, dst: &Path) -> std::io::Result<()> {
-    match tokio::fs::rename(src, dst).await {
-        Ok(()) => Ok(()),
-        Err(e) if e.raw_os_error() == Some(18) => {
-            tokio::fs::copy(src, dst).await?;
-            let _ = tokio::fs::remove_file(src).await;
-            Ok(())
-        }
-        Err(e) => Err(e),
-    }
-}
 
 pub(crate) fn valid_id(s: &str) -> bool {
     s.len() == 36 && s.chars().all(|c| c.is_ascii_hexdigit() || c == '-')

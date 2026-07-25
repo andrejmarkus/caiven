@@ -23,6 +23,8 @@ pub enum PaletteAction {
     InsertBuiltin(String),
     ExportScreenshot,
     ExportGif,
+    ExportCartridge,
+    UnpackCartridge,
 }
 
 struct Entry {
@@ -98,6 +100,14 @@ fn entries(running: bool) -> Vec<Entry> {
         Entry {
             label: "Export GIF (3s)".into(),
             action: PaletteAction::ExportGif,
+        },
+        Entry {
+            label: "Pack Cartridge (.cav)".into(),
+            action: PaletteAction::ExportCartridge,
+        },
+        Entry {
+            label: "Unpack Cartridge (.cav)".into(),
+            action: PaletteAction::UnpackCartridge,
         },
     ];
     for tab in Tab::ALL {

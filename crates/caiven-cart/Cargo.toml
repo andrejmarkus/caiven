@@ -7,8 +7,12 @@ edition = "2024"
 workspace = true
 
 [dependencies]
+caiven-core = { workspace = true }
 crc32fast = { workspace = true }
+png = { workspace = true }
+serde = { workspace = true }
 thiserror = { workspace = true }
+toml = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

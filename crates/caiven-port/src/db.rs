@@ -1,11 +1,12 @@
 use anyhow::Result;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, DatabaseConnection, EntityTrait, PaginatorTrait,
-    QueryFilter, QueryOrder, Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DatabaseBackend, DatabaseConnection,
+    EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set, TransactionTrait,
     sea_query::{Expr, Order},
 };
 
 use crate::entities::{
+    cart_blobs::{self, Entity as CartBlobEntity},
     cart_versions::{self, Entity as CartVersionEntity},
     carts::{self, Entity as CartEntity},
     comments::{self, Entity as CommentEntity},
@@ -22,32 +23,17 @@ fn normalize_tags(tags: &[String]) -> String {
         .join(",")
 }
 
-pub fn cart_rel_path(cart_id: &str, version: i32) -> String {
-    if version <= 1 {
-        format!("carts/{cart_id}.cav")
-    } else {
-        format!("carts/{cart_id}-v{version}.cav")
-    }
-}
-
-pub fn screenshot_rel_path(cart_id: &str, version: i32) -> String {
-    if version <= 1 {
-        format!("screenshots/{cart_id}.png")
-    } else {
-        format!("screenshots/{cart_id}-v{version}.png")
-    }
-}
-
-/// Create a new cart owned by `owner_id`, plus its version-1 row. Returns the
-/// new cart id.
+/// Create a new cart owned by `owner_id`, plus its version-1 row and blob.
 pub async fn insert_cart(
     db: &DatabaseConnection,
     owner_id: &str,
     id: &str,
     meta: &CartMeta,
-    cart_size: usize,
+    cart_bytes: &[u8],
 ) -> Result<()> {
     let now = chrono::Utc::now().to_rfc3339();
+    let txn = db.begin().await?;
+
     carts::ActiveModel {
         id: Set(id.to_string()),
         title: Set(meta.title.clone()),
@@ -60,21 +46,31 @@ pub async fn insert_cart(
         rating_count: Set(0),
         rating_sum: Set(0),
     }
-    .insert(db)
+    .insert(&txn)
     .await?;
 
+    let version_id = uuid::Uuid::new_v4().to_string();
     cart_versions::ActiveModel {
-        id: Set(uuid::Uuid::new_v4().to_string()),
+        id: Set(version_id.clone()),
         cart_id: Set(id.to_string()),
         version: Set(1),
-        cart_path: Set(cart_rel_path(id, 1)),
-        cart_size: Set(cart_size as i64),
+        cart_size: Set(cart_bytes.len() as i64),
         changelog: Set(String::new()),
         has_screenshot: Set(false),
         created_at: Set(now),
     }
-    .insert(db)
+    .insert(&txn)
     .await?;
+
+    cart_blobs::ActiveModel {
+        version_id: Set(version_id),
+        cart_data: Set(cart_bytes.to_vec()),
+        screenshot_data: Set(None),
+    }
+    .insert(&txn)
+    .await?;
+
+    txn.commit().await?;
     Ok(())
 }
 
@@ -83,25 +79,77 @@ pub async fn insert_version(
     db: &DatabaseConnection,
     cart_id: &str,
     changelog: &str,
-    cart_size: usize,
+    cart_bytes: &[u8],
 ) -> Result<i32> {
-    let next = latest_version(db, cart_id)
+    let txn = db.begin().await?;
+    let next = latest_version(&txn, cart_id)
         .await?
         .map(|v| v.version + 1)
         .unwrap_or(1);
+
+    let version_id = uuid::Uuid::new_v4().to_string();
     cart_versions::ActiveModel {
-        id: Set(uuid::Uuid::new_v4().to_string()),
+        id: Set(version_id.clone()),
         cart_id: Set(cart_id.to_string()),
         version: Set(next),
-        cart_path: Set(cart_rel_path(cart_id, next)),
-        cart_size: Set(cart_size as i64),
+        cart_size: Set(cart_bytes.len() as i64),
         changelog: Set(changelog.to_string()),
         has_screenshot: Set(false),
         created_at: Set(chrono::Utc::now().to_rfc3339()),
     }
-    .insert(db)
+    .insert(&txn)
     .await?;
+
+    cart_blobs::ActiveModel {
+        version_id: Set(version_id),
+        cart_data: Set(cart_bytes.to_vec()),
+        screenshot_data: Set(None),
+    }
+    .insert(&txn)
+    .await?;
+
+    txn.commit().await?;
     Ok(next)
+}
+
+pub async fn get_cart_blob(db: &DatabaseConnection, version_id: &str) -> Result<Option<Vec<u8>>> {
+    Ok(CartBlobEntity::find_by_id(version_id)
+        .one(db)
+        .await?
+        .map(|b| b.cart_data))
+}
+
+pub async fn get_screenshot_blob(
+    db: &DatabaseConnection,
+    version_id: &str,
+) -> Result<Option<Vec<u8>>> {
+    Ok(CartBlobEntity::find_by_id(version_id)
+        .one(db)
+        .await?
+        .and_then(|b| b.screenshot_data))
+}
+
+/// Store a screenshot's PNG bytes against a version's blob row, and flip
+/// `cart_versions.has_screenshot` to true, atomically.
+pub async fn set_screenshot(db: &DatabaseConnection, version_id: &str, png: &[u8]) -> Result<()> {
+    let txn = db.begin().await?;
+
+    let blob = CartBlobEntity::find_by_id(version_id)
+        .one(&txn)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("blob row not found for version {version_id}"))?;
+    let mut active: cart_blobs::ActiveModel = blob.into();
+    active.screenshot_data = Set(Some(png.to_vec()));
+    active.update(&txn).await?;
+
+    CartVersionEntity::update_many()
+        .col_expr(cart_versions::Column::HasScreenshot, Expr::value(true))
+        .filter(cart_versions::Column::Id.eq(version_id))
+        .exec(&txn)
+        .await?;
+
+    txn.commit().await?;
+    Ok(())
 }
 
 pub async fn get_cart_model(db: &DatabaseConnection, id: &str) -> Result<Option<carts::Model>> {
@@ -122,7 +170,7 @@ pub async fn owner_username(
 }
 
 pub async fn latest_version(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     cart_id: &str,
 ) -> Result<Option<cart_versions::Model>> {
     Ok(CartVersionEntity::find()
@@ -218,12 +266,18 @@ pub async fn list(
     select = match sort {
         Sort::New => select.order_by_desc(carts::Column::UploadedAt),
         Sort::Popular => select.order_by_desc(carts::Column::Downloads),
-        Sort::Top => select
-            .order_by(
-                Expr::cust("CAST(rating_sum AS REAL) / MAX(rating_count, 1)"),
-                Order::Desc,
-            )
-            .order_by_desc(carts::Column::RatingCount),
+        Sort::Top => {
+            // `MAX(a, b)` is a SQLite 2-arg scalar; Postgres needs `GREATEST`.
+            let top_expr = match db.get_database_backend() {
+                DatabaseBackend::Postgres => {
+                    "CAST(rating_sum AS DOUBLE PRECISION) / GREATEST(rating_count, 1)"
+                }
+                _ => "CAST(rating_sum AS REAL) / MAX(rating_count, 1)",
+            };
+            select
+                .order_by(Expr::cust(top_expr), Order::Desc)
+                .order_by_desc(carts::Column::RatingCount)
+        }
     };
 
     let pager = select.paginate(db, per_page as u64);
@@ -249,20 +303,6 @@ pub async fn increment_downloads(db: &DatabaseConnection, id: &str) -> Result<()
     Ok(())
 }
 
-pub async fn set_version_has_screenshot(
-    db: &DatabaseConnection,
-    cart_id: &str,
-    version: i32,
-) -> Result<()> {
-    CartVersionEntity::update_many()
-        .col_expr(cart_versions::Column::HasScreenshot, Expr::value(true))
-        .filter(cart_versions::Column::CartId.eq(cart_id))
-        .filter(cart_versions::Column::Version.eq(version))
-        .exec(db)
-        .await?;
-    Ok(())
-}
-
 pub async fn update_cart(db: &DatabaseConnection, id: &str, patch: &CartPatch) -> Result<()> {
     let Some(m) = get_cart_model(db, id).await? else {
         return Ok(());
@@ -281,30 +321,17 @@ pub async fn update_cart(db: &DatabaseConnection, id: &str, patch: &CartPatch) -
     Ok(())
 }
 
-/// Delete a cart, its versions, and return the relative file paths (cart +
-/// screenshot, if present) of every version so the caller can remove them
-/// from disk. SQLite doesn't enforce the `ON DELETE CASCADE` on
-/// `cart_versions` unless foreign keys are pragma-enabled, so versions are
-/// deleted explicitly here rather than relied upon.
-pub async fn delete_cart(
-    db: &DatabaseConnection,
-    id: &str,
-) -> Result<Vec<(String, Option<String>)>> {
-    let versions = list_versions(db, id).await?;
-    let paths = versions
-        .iter()
-        .map(|v| {
-            let screenshot = v.has_screenshot.then(|| screenshot_rel_path(id, v.version));
-            (v.cart_path.clone(), screenshot)
-        })
-        .collect();
-
+/// Delete a cart and its versions. Blob rows cascade off `cart_versions` via
+/// FK; `cart_versions` itself is deleted explicitly since SQLite doesn't
+/// enforce `ON DELETE CASCADE` on `carts` unless foreign keys are
+/// pragma-enabled.
+pub async fn delete_cart(db: &DatabaseConnection, id: &str) -> Result<()> {
     CartVersionEntity::delete_many()
         .filter(cart_versions::Column::CartId.eq(id))
         .exec(db)
         .await?;
     CartEntity::delete_by_id(id).exec(db).await?;
-    Ok(paths)
+    Ok(())
 }
 
 pub async fn list_tags(db: &DatabaseConnection) -> Result<Vec<TagCount>> {

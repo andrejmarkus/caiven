@@ -2,22 +2,24 @@ use anyhow::{Context, Result};
 use caiven_cart::SectionKind;
 use caiven_vm::runtime::{ConsoleCore, WindowGfx};
 use clap::Parser;
-use log::info;
+use log::{error, info};
 use std::path::{Path, PathBuf};
 use winit::event_loop::{ControlFlow, EventLoop};
-use winit::keyboard::PhysicalKey;
+use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::{application::ApplicationHandler, event::WindowEvent};
 
 #[derive(Parser)]
 #[command(name = "caiven-machine", about = "Caiven — cart runner")]
 struct Cli {
-    /// Path to a .cav file
+    /// Path to a project dir, its caiven.toml, or a .cav cartridge
     file: PathBuf,
 }
 
 pub struct App {
     core: ConsoleCore,
     gfx: WindowGfx,
+    cart_path: PathBuf,
+    ctrl_held: bool,
 }
 
 impl App {
@@ -25,11 +27,13 @@ impl App {
         Ok(Self {
             core: ConsoleCore::new()?,
             gfx: WindowGfx::default(),
+            cart_path: PathBuf::new(),
+            ctrl_held: false,
         })
     }
 
     fn load(&mut self, path: &Path) -> Result<()> {
-        let cart = caiven_cart::load(path)
+        let cart = caiven_cart::open(path)
             .with_context(|| format!("failed to load cart from {}", path.display()))?;
 
         for section in &cart.sections {
@@ -60,7 +64,19 @@ impl App {
             .with_context(|| format!("failed to load Lua cart {}", path.display()))?;
 
         info!("cart loaded from {}", path.display());
+        self.cart_path = path.to_path_buf();
         Ok(())
+    }
+
+    /// Reloads the cart from disk into a fresh VM (Ctrl+R): the fast
+    /// edit-in-editor / re-run loop the project-dir format is for.
+    fn reload(&mut self) {
+        let path = self.cart_path.clone();
+        self.core.reset_vm();
+        match self.load(&path) {
+            Ok(()) => info!("reloaded {}", path.display()),
+            Err(e) => error!("reload failed: {e:#}"),
+        }
     }
 }
 
@@ -86,8 +102,19 @@ impl ApplicationHandler for App {
                 self.core.screen.get_debug_layer().clear();
                 self.gfx.present(&self.core.screen, &self.core.vm);
             }
+            WindowEvent::ModifiersChanged(mods) => {
+                self.ctrl_held = mods.state().control_key();
+            }
             WindowEvent::KeyboardInput { event, .. } => {
                 let pressed = event.state.is_pressed();
+                if pressed
+                    && !event.repeat
+                    && self.ctrl_held
+                    && event.physical_key == PhysicalKey::Code(KeyCode::KeyR)
+                {
+                    self.reload();
+                    return;
+                }
                 if let PhysicalKey::Code(code) = event.physical_key
                     && let Some(button) = self.core.input_map.get_button(code)
                 {

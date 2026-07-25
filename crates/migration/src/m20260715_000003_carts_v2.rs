@@ -145,29 +145,35 @@ impl MigrationTrait for Migration {
         // Bootstrap a `legacy` owner for any carts uploaded before accounts
         // existed, then give each of them a v1 cart_versions row built from
         // their existing rom_size/has_screenshot columns (read before those
-        // columns are dropped below).
-        conn.execute_unprepared(&format!(
-            "INSERT INTO users (id, username, password_hash, is_admin, created_at) \
-             SELECT '{LEGACY_USER_ID}', 'legacy', '!', 0, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
-             WHERE EXISTS (SELECT 1 FROM carts) \
-               AND NOT EXISTS (SELECT 1 FROM users WHERE id = '{LEGACY_USER_ID}')"
-        ))
-        .await?;
+        // columns are dropped below). This backfill only matters for
+        // pre-account SQLite databases carried forward from before this
+        // migration existed — a fresh Postgres deploy has no `carts` rows
+        // yet, so skip it there rather than porting the SQLite-only
+        // functions (`strftime`, `randomblob`) it relies on.
+        if manager.get_database_backend() == sea_orm_migration::sea_orm::DatabaseBackend::Sqlite {
+            conn.execute_unprepared(&format!(
+                "INSERT INTO users (id, username, password_hash, is_admin, created_at) \
+                 SELECT '{LEGACY_USER_ID}', 'legacy', '!', 0, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+                 WHERE EXISTS (SELECT 1 FROM carts) \
+                   AND NOT EXISTS (SELECT 1 FROM users WHERE id = '{LEGACY_USER_ID}')"
+            ))
+            .await?;
 
-        conn.execute_unprepared(&format!(
-            "UPDATE carts SET owner_id = '{LEGACY_USER_ID}' WHERE owner_id IS NULL"
-        ))
-        .await?;
+            conn.execute_unprepared(&format!(
+                "UPDATE carts SET owner_id = '{LEGACY_USER_ID}' WHERE owner_id IS NULL"
+            ))
+            .await?;
 
-        conn.execute_unprepared(
-            "INSERT INTO cart_versions \
-                (id, cart_id, version, rom_path, rom_size, changelog, has_screenshot, created_at) \
-             SELECT lower(hex(randomblob(16))), id, 1, 'roms/' || id || '.rom', rom_size, '', \
-                has_screenshot, uploaded_at \
-             FROM carts \
-             WHERE NOT EXISTS (SELECT 1 FROM cart_versions WHERE cart_versions.cart_id = carts.id)",
-        )
-        .await?;
+            conn.execute_unprepared(
+                "INSERT INTO cart_versions \
+                    (id, cart_id, version, rom_path, rom_size, changelog, has_screenshot, created_at) \
+                 SELECT lower(hex(randomblob(16))), id, 1, 'roms/' || id || '.rom', rom_size, '', \
+                    has_screenshot, uploaded_at \
+                 FROM carts \
+                 WHERE NOT EXISTS (SELECT 1 FROM cart_versions WHERE cart_versions.cart_id = carts.id)",
+            )
+            .await?;
+        }
 
         manager
             .alter_table(

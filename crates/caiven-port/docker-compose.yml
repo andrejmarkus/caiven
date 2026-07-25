@@ -1,13 +1,31 @@
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: caiven
+      POSTGRES_PASSWORD: caiven
+      POSTGRES_DB: caiven
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U caiven"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   port:
     build:
       context: ../..
       dockerfile: crates/caiven-port/Dockerfile
+    environment:
+      DATABASE_URL: postgres://caiven:caiven@db:5432/caiven
     ports:
       - "8080:8080"
-    volumes:
-      - port-data:/data
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
-  port-data:
+  pg-data:

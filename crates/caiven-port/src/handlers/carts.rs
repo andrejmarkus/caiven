@@ -2,10 +2,9 @@ use rocket::{
     FromForm, State, data::Capped, delete, form::Form, fs::TempFile, get, patch, post,
     serde::json::Json,
 };
-use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
-use super::{move_file, valid_id};
+use super::valid_id;
 use crate::{
     PortState,
     auth::AuthUser,
@@ -69,16 +68,13 @@ pub(crate) async fn create_cart_impl(
         .path()
         .ok_or_else(|| ApiError::internal("temp file unavailable"))?;
 
-    let mut f = tokio::fs::File::open(tmp_path)
+    let bytes = tokio::fs::read(tmp_path)
         .await
         .map_err(|e| ApiError::internal(e.to_string()))?;
-    let mut magic = [0u8; 6];
-    f.read_exact(&mut magic)
-        .await
-        .map_err(|_| ApiError::bad_request("cart too small"))?;
-    drop(f);
-
-    if &magic != b"CAIVEN" {
+    if bytes.len() < 6 {
+        return Err(ApiError::bad_request("cart too small"));
+    }
+    if &bytes[..6] != b"CAIVEN" {
         return Err(ApiError::bad_request("not a valid Caiven cart"));
     }
 
@@ -86,15 +82,7 @@ pub(crate) async fn create_cart_impl(
     validate_meta(&meta)?;
 
     let id = Uuid::new_v4().to_string();
-    let dest = state.data_dir.join(db::cart_rel_path(&id, 1));
-    move_file(tmp_path, &dest)
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
-
-    if let Err(e) = db::insert_cart(&state.db, &user.id, &id, &meta, cart_len).await {
-        let _ = tokio::fs::remove_file(&dest).await;
-        return Err(ApiError::from(e));
-    }
+    db::insert_cart(&state.db, &user.id, &id, &meta, &bytes).await?;
     db::get(&state.db, &id)
         .await?
         .ok_or_else(|| ApiError::internal("insert failed"))
@@ -212,12 +200,6 @@ pub async fn delete_cart(
         .ok_or_else(|| ApiError::not_found("cart not found"))?;
     require_owner(&user, &cart)?;
 
-    let files = db::delete_cart(&state.db, id).await?;
-    for (cart_path, screenshot_path) in files {
-        let _ = tokio::fs::remove_file(state.data_dir.join(cart_path)).await;
-        if let Some(p) = screenshot_path {
-            let _ = tokio::fs::remove_file(state.data_dir.join(p)).await;
-        }
-    }
+    db::delete_cart(&state.db, id).await?;
     Ok(())
 }
