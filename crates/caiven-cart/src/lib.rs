@@ -1,3 +1,4 @@
+#[allow(clippy::manual_is_multiple_of)]
 pub mod asset_png;
 mod bundle;
 mod error;
