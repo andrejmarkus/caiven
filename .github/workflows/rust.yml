@@ -27,7 +27,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libxkbcommon-dev pkg-config
       - name: Build
-        run: cargo build --verbose
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo build 2>&1 | tee build.log
+      - name: Upload build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-diagnostics
+          path: build.log
       - name: Test
         run: cargo test --verbose
 
@@ -45,7 +54,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libxkbcommon-dev pkg-config
       - name: Check formatting
-        run: cargo fmt --all -- --check
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo fmt --all -- --check 2>&1 | tee fmt.log
+      - name: Upload formatting diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: formatting-diagnostics
+          path: fmt.log
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
 
