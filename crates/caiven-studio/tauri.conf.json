@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "dev.caiven.studio",
   "build": {
-    "beforeDevCommand": "npm --prefix caiven-studio-ui run dev",
+    "beforeDevCommand": "npm --prefix ../caiven-studio-ui run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm --prefix caiven-studio-ui run build",
+    "beforeBuildCommand": "npm --prefix ../caiven-studio-ui run build",
     "frontendDist": "../caiven-studio-ui/dist"
   },
   "app": {
