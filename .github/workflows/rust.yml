@@ -1,4 +1,4 @@
-name: Rust
+name: CI and Release
 
 on:
   push:
@@ -20,17 +20,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/caiven-studio-ui/package-lock.json
+      - name: Install frontend dependencies
+        run: npm --prefix crates/caiven-studio-ui ci
+      - name: Check frontend
+        run: npm --prefix crates/caiven-studio-ui run check
+      - name: Test frontend
+        run: npm --prefix crates/caiven-studio-ui test
+      - name: Build frontend
+        run: npm --prefix crates/caiven-studio-ui run build
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libxkbcommon-dev pkg-config
+          sudo apt-get install -y \
+            libasound2-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            libxkbcommon-dev \
+            pkg-config
       - name: Build
         shell: bash
         run: |
           set -o pipefail
-          cargo build 2>&1 | tee build.log
+          cargo build --locked 2>&1 | tee build.log
       - name: Upload build diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
@@ -38,13 +60,23 @@ jobs:
           name: build-diagnostics
           path: build.log
       - name: Test
-        run: cargo test --verbose
+        run: cargo test --locked --verbose
 
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/caiven-studio-ui/package-lock.json
+      - name: Build frontend
+        run: |
+          npm --prefix crates/caiven-studio-ui ci
+          npm --prefix crates/caiven-studio-ui run build
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -52,7 +84,15 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libxkbcommon-dev pkg-config
+          sudo apt-get install -y \
+            libasound2-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            libxkbcommon-dev \
+            pkg-config
       - name: Check formatting
         shell: bash
         run: |
@@ -68,7 +108,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          cargo clippy --all-targets -- -D warnings 2>&1 | tee clippy.log
+          cargo clippy --locked --all-targets -- -D warnings 2>&1 | tee clippy.log
       - name: Upload clippy diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
@@ -81,121 +121,213 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/caiven-studio-ui/package-lock.json
+      - name: Build frontend
+        run: |
+          npm --prefix crates/caiven-studio-ui ci
+          npm --prefix crates/caiven-studio-ui run build
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libxkbcommon-dev pkg-config
+          sudo apt-get install -y \
+            libasound2-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            libxkbcommon-dev \
+            pkg-config
       - name: Build docs
-        run: cargo doc --no-deps
+        run: cargo doc --locked --no-deps
 
-  artifacts:
-    name: ${{ matrix.product_label }} (${{ matrix.platform }})
+  release-check:
+    name: Validate Release
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify package versions
+        shell: bash
+        run: |
+          APP_VERSION="$(node --print "require('./crates/caiven-studio/tauri.conf.json').version")"
+          STUDIO_CARGO_VERSION="$(awk -F '"' '/^version = / { print $2; exit }' crates/caiven-studio/Cargo.toml)"
+          MACHINE_CARGO_VERSION="$(awk -F '"' '/^version = / { print $2; exit }' crates/caiven-machine/Cargo.toml)"
+          if [[ "$APP_VERSION" != "$STUDIO_CARGO_VERSION" || "$APP_VERSION" != "$MACHINE_CARGO_VERSION" ]]; then
+            echo "::error::Tauri, Studio, and Machine versions must match"
+            exit 1
+          fi
+      - name: Verify tag matches Studio version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          APP_VERSION="$(node --print "require('./crates/caiven-studio/tauri.conf.json').version")"
+          if [[ "$GITHUB_REF_NAME" != "v$APP_VERSION" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME must match Studio version v$APP_VERSION"
+            exit 1
+          fi
+
+  machine-artifacts:
+    name: Caiven Machine (${{ matrix.label }})
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: release-check
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - product: studio
-            product_label: Caiven Studio
-            package: caiven-studio
-            binary: caiven-studio
+          - label: Linux x64
+            os: ubuntu-22.04
             platform: linux-x86_64
-            os: ubuntu-latest
-            archive: caiven-studio-linux-x86_64.tar.gz
-          - product: machine
-            product_label: Caiven Machine
-            package: caiven-machine
-            binary: caiven-machine
-            platform: linux-x86_64
-            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            executable: caiven-machine
             archive: caiven-machine-linux-x86_64.tar.gz
-          - product: studio
-            product_label: Caiven Studio
-            package: caiven-studio
-            binary: caiven-studio
-            platform: windows-x86_64
+          - label: Windows x64
             os: windows-latest
-            archive: caiven-studio-windows-x86_64.zip
-          - product: machine
-            product_label: Caiven Machine
-            package: caiven-machine
-            binary: caiven-machine
             platform: windows-x86_64
-            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            executable: caiven-machine.exe
             archive: caiven-machine-windows-x86_64.zip
-          - product: studio
-            product_label: Caiven Studio
-            package: caiven-studio
-            binary: caiven-studio
-            platform: macos-arm64
-            os: macos-14
-            archive: caiven-studio-macos-arm64.tar.gz
-          - product: machine
-            product_label: Caiven Machine
-            package: caiven-machine
-            binary: caiven-machine
-            platform: macos-arm64
-            os: macos-14
-            archive: caiven-machine-macos-arm64.tar.gz
-
+          - label: macOS Apple Silicon
+            os: macos-latest
+            platform: macos-aarch64
+            target: aarch64-apple-darwin
+            executable: caiven-machine
+            archive: caiven-machine-macos-aarch64.tar.gz
+          - label: macOS Intel
+            os: macos-latest
+            platform: macos-x86_64
+            target: x86_64-apple-darwin
+            executable: caiven-machine
+            archive: caiven-machine-macos-x86_64.tar.gz
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
-
+        with:
+          shared-key: machine-${{ matrix.target }}
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libxkbcommon-dev pkg-config
-
-      - name: Build ${{ matrix.product_label }}
-        run: cargo build --release -p ${{ matrix.package }}
-
+      - name: Build Caiven Machine
+        run: cargo build --locked --release -p caiven-machine --target ${{ matrix.target }}
       - name: Package Unix binary
         if: runner.os != 'Windows'
         shell: bash
         run: |
           mkdir -p dist
-          cp "target/release/${{ matrix.binary }}" dist/
+          cp "target/${{ matrix.target }}/release/${{ matrix.executable }}" dist/
           cp README.md LICENSE CREATOR_RIGHTS.md dist/
           tar -czf "${{ matrix.archive }}" -C dist .
-
       - name: Package Windows binary
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item "target/release/${{ matrix.binary }}.exe" dist/
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.executable }}" dist/
           Copy-Item README.md, LICENSE, CREATOR_RIGHTS.md dist/
           Compress-Archive -Path dist/* -DestinationPath "${{ matrix.archive }}"
-
-      - name: Upload ${{ matrix.product_label }}
+      - name: Upload Caiven Machine
         uses: actions/upload-artifact@v4
         with:
-          name: caiven-${{ matrix.product }}-${{ matrix.platform }}
+          name: caiven-machine-${{ matrix.platform }}
           path: ${{ matrix.archive }}
           if-no-files-found: error
+
+  studio-bundles:
+    name: Caiven Studio (${{ matrix.label }})
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: release-check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Linux x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            args: --target x86_64-unknown-linux-gnu --bundles appimage,deb
+          - label: Windows x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: --target x86_64-pc-windows-msvc --bundles nsis,msi
+          - label: macOS Apple Silicon
+            os: macos-latest
+            target: aarch64-apple-darwin
+            args: --target aarch64-apple-darwin --bundles dmg
+          - label: macOS Intel
+            os: macos-latest
+            target: x86_64-apple-darwin
+            args: --target x86_64-apple-darwin --bundles dmg
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/caiven-studio-ui/package-lock.json
+      - name: Install frontend dependencies
+        run: npm --prefix crates/caiven-studio-ui ci
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: studio-${{ matrix.target }}
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            libxkbcommon-dev \
+            patchelf \
+            pkg-config
+      - name: Build native installers
+        uses: tauri-apps/tauri-action@v1
+        with:
+          projectPath: crates/caiven-studio
+          tauriScript: npm --prefix ../caiven-studio-ui exec tauri --
+          args: ${{ matrix.args }}
+          retryAttempts: 1
+          uploadUpdaterJson: false
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: caiven-studio-[platform]-[arch]-[bundle]
 
   release:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: artifacts
+    needs: [build, lint, doc, machine-artifacts, studio-bundles]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Download packaged binaries
+      - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: caiven-*
           path: release
           merge-multiple: true
-
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: release/*
+          fail_on_unmatched_files: true
+          files: release/**/*

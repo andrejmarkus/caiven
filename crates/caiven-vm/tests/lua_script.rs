@@ -1,7 +1,10 @@
 use caiven_core::memory::{RTC_RAM_BASE, SFX_RAM_BASE};
 use caiven_vm::input::Input;
 use caiven_vm::rendering::font::Font;
-use caiven_vm::{LuaRunOutcome, Vm, VmConfig, VmFault, describe_lua_error};
+use caiven_vm::{
+    LuaBreakpoint, LuaRunOutcome, Vm, VmConfig, VmFault, describe_lua_error,
+    describe_lua_error_location,
+};
 
 fn make_vm() -> Vm {
     Vm::new(VmConfig::default())
@@ -90,6 +93,21 @@ fn lua_runtime_error_faults_cleanly() {
 }
 
 #[test]
+fn loading_fixed_source_clears_previous_lua_fault() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source("function _update() error(\"boom\") end", &input, &font)
+        .expect("load failing-at-runtime cart");
+    vm.run_frame(&input, &font);
+    assert_eq!(vm.get_fault(), Some(VmFault::LuaError));
+
+    vm.load_lua_source("function _update() end", &input, &font)
+        .expect("load fixed cart");
+    assert_eq!(vm.get_fault(), None);
+}
+
+#[test]
 fn lua_run_frame_bp_stops_at_breakpointed_line() {
     let mut vm = make_vm();
     let input = Input::new();
@@ -108,8 +126,8 @@ fn lua_run_frame_bp_stops_at_breakpointed_line() {
     .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
 
     // Line 4 is `x = 2`.
-    match vm.run_frame_lua_bp(&input, &font, &[4]) {
-        LuaRunOutcome::Breakpoint(line) => assert_eq!(line, 4),
+    match vm.run_frame_lua_bp(&input, &font, &[LuaBreakpoint::new("*", 4)]) {
+        LuaRunOutcome::Breakpoint(breakpoint) => assert_eq!(breakpoint.line, 4),
         other => panic!("expected a breakpoint stop, got {other:?}"),
     }
     assert_eq!(vm.get_fault(), None, "a breakpoint stop isn't a fault");
@@ -131,7 +149,7 @@ fn lua_run_frame_bp_completes_when_no_breakpoint_hit() {
     )
     .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
 
-    match vm.run_frame_lua_bp(&input, &font, &[999]) {
+    match vm.run_frame_lua_bp(&input, &font, &[LuaBreakpoint::new("*", 999)]) {
         LuaRunOutcome::Completed => {}
         other => panic!("expected Completed, got {other:?}"),
     }
@@ -172,6 +190,25 @@ fn lua_run_frame_bp_ticks_audio_players() {
     let s = sound.lock().unwrap_or_else(|e| e.into_inner());
     assert!(s.square.enabled, "square channel should be enabled");
     assert!(s.square.volume > 0.0, "volume should be nonzero");
+}
+
+#[test]
+fn stop_audio_silences_players_and_shared_channels() {
+    let mut vm = make_vm();
+    vm.load_section_to_ram(SFX_RAM_BASE, &[49, 12, 0, 0]);
+    vm.start_sfx(0);
+    vm.start_music(0);
+    vm.tick_audio_players();
+    assert!(vm.sfx_player().active);
+    assert!(vm.music_player().active);
+
+    vm.stop_audio();
+    assert!(!vm.sfx_player().active);
+    assert!(!vm.music_player().active);
+    let sound = vm.get_sound_shared();
+    let sound = sound.lock().unwrap_or_else(|error| error.into_inner());
+    assert!(!sound.square.enabled);
+    assert!(!sound.noise.enabled);
 }
 
 #[test]
@@ -256,6 +293,50 @@ fn bundled_module_resolves_via_require() {
         .find(|(k, _)| k == "result")
         .map(|(_, v)| v.as_str());
     assert_eq!(result, Some("42"));
+}
+
+#[test]
+fn bundled_module_breakpoint_keeps_source_and_line() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    let entry =
+        "local util = require(\"util\")\nfunction _update()\n  result = util.double(21)\nend\n";
+    let module = "local M = {}\nfunction M.double(n)\n  return n * 2\nend\nreturn M\n";
+    let bundled = caiven_cart::bundle_lua(entry, &[("util".to_string(), module.to_string())]);
+    vm.load_lua_source(&bundled, &input, &font)
+        .unwrap_or_else(|error| panic!("load_lua_source failed: {error}"));
+
+    match vm.run_frame_lua_bp(&input, &font, &[LuaBreakpoint::new("util.lua", 3)]) {
+        LuaRunOutcome::Breakpoint(location) => {
+            assert_eq!(location, LuaBreakpoint::new("util.lua", 3));
+        }
+        other => panic!("expected module breakpoint, got {other:?}"),
+    }
+    assert!(
+        vm.lua_call_stack()
+            .iter()
+            .any(|(_, location)| location.ends_with("util.lua:3")),
+        "call stack should retain module frame"
+    );
+}
+
+#[test]
+fn bundled_module_syntax_error_reports_module_location() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    let bundled = caiven_cart::bundle_lua(
+        "function _update() end\n",
+        &[("ui.panel".to_string(), "local x =\nreturn {}\n".to_string())],
+    );
+    let error = vm
+        .load_lua_source(&bundled, &input, &font)
+        .expect_err("malformed module should fail bundle load");
+    let (location, _) = describe_lua_error_location(&error);
+    let location = location.expect("module source location");
+    assert_eq!(location.source, "ui/panel.lua");
+    assert_eq!(location.line, 2);
 }
 
 #[test]

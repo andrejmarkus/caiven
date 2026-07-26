@@ -20,8 +20,6 @@ use winit::window::{Window, WindowAttributes};
 
 /// Glyphs available in the built-in font sheet, in sheet order.
 pub const FONT_GLYPHS: &str = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!?\"'()+-=.:,[]<>";
-/// Path to the built-in font sheet, relative to the working directory.
-pub const FONT_PATH: &str = "assets/font.png";
 /// Integer scale factor from console resolution to initial window size.
 pub const WINDOW_SCALE: u32 = 4;
 
@@ -43,8 +41,13 @@ pub struct ConsoleCore {
 
 impl ConsoleCore {
     pub fn new() -> Result<Self> {
-        let font =
-            Font::from_image(FONT_PATH, FONT_GLYPHS, 3, 5).context("failed to initialize font")?;
+        let font = Font::from_bytes(
+            include_bytes!("../../../assets/font.png"),
+            FONT_GLYPHS,
+            3,
+            5,
+        )
+        .context("failed to initialize embedded font")?;
 
         let config = VmConfig::default();
         let mut vm = Vm::new(config);
@@ -78,7 +81,9 @@ impl ConsoleCore {
     /// screen/input/font/timing. Used to start editing a brand-new cart
     /// without carrying over a previously loaded cart's RAM.
     pub fn reset_vm(&mut self) {
+        let capture_lua_output = self.vm.lua_output_capture_enabled();
         let mut vm = Vm::new(self.config);
+        vm.set_lua_output_capture(capture_lua_output);
         let audio = match Audio::new(vm.get_sound_shared()) {
             Ok(a) => Some(a),
             Err(e) => {
@@ -108,7 +113,10 @@ impl ConsoleCore {
 
     /// Runs one Lua-scripted frame honoring line breakpoints; input latches
     /// like `run_frame`. See [`crate::vm::Vm::run_frame_lua_bp`].
-    pub fn run_frame_lua_bp(&mut self, breakpoints: &[usize]) -> crate::vm::LuaRunOutcome {
+    pub fn run_frame_lua_bp(
+        &mut self,
+        breakpoints: &[crate::vm::LuaBreakpoint],
+    ) -> crate::vm::LuaRunOutcome {
         let outcome = self
             .vm
             .run_frame_lua_bp(&self.input, &self.font, breakpoints);
@@ -178,5 +186,33 @@ impl WindowGfx {
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ConsoleCore, FONT_GLYPHS};
+    use crate::rendering::font::Font;
+
+    #[test]
+    fn embedded_font_decodes_without_working_directory_asset_lookup() {
+        let font = Font::from_bytes(
+            include_bytes!("../../../assets/font.png"),
+            FONT_GLYPHS,
+            3,
+            5,
+        )
+        .expect("embedded font should decode");
+        assert_eq!(font.get_width(), 3);
+        assert_eq!(font.get_height(), 5);
+        assert!(font.get_glyph('A').is_some());
+    }
+
+    #[test]
+    fn reset_vm_preserves_output_capture_setting() {
+        let mut core = ConsoleCore::new().expect("console core should initialize");
+        core.vm.set_lua_output_capture(true);
+        core.reset_vm();
+        assert!(core.vm.lua_output_capture_enabled());
     }
 }

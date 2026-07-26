@@ -2,6 +2,8 @@
 
 ![Rust](https://img.shields.io/badge/rust-%23E32F26.svg?style=for-the-badge&logo=rust&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)
+[![CI and Release](https://github.com/andrejmarkus/caiven/actions/workflows/rust.yml/badge.svg)](https://github.com/andrejmarkus/caiven/actions/workflows/rust.yml)
+[![Latest Release](https://img.shields.io/github/v/release/andrejmarkus/caiven?style=for-the-badge)](https://github.com/andrejmarkus/caiven/releases/latest)
 
 **Caiven** is a retro-inspired fantasy console: a virtual machine and development environment written in Rust. Real embedded Lua 5.4 (via `mlua`) for game code, a full in-engine editor suite (Caiven Studio), and an optional cart-sharing port.
 
@@ -14,10 +16,10 @@
 
 - 🌙 **Real Lua 5.4** — embedded via `mlua` (vendored, no system Lua required); `_init()` runs once, `_update()` runs every frame, optional `_draw()` runs right after it
 - 🎨 **Palette-based Graphics** — 128×128 resolution, 16-color swappable palette; sprites, 64×64 tilemap, shape primitives, camera
-- 📦 **Descriptive Builtin API** — `sprite`, `draw_rect`, `button_down`, `set_palette_color`, etc. — no cryptic abbreviations, and `print()` stays wired to your terminal for real Lua debugging (screen text is `draw_text`)
+- 📦 **Descriptive Builtin API** — `sprite`, `draw_rect`, `button_down`, `set_palette_color`, etc. — no cryptic abbreviations; `print()` goes to Machine's terminal or Studio's Output drawer (screen text is `draw_text`)
 - 🔊 **Audio Engine** — real-time sound synthesis, SFX and music banks, playback via CPAL
 - 🧰 **Gameplay Stdlib** — tweens, easing curves, AABB/tile collision, a particle system, and sprite-frame animation, all pure Lua and preloaded into every cart
-- 🖌️ **Caiven Studio** — egui-based editor suite: code, sprite, map, palette, SFX, music, cart-meta editors, local & port cart browser, all in one window
+- 🖌️ **Caiven Studio** — Tauri 2 + Svelte 5 editor: live console, code and asset workspaces, diagnostics drawer, command palette, onboarding, and publishing flow
 - 🔍 **Debugger** — line breakpoints (click the code editor gutter), pause/step-by-frame, script-globals inspector, live RAM view, `.cavdbg` sidecar persistence
 - 🌐 **Caiven Port** — self-hostable cart sharing server with a Svelte web UI: accounts, cart versioning, ratings & comments, tag/author discovery
 
@@ -27,17 +29,35 @@
 
 ### Prerequisites
 
-You'll need the [Rust toolchain](https://rustup.rs/) installed on your system.
+Source builds need:
+
+- [Rust stable](https://rustup.rs/)
+- [Node.js 22](https://nodejs.org/) with npm
+- [Tauri system dependencies](https://v2.tauri.app/start/prerequisites/) for your OS
+
+Prebuilt Caiven Studio installers and Caiven Machine archives are available on
+the [latest GitHub release](https://github.com/andrejmarkus/caiven/releases/latest).
 
 ### Installation
 
 ```bash
-git clone https://github.com/your-username/caiven.git
+git clone https://github.com/andrejmarkus/caiven.git
 cd caiven
-cargo build --release
+npm --prefix crates/caiven-studio-ui ci
+npm --prefix crates/caiven-studio-ui run build
+cargo build --release --workspace
 ```
 
 ### Running
+
+Launch Studio in development mode:
+
+```bash
+cd crates/caiven-studio
+npm --prefix ../caiven-studio-ui exec tauri dev
+```
+
+Studio CLI commands run from repository root:
 
 ```bash
 cargo run -p caiven-studio -- [command]
@@ -45,7 +65,7 @@ cargo run -p caiven-studio -- [command]
 
 | Command | Description |
 | :------ | :---------- |
-| _(no command)_ | Launch Caiven Studio (editor suite), opens on the cart browser |
+| _(no command)_ | Launch Caiven Studio on its start screen |
 | `edit [file]` | Launch Caiven Studio, optionally opening a project dir or `.cav` file |
 | `inspect <path>` | Print cart section table (project dir or `.cav`) |
 | `build <project> -o <out.cav>` | Build a project dir into a distribution `.cav` cartridge |
@@ -85,15 +105,15 @@ with `caiven-studio build` (or Studio's Pack Cartridge). `caiven-studio
 unpack` goes the other way. Studio only edits project dirs — pointing it at a
 `.cav` prompts to unpack first.
 
-1. **Launch Caiven Studio** and click **NEW CART** on the browser tab (`F8`):
+1. **Launch Caiven Studio** and click **New cart** on the start screen:
 
 ```bash
 cargo run -p caiven-studio -- edit
 ```
 
-A folder picker asks where to create the project (the folder name becomes the
-cart's title); this opens a blank cart with a `_init`/`_update` stub in the
-`F1` code tab.
+A folder picker asks for an empty project directory (the folder name becomes
+the cart title); Studio creates a blank `_init`/`_update` project and opens
+the Code workspace.
 
 2. **Write your game logic:**
 
@@ -159,7 +179,7 @@ Math (`sin`/`cos`/`abs`/`floor`/`sqrt`/`max`/`min`/`random`), strings (`..`, `su
 | `draw_circle(cx, cy, r, color)` / `fill_circle(cx, cy, r, color)` | Circle outline / filled |
 | `set_palette_color(index, r, g, b)` | Set palette entry |
 | `set_camera(x, y)` | Set camera offset |
-| `draw_text(text, x, y, color)` | Draw a string (does **not** shadow Lua's real `print()` — that still goes to your terminal) |
+| `draw_text(text, x, y, color)` | Draw a string (does **not** shadow Lua's real `print()` — Machine writes it to terminal; Studio writes it to Output) |
 | `draw_number(value, x, y, color)` | Draw an integer |
 
 ### Sprites & Map
@@ -213,59 +233,86 @@ Pure Lua, loaded into every cart's globals automatically (no `require`) — read
 
 ## 🖌️ Caiven Studio
 
-Press function keys at any time to switch tabs:
+Studio uses native Tauri shell with Svelte UI. Rust actor thread owns VM and
+audio; webview receives framebuffer snapshots and sends typed project, input,
+transport, sprite, and palette commands.
 
-| Key | Tab |
-| :-- | :--- |
-| `F1` | 📝 Code |
-| `F2` | 🖼️ Sprite |
-| `F3` | 🗺️ Map |
-| `F4` | 🎵 SFX |
-| `F5` | 🎶 Music |
-| `F6` | 🎨 Palette |
-| `F7` | 📋 Cart meta |
-| `F8` | 📂 Browser (local + port) |
-| `F9` | 📖 Help (searchable builtin/stdlib reference) |
+Press function keys to switch workspaces:
 
-`Ctrl+S` saves the cart from any tab. `Ctrl+P` (or `Ctrl+Shift+P`) opens a command palette — fuzzy search over every menu/toolbar action, tab switch, "new from template," and "insert builtin" call. The Run/Pause/Reset toolbar and FPS counter are always visible; the game view renders as an integer-scaled, nearest-neighbor 128×128 texture. Opening a project loads it **paused** — hit ▶ Run to start it. A `.cav` prompts to unpack into a project first.
+| Key | Workspace |
+| :-- | :-------- |
+| `F1` | Code |
+| `F2` | Art → Sprites |
+| `F3` | Art → Map |
+| `F4` | Sound → Sound effects |
+| `F5` | Sound → Music |
+| `F6` | Art → Palette |
+| `F7` | Cart details |
+| `F8` | Library |
+| `F9` | API docs |
 
-Launching with no cart open shows a **welcome screen**: NEW CART / OPEN, a recent-carts list, and starter templates (top-down mover, tap-to-score, tile world) that compile and run immediately — a readable alternative to poking at a binary `.cav`. A left-side project tree (VS Code-style) lists every file in the open project; click to open/jump to it.
+`Cmd/Ctrl+S` saves, `Cmd/Ctrl+R` runs or pauses, and `Cmd/Ctrl+K`
+opens command palette. Console stays visible at 4× integer scale on wide
+windows and 3× at minimum supported 1280×800 size. Bottom drawer holds
+Problems, Output, and Memory. Focus mode expands framebuffer without moving
+VM into JavaScript.
 
-`File > Export` (or the command palette) captures the live game view: **Screenshot (PNG)**, **Record GIF (3s)**, or **Pack Cartridge (.cav)** for a distribution build. `File > Unpack Cartridge (.cav)` goes the other way (also in the command palette, or right-click a `.cav` in the Browser tab).
+Run native Studio with live Vite reload:
 
-### 📝 Code Editor
-
-Syntax highlighting for Lua keywords, this project's builtin API, and stdlib namespaces (`math`, `string`, `table`, ...). Click a line's gutter to toggle a breakpoint. `Ctrl+Z`/`Ctrl+Y` undo/redo, `Ctrl+F`/`Ctrl+G` find/find-next. A Lua error jumps the cursor to the offending line and shows the message in the status bar.
-
-**Intellisense**, backed by a structured registry of every builtin/stdlib function's name, parameters, return type, and description:
-
-- **Autocomplete** — pops up while typing an identifier, or after `namespace.` (e.g. `math.`); candidates include this buffer's own `local`/`function` declarations, not just the builtin API. `Ctrl+Space` opens it manually (e.g. with nothing typed yet, to browse everything). `↑`/`↓` to navigate, `Enter`/`Tab`/click to accept, `Esc` to dismiss without losing editor focus.
-- **Hover docs** — hover any builtin, stdlib member, or local/function name for its signature and description.
-- **Signature help** — while typing inside a call's `(...)`, an overlay above the cursor shows the full parameter list with the active parameter highlighted.
-
-None of the three fire inside string literals or comments.
-
-### 🖼️ Sprite Editor
-
-8×8 canvas at 32× zoom: pencil/fill/line/rect tools (drag preview), right-click eyedropper, palette row, per-sprite flag checkboxes, 16×16 sheet picker, per-sprite undo/redo (`Ctrl+Z`/`Y`, `Ctrl+C`/`V` copy/paste). An ops row adds flip horizontal/vertical, rotate 90°, wrap-around shift (↑↓←→), and clear — all undoable.
-
-### 🗺️ Map Editor
-
-Scrollable 64×64 tile canvas, pencil/fill/rect tools, right-click tile eyedropper, 1×/2×/4× zoom, full-map undo/redo. A FLAGS toggle tints each tile by its sprite's flag byte, so solidity/metadata stays visible while painting.
-
-### 🎵 SFX / 🎶 Music Editors
-
-16-step pitch/volume tracker per SFX slot (drag to draw notes, wave/fx toggles, playhead); 8-pattern music editor (16 rows × 2 channels referencing SFX slots, loop toggle, playhead). `Space` previews.
-
-### 🔍 Debugger
-
-Bottom panel below the game view. Breakpoints toggle from the code editor gutter and persist in a `.cavdbg` TOML sidecar next to the cart:
-
-```toml
-breakpoints = [9, 42]
+```bash
+npm --prefix crates/caiven-studio-ui ci
+cd crates/caiven-studio
+npm --prefix ../caiven-studio-ui exec tauri dev
 ```
 
-Controls: Run/Pause/Step-one-frame; a script-globals inspector shows the script's current top-level variables (filters out builtins and Lua stdlib names); the RAM hex view (sprite/map/palette/SFX/music regions) stays available for low-level inspection. There's no instruction-level single-step or timeline-scrubber rewind — mlua's interpreter state isn't cheaply snapshotable, so stepping is frame-granular.
+Build a native installer for current OS:
+
+```bash
+cd crates/caiven-studio
+npm --prefix ../caiven-studio-ui exec tauri build
+```
+
+Bundles land under `target/release/bundle/`. For UI-only work, run
+`npm --prefix crates/caiven-studio-ui run dev` from repository root.
+
+Browser preview uses representative data; Tauri launch supplies live VM,
+filesystem, input, API-registry, sprite, and palette state.
+
+---
+
+## 📦 Publishing a Release
+
+`.github/workflows/rust.yml` runs CI on `master` and pull requests. A
+version tag also builds:
+
+- Caiven Studio: Linux AppImage + Debian package, Windows NSIS + MSI installers,
+  and macOS DMGs for Apple Silicon + Intel
+- Caiven Machine: Linux, Windows, macOS Apple Silicon, and macOS Intel archives
+
+Before tagging:
+
+1. Set same version in `crates/caiven-studio/tauri.conf.json`,
+   `crates/caiven-studio/Cargo.toml`, and
+   `crates/caiven-machine/Cargo.toml`.
+2. Commit version change.
+3. Push matching `v<version>` tag:
+
+```bash
+git tag v0.1.0
+git push origin master
+git push origin v0.1.0
+```
+
+Workflow rejects mismatched package versions and tags that do not match Studio
+bundle version. Once CI and every platform build succeed, one GitHub Release is
+created with generated notes and all installers/archives.
+`workflow_dispatch` builds same artifacts for testing without publishing a
+release.
+
+macOS builds use ad-hoc signing, so they are not notarized; Windows installers
+are unsigned. Public trusted releases need
+[macOS signing/notarization](https://v2.tauri.app/distribute/sign/macos/) and
+[Windows code signing](https://v2.tauri.app/distribute/sign/windows/).
 
 ---
 
@@ -380,14 +427,15 @@ there's no CI wasm pipeline yet.
 
 ## 📂 Project Structure
 
-Cargo workspace with eight crates:
+Cargo workspace with nine crates:
 
 | Crate | Description |
 | :---- | :---------- |
 | `crates/caiven-core` | Shared types and memory map — `Color`, `Vec2`, RAM layout constants |
 | `crates/caiven-cart` | Cart formats: binary `.cav` (header, section layout, load/write) and the project-dir authoring format (`caiven.toml` + `.lua` + `.hex`/`.png`) |
 | `crates/caiven-vm` | VM core: embedded Lua (`mlua`) execution, builtin API, renderer, audio, input, debugger hooks |
-| `crates/caiven-studio` | Main binary: Caiven Studio editor suite (edit mode only), cart browser, CLI (`build`/`unpack`/`inspect`/`publish`) |
+| `crates/caiven-studio` | Tauri shell, VM actor, Studio IPC, and CLI (`build`/`unpack`/`inspect`/`publish`) |
+| `crates/caiven-studio-ui` | Svelte 5 + Vite Studio frontend shared with Port brand tokens |
 | `crates/caiven-machine` | Standalone cart runner (run mode: project dir or `.cav`, no editor/port; `Ctrl+R` hot-reloads) |
 | `crates/caiven-port` | Cart sharing server |
 | `crates/caiven-web` | WASM cart player (`wasm32-unknown-emscripten`) served by caiven-port's `/play/:id` |

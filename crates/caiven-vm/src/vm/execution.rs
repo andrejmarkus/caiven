@@ -117,6 +117,12 @@ impl Vm {
             self.trigger_music_row();
         }
 
+        // `Sound` has exactly one square slot and one noise slot, so the two
+        // music channels are hard-assigned to one each (ch0 always square,
+        // ch1 always noise) — the per-step `wave` byte the Music tracker UI
+        // lets you set is intentionally ignored here to keep both channels
+        // audible at once instead of one clobbering the other; it only does
+        // something for single-channel SFX preview.
         if let Ok(mut s) = self.sound.try_lock() {
             tick_sfx_channel(&mut self.music_player.ch0, &self.memory, &mut s, Some(0));
             tick_sfx_channel(&mut self.music_player.ch1, &self.memory, &mut s, Some(1));

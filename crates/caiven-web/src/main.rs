@@ -83,11 +83,11 @@ impl Player {
             if self.fault {
                 break;
             }
-            if let LuaRunOutcome::Error(line, message) =
+            if let LuaRunOutcome::Error(location, message) =
                 self.vm.run_frame_lua_bp(&self.input, &self.font, &[])
             {
-                let text = match line {
-                    Some(l) => format!("line {l}: {message}"),
+                let text = match location {
+                    Some(location) => format!("{}:{}: {message}", location.source, location.line),
                     None => message,
                 };
                 self.fault_bytes = text.into_bytes();

@@ -7,4 +7,7 @@ pub mod settings;
 pub mod timing;
 pub mod vm;
 
-pub use vm::{LuaRunOutcome, Vm, VmConfig, VmFault, describe_lua_error};
+pub use vm::{
+    LuaBreakpoint, LuaRunOutcome, Vm, VmConfig, VmFault, describe_lua_error,
+    describe_lua_error_location,
+};

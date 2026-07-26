@@ -7,21 +7,27 @@ edition = "2024"
 name = "caiven-studio"
 path = "src/main.rs"
 
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
 [dependencies]
 anyhow = { workspace = true }
-chrono = { workspace = true }
 clap = { workspace = true }
-eframe = { workspace = true }
-egui = { workspace = true }
 env_logger = { workspace = true }
 caiven-core = { workspace = true }
 caiven-cart = { workspace = true }
 caiven-vm = { workspace = true }
 image = { workspace = true }
 log = { workspace = true }
-regex = { workspace = true }
-rfd = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tauri = { workspace = true }
+tauri-runtime = { workspace = true }
+tauri-plugin-dialog = "2"
 toml = { workspace = true }
 ureq = { workspace = true }
+wry = { workspace = true }

@@ -26,9 +26,10 @@ use caiven_core::memory::{
     SPRITE_SHEET_RAM_BASE,
 };
 use caiven_core::{Color, Vec2};
-use mlua::{HookTriggers, Lua, Scope, Table, VmState};
-use std::cell::{Cell, RefCell};
+use mlua::{HookTriggers, Lua, MultiValue, Scope, Table, VmState};
+use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 /// Names registered by [`register_builtins`] — excluded from
 /// [`Vm::lua_globals`]'s snapshot since they're API surface, not script state.
@@ -125,6 +126,7 @@ const STDLIB_NAMES: &[&str] = &[
     "tostring",
     "type",
     "utf8",
+    "warn",
     "xpcall",
 ];
 
@@ -142,9 +144,11 @@ const PRELUDE_SOURCE: &str = include_str!("prelude.lua");
 
 /// Frames per second `time()` assumes when converting `frame_count`.
 const TARGET_FPS: f64 = 60.0;
+const MAX_CAPTURED_OUTPUT_LINES: usize = 200;
 
 pub(super) struct LuaScript {
     lua: Lua,
+    output: Arc<Mutex<Vec<String>>>,
 }
 
 /// Result of one debug-aware Lua frame ([`Vm::run_frame_lua_bp`]).
@@ -154,26 +158,111 @@ pub enum LuaRunOutcome {
     Completed,
     /// Execution stopped at a breakpointed source line; the rest of this
     /// frame's `_update()` did not run.
-    Breakpoint(usize),
+    Breakpoint(LuaBreakpoint),
     /// A genuine Lua runtime error (not a breakpoint stop), with the
     /// 1-based source line when [`describe_lua_error`] could recover one.
-    Error(Option<usize>, String),
+    Error(Option<LuaBreakpoint>, String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LuaBreakpoint {
+    pub source: String,
+    pub line: usize,
+}
+
+impl LuaBreakpoint {
+    pub fn new(source: impl Into<String>, line: usize) -> Self {
+        Self {
+            source: source.into(),
+            line,
+        }
+    }
+}
+
+fn normalized_debug_source(source: &str) -> String {
+    source.trim_start_matches(['@', '=']).replace('\\', "/")
+}
+
+/// Walks the interpreter stack from the innermost frame outward, for the
+/// Studio debugger's Call stack panel. Called from inside the breakpoint
+/// hook, where every level is still live — the frame is gone the instant
+/// the hook returns, so this can't be deferred to after the run.
+fn capture_call_stack(lua: &Lua) -> Vec<(String, String)> {
+    let mut frames = Vec::new();
+    let mut level = 0usize;
+    while let Some(debug) = lua.inspect_stack(level) {
+        let names = debug.names();
+        let label = names.name.map(|name| name.into_owned()).unwrap_or_else(|| {
+            if level == 0 {
+                "?".to_string()
+            } else {
+                "anonymous function".to_string()
+            }
+        });
+        let source = debug.source();
+        let file = source
+            .short_src
+            .map(|src| src.into_owned())
+            .unwrap_or_else(|| "?".to_string());
+        let line = debug.curr_line();
+        if line > 0 {
+            frames.push((label, format!("{file}:{line}")));
+        }
+        level += 1;
+        if level > 64 {
+            break;
+        }
+    }
+    frames
 }
 
 /// Extracts the raw Lua message (no `syntax error:`/`runtime error:` wrapper)
 /// and, when present, the 1-based `cart:<line>:` source line.
 pub fn describe_lua_error(err: &mlua::Error) -> (Option<usize>, String) {
+    let (location, message) = describe_lua_error_location(err);
+    (location.map(|location| location.line), message)
+}
+
+/// Extracts source and line from Lua errors. Bundled module syntax failures
+/// can mention both wrapper `cart` and actual `ui/panel.lua`; module location
+/// wins so Studio opens correct buffer.
+pub fn describe_lua_error_location(err: &mlua::Error) -> (Option<LuaBreakpoint>, String) {
     let raw = match err {
         mlua::Error::SyntaxError { message, .. } => message.clone(),
         mlua::Error::RuntimeError(message) => message.clone(),
         other => other.to_string(),
     };
-    let line = raw
-        .strip_prefix(CHUNK_NAME)
-        .and_then(|rest| rest.strip_prefix(':'))
-        .and_then(|rest| rest.split(':').next())
-        .and_then(|n| n.parse().ok());
-    (line, raw)
+    let mut candidates = Vec::new();
+    for (colon, _) in raw.match_indices(':') {
+        let line_start = colon + 1;
+        let Some(line_end) = raw[line_start..]
+            .find(':')
+            .map(|offset| line_start + offset)
+        else {
+            continue;
+        };
+        let Ok(line) = raw[line_start..line_end].parse::<usize>() else {
+            continue;
+        };
+        let source_start = raw[..colon]
+            .rfind(|character: char| {
+                character.is_whitespace() || matches!(character, '[' | '(' | '"' | '\'')
+            })
+            .map_or(0, |index| index + 1);
+        let source = normalized_debug_source(
+            raw[source_start..colon]
+                .trim_matches(|character: char| matches!(character, ']' | ')' | '"' | '\'')),
+        );
+        if source == CHUNK_NAME || source.ends_with(".lua") {
+            candidates.push(LuaBreakpoint { source, line });
+        }
+    }
+    let location = candidates
+        .iter()
+        .find(|candidate| candidate.source.ends_with(".lua"))
+        .cloned()
+        .or_else(|| candidates.into_iter().next());
+    (location, raw)
 }
 
 fn describe_lua_value(value: &mlua::Value) -> String {
@@ -187,6 +276,30 @@ fn describe_lua_value(value: &mlua::Value) -> String {
         mlua::Value::Function(_) => "{function}".to_string(),
         other => format!("{other:?}"),
     }
+}
+
+/// Replaces Lua's stdout-backed `print` with a VM-owned line buffer. Frontends
+/// can drain it without redirecting process stdout or parsing log messages.
+fn register_print_sink(lua: &Lua, output: Arc<Mutex<Vec<String>>>) -> mlua::Result<()> {
+    let print = lua.create_function(move |lua, values: MultiValue| {
+        let tostring: mlua::Function = lua.globals().get("tostring")?;
+        let mut parts = Vec::with_capacity(values.len());
+        for value in values {
+            let rendered: mlua::String = tostring.call(value)?;
+            parts.push(rendered.to_string_lossy());
+        }
+        let mut output = output
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        for line in parts.join("\t").split('\n') {
+            if output.len() == MAX_CAPTURED_OUTPUT_LINES {
+                output.remove(0);
+            }
+            output.push(line.to_string());
+        }
+        Ok(())
+    })?;
+    lua.globals().set("print", print)
 }
 
 fn plot(layer: &mut ScreenLayer, x: i64, y: i64, color: Color) {
@@ -646,6 +759,10 @@ impl Vm {
     /// [`Vm::run_frame`].
     pub fn load_lua_source(&mut self, src: &str, input: &Input, font: &Font) -> mlua::Result<()> {
         let lua = Lua::new();
+        let output = Arc::new(Mutex::new(Vec::new()));
+        if self.capture_lua_output {
+            register_print_sink(&lua, Arc::clone(&output))?;
+        }
 
         let world = RefCell::new(&mut self.world);
         let ui = RefCell::new(&mut self.ui);
@@ -687,8 +804,23 @@ impl Vm {
         });
         result?;
 
-        self.script = Some(LuaScript { lua });
+        self.script = Some(LuaScript { lua, output });
+        self.fault = None;
+        self.waiting = false;
+        self.call_stack.clear();
         Ok(())
+    }
+
+    /// Drains complete lines emitted by cart `print()` calls since last read.
+    pub fn take_lua_output(&mut self) -> Vec<String> {
+        let Some(script) = self.script.as_ref() else {
+            return Vec::new();
+        };
+        let mut output = script
+            .output
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        std::mem::take(&mut *output)
     }
 
     pub fn has_lua_script(&self) -> bool {
@@ -764,7 +896,7 @@ impl Vm {
         &mut self,
         input: &Input,
         font: &Font,
-        breakpoints: &[usize],
+        breakpoints: &[LuaBreakpoint],
     ) -> LuaRunOutcome {
         // `run_frame` ticks these; this path grew separately and didn't, so
         // Studio's Running state was silent even though a sound was "active".
@@ -789,17 +921,39 @@ impl Vm {
         let width = self.config.width;
         let height = self.config.height;
 
-        let hit: Rc<Cell<Option<usize>>> = Rc::new(Cell::new(None));
+        let hit: Rc<RefCell<Option<LuaBreakpoint>>> = Rc::new(RefCell::new(None));
+        let stack: Rc<RefCell<Vec<(String, String)>>> = Rc::new(RefCell::new(Vec::new()));
         // EVERY_LINE fires a Rust callback per Lua instruction executed —
         // real overhead on any script with loops. Only pay for it when
         // there's actually something to break on.
         if !breakpoints.is_empty() {
             let hit_hook = hit.clone();
-            let bps: Vec<usize> = breakpoints.to_vec();
-            lua.set_hook(HookTriggers::EVERY_LINE, move |_lua, debug| {
+            let stack_hook = stack.clone();
+            let bps: Vec<LuaBreakpoint> = breakpoints.to_vec();
+            lua.set_hook(HookTriggers::EVERY_LINE, move |lua, debug| {
                 let line = debug.curr_line();
-                if line > 0 && bps.contains(&(line as usize)) {
-                    hit_hook.set(Some(line as usize));
+                let debug_source = debug.source();
+                let source = debug_source
+                    .short_src
+                    .as_deref()
+                    .or(debug_source.source.as_deref())
+                    .map(normalized_debug_source)
+                    .unwrap_or_else(|| "cart".to_string());
+                let matched = (line > 0)
+                    .then(|| {
+                        bps.iter().find(|breakpoint| {
+                            breakpoint.line == line as usize
+                                && (breakpoint.source == "*"
+                                    || normalized_debug_source(&breakpoint.source) == source)
+                        })
+                    })
+                    .flatten();
+                if let Some(breakpoint) = matched {
+                    *hit_hook.borrow_mut() = Some(LuaBreakpoint {
+                        source,
+                        line: breakpoint.line,
+                    });
+                    *stack_hook.borrow_mut() = capture_call_stack(lua);
                     return Err(mlua::Error::runtime("breakpoint"));
                 }
                 Ok(VmState::Continue)
@@ -835,16 +989,30 @@ impl Vm {
         });
         lua.remove_hook();
 
-        match (hit.get(), result) {
-            (Some(line), _) => LuaRunOutcome::Breakpoint(line),
+        if hit.borrow().is_some() {
+            self.call_stack = stack.borrow().clone();
+        } else {
+            self.call_stack.clear();
+        }
+
+        let breakpoint = hit.borrow().clone();
+        match (breakpoint, result) {
+            (Some(breakpoint), _) => LuaRunOutcome::Breakpoint(breakpoint),
             (None, Ok(())) => LuaRunOutcome::Completed,
             (None, Err(e)) => {
                 log::error!("Lua runtime error: {e}");
                 self.set_fault(VmFault::LuaError);
-                let (line, message) = describe_lua_error(&e);
-                LuaRunOutcome::Error(line, message)
+                let (location, message) = describe_lua_error_location(&e);
+                LuaRunOutcome::Error(location, message)
             }
         }
+    }
+
+    /// The Lua call stack captured at the moment the last breakpoint was
+    /// hit, deepest frame first — cleared once execution resumes past a
+    /// breakpoint. Each entry is `(frame label, "file:line")`.
+    pub fn lua_call_stack(&self) -> Vec<(String, String)> {
+        self.call_stack.clone()
     }
 
     /// Snapshot of the script's global variables, for the Studio debugger's
@@ -869,5 +1037,121 @@ impl Vm {
             .collect();
         out.sort_by(|a, b| a.0.cmp(&b.0));
         out
+    }
+
+    /// Reads a dotted global/table path without executing Lua. Studio uses
+    /// this for debugger watches, so expressions cannot mutate cart state.
+    pub fn lua_watch(&self, expression: &str) -> Result<String, String> {
+        let parts: Vec<_> = expression.split('.').collect();
+        if parts.is_empty()
+            || parts.iter().any(|part| {
+                part.is_empty()
+                    || !part
+                        .chars()
+                        .all(|char| char == '_' || char.is_ascii_alphanumeric())
+                    || part
+                        .chars()
+                        .next()
+                        .is_some_and(|char| char.is_ascii_digit())
+            })
+        {
+            return Err("Watch must be a dotted identifier".to_string());
+        }
+        let script = self
+            .script
+            .as_ref()
+            .ok_or_else(|| "No Lua cart loaded".to_string())?;
+        let mut value: mlua::Value = script
+            .lua
+            .globals()
+            .get(parts[0])
+            .map_err(|error| error.to_string())?;
+        for part in &parts[1..] {
+            value = match value {
+                mlua::Value::Table(table) => table.get(*part).map_err(|error| error.to_string())?,
+                _ => return Err(format!("{} is not a table", expression)),
+            };
+        }
+        if matches!(value, mlua::Value::Nil) {
+            Err("nil".to_string())
+        } else {
+            Ok(describe_lua_value(&value))
+        }
+    }
+}
+
+#[cfg(test)]
+mod watch_tests {
+    use crate::input::Input;
+    use crate::rendering::font::Font;
+    use crate::{Vm, VmConfig};
+
+    #[test]
+    fn dotted_watch_reads_without_executing_code() {
+        let mut vm = Vm::new(VmConfig::default());
+        vm.load_lua_source(
+            "player = { x = 72, nested = { alive = true } }\nfunction _update() end",
+            &Input::new(),
+            &Font::empty(),
+        )
+        .expect("watch fixture should load");
+        assert_eq!(vm.lua_watch("player.x"), Ok("72".to_string()));
+        assert_eq!(vm.lua_watch("player.nested.alive"), Ok("true".to_string()));
+        assert!(vm.lua_watch("player.x + 1").is_err());
+        assert!(!vm.lua_globals().iter().any(|(name, _)| name == "warn"));
+    }
+
+    #[test]
+    fn print_stream_is_buffered_and_drained() {
+        let input = Input::new();
+        let font = Font::empty();
+        let mut vm = Vm::new(VmConfig::default());
+        vm.set_lua_output_capture(true);
+        vm.load_lua_source(
+            r#"
+print("load", 7, true)
+function _init() print("init") end
+function _update() print("frame") end
+"#,
+            &input,
+            &font,
+        )
+        .expect("captured print fixture should load");
+
+        assert_eq!(vm.take_lua_output(), vec!["load\t7\ttrue", "init"]);
+        assert!(vm.take_lua_output().is_empty());
+
+        vm.run_frame_lua(&input, &font);
+        assert_eq!(vm.take_lua_output(), vec!["frame"]);
+    }
+
+    #[test]
+    fn print_stream_is_bounded_before_frontend_drain() {
+        let mut vm = Vm::new(VmConfig::default());
+        vm.set_lua_output_capture(true);
+        vm.load_lua_source(
+            "for i = 1, 205 do print(i) end\nfunction _update() end",
+            &Input::new(),
+            &Font::empty(),
+        )
+        .expect("bounded print fixture should load");
+
+        let output = vm.take_lua_output();
+        assert_eq!(output.len(), 200);
+        assert_eq!(output.first().map(String::as_str), Some("6"));
+        assert_eq!(output.last().map(String::as_str), Some("205"));
+    }
+
+    #[test]
+    fn print_capture_is_opt_in() {
+        let mut vm = Vm::new(VmConfig::default());
+        vm.load_lua_source(
+            "print('native stdout')\nfunction _update() end",
+            &Input::new(),
+            &Font::empty(),
+        )
+        .expect("native print fixture should load");
+
+        assert!(vm.take_lua_output().is_empty());
     }
 }

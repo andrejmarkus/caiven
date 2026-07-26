@@ -1,0 +1,100 @@
+export interface MapCell { offset: number; tile: number; }
+
+export const MAP_ZOOM_LEVELS = [0.5, 1, 2, 4] as const;
+
+export function nextMapZoom(current: number, deltaY: number): number {
+  if (!Number.isFinite(deltaY) || deltaY === 0) return current;
+  const next = current * Math.exp(-deltaY * 0.0015);
+  return Math.max(MAP_ZOOM_LEVELS[0], Math.min(MAP_ZOOM_LEVELS.at(-1)!, next));
+}
+
+export function dragPanScroll(startScroll: number, startPointer: number, currentPointer: number): number {
+  return startScroll + startPointer - currentPointer;
+}
+
+export type CollisionBrush = 0 | 1 | 2;
+export interface SpriteFlagEdit { tile: number; flags: number; }
+
+export function collisionFlags(flags: number, brush: CollisionBrush): number {
+  return (flags & ~0b11) | brush;
+}
+
+export function collisionFlagEdits(
+  map: readonly number[], spriteFlags: readonly number[], offsets: readonly number[], brush: CollisionBrush,
+): SpriteFlagEdit[] {
+  const edits = new Map<number, number>();
+  for (const offset of offsets) {
+    const tile = map[offset] ?? 0;
+    if (tile <= 0 || tile >= spriteFlags.length) continue;
+    const before = spriteFlags[tile] ?? 0;
+    const after = collisionFlags(before, brush);
+    if (after !== before) edits.set(tile, after);
+  }
+  return [...edits].map(([tile, flags]) => ({ tile, flags }));
+}
+
+export function sourceOffset(source: string, line: number, column = 1): number {
+  const lines = source.split('\n');
+  const targetLine = Math.max(1, Math.min(lines.length, Math.trunc(line) || 1));
+  let offset = 0;
+  for (let index = 0; index < targetLine - 1; index += 1) offset += lines[index].length + 1;
+  const lineText = lines[targetLine - 1] ?? '';
+  const targetColumn = Math.max(1, Math.min(lineText.length + 1, Math.trunc(column) || 1));
+  return offset + targetColumn - 1;
+}
+
+export function rasterLine(from: number, to: number, width: number): number[] {
+  const cells: number[] = [];
+  let x0 = from % width;
+  let y0 = Math.floor(from / width);
+  const x1 = to % width;
+  const y1 = Math.floor(to / width);
+  const dx = Math.abs(x1 - x0);
+  const sx = x0 < x1 ? 1 : -1;
+  const dy = -Math.abs(y1 - y0);
+  const sy = y0 < y1 ? 1 : -1;
+  let error = dx + dy;
+  while (true) {
+    cells.push(y0 * width + x0);
+    if (x0 === x1 && y0 === y1) break;
+    const twice = error * 2;
+    if (twice >= dy) { error += dy; x0 += sx; }
+    if (twice <= dx) { error += dx; y0 += sy; }
+  }
+  return cells;
+}
+
+export function filledRectangle(from: number, to: number, width: number): number[] {
+  const x0 = from % width;
+  const y0 = Math.floor(from / width);
+  const x1 = to % width;
+  const y1 = Math.floor(to / width);
+  const cells: number[] = [];
+  for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y += 1) {
+    for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x += 1) cells.push(y * width + x);
+  }
+  return cells;
+}
+
+export function floodCells(
+  values: readonly number[], start: number, replacement: number, width: number, height: number,
+): MapCell[] {
+  const target = values[start] ?? 0;
+  if (target === replacement) return [];
+  const cells: MapCell[] = [];
+  const queue = [start];
+  const seen = new Set<number>();
+  while (queue.length) {
+    const cell = queue.pop()!;
+    if (seen.has(cell) || (values[cell] ?? 0) !== target) continue;
+    seen.add(cell);
+    cells.push({ offset: cell, tile: replacement });
+    const x = cell % width;
+    const y = Math.floor(cell / width);
+    if (x > 0) queue.push(cell - 1);
+    if (x + 1 < width) queue.push(cell + 1);
+    if (y > 0) queue.push(cell - width);
+    if (y + 1 < height) queue.push(cell + width);
+  }
+  return cells;
+}

@@ -150,6 +150,14 @@ impl Audio {
 
         stream.play().context("failed to start audio playback")?;
 
+        #[allow(deprecated)]
+        let device_name = device
+            .name()
+            .unwrap_or_else(|_| "unknown device".to_string());
+        log::info!(
+            "audio output: {device_name} ({channels}ch @ {sample_rate}Hz, {sample_format:?})"
+        );
+
         Ok(Self { stream })
     }
 }

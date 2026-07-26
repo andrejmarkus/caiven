@@ -1,7 +1,7 @@
 //! Standalone cart loading for the studio: loads cart sections into VM RAM
 //! and produces a [`CartMeta`] usable with `cart_io::save`.
 
-use super::app::SourceFile;
+use super::SourceFile;
 use crate::app::cart_io::{CartMeta, SectionLayout};
 use anyhow::{Context, Result};
 use caiven_cart::SectionKind;
@@ -159,6 +159,7 @@ pub fn load_project_sources(path: &Path) -> Result<Vec<SourceFile>> {
 /// Compile failure with the 1-based source line (when known) so the code
 /// editor can highlight and jump to it.
 pub struct CompileError {
+    pub source: Option<String>,
     pub line: Option<usize>,
     pub message: String,
 }
@@ -180,12 +181,14 @@ pub fn compile_sources_into_vm(
 ) -> std::result::Result<(), CompileError> {
     let Some(entry) = sources.first() else {
         return Err(CompileError {
+            source: None,
             line: None,
             message: "no source loaded".to_string(),
         });
     };
     let (code, sections) =
         caiven_cart::text::split_source(&entry.text).map_err(|message| CompileError {
+            source: None,
             line: None,
             message,
         })?;
@@ -201,8 +204,12 @@ pub fn compile_sources_into_vm(
     let bundled = caiven_cart::bundle_lua(&code, &modules);
 
     vm.load_lua_source(&bundled, input, font)
-        .map_err(|e| caiven_vm::describe_lua_error(&e))
-        .map_err(|(line, message)| CompileError { line, message })
+        .map_err(|error| caiven_vm::describe_lua_error_location(&error))
+        .map_err(|(location, message)| CompileError {
+            source: location.as_ref().map(|location| location.source.clone()),
+            line: location.map(|location| location.line),
+            message,
+        })
 }
 
 /// Unpacks a binary `.cav` cart into an editable project directory at

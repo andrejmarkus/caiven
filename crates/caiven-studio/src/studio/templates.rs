@@ -1,14 +1,23 @@
-//! Cart templates: readable starting points for NEW CART / the welcome
-//! screen, generalizing the old single `BOILERPLATE` const in `app.rs`.
-//! Also doubles as the project's in-repo, commented example code.
+//! Built-in starting points for new cartridges.
+
+use serde::Serialize;
 
 pub struct CartTemplate {
+    pub id: &'static str,
     pub name: &'static str,
     pub description: &'static str,
     pub source: &'static str,
 }
 
-pub const BLANK: &str = "function _init()\nend\n\nfunction _update()\n  clear_screen()\nend\n";
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CartTemplateSummary {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub description: &'static str,
+}
+
+const BLANK: &str = "function _init()\nend\n\nfunction _update()\n  clear_screen()\nend\n";
 
 const MOVER: &str = r#"-- Top-down mover: arrow keys move sprite 0 around the screen
 local SPEED = 2
@@ -31,7 +40,7 @@ function _update()
 end
 "#;
 
-const SCORE: &str = r#"-- Tap to score: a bouncing ball, a table for its state, a HUD score
+const SCORE: &str = r#"-- Tap to score: a bouncing ball, a table, a HUD score
 local ball
 local score = 0
 local hi = 0
@@ -53,7 +62,7 @@ function _update()
   ball.x = ball.x + ball.dx
   ball.y = ball.y + ball.dy
 
-  -- button 4/5 = a couple of the extra buttons past the d-pad
+  -- button 4/5 = extra buttons past the d-pad
   if button_down(4) then score = score + 1 end
   if button_down(5) then score = score - 1 end
   if score < 0 then score = 0 end
@@ -135,23 +144,99 @@ end
 
 pub const TEMPLATES: [CartTemplate; 4] = [
     CartTemplate {
-        name: "Blank",
-        description: "Empty _init/_update stub",
-        source: BLANK,
-    },
-    CartTemplate {
+        id: "top-down-mover",
         name: "Top-down mover",
-        description: "Move a sprite around with the arrow keys",
+        description: "Move a sprite around with arrow keys",
         source: MOVER,
     },
     CartTemplate {
+        id: "tap-to-score",
         name: "Tap to score",
-        description: "Bouncing ball, a table, a HUD score counter",
+        description: "Bouncing ball with score and high-score HUD",
         source: SCORE,
     },
     CartTemplate {
+        id: "tile-world",
         name: "Tile world",
-        description: "draw_map + per-tile collision via sprite flags",
+        description: "Map drawing and per-tile collision with sprite flags",
         source: TILES,
     },
+    CartTemplate {
+        id: "blank",
+        name: "Blank",
+        description: "Empty _init and _update starting point",
+        source: BLANK,
+    },
 ];
+
+pub fn find(id: &str) -> Option<&'static CartTemplate> {
+    TEMPLATES.iter().find(|template| template.id == id)
+}
+
+pub fn summaries() -> Vec<CartTemplateSummary> {
+    TEMPLATES
+        .iter()
+        .map(|template| CartTemplateSummary {
+            id: template.id,
+            name: template.name,
+            description: template.description,
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::studio::{SourceFile, cart};
+    use caiven_vm::runtime::ConsoleCore;
+    use std::collections::HashSet;
+    use std::path::PathBuf;
+
+    #[test]
+    fn template_ids_are_stable_and_unique() {
+        let ids = TEMPLATES
+            .iter()
+            .map(|template| template.id)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ids,
+            ["top-down-mover", "tap-to-score", "tile-world", "blank"]
+        );
+        assert_eq!(ids.iter().copied().collect::<HashSet<_>>().len(), ids.len());
+    }
+
+    #[test]
+    fn every_template_has_runnable_hooks() {
+        for template in &TEMPLATES {
+            assert!(template.source.contains("function _init()"));
+            assert!(template.source.contains("function _update()"));
+        }
+    }
+
+    #[test]
+    fn every_template_compiles_against_current_vm_api() {
+        let mut console = ConsoleCore::new().expect("console core");
+        for template in &TEMPLATES {
+            console.reset_vm();
+            let sources = [SourceFile {
+                path: PathBuf::from("main.lua"),
+                text: template.source.to_string(),
+                dirty: false,
+            }];
+            if let Err(error) = cart::compile_sources_into_vm(
+                &mut console.vm,
+                None,
+                &sources,
+                &console.input,
+                &console.font,
+            ) {
+                panic!("{} template failed: {}", template.id, error.message);
+            }
+        }
+    }
+
+    #[test]
+    fn unknown_template_is_rejected() {
+        assert!(find("not-a-template").is_none());
+    }
+}

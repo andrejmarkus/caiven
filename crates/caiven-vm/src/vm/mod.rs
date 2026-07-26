@@ -13,7 +13,7 @@ pub mod sfx;
 pub use camera::*;
 pub use config::VmConfig;
 pub use fault::VmFault;
-pub use lua_exec::{LuaRunOutcome, describe_lua_error};
+pub use lua_exec::{LuaBreakpoint, LuaRunOutcome, describe_lua_error, describe_lua_error_location};
 pub use palette::*;
 
 use self::memory::Memory;
@@ -46,6 +46,8 @@ pub struct Vm {
     ui: ScreenLayer,
     config: VmConfig,
     script: Option<lua_exec::LuaScript>,
+    capture_lua_output: bool,
+    call_stack: Vec<(String, String)>,
 }
 
 impl Vm {
@@ -83,7 +85,19 @@ impl Vm {
             ui: ScreenLayer::new(config.width, config.height),
             config,
             script: None,
+            capture_lua_output: false,
+            call_stack: Vec::new(),
         }
+    }
+
+    /// Enables VM-owned `print()` capture for subsequently loaded Lua code.
+    /// Disabled by default so machine/web clients keep native Lua stdout.
+    pub fn set_lua_output_capture(&mut self, enabled: bool) {
+        self.capture_lua_output = enabled;
+    }
+
+    pub fn lua_output_capture_enabled(&self) -> bool {
+        self.capture_lua_output
     }
 
     pub fn register_peripheral(&mut self, p: impl Peripheral + 'static) {

@@ -1,0 +1,297 @@
+import type {
+  AssetIndex, AudioState, Breakpoint, CartMeta, CartTemplateSummary, GlobalValue, LocalCart, PortCartList, PortSession,
+  PublishResult, SourceBuffer, StudioBootstrap, TickSnapshot,
+} from '../types';
+import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
+
+const fallbackCode = `local SPEED = 2
+
+local player = { x = 60, y = 60, score = 0 }
+
+function _init()
+  set_palette_color(0, 10, 10, 30)
+end
+
+function _update()
+  clear_screen()
+
+  if button_down(2) then player.x = player.x - SPEED end
+  if button_down(3) then player.x = player.x + SPEED end
+  if button_down(0) then player.y = player.y - SPEED end
+  if button_down(1) then player.y = player.y + SPEED end
+
+  if button_pressed(4) then
+    player.score = player.score + 1
+    play_sfx(0)
+  end
+
+  sprite(0, player.x, player.y)
+  draw_text("score", 2, 2, 7)
+  draw_number(player.score, 26, 2, 7)
+end`;
+
+export const defaultPalette = [
+  '#000000', '#1D2B53', '#7E2553', '#008751',
+  '#AB5236', '#5F574F', '#C2C3C7', '#FFF1E8',
+  '#FF004D', '#FFA300', '#FFEC27', '#00E436',
+  '#29ADFF', '#83769C', '#FF77A8', '#FFCCAA',
+];
+
+export const fallbackTemplates: CartTemplateSummary[] = [
+  { id: 'top-down-mover', name: 'Top-down mover', description: 'Move a sprite around with arrow keys' },
+  { id: 'tap-to-score', name: 'Tap to score', description: 'Bouncing ball with score and high-score HUD' },
+  { id: 'tile-world', name: 'Tile world', description: 'Map drawing and per-tile collision with sprite flags' },
+  { id: 'blank', name: 'Blank', description: 'Empty _init and _update starting point' },
+];
+
+export const defaultSprite = [
+  0, 0, 7, 7, 7, 7, 0, 0,
+  0, 7, 15, 15, 15, 15, 7, 0,
+  7, 15, 1, 15, 15, 1, 15, 7,
+  7, 15, 15, 15, 15, 15, 15, 7,
+  7, 15, 8, 15, 15, 8, 15, 7,
+  0, 7, 15, 15, 15, 15, 7, 0,
+  0, 7, 9, 7, 7, 9, 7, 0,
+  0, 0, 9, 0, 0, 9, 0, 0,
+];
+
+export const MEMORY = {
+  sprites: 0x4000, map: 0x8000, flags: 0x9000,
+  palette: 0x9100, sfx: 0x9200, music: 0x9600,
+} as const;
+
+const emptyAudio: AudioState = {
+  sfxActive: false, sfxId: 0, sfxStep: 0,
+  musicActive: false, musicPattern: 0, musicRow: 0, musicLoop: true,
+};
+
+const fallback: StudioBootstrap = {
+  connected: false,
+  title: 'catch',
+  path: '~/carts/catch',
+  author: 'andrej',
+  runState: 'running',
+  frame: 1284,
+  fps: 60,
+  sources: [
+    { path: '~/carts/catch/main.lua', name: 'main.lua', text: fallbackCode, dirty: false },
+    { path: '~/carts/catch/enemy.lua', name: 'enemy.lua', text: '-- Enemy movement\nreturn {}', dirty: true },
+    { path: '~/carts/catch/ui/hud.lua', name: 'ui/hud.lua', text: '-- HUD helpers\nreturn {}', dirty: false },
+  ],
+  palette: defaultPalette,
+  spriteSheet: [...defaultSprite, ...Array(255 * 64).fill(0)],
+  map: Array(4096).fill(0),
+  spriteFlags: Array(256).fill(0),
+  sfx: Array(1024).fill(0),
+  music: Array(256).fill(0),
+  ram: Array(65536).fill(0),
+  globals: [{ name: 'player', value: '{x=60, y=60, score=0}' }],
+  watches: [],
+  callStack: [],
+  breakpoints: [],
+  pauseReason: null,
+  diagnostics: [],
+  output: ['Browser preview · VM disconnected'],
+  meta: { description: 'A tiny cave platformer.', tags: ['platformer', 'jam'] },
+  assetIndex: { entries: [], computedRefs: 0 },
+  audio: emptyAudio,
+  recent: ['~/carts/catch', '~/carts/lantern', '~/downloads/tide-pool', '~/carts/ghost-line'],
+  api: [
+    { name: 'clear_screen', params: [], returns: 'nil', doc: 'Clear world and UI layers to transparent.', category: 'Console builtins' },
+    { name: 'fill_screen', params: [{ name: 'color', ty: 'int' }], returns: 'nil', doc: 'Fill whole screen with one palette color.', category: 'Console builtins' },
+    { name: 'draw_rect', params: [{ name: 'x', ty: 'number' }, { name: 'y', ty: 'number' }, { name: 'w', ty: 'number' }, { name: 'h', ty: 'number' }, { name: 'color', ty: 'int' }], returns: 'nil', doc: 'Draw rectangle outline, camera-aware.', category: 'Console builtins' },
+    { name: 'fill_rect', params: [{ name: 'x', ty: 'number' }, { name: 'y', ty: 'number' }, { name: 'w', ty: 'number' }, { name: 'h', ty: 'number' }, { name: 'color', ty: 'int' }], returns: 'nil', doc: 'Draw filled rectangle.', category: 'Console builtins' },
+    { name: 'draw_text', params: [{ name: 'text', ty: 'string' }, { name: 'x', ty: 'number' }, { name: 'y', ty: 'number' }, { name: 'color', ty: 'int' }], returns: 'nil', doc: 'Draw string on UI layer.', category: 'Console builtins' },
+    { name: 'set_palette_color', params: [{ name: 'index', ty: 'int' }, { name: 'r', ty: 'u8' }, { name: 'g', ty: 'u8' }, { name: 'b', ty: 'u8' }], returns: 'nil', doc: 'Replace one palette entry at runtime.', category: 'Console builtins' },
+  ],
+};
+
+export const isTauri = () => Boolean(window.__TAURI_INTERNALS__);
+
+async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  if (!window.__TAURI_INTERNALS__) throw new Error('Tauri IPC unavailable');
+  return window.__TAURI_INTERNALS__.invoke<T>(command, args);
+}
+
+export async function bootstrap(): Promise<StudioBootstrap> {
+  if (!isTauri()) return structuredClone(fallback);
+  return invoke<StudioBootstrap>('studio_bootstrap');
+}
+
+export async function listTemplates(): Promise<CartTemplateSummary[]> {
+  if (!isTauri()) return structuredClone(fallbackTemplates);
+  return invoke<CartTemplateSummary[]>('studio_list_templates');
+}
+
+export async function chooseProject(title = 'Open cart project'): Promise<string | null> {
+  if (!isTauri()) return null;
+  const selected = await openDialog({ directory: true, multiple: false, title });
+  return typeof selected === 'string' ? selected : null;
+}
+
+export async function openProject(path: string): Promise<StudioBootstrap> {
+  return invoke<StudioBootstrap>('studio_open_project', { path });
+}
+
+export async function newProject(path: string, templateId: string): Promise<StudioBootstrap> {
+  return invoke<StudioBootstrap>('studio_new_project', { path, templateId });
+}
+
+export async function chooseExportPath(title: string): Promise<string | null> {
+  if (!isTauri()) return null;
+  return saveDialog({
+    title: 'Pack cartridge',
+    defaultPath: `${title || 'cart'}.cav`,
+    filters: [{ name: 'Caiven cartridge', extensions: ['cav'] }],
+  });
+}
+
+export async function exportCartridge(path: string): Promise<void> {
+  await invoke('studio_export', { path });
+}
+
+export async function transport(action: 'run' | 'pause' | 'reset' | 'step'): Promise<TickSnapshot> {
+  if (!isTauri()) {
+    fallback.runState = action === 'pause' || action === 'step' ? 'paused' : 'running';
+    if (action === 'step') fallback.frame += 1;
+    fallback.pauseReason = action === 'pause' || action === 'step'
+      ? { kind: 'manual', source: null, line: null, message: null }
+      : null;
+    return { runState: fallback.runState, frame: fallback.frame, fps: fallback.fps, frameTimeMs: 5.2, globals: fallback.globals, watches: fallback.watches, callStack: fallback.callStack, pauseReason: fallback.pauseReason, audio: fallback.audio, diagnostics: fallback.diagnostics, output: fallback.output };
+  }
+  return invoke<TickSnapshot>('studio_transport', { action });
+}
+
+export async function saveProject(): Promise<string[]> {
+  return isTauri() ? invoke<string[]>('studio_save') : ['main.lua', 'enemy.lua', 'ui/hud.lua'];
+}
+
+export async function writeBuffer(path: string, text: string): Promise<void> {
+  if (isTauri()) await invoke('studio_write_buffer', { path, text });
+}
+
+export async function readFrame(): Promise<Uint8Array | null> {
+  if (!isTauri()) return null;
+  const buffer = await invoke<ArrayBuffer>('studio_frame');
+  return new Uint8Array(buffer);
+}
+
+export async function readTick(): Promise<TickSnapshot> {
+  if (isTauri()) return invoke<TickSnapshot>('studio_tick');
+  return { runState: fallback.runState, frame: fallback.frame++, fps: 60, frameTimeMs: 5.2, globals: fallback.globals, watches: fallback.watches, callStack: fallback.callStack, pauseReason: fallback.pauseReason, audio: fallback.audio, diagnostics: fallback.diagnostics, output: fallback.output };
+}
+
+export async function setInput(button: number, pressed: boolean): Promise<void> {
+  if (isTauri()) await invoke('studio_set_input', { button, pressed });
+}
+
+export async function writeSprite(sprite: number, pixels: number[]): Promise<void> {
+  if (isTauri()) await invoke('studio_write_sprite', { sprite, pixels });
+}
+
+export async function writePalette(slot: number, hex: string): Promise<void> {
+  if (isTauri()) await invoke('studio_write_palette', { slot, hex });
+}
+
+export async function toggleBreakpoint(source: string, line: number): Promise<Breakpoint[]> {
+  if (isTauri()) return invoke<Breakpoint[]>('studio_toggle_breakpoint', { source, line });
+  const match = fallback.breakpoints.findIndex((item) => item.source === source && item.line === line);
+  if (match >= 0) fallback.breakpoints.splice(match, 1);
+  else fallback.breakpoints.push({ source, line });
+  return structuredClone(fallback.breakpoints);
+}
+
+export async function addWatch(expression: string): Promise<GlobalValue[]> {
+  if (isTauri()) return invoke<GlobalValue[]>('studio_add_watch', { expression });
+  if (!fallback.watches.some((item) => item.name === expression)) fallback.watches.push({ name: expression, value: 'nil' });
+  return structuredClone(fallback.watches);
+}
+
+export async function removeWatch(expression: string): Promise<GlobalValue[]> {
+  if (isTauri()) return invoke<GlobalValue[]>('studio_remove_watch', { expression });
+  fallback.watches = fallback.watches.filter((item) => item.name !== expression);
+  return structuredClone(fallback.watches);
+}
+
+export async function clearOutput(): Promise<void> {
+  if (isTauri()) await invoke('studio_clear_output');
+  else fallback.output = [];
+}
+
+export async function removeRecent(path: string): Promise<string[]> {
+  if (isTauri()) return invoke<string[]>('studio_remove_recent', { path });
+  fallback.recent = fallback.recent.filter((candidate) => candidate !== path);
+  return structuredClone(fallback.recent);
+}
+
+export async function readMemory(address: number, len: number): Promise<number[]> {
+  return isTauri() ? invoke<number[]>('studio_read_memory', { address, len }) : fallback.ram.slice(address, address + len);
+}
+
+export async function writeMemory(address: number, bytes: number[]): Promise<void> {
+  if (isTauri()) await invoke('studio_write_memory', { address, bytes });
+  else fallback.ram.splice(address, bytes.length, ...bytes);
+}
+
+export async function writeMapCells(cells: { offset: number; tile: number }[]): Promise<void> {
+  if (isTauri()) await invoke('studio_write_map_cells', { cells });
+}
+
+export async function writeMeta(title: string, author: string, meta: CartMeta): Promise<void> {
+  if (isTauri()) await invoke('studio_write_meta', { title, author, meta });
+}
+
+export async function createModule(name: string): Promise<SourceBuffer> {
+  if (!isTauri()) throw new Error('Module creation requires desktop Studio');
+  return invoke<SourceBuffer>('studio_create_module', { name });
+}
+
+export async function closeProject(): Promise<StudioBootstrap> {
+  return isTauri() ? invoke<StudioBootstrap>('studio_close_project') : structuredClone(fallback);
+}
+
+export async function audioTransport(
+  kind: 'sfx' | 'music', id: number, action: 'play' | 'stop', loopOn?: boolean,
+): Promise<AudioState> {
+  if (!isTauri()) return emptyAudio;
+  return invoke<AudioState>('studio_audio_transport', { kind, id, action, loopOn });
+}
+
+export async function readAssetIndex(): Promise<AssetIndex> {
+  return isTauri() ? invoke<AssetIndex>('studio_asset_index') : fallback.assetIndex;
+}
+
+export async function portSession(): Promise<PortSession> {
+  return isTauri() ? invoke<PortSession>('port_session') : { authenticated: false, username: '', portUrl: 'http://localhost:8080' };
+}
+
+export async function portLogin(username: string, password: string): Promise<PortSession> {
+  return invoke<PortSession>('port_login', { username, password });
+}
+
+export async function portLogout(): Promise<PortSession> {
+  return invoke<PortSession>('port_logout');
+}
+
+export async function portListCarts(query = '', sort = 'new', page = 0): Promise<PortCartList> {
+  return invoke<PortCartList>('port_list_carts', { query, sort, page });
+}
+
+export async function portDownload(id: string, title: string): Promise<string> {
+  return invoke<string>('port_download', { id, title });
+}
+
+export async function scanLibrary(path: string): Promise<LocalCart[]> {
+  return invoke<LocalCart[]>('studio_scan_library', { path });
+}
+
+export async function portPublish(input: {
+  title: string; author: string; description: string; tags: string[];
+  changelog: string; targetCartId?: string; frames?: number;
+}): Promise<PublishResult> {
+  return invoke<PublishResult>('studio_port_publish', {
+    ...input,
+    targetCartId: input.targetCartId ?? null,
+    frames: input.frames ?? 30,
+  });
+}
