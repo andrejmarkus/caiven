@@ -1,0 +1,103 @@
+name: Platform Builds
+
+on:
+  pull_request:
+    branches: ["master"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  machine:
+    name: Machine (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Linux x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - label: Windows x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - label: macOS Apple Silicon
+            os: macos-latest
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: machine-${{ matrix.target }}
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libxkbcommon-dev pkg-config
+      - name: Build Machine
+        run: cargo build --locked --release -p caiven-machine --target ${{ matrix.target }}
+
+  studio:
+    name: Studio (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Linux x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            args: --target x86_64-unknown-linux-gnu --bundles appimage,deb
+          - label: Windows x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: --target x86_64-pc-windows-msvc --bundles nsis,msi
+          - label: macOS Apple Silicon
+            os: macos-latest
+            target: aarch64-apple-darwin
+            args: --target aarch64-apple-darwin --bundles dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/caiven-studio-ui/package-lock.json
+      - name: Install frontend dependencies
+        run: npm --prefix crates/caiven-studio-ui ci
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: studio-${{ matrix.target }}
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            libxkbcommon-dev \
+            patchelf \
+            pkg-config
+      - name: Build Studio installer
+        uses: tauri-apps/tauri-action@v1
+        with:
+          projectPath: crates/caiven-studio
+          tauriScript: npm --prefix ../caiven-studio-ui exec tauri --
+          args: ${{ matrix.args }}
+          retryAttempts: 1
+          uploadUpdaterJson: false
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: caiven-studio-[platform]-[arch]-[bundle]
