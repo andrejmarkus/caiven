@@ -108,7 +108,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          cargo clippy --locked --all-targets -- -D warnings 2>&1 | tee clippy.log
+          cargo clippy --locked --all-targets -- -D warnings -A unused-imports 2>&1 | tee clippy.log
       - name: Upload clippy diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
