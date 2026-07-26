@@ -95,7 +95,7 @@ jobs:
         uses: tauri-apps/tauri-action@v1
         with:
           projectPath: crates/caiven-studio
-          tauriScript: npm --prefix ../caiven-studio-ui exec tauri --
+          tauriScript: npm --prefix ../caiven-studio-ui exec tauri
           args: ${{ matrix.args }}
           retryAttempts: 1
           uploadUpdaterJson: false
