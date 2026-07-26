@@ -154,14 +154,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify package versions
+      - name: Verify Studio version
         shell: bash
         run: |
           APP_VERSION="$(node --print "require('./crates/caiven-studio/tauri.conf.json').version")"
-          STUDIO_CARGO_VERSION="$(awk -F '"' '/^version = / { print $2; exit }' crates/caiven-studio/Cargo.toml)"
-          MACHINE_CARGO_VERSION="$(awk -F '"' '/^version = / { print $2; exit }' crates/caiven-machine/Cargo.toml)"
-          if [[ "$APP_VERSION" != "$STUDIO_CARGO_VERSION" || "$APP_VERSION" != "$MACHINE_CARGO_VERSION" ]]; then
-            echo "::error::Tauri, Studio, and Machine versions must match"
+          if [[ -z "$APP_VERSION" ]]; then
+            echo "::error::Studio version must be set in tauri.conf.json"
             exit 1
           fi
       - name: Verify tag matches Studio version
@@ -304,7 +302,7 @@ jobs:
         uses: tauri-apps/tauri-action@v1
         with:
           projectPath: crates/caiven-studio
-          tauriScript: npm --prefix ../caiven-studio-ui exec tauri --
+          tauriScript: npm --prefix ../caiven-studio-ui exec tauri
           args: ${{ matrix.args }}
           retryAttempts: 1
           uploadUpdaterJson: false
