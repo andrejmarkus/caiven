@@ -27,18 +27,48 @@
 
 ## 🚀 Getting Started
 
-### Prerequisites
+### ⚡ Quick Start (no Rust, no Node, no build step)
 
-Source builds need:
+There are two separate downloads — grab whichever matches what you want to do:
+
+- **Caiven Studio** — the editor. Use this to *make* a game (code, sprites, sound, map).
+- **Caiven Machine** — the standalone player. Use this to just *run* a `.cav` cart someone shared with you, no editor.
+
+All links point at the [latest GitHub release](https://github.com/andrejmarkus/caiven/releases/latest).
+
+#### 🖌️ Caiven Studio (make a game)
+
+Available for Windows (NSIS installer or MSI), macOS (Apple Silicon or Intel DMG),
+and Linux (AppImage or .deb) — grab the one matching your OS from the
+[latest GitHub release](https://github.com/andrejmarkus/caiven/releases/latest).
+
+Install like any normal app, launch **Caiven Studio**, click **New cart**, and jump to the [tutorial below](#-tutorial-your-first-game).
+
+#### 🕹️ Caiven Machine (just run a cart)
+
+Available for Linux, Windows, macOS Apple Silicon, and macOS Intel (archives) —
+grab the one matching your OS from the
+[latest GitHub release](https://github.com/andrejmarkus/caiven/releases/latest).
+
+Unpack the archive, then run the `caiven-machine` binary against a cart or project dir:
+
+```bash
+./caiven-machine my-game/    # project dir, hot-reloads with Ctrl+R
+./caiven-machine game.cav    # distribution cartridge
+```
+
+That's it — the sections below (source build, CLI, Cargo workspace) are for
+contributors working on Caiven itself, not for making or playing games with it.
+
+### 🛠️ Building from Source (contributors)
+
+#### Prerequisites
 
 - [Rust stable](https://rustup.rs/)
 - [Node.js 22](https://nodejs.org/) with npm
 - [Tauri system dependencies](https://v2.tauri.app/start/prerequisites/) for your OS
 
-Prebuilt Caiven Studio installers and Caiven Machine archives are available on
-the [latest GitHub release](https://github.com/andrejmarkus/caiven/releases/latest).
-
-### Installation
+#### Installation
 
 ```bash
 git clone https://github.com/andrejmarkus/caiven.git
@@ -48,7 +78,7 @@ npm --prefix crates/caiven-studio-ui run build
 cargo build --release --workspace
 ```
 
-### Running
+#### Running
 
 Launch Studio in development mode:
 
