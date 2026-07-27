@@ -25,15 +25,25 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: crates/caiven-studio-ui/package-lock.json
-      - name: Install frontend dependencies
+          cache-dependency-path: |
+            crates/caiven-port/web/package-lock.json
+            crates/caiven-studio-ui/package-lock.json
+      - name: Install Studio dependencies
         run: npm --prefix crates/caiven-studio-ui ci
-      - name: Check frontend
+      - name: Install Port dependencies
+        run: npm --prefix crates/caiven-port/web ci
+      - name: Check shared UI boundaries
+        run: npm --prefix crates/caiven-studio-ui run check:ui
+      - name: Check Studio frontend
         run: npm --prefix crates/caiven-studio-ui run check
-      - name: Test frontend
+      - name: Check Port frontend
+        run: npm --prefix crates/caiven-port/web run check
+      - name: Test Studio frontend
         run: npm --prefix crates/caiven-studio-ui test
-      - name: Build frontend
+      - name: Build Studio frontend
         run: npm --prefix crates/caiven-studio-ui run build
+      - name: Build Port frontend
+        run: npm --prefix crates/caiven-port/web run build
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install system dependencies

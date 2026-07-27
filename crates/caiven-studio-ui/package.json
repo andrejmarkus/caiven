@@ -8,11 +8,12 @@
     "prebuild": "node scripts/ensure-rolldown-binding.mjs",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
+    "check:ui": "node ../caiven-ui/scripts/check-boundaries.mjs",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "tauri": "tauri"
   },
   "devDependencies": {
-    "@lucide/svelte": "^1.26.0",
+    "@lucide/svelte": "1.26.0",
     "@codemirror/autocomplete": "^6.18.6",
     "@codemirror/commands": "^6.8.1",
     "@codemirror/language": "^6.11.0",

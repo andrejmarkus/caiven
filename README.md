@@ -75,8 +75,14 @@ git clone https://github.com/andrejmarkus/caiven.git
 cd caiven
 npm --prefix crates/caiven-studio-ui ci
 npm --prefix crates/caiven-studio-ui run build
+npm --prefix crates/caiven-port/web ci
+npm --prefix crates/caiven-port/web run build
 cargo build --release --workspace
 ```
+
+Port and Studio consume same shadcn-svelte components and theme from
+`crates/caiven-ui`. Run `npm --prefix crates/caiven-studio-ui run check:ui`
+after UI dependency or component changes to verify ownership and version parity.
 
 #### Running
 
