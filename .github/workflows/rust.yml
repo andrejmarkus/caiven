@@ -116,6 +116,31 @@ jobs:
           name: clippy-diagnostics
           path: clippy.log
 
+  security:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: cargo audit
+        run: cargo audit --locked --deny warnings
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: npm audit (Port web)
+        run: |
+          npm --prefix crates/caiven-port/web ci
+          npm --prefix crates/caiven-port/web audit --omit=dev --audit-level=high
+      - name: npm audit (Studio UI)
+        run: |
+          npm --prefix crates/caiven-studio-ui ci
+          npm --prefix crates/caiven-studio-ui audit --omit=dev --audit-level=high
+
   doc:
     name: Docs
     runs-on: ubuntu-latest

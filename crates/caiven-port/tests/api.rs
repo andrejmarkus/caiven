@@ -5,9 +5,9 @@
 
 use caiven_port::{
     PortState,
-    auth::{self, RateLimiter, SESSION_COOKIE},
+    auth::{self, CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE},
     build_rocket,
-    entities::{sessions, users},
+    entities::{email_tokens, sessions, users, webauthn_credentials},
 };
 use migration::MigratorTrait;
 use rocket::data::{Limits, ToByteUnit};
@@ -18,8 +18,12 @@ use sea_orm::{
 };
 
 const BOUNDARY: &str = "X-CAIVEN-PORT-TEST-BOUNDARY";
-const TEST_PASSWORD: &str = "correct horse battery staple";
-const NEW_TEST_PASSWORD: &str = "new battery horse staple correct";
+// Deliberately not a famous/textbook phrase (unlike the XKCD "correct horse
+// battery staple") — that one is genuinely flagged by the real Pwned
+// Passwords API, which the breached-password check now calls for real in
+// these tests.
+const TEST_PASSWORD: &str = "Zqf7-Glimmer-Porpoise!";
+const NEW_TEST_PASSWORD: &str = "Vhm4-Trellis-Porpoise!";
 
 async fn test_client(data_dir: &std::path::Path) -> Client {
     test_client_with_cookie_security(data_dir, false).await
@@ -43,22 +47,32 @@ async fn test_client_with_cookie_security(
         log_level: rocket::config::LogLevel::Off,
         ..rocket::Config::debug_default()
     };
-    let state = PortState {
-        db,
-        rate: RateLimiter::default(),
-        web_dir,
-        secure_cookies,
-    };
+    let state = PortState::for_testing(db, web_dir, secure_cookies);
     Client::tracked(build_rocket(config, state)).await.unwrap()
+}
+
+fn synthetic_email(username: &str) -> String {
+    let local: String = username
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|c| if c.is_whitespace() { '-' } else { c })
+        .collect();
+    format!("{local}@example.test")
 }
 
 async fn register(client: &Client, username: &str, password: &str) -> Status {
     client
         .post("/api/v2/auth/register")
         .header(ContentType::JSON)
-        .body(format!(
-            r#"{{"username":"{username}","password":"{password}"}}"#
-        ))
+        .body(
+            serde_json::json!({
+                "username": username,
+                "password": password,
+                "email": synthetic_email(username),
+            })
+            .to_string(),
+        )
         .dispatch()
         .await
         .status()
@@ -71,6 +85,7 @@ async fn auth_token(client: &Client) -> String {
     let resp = client
         .post("/api/v2/auth/tokens")
         .header(ContentType::JSON)
+        .header(csrf_header(client))
         .body(r#"{"name":"test"}"#)
         .dispatch()
         .await;
@@ -96,6 +111,17 @@ fn multipart_body(cart: &[u8], meta: &str) -> Vec<u8> {
     body
 }
 
+/// Echoes the client's CSRF cookie back as the header cookie-authenticated
+/// mutations require. Mirrors what the frontend's `api.ts` does.
+fn csrf_header(client: &Client) -> Header<'static> {
+    let value = client
+        .cookies()
+        .get(CSRF_COOKIE)
+        .map(|c| c.value().to_string())
+        .unwrap_or_default();
+    Header::new(CSRF_HEADER, value)
+}
+
 fn multipart_content_type() -> ContentType {
     ContentType::parse_flexible(&format!("multipart/form-data; boundary={BOUNDARY}")).unwrap()
 }
@@ -114,6 +140,7 @@ async fn register_get_token_and_logout(client: &Client, username: &str) -> Strin
     let resp = client
         .post("/api/v2/auth/tokens")
         .header(ContentType::JSON)
+        .header(csrf_header(client))
         .body(r#"{"name":"test"}"#)
         .dispatch()
         .await;
@@ -162,7 +189,7 @@ async fn register_login_logout_flow() {
         .post("/api/v2/auth/login")
         .header(ContentType::JSON)
         .body(format!(
-            r#"{{"username":"alice","password":"{TEST_PASSWORD}"}}"#
+            r#"{{"identifier":"alice","password":"{TEST_PASSWORD}"}}"#
         ))
         .dispatch()
         .await;
@@ -180,7 +207,7 @@ async fn first_user_is_admin_second_is_not() {
         .post("/api/v2/auth/register")
         .header(ContentType::JSON)
         .body(format!(
-            r#"{{"username":"first","password":"{TEST_PASSWORD}"}}"#
+            r#"{{"username":"first","password":"{TEST_PASSWORD}","email":"first@example.test"}}"#
         ))
         .dispatch()
         .await;
@@ -191,7 +218,7 @@ async fn first_user_is_admin_second_is_not() {
         .post("/api/v2/auth/register")
         .header(ContentType::JSON)
         .body(format!(
-            r#"{{"username":"second","password":"{TEST_PASSWORD}"}}"#
+            r#"{{"username":"second","password":"{TEST_PASSWORD}","email":"second@example.test"}}"#
         ))
         .dispatch()
         .await;
@@ -206,7 +233,7 @@ async fn duplicate_username_is_409() {
 
     assert_eq!(register(&client, "bob", TEST_PASSWORD).await, Status::Ok);
     assert_eq!(
-        register(&client, "bob", "other password long enough").await,
+        register(&client, "bob", "Other-Password!").await,
         Status::Conflict
     );
 }
@@ -239,7 +266,7 @@ async fn wrong_password_is_401() {
     let resp = client
         .post("/api/v2/auth/login")
         .header(ContentType::JSON)
-        .body(r#"{"username":"carol","password":"wrong password long enough"}"#)
+        .body(r#"{"identifier":"carol","password":"wrong password long enough"}"#)
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Unauthorized);
@@ -254,7 +281,7 @@ async fn hardened_session_cookie_is_hashed_rotated_and_not_cached() {
         .post("/api/v2/auth/register")
         .header(ContentType::JSON)
         .body(format!(
-            r#"{{"username":"secureuser","password":"{TEST_PASSWORD}"}}"#
+            r#"{{"username":"secureuser","password":"{TEST_PASSWORD}","email":"secureuser@example.test"}}"#
         ))
         .dispatch()
         .await;
@@ -294,7 +321,7 @@ async fn hardened_session_cookie_is_hashed_rotated_and_not_cached() {
         .post("/api/v2/auth/login")
         .header(ContentType::JSON)
         .body(format!(
-            r#"{{"username":"secureuser","password":"{TEST_PASSWORD}"}}"#
+            r#"{{"identifier":"secureuser","password":"{TEST_PASSWORD}"}}"#
         ))
         .dispatch()
         .await;
@@ -324,7 +351,9 @@ async fn password_change_revokes_sessions_and_enforces_policy() {
         register(&client, "shortpass", "fourteenchars!").await,
         Status::BadRequest
     );
-    let unicode_password = "🔐".repeat(15);
+    // Multi-byte chars only, but still satisfies uppercase (Ω) + special
+    // (🔐) — exercises char-count (not byte-length) validation.
+    let unicode_password = "Ω🔐-unicode-password".to_string();
     assert_eq!(
         register(&client, "unicodeuser", &unicode_password).await,
         Status::Ok
@@ -342,11 +371,12 @@ async fn password_change_revokes_sessions_and_enforces_policy() {
         .await
         .unwrap()
         .unwrap();
-    auth::create_session(&state.db, &user.id).await.unwrap();
+    auth::create_session(&state.db, &user.id, &auth::SessionContext::default()).await.unwrap();
 
     let resp = client
         .post("/api/v2/auth/password")
         .header(ContentType::JSON)
+        .header(csrf_header(&client))
         .body(format!(
             r#"{{"current_password":"{TEST_PASSWORD}","new_password":"{NEW_TEST_PASSWORD}"}}"#
         ))
@@ -367,7 +397,7 @@ async fn password_change_revokes_sessions_and_enforces_policy() {
         .post("/api/v2/auth/login")
         .header(ContentType::JSON)
         .body(format!(
-            r#"{{"username":"passworduser","password":"{TEST_PASSWORD}"}}"#
+            r#"{{"identifier":"passworduser","password":"{TEST_PASSWORD}"}}"#
         ))
         .dispatch()
         .await;
@@ -376,7 +406,7 @@ async fn password_change_revokes_sessions_and_enforces_policy() {
         .post("/api/v2/auth/login")
         .header(ContentType::JSON)
         .body(format!(
-            r#"{{"username":"passworduser","password":"{NEW_TEST_PASSWORD}"}}"#
+            r#"{{"identifier":"passworduser","password":"{NEW_TEST_PASSWORD}"}}"#
         ))
         .dispatch()
         .await;
@@ -403,7 +433,7 @@ async fn session_management_is_owner_scoped_and_capped() {
         .unwrap();
 
     for _ in 0..25 {
-        auth::create_session(&state.db, &user.id).await.unwrap();
+        auth::create_session(&state.db, &user.id, &auth::SessionContext::default()).await.unwrap();
     }
     assert_eq!(
         sessions::Entity::find()
@@ -420,11 +450,17 @@ async fn session_management_is_owner_scoped_and_capped() {
         password_hash: Set(auth::hash_password(TEST_PASSWORD).unwrap()),
         is_admin: Set(false),
         created_at: Set(chrono::Utc::now().to_rfc3339()),
+        email: Set(None),
+        email_verified: Set(false),
+        email_normalized: Set(None),
+        mfa_totp_secret: Set(None),
+        mfa_enabled: Set(false),
+        password_set: Set(true),
     }
     .insert(&state.db)
     .await
     .unwrap();
-    let other_token = auth::create_session(&state.db, &other.id).await.unwrap();
+    let other_token = auth::create_session(&state.db, &other.id, &auth::SessionContext::default()).await.unwrap();
     let other_id = auth::sha256_hex(&other_token);
 
     let resp = client
@@ -488,13 +524,13 @@ async fn login_canonicalizes_identity() {
         .post("/api/v2/auth/login")
         .header(ContentType::JSON)
         .body(format!(
-            r#"{{"username":" MIXEDCASE ","password":"{TEST_PASSWORD}"}}"#
+            r#"{{"identifier":" MIXEDCASE ","password":"{TEST_PASSWORD}"}}"#
         ))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok);
     let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
-    assert_eq!(body["username"], "mixedcase");
+    assert_eq!(body["user"]["username"], "mixedcase");
 }
 
 #[rocket::async_test]
@@ -519,6 +555,7 @@ async fn revoked_token_is_401() {
 
     let resp = client
         .delete(format!("/api/v2/auth/tokens/{token_id}"))
+        .header(csrf_header(&client))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok);
@@ -1236,4 +1273,752 @@ async fn admin_can_create_open_jam_and_owner_can_enter_cart() {
     let jam: serde_json::Value =
         serde_json::from_str(&response.into_string().await.unwrap()).unwrap();
     assert_eq!(jam["entry_count"], 1);
+}
+
+// ── modern auth: email, verification, reset, antibot config ────────────────
+
+#[rocket::async_test]
+async fn auth_config_reports_no_antibot_or_oauth_by_default() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+
+    let resp = client.get("/api/v2/auth/config").dispatch().await;
+    assert_eq!(resp.status(), Status::Ok);
+    let cfg: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(cfg["turnstile_site_key"], serde_json::Value::Null);
+    assert_eq!(cfg["providers"], serde_json::json!([]));
+}
+
+#[rocket::async_test]
+async fn register_rejects_invalid_email() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+
+    let resp = client
+        .post("/api/v2/auth/register")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"username":"noemail","password":"{TEST_PASSWORD}","email":"not-an-email"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::BadRequest);
+}
+
+#[rocket::async_test]
+async fn register_rejects_duplicate_email_across_usernames() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+
+    let resp = client
+        .post("/api/v2/auth/register")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"username":"dupone","password":"{TEST_PASSWORD}","email":"shared@example.test"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    client.post("/api/v2/auth/logout").dispatch().await;
+
+    let resp = client
+        .post("/api/v2/auth/register")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"username":"duptwo","password":"{TEST_PASSWORD}","email":"shared@example.test"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Conflict);
+}
+
+#[rocket::async_test]
+async fn login_by_email_identifier_works() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+
+    assert_eq!(register(&client, "emaillogin", TEST_PASSWORD).await, Status::Ok);
+    client.post("/api/v2/auth/logout").dispatch().await;
+
+    let resp = client
+        .post("/api/v2/auth/login")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"identifier":"EMAILLOGIN@Example.Test","password":"{TEST_PASSWORD}"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(body["user"]["username"], "emaillogin");
+}
+
+#[rocket::async_test]
+async fn without_smtp_new_accounts_are_auto_verified() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+
+    let resp = client
+        .post("/api/v2/auth/register")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"username":"autoverify","password":"{TEST_PASSWORD}","email":"autoverify@example.test"}}"#
+        ))
+        .dispatch()
+        .await;
+    let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(body["email_verified"], true);
+}
+
+#[rocket::async_test]
+async fn unverified_email_blocks_writes_but_not_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    let token = auth_token(&client).await; // "tester", auto-verified
+
+    let state = client.rocket().state::<PortState>().unwrap();
+    let user = users::Entity::find()
+        .filter(users::Column::Username.eq("tester"))
+        .one(&state.db)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut update: users::ActiveModel = user.into();
+    update.email_verified = Set(false);
+    update.update(&state.db).await.unwrap();
+
+    let resp = upload(
+        &client,
+        &token,
+        &sample_cart(),
+        r#"{"title":"T","author":"A"}"#,
+    )
+    .await;
+    assert_eq!(resp.status(), Status::Forbidden);
+
+    // Reads stay open regardless of verification state.
+    let resp = client.get("/api/v2/carts").dispatch().await;
+    assert_eq!(resp.status(), Status::Ok);
+}
+
+#[rocket::async_test]
+async fn email_verification_token_is_single_use() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+
+    assert_eq!(register(&client, "verifyme", TEST_PASSWORD).await, Status::Ok);
+    let state = client.rocket().state::<PortState>().unwrap();
+    let user = users::Entity::find()
+        .filter(users::Column::Username.eq("verifyme"))
+        .one(&state.db)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut update: users::ActiveModel = user.clone().into();
+    update.email_verified = Set(false);
+    update.update(&state.db).await.unwrap();
+
+    let token = auth::create_email_token(&state.db, &user.id, "verify", 24)
+        .await
+        .unwrap();
+
+    let resp = client
+        .post("/api/v2/auth/verify-email")
+        .header(ContentType::JSON)
+        .body(format!(r#"{{"token":"{token}"}}"#))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::NoContent);
+
+    let refreshed = users::Entity::find_by_id(&user.id)
+        .one(&state.db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(refreshed.email_verified);
+
+    // Reusing the same token fails.
+    let resp = client
+        .post("/api/v2/auth/verify-email")
+        .header(ContentType::JSON)
+        .body(format!(r#"{{"token":"{token}"}}"#))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::BadRequest);
+}
+
+#[rocket::async_test]
+async fn forgot_password_is_always_204_and_does_not_enumerate() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    assert_eq!(register(&client, "forgotuser", TEST_PASSWORD).await, Status::Ok);
+
+    let resp = client
+        .post("/api/v2/auth/forgot-password")
+        .header(ContentType::JSON)
+        .body(r#"{"email":"forgotuser@example.test"}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::NoContent);
+
+    let resp = client
+        .post("/api/v2/auth/forgot-password")
+        .header(ContentType::JSON)
+        .body(r#"{"email":"nobody-here@example.test"}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::NoContent);
+}
+
+#[rocket::async_test]
+async fn password_reset_token_resets_password_revokes_sessions_and_is_single_use() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    assert_eq!(register(&client, "resetuser", TEST_PASSWORD).await, Status::Ok);
+
+    let state = client.rocket().state::<PortState>().unwrap();
+    let user = users::Entity::find()
+        .filter(users::Column::Username.eq("resetuser"))
+        .one(&state.db)
+        .await
+        .unwrap()
+        .unwrap();
+    auth::create_session(&state.db, &user.id, &auth::SessionContext::default()).await.unwrap();
+    assert_eq!(
+        sessions::Entity::find()
+            .filter(sessions::Column::UserId.eq(&user.id))
+            .count(&state.db)
+            .await
+            .unwrap(),
+        2 // the register-time session plus the extra one above
+    );
+
+    let token = auth::create_email_token(&state.db, &user.id, "reset", 1)
+        .await
+        .unwrap();
+    // create_email_token invalidated the earlier verify-kind tokens only, so
+    // this is the only live `reset` token — sanity check it's stored hashed.
+    assert!(
+        email_tokens::Entity::find()
+            .filter(email_tokens::Column::UserId.eq(&user.id))
+            .filter(email_tokens::Column::Kind.eq("reset"))
+            .one(&state.db)
+            .await
+            .unwrap()
+            .is_some_and(|row| row.token_hash != token)
+    );
+
+    let resp = client
+        .post("/api/v2/auth/reset-password")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"token":"{token}","new_password":"{NEW_TEST_PASSWORD}"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::NoContent);
+
+    assert_eq!(
+        sessions::Entity::find()
+            .filter(sessions::Column::UserId.eq(&user.id))
+            .count(&state.db)
+            .await
+            .unwrap(),
+        0
+    );
+
+    let resp = client
+        .post("/api/v2/auth/login")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"identifier":"resetuser","password":"{NEW_TEST_PASSWORD}"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+
+    // Reusing the reset token fails.
+    let resp = client
+        .post("/api/v2/auth/reset-password")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"token":"{token}","new_password":"Another-New-Password!"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::BadRequest);
+}
+
+// ── security hardening: 2FA, CSRF, session metadata, set-password ──────────
+
+fn totp_code_for(secret: &str) -> String {
+    let bytes = totp_rs::Secret::Encoded(secret.to_string()).to_bytes().unwrap();
+    let totp = totp_rs::TOTP::new(
+        totp_rs::Algorithm::SHA1,
+        6,
+        1,
+        30,
+        bytes,
+        Some("Caiven Port".to_string()),
+        "test".to_string(),
+    )
+    .unwrap();
+    totp.generate_current().unwrap()
+}
+
+#[rocket::async_test]
+async fn mfa_setup_confirm_login_and_backup_code_round_trip() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    assert_eq!(register(&client, "mfauser", TEST_PASSWORD).await, Status::Ok);
+
+    let resp = client
+        .post("/api/v2/auth/mfa/setup")
+        .header(csrf_header(&client))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let setup: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let secret = setup["secret"].as_str().unwrap().to_string();
+    assert!(setup["otpauth_url"].as_str().unwrap().starts_with("otpauth://"));
+
+    // Wrong code is rejected.
+    let resp = client
+        .post("/api/v2/auth/mfa/confirm")
+        .header(ContentType::JSON)
+        .header(csrf_header(&client))
+        .body(r#"{"code":"000000"}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::BadRequest);
+
+    let resp = client
+        .post("/api/v2/auth/mfa/confirm")
+        .header(ContentType::JSON)
+        .header(csrf_header(&client))
+        .body(format!(r#"{{"code":"{}"}}"#, totp_code_for(&secret)))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let confirmed: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let backup_codes: Vec<String> = confirmed["backup_codes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(backup_codes.len(), 10);
+
+    client.post("/api/v2/auth/logout").dispatch().await;
+
+    // Login now stops at the MFA step.
+    let resp = client
+        .post("/api/v2/auth/login")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"identifier":"mfauser","password":"{TEST_PASSWORD}"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let outcome: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(outcome["mfa_required"], true);
+    assert_eq!(outcome["user"], serde_json::Value::Null);
+    let pending_token = outcome["pending_token"].as_str().unwrap().to_string();
+
+    // Wrong code fails the second step.
+    let resp = client
+        .post("/api/v2/auth/login/mfa")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"pending_token":"{pending_token}","code":"000000"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Unauthorized);
+
+    // A backup code completes login and is then single-use.
+    let resp = client
+        .post("/api/v2/auth/login/mfa")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"pending_token":"{pending_token}","code":"{}"}}"#,
+            backup_codes[0]
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let user: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(user["username"], "mfauser");
+
+    // The pending_token was consumed by the first successful call above, so
+    // reusing it (even with a fresh backup code) fails outright.
+    let resp = client
+        .post("/api/v2/auth/login/mfa")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"pending_token":"{pending_token}","code":"{}"}}"#,
+            backup_codes[1]
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::BadRequest);
+
+    // Disabling requires the password and a valid code/backup code.
+    let resp = client
+        .post("/api/v2/auth/mfa/disable")
+        .header(ContentType::JSON)
+        .header(csrf_header(&client))
+        .body(format!(
+            r#"{{"current_password":"{TEST_PASSWORD}","code":"{}"}}"#,
+            backup_codes[1]
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::NoContent);
+
+    let resp = client
+        .get("/api/v2/auth/mfa/status")
+        .dispatch()
+        .await;
+    let status: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(status["enabled"], false);
+}
+
+#[rocket::async_test]
+async fn csrf_header_required_for_cookie_auth_mutations_but_not_api_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    assert_eq!(register(&client, "csrfuser", TEST_PASSWORD).await, Status::Ok);
+
+    // Missing header: rejected.
+    let resp = client
+        .post("/api/v2/auth/mfa/setup")
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Forbidden);
+
+    // Wrong header value: rejected.
+    let resp = client
+        .post("/api/v2/auth/mfa/setup")
+        .header(Header::new(CSRF_HEADER, "not-the-real-token"))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Forbidden);
+
+    // Correct header: allowed.
+    let resp = client
+        .post("/api/v2/auth/mfa/setup")
+        .header(csrf_header(&client))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+
+    // A GET (safe method) needs no CSRF header even when cookie-authenticated.
+    let resp = client.get("/api/v2/auth/mfa/status").dispatch().await;
+    assert_eq!(resp.status(), Status::Ok);
+
+    // X-Api-Key auth is exempt from CSRF entirely, cookies or not.
+    let resp = client
+        .post("/api/v2/auth/tokens")
+        .header(ContentType::JSON)
+        .header(csrf_header(&client))
+        .body(r#"{"name":"api-token"}"#)
+        .dispatch()
+        .await;
+    let token = serde_json::from_str::<serde_json::Value>(&resp.into_string().await.unwrap())
+        .unwrap()["token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    client.post("/api/v2/auth/logout").dispatch().await;
+    let resp = client
+        .post("/api/v2/auth/tokens")
+        .header(ContentType::JSON)
+        .header(Header::new("X-Api-Key", token))
+        .body(r#"{"name":"second-token"}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+}
+
+#[rocket::async_test]
+async fn set_password_only_works_once_for_passwordless_accounts() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    assert_eq!(register(&client, "oauthlike", TEST_PASSWORD).await, Status::Ok);
+
+    // Simulate an OAuth-created account: no password set yet.
+    let state = client.rocket().state::<PortState>().unwrap();
+    let user = users::Entity::find()
+        .filter(users::Column::Username.eq("oauthlike"))
+        .one(&state.db)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut update: users::ActiveModel = user.into();
+    update.password_set = Set(false);
+    update.update(&state.db).await.unwrap();
+
+    // change_password refuses; set_password succeeds exactly once.
+    let resp = client
+        .post("/api/v2/auth/password")
+        .header(ContentType::JSON)
+        .header(csrf_header(&client))
+        .body(format!(
+            r#"{{"current_password":"{TEST_PASSWORD}","new_password":"{NEW_TEST_PASSWORD}"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::BadRequest);
+
+    let resp = client
+        .post("/api/v2/auth/set-password")
+        .header(ContentType::JSON)
+        .header(csrf_header(&client))
+        .body(format!(r#"{{"new_password":"{NEW_TEST_PASSWORD}"}}"#))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::NoContent);
+
+    let resp = client
+        .post("/api/v2/auth/set-password")
+        .header(ContentType::JSON)
+        .header(csrf_header(&client))
+        .body(r#"{"new_password":"Yet-Another-Password!"}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::BadRequest);
+}
+
+#[rocket::async_test]
+async fn sessions_record_user_agent_and_ip() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+
+    let resp = client
+        .post("/api/v2/auth/register")
+        .header(ContentType::JSON)
+        .header(Header::new("User-Agent", "test-agent/1.0"))
+        .body(format!(
+            r#"{{"username":"uauser","password":"{TEST_PASSWORD}","email":"uauser@example.test"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+
+    let resp = client.get("/api/v2/auth/sessions").dispatch().await;
+    let sessions: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(sessions[0]["user_agent"], "test-agent/1.0");
+    assert!(sessions[0]["ip"].is_string());
+    assert!(sessions[0]["last_seen_at"].is_string());
+}
+
+// ── security round 3: breached-password, audit log, passkeys, deletion/export ──
+
+#[rocket::async_test]
+async fn breached_password_is_rejected_on_register() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+
+    // "Password1!" satisfies the format rules but is one of the most
+    // common breached passwords in existence, genuinely present in the
+    // real Pwned Passwords corpus this check calls.
+    let resp = client
+        .post("/api/v2/auth/register")
+        .header(ContentType::JSON)
+        .body(r#"{"username":"breached","password":"Password1!","email":"breached@example.test"}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::BadRequest);
+}
+
+#[rocket::async_test]
+async fn audit_log_records_login_and_password_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    assert_eq!(register(&client, "audituser", TEST_PASSWORD).await, Status::Ok);
+    client.post("/api/v2/auth/logout").dispatch().await;
+
+    let resp = client
+        .post("/api/v2/auth/login")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"identifier":"audituser","password":"{TEST_PASSWORD}"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+
+    let resp = client
+        .post("/api/v2/auth/password")
+        .header(ContentType::JSON)
+        .header(csrf_header(&client))
+        .body(format!(
+            r#"{{"current_password":"{TEST_PASSWORD}","new_password":"{NEW_TEST_PASSWORD}"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::NoContent);
+
+    let resp = client.get("/api/v2/auth/audit-log").dispatch().await;
+    assert_eq!(resp.status(), Status::Ok);
+    let entries: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let events: Vec<&str> = entries
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["event"].as_str().unwrap())
+        .collect();
+    // Newest first: password_changed happened after login.
+    assert_eq!(events[0], "password_changed");
+    assert!(events.contains(&"login"));
+}
+
+#[rocket::async_test]
+async fn account_deletion_reassigns_carts_to_legacy_and_wipes_account() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    assert_eq!(register(&client, "deleteme", TEST_PASSWORD).await, Status::Ok);
+
+    let resp = client
+        .post("/api/carts")
+        .header(csrf_header(&client))
+        .header(multipart_content_type())
+        .body(multipart_body(
+            &sample_cart(),
+            r#"{"title":"Orphaned","author":"deleteme"}"#,
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let cart: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let id = cart["id"].as_str().unwrap().to_string();
+
+    let resp = client
+        .delete("/api/v2/auth/account")
+        .header(ContentType::JSON)
+        .header(csrf_header(&client))
+        .body(format!(r#"{{"current_password":"{TEST_PASSWORD}"}}"#))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::NoContent);
+
+    let resp = client.get(format!("/api/v2/carts/{id}")).dispatch().await;
+    let detail: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(detail["owner"], "legacy");
+
+    // The account no longer exists.
+    let resp = client
+        .post("/api/v2/auth/login")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"identifier":"deleteme","password":"{TEST_PASSWORD}"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Unauthorized);
+}
+
+#[rocket::async_test]
+async fn data_export_includes_profile_and_owned_carts() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    assert_eq!(register(&client, "exportuser", TEST_PASSWORD).await, Status::Ok);
+
+    let resp = client
+        .post("/api/carts")
+        .header(csrf_header(&client))
+        .header(multipart_content_type())
+        .body(multipart_body(
+            &sample_cart(),
+            r#"{"title":"Mine","author":"exportuser"}"#,
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+
+    let resp = client.get("/api/v2/auth/export").dispatch().await;
+    assert_eq!(resp.status(), Status::Ok);
+    let export: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(export["profile"]["username"], "exportuser");
+    assert_eq!(export["carts"].as_array().unwrap().len(), 1);
+    assert_eq!(export["carts"][0]["title"], "Mine");
+}
+
+#[rocket::async_test]
+async fn webauthn_login_start_400_when_not_configured() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    assert_eq!(register(&client, "nopasskeys", TEST_PASSWORD).await, Status::Ok);
+
+    // Test PortState has no CAIVEN_BASE_URL, so webauthn is unconfigured
+    // regardless of whether the account has passkeys.
+    let resp = client
+        .post("/api/v2/auth/webauthn/login/start")
+        .header(ContentType::JSON)
+        .body(r#"{"identifier":"nopasskeys"}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::BadRequest);
+}
+
+#[rocket::async_test]
+async fn passkey_list_and_delete_are_owner_scoped() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    let owner_token = register_get_token_and_logout(&client, "pkowner").await;
+    let other_token = register_get_token_and_logout(&client, "pkother").await;
+
+    let state = client.rocket().state::<PortState>().unwrap();
+    let owner = users::Entity::find()
+        .filter(users::Column::Username.eq("pkowner"))
+        .one(&state.db)
+        .await
+        .unwrap()
+        .unwrap();
+    let cred_id = uuid::Uuid::new_v4().to_string();
+    webauthn_credentials::ActiveModel {
+        id: Set(cred_id.clone()),
+        user_id: Set(owner.id.clone()),
+        label: Set("Test key".into()),
+        passkey_json: Set("{}".into()),
+        created_at: Set(chrono::Utc::now().to_rfc3339()),
+        last_used_at: Set(None),
+    }
+    .insert(&state.db)
+    .await
+    .unwrap();
+
+    let resp = client
+        .get("/api/v2/auth/webauthn/credentials")
+        .header(Header::new("X-Api-Key", owner_token.clone()))
+        .dispatch()
+        .await;
+    let list: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(list.as_array().unwrap().len(), 1);
+    assert_eq!(list[0]["label"], "Test key");
+
+    let resp = client
+        .get("/api/v2/auth/webauthn/credentials")
+        .header(Header::new("X-Api-Key", other_token.clone()))
+        .dispatch()
+        .await;
+    let list: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(list.as_array().unwrap().len(), 0);
+
+    let resp = client
+        .delete(format!("/api/v2/auth/webauthn/credentials/{cred_id}"))
+        .header(Header::new("X-Api-Key", other_token))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::NotFound);
+
+    let resp = client
+        .delete(format!("/api/v2/auth/webauthn/credentials/{cred_id}"))
+        .header(Header::new("X-Api-Key", owner_token))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::NoContent);
 }

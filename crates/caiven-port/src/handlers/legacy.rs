@@ -11,7 +11,7 @@ use super::versions::{
 use super::{BinaryFile, valid_id};
 use crate::{
     PortState,
-    auth::AuthUser,
+    auth::{AuthUser, VerifiedUser},
     db,
     error::ApiError,
     models::{Cart, CartList},
@@ -57,11 +57,11 @@ pub async fn get_cart(state: &State<PortState>, id: &str) -> Result<Json<Cart>, 
 
 #[post("/api/carts", data = "<upload>")]
 pub async fn upload_cart(
-    user: AuthUser,
+    user: VerifiedUser,
     state: &State<PortState>,
     upload: Form<CartUpload<'_>>,
 ) -> Result<Json<Cart>, ApiError> {
-    Ok(Json(create_cart_impl(state, &user, upload).await?))
+    Ok(Json(create_cart_impl(state, &user.0, upload).await?))
 }
 
 #[get("/api/carts/<id>/cart")]

@@ -60,6 +60,9 @@ export function matchRoute(p: string): RouteMatch {
   if (segs[0] === 'settings' || segs[0] === 'profile') return { name: 'settings', params: {} };
   if (segs[0] === 'login') return { name: 'login', params: {} };
   if (segs[0] === 'register') return { name: 'register', params: {} };
+  if (segs[0] === 'verify-email') return { name: 'verify-email', params: {} };
+  if (segs[0] === 'forgot-password') return { name: 'forgot-password', params: {} };
+  if (segs[0] === 'reset-password') return { name: 'reset-password', params: {} };
   if (segs[0] === 'upload') return { name: 'upload', params: {} };
   if (segs[0] === 'cart' && segs[1]) return { name: 'cart', params: { id: segs[1] } };
   if (segs[0] === 'play' && segs[1]) return { name: 'play', params: { id: segs[1] } };

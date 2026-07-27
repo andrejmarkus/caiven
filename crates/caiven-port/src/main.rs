@@ -37,10 +37,62 @@ struct Args {
     /// through HTTPS, including behind a trusted TLS reverse proxy.
     #[arg(long, env = "CAIVEN_SECURE_COOKIES", default_value_t = false)]
     secure_cookies: bool,
+
+    /// Public origin (e.g. `https://port.example.com`), used to build OAuth
+    /// redirect URIs and links embedded in emails. Required for OAuth login
+    /// and for confirmation/reset links to work outside of local dev.
+    #[arg(long, env = "CAIVEN_BASE_URL")]
+    base_url: Option<String>,
+
+    /// SMTP host for outbound email. When unset, verification/reset links
+    /// are logged to stdout instead of emailed (local dev fallback).
+    #[arg(long, env = "SMTP_HOST")]
+    smtp_host: Option<String>,
+    #[arg(long, env = "SMTP_PORT", default_value_t = 587)]
+    smtp_port: u16,
+    #[arg(long, env = "SMTP_USERNAME")]
+    smtp_username: Option<String>,
+    #[arg(long, env = "SMTP_PASSWORD")]
+    smtp_password: Option<String>,
+    #[arg(long, env = "SMTP_FROM")]
+    smtp_from: Option<String>,
+
+    /// Cloudflare Turnstile keys. When unset, antibot verification is
+    /// skipped (local dev fallback).
+    #[arg(long, env = "TURNSTILE_SITE_KEY")]
+    turnstile_site_key: Option<String>,
+    #[arg(long, env = "TURNSTILE_SECRET_KEY")]
+    turnstile_secret_key: Option<String>,
+
+    /// Social login credentials, one pair per provider. A provider is
+    /// enabled only when both its id and secret are set.
+    #[arg(long, env = "GOOGLE_CLIENT_ID")]
+    google_client_id: Option<String>,
+    #[arg(long, env = "GOOGLE_CLIENT_SECRET")]
+    google_client_secret: Option<String>,
+    #[arg(long, env = "GITHUB_CLIENT_ID")]
+    github_client_id: Option<String>,
+    #[arg(long, env = "GITHUB_CLIENT_SECRET")]
+    github_client_secret: Option<String>,
+    #[arg(long, env = "DISCORD_CLIENT_ID")]
+    discord_client_id: Option<String>,
+    #[arg(long, env = "DISCORD_CLIENT_SECRET")]
+    discord_client_secret: Option<String>,
+}
+
+fn provider_pair(id: Option<String>, secret: Option<String>) -> Option<caiven_port::oauth::ProviderConfig> {
+    match (id, secret) {
+        (Some(client_id), Some(client_secret)) => Some(caiven_port::oauth::ProviderConfig {
+            client_id,
+            client_secret,
+        }),
+        _ => None,
+    }
 }
 
 #[rocket::main]
 async fn main() -> Result<()> {
+    dotenvy::dotenv().ok();
     env_logger::init();
     let args = Args::parse();
     caiven_port::set_legacy_data_dir(args.data_dir.clone());
@@ -78,11 +130,53 @@ async fn main() -> Result<()> {
         ..Default::default()
     };
 
+    let mailer = match (
+        &args.smtp_host,
+        &args.smtp_username,
+        &args.smtp_password,
+        &args.smtp_from,
+    ) {
+        (Some(host), Some(username), Some(password), Some(from)) => {
+            let cfg = caiven_port::mailer::SmtpConfig {
+                host: host.clone(),
+                port: args.smtp_port,
+                username: username.clone(),
+                password: password.clone(),
+                from: from.clone(),
+            };
+            Some(caiven_port::mailer::Mailer::new(&cfg)?)
+        }
+        _ => {
+            log::warn!(
+                "SMTP not fully configured; verification and password reset links will be logged instead of emailed"
+            );
+            None
+        }
+    };
+
+    let oauth = caiven_port::OAuthProviders {
+        google: provider_pair(args.google_client_id, args.google_client_secret),
+        github: provider_pair(args.github_client_id, args.github_client_secret),
+        discord: provider_pair(args.discord_client_id, args.discord_client_secret),
+    };
+
+    let webauthn = caiven_port::build_webauthn(args.base_url.as_deref());
+    if webauthn.is_none() {
+        log::warn!("CAIVEN_BASE_URL not set (or unparseable); passkey login is disabled");
+    }
+
     let state = PortState {
         db,
         rate: caiven_port::auth::RateLimiter::default(),
         web_dir: args.web_dir,
         secure_cookies: args.secure_cookies,
+        base_url: args.base_url,
+        http: reqwest::Client::new(),
+        mailer,
+        turnstile_site_key: args.turnstile_site_key,
+        turnstile_secret: args.turnstile_secret_key,
+        oauth,
+        webauthn,
     };
 
     build_rocket(config, state)

@@ -3,7 +3,7 @@ use rocket::{State, delete, get, post, put, serde::json::Json};
 use super::valid_id;
 use crate::{
     PortState,
-    auth::AuthUser,
+    auth::{AuthUser, VerifiedUser},
     db,
     error::ApiError,
     models::{Cart, CommentInfo, CommentInput, RatingInput},
@@ -75,10 +75,11 @@ pub async fn list_comments(
 #[post("/api/v2/carts/<id>/comments", data = "<input>")]
 pub async fn add_comment(
     state: &State<PortState>,
-    user: AuthUser,
+    user: VerifiedUser,
     id: &str,
     input: Json<CommentInput>,
 ) -> Result<Json<CommentInfo>, ApiError> {
+    let user = user.0;
     if !valid_id(id) {
         return Err(ApiError::bad_request("invalid id"));
     }

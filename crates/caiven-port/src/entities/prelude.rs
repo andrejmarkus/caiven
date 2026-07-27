@@ -3,6 +3,8 @@
 #[allow(unused_imports)]
 pub use super::api_tokens::Entity as ApiTokens;
 #[allow(unused_imports)]
+pub use super::audit_log::Entity as AuditLog;
+#[allow(unused_imports)]
 pub use super::cart_blobs::Entity as CartBlobs;
 #[allow(unused_imports)]
 pub use super::cart_versions::Entity as CartVersions;
@@ -13,9 +15,17 @@ pub use super::collection_follows::Entity as CollectionFollows;
 pub use super::collections::Entity as Collections;
 #[allow(unused_imports)]
 pub use super::comments::Entity as Comments;
+#[allow(unused_imports)]
+pub use super::email_tokens::Entity as EmailTokens;
 pub use super::follows::Entity as Follows;
 pub use super::jam_entries::Entity as JamEntries;
 pub use super::jams::Entity as Jams;
+#[allow(unused_imports)]
+pub use super::mfa_backup_codes::Entity as MfaBackupCodes;
+#[allow(unused_imports)]
+pub use super::mfa_challenges::Entity as MfaChallenges;
+#[allow(unused_imports)]
+pub use super::oauth_identities::Entity as OauthIdentities;
 pub use super::play_events::Entity as PlayEvents;
 #[allow(unused_imports)]
 pub use super::ratings::Entity as Ratings;
@@ -23,3 +33,7 @@ pub use super::ratings::Entity as Ratings;
 pub use super::sessions::Entity as Sessions;
 #[allow(unused_imports)]
 pub use super::users::Entity as Users;
+#[allow(unused_imports)]
+pub use super::webauthn_challenges::Entity as WebauthnChallenges;
+#[allow(unused_imports)]
+pub use super::webauthn_credentials::Entity as WebauthnCredentials;

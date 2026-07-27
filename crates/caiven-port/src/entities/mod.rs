@@ -3,6 +3,7 @@
 pub mod prelude;
 
 pub mod api_tokens;
+pub mod audit_log;
 pub mod cart_blobs;
 pub mod cart_versions;
 pub mod carts;
@@ -10,10 +11,16 @@ pub mod collection_carts;
 pub mod collection_follows;
 pub mod collections;
 pub mod comments;
+pub mod email_tokens;
 pub mod follows;
 pub mod jam_entries;
 pub mod jams;
+pub mod mfa_backup_codes;
+pub mod mfa_challenges;
+pub mod oauth_identities;
 pub mod play_events;
 pub mod ratings;
 pub mod sessions;
 pub mod users;
+pub mod webauthn_challenges;
+pub mod webauthn_credentials;

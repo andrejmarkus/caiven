@@ -58,6 +58,54 @@ export interface UserInfo {
   id: string;
   username: string;
   is_admin: boolean;
+  email: string | null;
+  email_verified: boolean;
+  password_set: boolean;
+}
+
+export interface LoginOutcome {
+  mfa_required: boolean;
+  pending_token?: string;
+  user?: UserInfo;
+}
+
+export interface MfaStatus {
+  enabled: boolean;
+}
+
+export interface MfaSetupInfo {
+  secret: string;
+  otpauth_url: string;
+  qr_png_base64: string;
+}
+
+export interface MfaConfirmed {
+  backup_codes: string[];
+}
+
+export interface AuthConfigInfo {
+  turnstile_site_key: string | null;
+  providers: string[];
+}
+
+export interface WebauthnStartResponse {
+  token: string;
+  options: { publicKey: unknown };
+}
+
+export interface PasskeyInfo {
+  id: string;
+  label: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+export interface AuditEntry {
+  event: string;
+  ip: string | null;
+  user_agent: string | null;
+  metadata: string | null;
+  created_at: string;
 }
 
 export interface TokenInfo {
@@ -75,6 +123,9 @@ export interface SessionInfo {
   id: string;
   created_at: string;
   expires_at: string;
+  last_seen_at: string;
+  ip: string | null;
+  user_agent: string | null;
   current: boolean;
 }
 
@@ -164,10 +215,25 @@ export class ApiError extends Error {
   }
 }
 
+const CSRF_COOKIE = 'caiven_csrf';
+const CSRF_HEADER = 'X-CSRF-Token';
+const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+function readCookie(name: string): string | undefined {
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? 'GET').toUpperCase();
+  const headers: Record<string, string> = init?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' };
+  if (UNSAFE_METHODS.has(method)) {
+    const csrf = readCookie(CSRF_COOKIE);
+    if (csrf) headers[CSRF_HEADER] = csrf;
+  }
   const res = await fetch(`${BASE}${path}`, {
     credentials: 'include',
-    headers: init?.body instanceof FormData ? undefined : { 'Content-Type': 'application/json' },
+    headers,
     ...init,
   });
   if (!res.ok) {
@@ -194,12 +260,49 @@ function qs(params: Record<string, string | number | undefined>): string {
 }
 
 export const api = {
-  register: (username: string, password: string) =>
-    request<UserInfo>('/auth/register', { method: 'POST', body: JSON.stringify({ username, password }) }),
-  login: (username: string, password: string) =>
-    request<UserInfo>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  authConfig: () => request<AuthConfigInfo>('/auth/config'),
+  register: (username: string, email: string, password: string, turnstileToken?: string) =>
+    request<UserInfo>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, email, password, turnstile_token: turnstileToken }),
+    }),
+  login: (identifier: string, password: string, turnstileToken?: string) =>
+    request<LoginOutcome>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ identifier, password, turnstile_token: turnstileToken }),
+    }),
+  loginMfa: (pendingToken: string, code: string) =>
+    request<UserInfo>('/auth/login/mfa', {
+      method: 'POST',
+      body: JSON.stringify({ pending_token: pendingToken, code }),
+    }),
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
   me: () => request<UserInfo>('/auth/me'),
+  setPassword: (newPassword: string) =>
+    request<void>('/auth/set-password', { method: 'POST', body: JSON.stringify({ new_password: newPassword }) }),
+  mfaStatus: () => request<MfaStatus>('/auth/mfa/status'),
+  mfaSetup: () => request<MfaSetupInfo>('/auth/mfa/setup', { method: 'POST' }),
+  mfaConfirm: (code: string) =>
+    request<MfaConfirmed>('/auth/mfa/confirm', { method: 'POST', body: JSON.stringify({ code }) }),
+  mfaDisable: (currentPassword: string, code: string) =>
+    request<void>('/auth/mfa/disable', {
+      method: 'POST',
+      body: JSON.stringify({ current_password: currentPassword, code }),
+    }),
+  verifyEmail: (token: string) =>
+    request<void>('/auth/verify-email', { method: 'POST', body: JSON.stringify({ token }) }),
+  resendVerification: () => request<void>('/auth/resend-verification', { method: 'POST' }),
+  forgotPassword: (email: string, turnstileToken?: string) =>
+    request<void>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email, turnstile_token: turnstileToken }),
+    }),
+  resetPassword: (token: string, newPassword: string) =>
+    request<void>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, new_password: newPassword }),
+    }),
+  oauthStartUrl: (provider: string) => `${BASE}/auth/oauth/${provider}/start`,
   changePassword: (currentPassword: string, newPassword: string) =>
     request<void>('/auth/password', {
       method: 'POST',
@@ -212,6 +315,34 @@ export const api = {
   createToken: (name: string) =>
     request<TokenCreated>('/auth/tokens', { method: 'POST', body: JSON.stringify({ name }) }),
   revokeToken: (id: string) => request<void>(`/auth/tokens/${id}`, { method: 'DELETE' }),
+
+  webauthnRegisterStart: () =>
+    request<WebauthnStartResponse>('/auth/webauthn/register/start', { method: 'POST' }),
+  webauthnRegisterFinish: (token: string, label: string, credential: unknown) =>
+    request<PasskeyInfo>('/auth/webauthn/register/finish', {
+      method: 'POST',
+      body: JSON.stringify({ token, label, credential }),
+    }),
+  webauthnLoginStart: (identifier: string) =>
+    request<WebauthnStartResponse>('/auth/webauthn/login/start', {
+      method: 'POST',
+      body: JSON.stringify({ identifier }),
+    }),
+  webauthnLoginFinish: (token: string, credential: unknown) =>
+    request<UserInfo>('/auth/webauthn/login/finish', {
+      method: 'POST',
+      body: JSON.stringify({ token, credential }),
+    }),
+  listPasskeys: () => request<PasskeyInfo[]>('/auth/webauthn/credentials'),
+  deletePasskey: (id: string) => request<void>(`/auth/webauthn/credentials/${id}`, { method: 'DELETE' }),
+
+  auditLog: (page = 0, per_page = 20) => request<AuditEntry[]>(`/auth/audit-log${qs({ page, per_page })}`),
+  deleteAccount: (currentPassword: string, code?: string) =>
+    request<void>('/auth/account', {
+      method: 'DELETE',
+      body: JSON.stringify({ current_password: currentPassword, code }),
+    }),
+  exportUrl: () => `${BASE}/auth/export`,
 
   listCarts: (opts: { page?: number; per_page?: number; q?: string; tag?: string; author?: string; sort?: Sort } = {}) =>
     request<CartList>(`/carts${qs(opts)}`),

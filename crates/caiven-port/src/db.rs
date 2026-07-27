@@ -15,6 +15,39 @@ use crate::entities::{
 };
 use crate::models::{Cart, CartMeta, CartPatch, TagCount};
 
+/// Sentinel owner id used for carts whose original account no longer
+/// exists — both pre-account carts migrated by `m20260715_000003_carts_v2`
+/// and carts orphaned by a deleted account (see `handlers::auth::delete_account`).
+pub const LEGACY_USER_ID: &str = "00000000-0000-0000-0000-000000000001";
+
+/// Ensures the legacy sentinel user row exists. The historical migration
+/// only seeds it when a null-owner cart already existed at migration time,
+/// so a database that's never had one (e.g. every fresh install) won't have
+/// this row until the first account deletion needs it.
+pub async fn ensure_legacy_user<C: ConnectionTrait>(db: &C) -> Result<()> {
+    if UserEntity::find_by_id(LEGACY_USER_ID).one(db).await?.is_some() {
+        return Ok(());
+    }
+    users::ActiveModel {
+        id: Set(LEGACY_USER_ID.to_string()),
+        username: Set("legacy".to_string()),
+        // Unusable placeholder: never a valid argon2 hash, so login always
+        // fails regardless of input.
+        password_hash: Set("!".to_string()),
+        is_admin: Set(false),
+        created_at: Set(chrono::Utc::now().to_rfc3339()),
+        email: Set(None),
+        email_verified: Set(false),
+        email_normalized: Set(None),
+        mfa_totp_secret: Set(None),
+        mfa_enabled: Set(false),
+        password_set: Set(false),
+    }
+    .insert(db)
+    .await?;
+    Ok(())
+}
+
 fn normalize_tags(tags: &[String]) -> String {
     tags.iter()
         .map(|t| t.replace(',', " ").trim().to_lowercase())

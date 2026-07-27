@@ -19,6 +19,9 @@
   import Author from './pages/Author.svelte';
   import Login from './pages/Login.svelte';
   import Register from './pages/Register.svelte';
+  import VerifyEmail from './pages/VerifyEmail.svelte';
+  import ForgotPassword from './pages/ForgotPassword.svelte';
+  import ResetPassword from './pages/ResetPassword.svelte';
   import Upload from './pages/Upload.svelte';
   import { Toaster } from '$lib/components/ui/sonner';
 
@@ -49,6 +52,9 @@
   {:else if match.name === 'author'}<Author username={match.params.username} />
   {:else if match.name === 'login'}<Login />
   {:else if match.name === 'register'}<Register />
+  {:else if match.name === 'verify-email'}<VerifyEmail />
+  {:else if match.name === 'forgot-password'}<ForgotPassword />
+  {:else if match.name === 'reset-password'}<ResetPassword />
   {:else if match.name === 'upload'}<Upload />
   {:else}
     <div class="container-page py-24 text-center"><h1 class="text-2xl font-semibold">Page not found</h1><p class="mt-2 text-muted-foreground">Address points beyond Port.</p></div>

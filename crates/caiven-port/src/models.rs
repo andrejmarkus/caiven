@@ -1,4 +1,5 @@
 use rocket::serde::{Deserialize, Serialize};
+use webauthn_rs::prelude::{PublicKeyCredential, RegisterPublicKeyCredential};
 
 use crate::entities::{cart_versions, carts};
 
@@ -146,9 +147,22 @@ pub struct UserProfile {
 
 #[derive(Debug, Deserialize)]
 #[serde(crate = "rocket::serde")]
-pub struct Credentials {
+pub struct RegisterInput {
     pub username: String,
+    pub email: String,
     pub password: String,
+    #[serde(default)]
+    pub turnstile_token: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct LoginInput {
+    /// Username or email.
+    pub identifier: String,
+    pub password: String,
+    #[serde(default)]
+    pub turnstile_token: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -157,6 +171,96 @@ pub struct UserInfo {
     pub id: String,
     pub username: String,
     pub is_admin: bool,
+    pub email: Option<String>,
+    pub email_verified: bool,
+    pub password_set: bool,
+}
+
+/// `login` either completes immediately (`user` set) or, for MFA-enabled
+/// accounts, hands back a short-lived `pending_token` for `/auth/login/mfa`.
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct LoginOutcome {
+    pub mfa_required: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<UserInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct LoginMfaInput {
+    pub pending_token: String,
+    /// A live TOTP code or an unused backup code.
+    pub code: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct MfaStatus {
+    pub enabled: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct MfaSetupInfo {
+    pub secret: String,
+    pub otpauth_url: String,
+    pub qr_png_base64: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct MfaConfirmInput {
+    pub code: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct MfaConfirmed {
+    pub backup_codes: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct MfaDisableInput {
+    pub current_password: String,
+    pub code: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct SetPasswordInput {
+    pub new_password: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct VerifyEmailInput {
+    pub token: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct ForgotPasswordInput {
+    pub email: String,
+    #[serde(default)]
+    pub turnstile_token: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct ResetPasswordInput {
+    pub token: String,
+    pub new_password: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct AuthConfigInfo {
+    pub turnstile_site_key: Option<String>,
+    pub providers: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -172,6 +276,9 @@ pub struct SessionInfo {
     pub id: String,
     pub created_at: String,
     pub expires_at: String,
+    pub last_seen_at: String,
+    pub ip: Option<String>,
+    pub user_agent: Option<String>,
     pub current: bool,
 }
 
@@ -376,4 +483,68 @@ pub struct DashboardInfo {
     pub new_followers: i64,
     pub daily: Vec<DailyMetric>,
     pub carts: Vec<Cart>,
+}
+
+// --- Passkeys (WebAuthn) ---
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct WebauthnStartResponse {
+    pub token: String,
+    /// The `CreationChallengeResponse`/`RequestChallengeResponse`, forwarded
+    /// to the browser's `navigator.credentials` call as-is.
+    pub options: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct WebauthnRegisterFinishInput {
+    pub token: String,
+    pub label: String,
+    pub credential: RegisterPublicKeyCredential,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct WebauthnLoginStartInput {
+    pub identifier: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct WebauthnLoginFinishInput {
+    pub token: String,
+    pub credential: PublicKeyCredential,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct PasskeyInfo {
+    pub id: String,
+    pub label: String,
+    pub created_at: String,
+    pub last_used_at: Option<String>,
+}
+
+// --- Audit log ---
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct AuditEntry {
+    pub event: String,
+    pub ip: Option<String>,
+    pub user_agent: Option<String>,
+    pub metadata: Option<String>,
+    pub created_at: String,
+}
+
+// --- Account deletion ---
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct DeleteAccountInput {
+    pub current_password: String,
+    /// Required only when the account has MFA enabled.
+    #[serde(default)]
+    pub code: Option<String>,
 }

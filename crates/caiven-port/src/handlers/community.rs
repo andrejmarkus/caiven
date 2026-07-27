@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     PortState,
-    auth::{AuthUser, sha256_hex},
+    auth::{AuthUser, VerifiedUser, sha256_hex},
     db,
     entities::{
         cart_versions, collection_carts, collection_follows, collections, follows, jam_entries,
@@ -331,9 +331,10 @@ async fn create_collection_impl(
 #[post("/api/v2/collections", data = "<input>")]
 pub async fn create_collection(
     state: &State<PortState>,
-    user: AuthUser,
+    user: VerifiedUser,
     input: Json<CollectionCreate>,
 ) -> Result<Json<CollectionInfo>, ApiError> {
+    let user = user.0;
     let model = create_collection_impl(&state.db, &user, &input, "player").await?;
     Ok(Json(collection_info(&state.db, model, Some(&user)).await?))
 }
@@ -712,10 +713,11 @@ pub async fn update_jam(
 #[post("/api/v2/jams/<slug>/entries", data = "<input>")]
 pub async fn enter_jam(
     state: &State<PortState>,
-    user: AuthUser,
+    user: VerifiedUser,
     slug: &str,
     input: Json<JamEntryInput>,
 ) -> Result<Json<JamInfo>, ApiError> {
+    let user = user.0;
     let jam = jam_for_slug(&state.db, slug).await?;
     if jam_status(&jam) != "open" {
         return Err(ApiError::bad_request("jam submissions are not open"));
