@@ -283,8 +283,7 @@ mod url_lite {
             self.first = false;
             self.base.push_str(key);
             self.base.push('=');
-            self.base
-                .push_str(&percent_encode(value));
+            self.base.push_str(&percent_encode(value));
         }
 
         pub fn finish(self) -> String {

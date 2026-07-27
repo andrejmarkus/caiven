@@ -371,7 +371,9 @@ async fn password_change_revokes_sessions_and_enforces_policy() {
         .await
         .unwrap()
         .unwrap();
-    auth::create_session(&state.db, &user.id, &auth::SessionContext::default()).await.unwrap();
+    auth::create_session(&state.db, &user.id, &auth::SessionContext::default())
+        .await
+        .unwrap();
 
     let resp = client
         .post("/api/v2/auth/password")
@@ -433,7 +435,9 @@ async fn session_management_is_owner_scoped_and_capped() {
         .unwrap();
 
     for _ in 0..25 {
-        auth::create_session(&state.db, &user.id, &auth::SessionContext::default()).await.unwrap();
+        auth::create_session(&state.db, &user.id, &auth::SessionContext::default())
+            .await
+            .unwrap();
     }
     assert_eq!(
         sessions::Entity::find()
@@ -460,7 +464,9 @@ async fn session_management_is_owner_scoped_and_capped() {
     .insert(&state.db)
     .await
     .unwrap();
-    let other_token = auth::create_session(&state.db, &other.id, &auth::SessionContext::default()).await.unwrap();
+    let other_token = auth::create_session(&state.db, &other.id, &auth::SessionContext::default())
+        .await
+        .unwrap();
     let other_id = auth::sha256_hex(&other_token);
 
     let resp = client
@@ -1337,7 +1343,10 @@ async fn login_by_email_identifier_works() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
 
-    assert_eq!(register(&client, "emaillogin", TEST_PASSWORD).await, Status::Ok);
+    assert_eq!(
+        register(&client, "emaillogin", TEST_PASSWORD).await,
+        Status::Ok
+    );
     client.post("/api/v2/auth/logout").dispatch().await;
 
     let resp = client
@@ -1406,7 +1415,10 @@ async fn email_verification_token_is_single_use() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
 
-    assert_eq!(register(&client, "verifyme", TEST_PASSWORD).await, Status::Ok);
+    assert_eq!(
+        register(&client, "verifyme", TEST_PASSWORD).await,
+        Status::Ok
+    );
     let state = client.rocket().state::<PortState>().unwrap();
     let user = users::Entity::find()
         .filter(users::Column::Username.eq("verifyme"))
@@ -1451,7 +1463,10 @@ async fn email_verification_token_is_single_use() {
 async fn forgot_password_is_always_204_and_does_not_enumerate() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
-    assert_eq!(register(&client, "forgotuser", TEST_PASSWORD).await, Status::Ok);
+    assert_eq!(
+        register(&client, "forgotuser", TEST_PASSWORD).await,
+        Status::Ok
+    );
 
     let resp = client
         .post("/api/v2/auth/forgot-password")
@@ -1474,7 +1489,10 @@ async fn forgot_password_is_always_204_and_does_not_enumerate() {
 async fn password_reset_token_resets_password_revokes_sessions_and_is_single_use() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
-    assert_eq!(register(&client, "resetuser", TEST_PASSWORD).await, Status::Ok);
+    assert_eq!(
+        register(&client, "resetuser", TEST_PASSWORD).await,
+        Status::Ok
+    );
 
     let state = client.rocket().state::<PortState>().unwrap();
     let user = users::Entity::find()
@@ -1483,7 +1501,9 @@ async fn password_reset_token_resets_password_revokes_sessions_and_is_single_use
         .await
         .unwrap()
         .unwrap();
-    auth::create_session(&state.db, &user.id, &auth::SessionContext::default()).await.unwrap();
+    auth::create_session(&state.db, &user.id, &auth::SessionContext::default())
+        .await
+        .unwrap();
     assert_eq!(
         sessions::Entity::find()
             .filter(sessions::Column::UserId.eq(&user.id))
@@ -1552,7 +1572,9 @@ async fn password_reset_token_resets_password_revokes_sessions_and_is_single_use
 // ── security hardening: 2FA, CSRF, session metadata, set-password ──────────
 
 fn totp_code_for(secret: &str) -> String {
-    let bytes = totp_rs::Secret::Encoded(secret.to_string()).to_bytes().unwrap();
+    let bytes = totp_rs::Secret::Encoded(secret.to_string())
+        .to_bytes()
+        .unwrap();
     let totp = totp_rs::TOTP::new(
         totp_rs::Algorithm::SHA1,
         6,
@@ -1570,7 +1592,10 @@ fn totp_code_for(secret: &str) -> String {
 async fn mfa_setup_confirm_login_and_backup_code_round_trip() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
-    assert_eq!(register(&client, "mfauser", TEST_PASSWORD).await, Status::Ok);
+    assert_eq!(
+        register(&client, "mfauser", TEST_PASSWORD).await,
+        Status::Ok
+    );
 
     let resp = client
         .post("/api/v2/auth/mfa/setup")
@@ -1578,9 +1603,15 @@ async fn mfa_setup_confirm_login_and_backup_code_round_trip() {
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok);
-    let setup: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let setup: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     let secret = setup["secret"].as_str().unwrap().to_string();
-    assert!(setup["otpauth_url"].as_str().unwrap().starts_with("otpauth://"));
+    assert!(
+        setup["otpauth_url"]
+            .as_str()
+            .unwrap()
+            .starts_with("otpauth://")
+    );
 
     // Wrong code is rejected.
     let resp = client
@@ -1622,7 +1653,8 @@ async fn mfa_setup_confirm_login_and_backup_code_round_trip() {
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok);
-    let outcome: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let outcome: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(outcome["mfa_required"], true);
     assert_eq!(outcome["user"], serde_json::Value::Null);
     let pending_token = outcome["pending_token"].as_str().unwrap().to_string();
@@ -1678,11 +1710,9 @@ async fn mfa_setup_confirm_login_and_backup_code_round_trip() {
         .await;
     assert_eq!(resp.status(), Status::NoContent);
 
-    let resp = client
-        .get("/api/v2/auth/mfa/status")
-        .dispatch()
-        .await;
-    let status: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let resp = client.get("/api/v2/auth/mfa/status").dispatch().await;
+    let status: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(status["enabled"], false);
 }
 
@@ -1690,13 +1720,13 @@ async fn mfa_setup_confirm_login_and_backup_code_round_trip() {
 async fn csrf_header_required_for_cookie_auth_mutations_but_not_api_key() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
-    assert_eq!(register(&client, "csrfuser", TEST_PASSWORD).await, Status::Ok);
+    assert_eq!(
+        register(&client, "csrfuser", TEST_PASSWORD).await,
+        Status::Ok
+    );
 
     // Missing header: rejected.
-    let resp = client
-        .post("/api/v2/auth/mfa/setup")
-        .dispatch()
-        .await;
+    let resp = client.post("/api/v2/auth/mfa/setup").dispatch().await;
     assert_eq!(resp.status(), Status::Forbidden);
 
     // Wrong header value: rejected.
@@ -1747,7 +1777,10 @@ async fn csrf_header_required_for_cookie_auth_mutations_but_not_api_key() {
 async fn set_password_only_works_once_for_passwordless_accounts() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
-    assert_eq!(register(&client, "oauthlike", TEST_PASSWORD).await, Status::Ok);
+    assert_eq!(
+        register(&client, "oauthlike", TEST_PASSWORD).await,
+        Status::Ok
+    );
 
     // Simulate an OAuth-created account: no password set yet.
     let state = client.rocket().state::<PortState>().unwrap();
@@ -1809,7 +1842,8 @@ async fn sessions_record_user_agent_and_ip() {
     assert_eq!(resp.status(), Status::Ok);
 
     let resp = client.get("/api/v2/auth/sessions").dispatch().await;
-    let sessions: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let sessions: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(sessions[0]["user_agent"], "test-agent/1.0");
     assert!(sessions[0]["ip"].is_string());
     assert!(sessions[0]["last_seen_at"].is_string());
@@ -1838,7 +1872,10 @@ async fn breached_password_is_rejected_on_register() {
 async fn audit_log_records_login_and_password_change() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
-    assert_eq!(register(&client, "audituser", TEST_PASSWORD).await, Status::Ok);
+    assert_eq!(
+        register(&client, "audituser", TEST_PASSWORD).await,
+        Status::Ok
+    );
     client.post("/api/v2/auth/logout").dispatch().await;
 
     let resp = client
@@ -1864,7 +1901,8 @@ async fn audit_log_records_login_and_password_change() {
 
     let resp = client.get("/api/v2/auth/audit-log").dispatch().await;
     assert_eq!(resp.status(), Status::Ok);
-    let entries: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let entries: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     let events: Vec<&str> = entries
         .as_array()
         .unwrap()
@@ -1880,7 +1918,10 @@ async fn audit_log_records_login_and_password_change() {
 async fn account_deletion_reassigns_carts_to_legacy_and_wipes_account() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
-    assert_eq!(register(&client, "deleteme", TEST_PASSWORD).await, Status::Ok);
+    assert_eq!(
+        register(&client, "deleteme", TEST_PASSWORD).await,
+        Status::Ok
+    );
 
     let resp = client
         .post("/api/carts")
@@ -1906,7 +1947,8 @@ async fn account_deletion_reassigns_carts_to_legacy_and_wipes_account() {
     assert_eq!(resp.status(), Status::NoContent);
 
     let resp = client.get(format!("/api/v2/carts/{id}")).dispatch().await;
-    let detail: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let detail: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(detail["owner"], "legacy");
 
     // The account no longer exists.
@@ -1925,7 +1967,10 @@ async fn account_deletion_reassigns_carts_to_legacy_and_wipes_account() {
 async fn data_export_includes_profile_and_owned_carts() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
-    assert_eq!(register(&client, "exportuser", TEST_PASSWORD).await, Status::Ok);
+    assert_eq!(
+        register(&client, "exportuser", TEST_PASSWORD).await,
+        Status::Ok
+    );
 
     let resp = client
         .post("/api/carts")
@@ -1941,7 +1986,8 @@ async fn data_export_includes_profile_and_owned_carts() {
 
     let resp = client.get("/api/v2/auth/export").dispatch().await;
     assert_eq!(resp.status(), Status::Ok);
-    let export: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let export: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(export["profile"]["username"], "exportuser");
     assert_eq!(export["carts"].as_array().unwrap().len(), 1);
     assert_eq!(export["carts"][0]["title"], "Mine");
@@ -1951,7 +1997,10 @@ async fn data_export_includes_profile_and_owned_carts() {
 async fn webauthn_login_start_400_when_not_configured() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
-    assert_eq!(register(&client, "nopasskeys", TEST_PASSWORD).await, Status::Ok);
+    assert_eq!(
+        register(&client, "nopasskeys", TEST_PASSWORD).await,
+        Status::Ok
+    );
 
     // Test PortState has no CAIVEN_BASE_URL, so webauthn is unconfigured
     // regardless of whether the account has passkeys.

@@ -7,7 +7,7 @@
 //! text-only clients and screen readers, plus an HTML body styled to match
 //! Caiven's "Obsidian & Ember" brand (see `docs/brand-colors.md`).
 
-use lettre::message::{header::ContentType, MultiPart, SinglePart};
+use lettre::message::{MultiPart, SinglePart, header::ContentType};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
@@ -50,11 +50,19 @@ impl Mailer {
             .from(self.from.parse()?)
             .to(to.parse()?)
             .subject(subject)
-            .multipart(MultiPart::alternative().singlepart(
-                SinglePart::builder().header(ContentType::TEXT_PLAIN).body(plain),
-            ).singlepart(
-                SinglePart::builder().header(ContentType::TEXT_HTML).body(html),
-            ))?;
+            .multipart(
+                MultiPart::alternative()
+                    .singlepart(
+                        SinglePart::builder()
+                            .header(ContentType::TEXT_PLAIN)
+                            .body(plain),
+                    )
+                    .singlepart(
+                        SinglePart::builder()
+                            .header(ContentType::TEXT_HTML)
+                            .body(html),
+                    ),
+            )?;
         self.transport.send(email).await?;
         Ok(())
     }
@@ -72,7 +80,8 @@ impl Mailer {
             ),
             Some(("Confirm email", link)),
         );
-        self.send_multipart(to, "Confirm your Caiven account", plain, html).await
+        self.send_multipart(to, "Confirm your Caiven account", plain, html)
+            .await
     }
 
     pub async fn send_password_reset(&self, to: &str, link: &str) -> anyhow::Result<()> {
@@ -88,15 +97,22 @@ impl Mailer {
             ),
             Some(("Reset password", link)),
         );
-        self.send_multipart(to, "Reset your Caiven password", plain, html).await
+        self.send_multipart(to, "Reset your Caiven password", plain, html)
+            .await
     }
 
     /// Generic security-event notification (new sign-in, password changed,
     /// all sessions revoked, 2FA enabled/disabled, password set on an
     /// OAuth-only account).
-    pub async fn send_security_alert(&self, to: &str, subject: &str, body: &str) -> anyhow::Result<()> {
+    pub async fn send_security_alert(
+        &self,
+        to: &str,
+        subject: &str,
+        body: &str,
+    ) -> anyhow::Result<()> {
         let html = email_shell(subject, &paragraphs_to_html(body), None);
-        self.send_multipart(to, subject, body.to_string(), html).await
+        self.send_multipart(to, subject, body.to_string(), html)
+            .await
     }
 }
 
@@ -158,7 +174,12 @@ fn escape_html(s: &str) -> String {
 /// Splits a plain-text body on blank lines into escaped `<p>` blocks.
 fn paragraphs_to_html(text: &str) -> String {
     text.split("\n\n")
-        .map(|para| format!("<p style=\"{P_STYLE}\">{}</p>", escape_html(para).replace('\n', "<br>")))
+        .map(|para| {
+            format!(
+                "<p style=\"{P_STYLE}\">{}</p>",
+                escape_html(para).replace('\n', "<br>")
+            )
+        })
         .collect::<Vec<_>>()
         .join("")
 }
@@ -220,7 +241,10 @@ mod tests {
         let html = email_shell(
             "Confirm your email",
             "<p>body</p>",
-            Some(("Confirm email", "https://port.caiven.dev/verify-email?token=abc123")),
+            Some((
+                "Confirm email",
+                "https://port.caiven.dev/verify-email?token=abc123",
+            )),
         );
         assert!(html.contains("Confirm your email"));
         assert!(html.contains("https://port.caiven.dev/verify-email?token=abc123"));

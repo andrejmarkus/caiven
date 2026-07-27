@@ -137,21 +137,13 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .primary_key(),
                     )
-                    .col(
-                        ColumnDef::new(OauthIdentities::UserId)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(OauthIdentities::UserId).string().not_null())
                     .col(
                         ColumnDef::new(OauthIdentities::Provider)
                             .string()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(OauthIdentities::Subject)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(OauthIdentities::Subject).string().not_null())
                     .col(ColumnDef::new(OauthIdentities::Email).string().null())
                     .col(
                         ColumnDef::new(OauthIdentities::CreatedAt)

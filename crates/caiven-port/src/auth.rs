@@ -652,7 +652,10 @@ impl<'r> FromRequest<'r> for AuthUser {
 }
 
 fn is_unsafe_method(method: Method) -> bool {
-    matches!(method, Method::Post | Method::Put | Method::Patch | Method::Delete)
+    matches!(
+        method,
+        Method::Post | Method::Put | Method::Patch | Method::Delete
+    )
 }
 
 fn csrf_ok(req: &Request<'_>) -> bool {
@@ -694,7 +697,11 @@ impl<'r> FromRequest<'r> for VerifiedUser {
             Outcome::Error(e) => return Outcome::Error(e),
             Outcome::Forward(f) => return Outcome::Forward(f),
         };
-        let Some(model) = users::Entity::find_by_id(&user.id).one(&state.db).await.ok().flatten()
+        let Some(model) = users::Entity::find_by_id(&user.id)
+            .one(&state.db)
+            .await
+            .ok()
+            .flatten()
         else {
             return Outcome::Error((Status::Unauthorized, ()));
         };

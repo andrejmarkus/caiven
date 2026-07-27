@@ -25,7 +25,11 @@ pub const LEGACY_USER_ID: &str = "00000000-0000-0000-0000-000000000001";
 /// so a database that's never had one (e.g. every fresh install) won't have
 /// this row until the first account deletion needs it.
 pub async fn ensure_legacy_user<C: ConnectionTrait>(db: &C) -> Result<()> {
-    if UserEntity::find_by_id(LEGACY_USER_ID).one(db).await?.is_some() {
+    if UserEntity::find_by_id(LEGACY_USER_ID)
+        .one(db)
+        .await?
+        .is_some()
+    {
         return Ok(());
     }
     users::ActiveModel {

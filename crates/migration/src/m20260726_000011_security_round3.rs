@@ -82,7 +82,11 @@ impl MigrationTrait for Migration {
                             .string()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(WebauthnCredentials::LastUsedAt).string().null())
+                    .col(
+                        ColumnDef::new(WebauthnCredentials::LastUsedAt)
+                            .string()
+                            .null(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_webauthn_credentials_user")
@@ -116,11 +120,7 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(WebauthnChallenges::UserId).string().null())
-                    .col(
-                        ColumnDef::new(WebauthnChallenges::Kind)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(WebauthnChallenges::Kind).string().not_null())
                     .col(
                         ColumnDef::new(WebauthnChallenges::StateJson)
                             .text()

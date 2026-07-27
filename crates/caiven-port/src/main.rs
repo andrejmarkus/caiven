@@ -80,7 +80,10 @@ struct Args {
     discord_client_secret: Option<String>,
 }
 
-fn provider_pair(id: Option<String>, secret: Option<String>) -> Option<caiven_port::oauth::ProviderConfig> {
+fn provider_pair(
+    id: Option<String>,
+    secret: Option<String>,
+) -> Option<caiven_port::oauth::ProviderConfig> {
     match (id, secret) {
         (Some(client_id), Some(client_secret)) => Some(caiven_port::oauth::ProviderConfig {
             client_id,

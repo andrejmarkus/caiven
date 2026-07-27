@@ -17,14 +17,14 @@ use webauthn_rs::prelude::Passkey;
 
 use crate::{
     PortState,
-    auth::{self, AuthUser, ClientIp, CSRF_COOKIE, SESSION_COOKIE, UserAgent},
+    auth::{self, AuthUser, CSRF_COOKIE, ClientIp, SESSION_COOKIE, UserAgent},
     db,
     entities::{
         api_tokens, audit_log as audit_log_entity, carts, oauth_identities, sessions, users,
         webauthn_credentials,
     },
     error::ApiError,
-    mailer, oauth,
+    mailer,
     models::{
         AuditEntry, AuthConfigInfo, DeleteAccountInput, ForgotPasswordInput, LoginInput,
         LoginMfaInput, LoginOutcome, MfaConfirmInput, MfaConfirmed, MfaDisableInput, MfaSetupInfo,
@@ -33,7 +33,7 @@ use crate::{
         WebauthnLoginFinishInput, WebauthnLoginStartInput, WebauthnRegisterFinishInput,
         WebauthnStartResponse,
     },
-    turnstile,
+    oauth, turnstile,
 };
 
 const REGISTER_LIMIT: u32 = 5;
@@ -81,7 +81,10 @@ fn validate_password(password: &str) -> Result<(), ApiError> {
             "password must contain at least one uppercase letter",
         ));
     }
-    if !password.chars().any(|c| !c.is_alphanumeric() && !c.is_whitespace()) {
+    if !password
+        .chars()
+        .any(|c| !c.is_alphanumeric() && !c.is_whitespace())
+    {
         return Err(ApiError::bad_request(
             "password must contain at least one special character",
         ));
@@ -853,7 +856,9 @@ pub async fn mfa_setup(
         .map_err(|e| ApiError::internal(e.to_string()))?
         .ok_or(ApiError::Unauthorized)?;
     if model.mfa_enabled {
-        return Err(ApiError::conflict("two-factor authentication is already enabled"));
+        return Err(ApiError::conflict(
+            "two-factor authentication is already enabled",
+        ));
     }
 
     // Generating a fresh secret here (rather than reusing any prior pending
@@ -1087,9 +1092,10 @@ async fn oauth_callback_inner(
     }
 
     let redirect_uri = oauth_redirect_uri(state, provider);
-    let identity = oauth::exchange_and_fetch(&state.http, provider, cfg, &code, &redirect_uri, verifier)
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    let identity =
+        oauth::exchange_and_fetch(&state.http, provider, cfg, &code, &redirect_uri, verifier)
+            .await
+            .map_err(|e| ApiError::internal(e.to_string()))?;
 
     // Already linked: log that user in.
     if let Some(link) = oauth_identities::Entity::find()
@@ -1270,11 +1276,10 @@ pub async fn webauthn_register_start(
         .webauthn
         .as_ref()
         .ok_or_else(|| ApiError::bad_request("passkeys are not configured on this server"))?;
-    let user_id =
-        Uuid::parse_str(&user.id).map_err(|e| ApiError::internal(e.to_string()))?;
+    let user_id = Uuid::parse_str(&user.id).map_err(|e| ApiError::internal(e.to_string()))?;
     let existing = user_passkeys(state, &user.id).await?;
-    let exclude = (!existing.is_empty())
-        .then(|| existing.iter().map(|p| p.cred_id().clone()).collect());
+    let exclude =
+        (!existing.is_empty()).then(|| existing.iter().map(|p| p.cred_id().clone()).collect());
 
     let (ccr, reg_state) = webauthn
         .start_passkey_registration(user_id, &user.username, &user.username, exclude)
@@ -1282,10 +1287,8 @@ pub async fn webauthn_register_start(
     let state_json =
         serde_json::to_string(&reg_state).map_err(|e| ApiError::internal(e.to_string()))?;
     let token =
-        auth::create_webauthn_challenge(&state.db, Some(&user.id), "register", state_json)
-            .await?;
-    let options =
-        serde_json::to_value(&ccr).map_err(|e| ApiError::internal(e.to_string()))?;
+        auth::create_webauthn_challenge(&state.db, Some(&user.id), "register", state_json).await?;
+    let options = serde_json::to_value(&ccr).map_err(|e| ApiError::internal(e.to_string()))?;
     Ok(Json(WebauthnStartResponse { token, options }))
 }
 
@@ -1307,7 +1310,9 @@ pub async fn webauthn_register_finish(
             .await?
             .ok_or_else(|| ApiError::bad_request("invalid or expired challenge"))?;
     if challenge_user.as_deref() != Some(user.id.as_str()) {
-        return Err(ApiError::bad_request("challenge does not belong to this account"));
+        return Err(ApiError::bad_request(
+            "challenge does not belong to this account",
+        ));
     }
     let reg_state: webauthn_rs::prelude::PasskeyRegistration =
         serde_json::from_str(&state_json).map_err(|e| ApiError::internal(e.to_string()))?;
@@ -1336,12 +1341,23 @@ pub async fn webauthn_register_finish(
         .await
         .map_err(|e| ApiError::internal(e.to_string()))?
     {
-        auth::audit(&state.db, &user.id, "passkey_registered", None, None, Some(&input.label)).await;
+        auth::audit(
+            &state.db,
+            &user.id,
+            "passkey_registered",
+            None,
+            None,
+            Some(&input.label),
+        )
+        .await;
         alert_email(
             state,
             &model,
             "A passkey was added to your Caiven account",
-            &format!("A new passkey (\"{}\") was just added to your account.", input.label),
+            &format!(
+                "A new passkey (\"{}\") was just added to your account.",
+                input.label
+            ),
         )
         .await;
     }
@@ -1543,7 +1559,15 @@ pub async fn delete_account(
 
     // Record the audit entry (and email, best-effort) *before* deleting —
     // both reference the row we're about to remove.
-    auth::audit(&state.db, &user.id, "account_deleted", Some(&ip.0), ua.0.as_deref(), None).await;
+    auth::audit(
+        &state.db,
+        &user.id,
+        "account_deleted",
+        Some(&ip.0),
+        ua.0.as_deref(),
+        None,
+    )
+    .await;
     alert_email(
         state,
         &model,
@@ -1583,7 +1607,10 @@ pub async fn delete_account(
 }
 
 #[get("/api/v2/auth/export")]
-pub async fn export_data(state: &State<PortState>, user: AuthUser) -> Result<Json<serde_json::Value>, ApiError> {
+pub async fn export_data(
+    state: &State<PortState>,
+    user: AuthUser,
+) -> Result<Json<serde_json::Value>, ApiError> {
     let model = users::Entity::find_by_id(&user.id)
         .one(&state.db)
         .await

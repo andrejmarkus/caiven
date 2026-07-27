@@ -141,11 +141,7 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(MfaBackupCodes::UserId).string().not_null())
-                    .col(
-                        ColumnDef::new(MfaBackupCodes::CodeHash)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(MfaBackupCodes::CodeHash).string().not_null())
                     .col(ColumnDef::new(MfaBackupCodes::UsedAt).string().null())
                     .col(
                         ColumnDef::new(MfaBackupCodes::CreatedAt)
@@ -185,16 +181,8 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(MfaChallenges::UserId).string().not_null())
-                    .col(
-                        ColumnDef::new(MfaChallenges::ExpiresAt)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(MfaChallenges::CreatedAt)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(MfaChallenges::ExpiresAt).string().not_null())
+                    .col(ColumnDef::new(MfaChallenges::CreatedAt).string().not_null())
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_mfa_challenges_user")
