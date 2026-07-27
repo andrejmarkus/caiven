@@ -38,24 +38,25 @@ pub fn minify_lua(src: &str) -> String {
 
         // Long bracket: `[=*[ ... ]=*]`, either a raw long string or a
         // `--[=*[ ... ]=*]` long comment (handled by the caller below).
-        if c == b'[' {
-            if let Some(level) = long_bracket_level(bytes, i) {
-                let start = i;
-                let end = skip_long_bracket(bytes, i, level);
-                out.push_str(&src[start..end]);
-                i = end;
-                continue;
-            }
+        if c == b'['
+            && let Some(level) = long_bracket_level(bytes, i)
+        {
+            let start = i;
+            let end = skip_long_bracket(bytes, i, level);
+            out.push_str(&src[start..end]);
+            i = end;
+            continue;
         }
 
         // Comment: `--` optionally followed by a long bracket.
         if c == b'-' && i + 1 < n && bytes[i + 1] == b'-' {
             let after_dashes = i + 2;
-            if after_dashes < n && bytes[after_dashes] == b'[' {
-                if let Some(level) = long_bracket_level(bytes, after_dashes) {
-                    i = skip_long_bracket(bytes, after_dashes, level);
-                    continue;
-                }
+            if after_dashes < n
+                && bytes[after_dashes] == b'['
+                && let Some(level) = long_bracket_level(bytes, after_dashes)
+            {
+                i = skip_long_bracket(bytes, after_dashes, level);
+                continue;
             }
             // Line comment: skip to end of line (newline handled next loop).
             i = after_dashes;
@@ -82,7 +83,9 @@ pub fn minify_lua(src: &str) -> String {
         // Everything else (identifiers, operators, numbers, punctuation).
         // Decode a full char so non-ASCII bytes (e.g. UTF-8 identifiers)
         // round-trip correctly instead of being reinterpreted byte-by-byte.
-        let ch = src[i..].chars().next().unwrap();
+        let Some(ch) = src[i..].chars().next() else {
+            break;
+        };
         out.push(ch);
         i += ch.len_utf8();
     }

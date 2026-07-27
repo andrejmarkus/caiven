@@ -1,4 +1,5 @@
 use sea_orm_migration::prelude::*;
+use sea_orm_migration::sea_orm::{ConnectionTrait, Statement};
 
 pub struct Migration;
 
@@ -14,6 +15,41 @@ enum CartVersions {
     ContentHash,
 }
 
+async fn backfill_blob_hashes(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    let connection = manager.get_connection();
+    let backend = manager.get_database_backend();
+    let rows = connection
+        .query_all(Statement::from_string(
+            backend,
+            "SELECT cart_versions.id, cart_blobs.cart_data \
+             FROM cart_versions \
+             INNER JOIN cart_blobs ON cart_blobs.version_id = cart_versions.id",
+        ))
+        .await?;
+
+    for row in rows {
+        let id: String = row.try_get("", "id")?;
+        let cart_data: Vec<u8> = row.try_get("", "cart_data")?;
+        let content_hash = caiven_cart::content_hash(&cart_data).map_err(|error| {
+            DbErr::Custom(format!("cannot hash existing cart version {id}: {error}"))
+        })?;
+        let sql = match backend {
+            sea_orm_migration::sea_orm::DatabaseBackend::Postgres => {
+                "UPDATE cart_versions SET content_hash = $1 WHERE id = $2"
+            }
+            _ => "UPDATE cart_versions SET content_hash = ? WHERE id = ?",
+        };
+        connection
+            .execute(Statement::from_sql_and_values(
+                backend,
+                sql,
+                [content_hash.into(), id.into()],
+            ))
+            .await?;
+    }
+    Ok(())
+}
+
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
@@ -25,6 +61,7 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
+        backfill_blob_hashes(manager).await?;
         manager
             .create_index(
                 Index::create()

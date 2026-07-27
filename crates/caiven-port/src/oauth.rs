@@ -76,6 +76,16 @@ pub struct OAuthIdentity {
     pub suggested_username: String,
 }
 
+impl OAuthIdentity {
+    /// Email eligible for account linking. Provider ownership must be
+    /// verified independently of any matching Caiven account.
+    pub fn verified_email(&self) -> Option<&str> {
+        self.email_verified
+            .then_some(self.email.as_deref())
+            .flatten()
+    }
+}
+
 /// Random URL-safe PKCE code verifier (43 chars from 32 random bytes).
 pub fn new_code_verifier() -> String {
     let mut bytes = [0u8; 32];
@@ -312,5 +322,25 @@ mod rand_core_compat {
 
     pub fn fill_random(bytes: &mut [u8]) {
         OsRng.fill_bytes(bytes);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::OAuthIdentity;
+
+    fn identity(email_verified: bool) -> OAuthIdentity {
+        OAuthIdentity {
+            subject: "provider-user".into(),
+            email: Some("user@example.test".into()),
+            email_verified,
+            suggested_username: "user".into(),
+        }
+    }
+
+    #[test]
+    fn account_link_email_requires_provider_verification() {
+        assert_eq!(identity(true).verified_email(), Some("user@example.test"));
+        assert_eq!(identity(false).verified_email(), None);
     }
 }

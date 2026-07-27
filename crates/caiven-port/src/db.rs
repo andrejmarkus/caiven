@@ -1,7 +1,9 @@
+use std::path::Path;
+
 use anyhow::Result;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DatabaseBackend, DatabaseConnection,
-    EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set, TransactionTrait,
+    EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set, Statement, TransactionTrait,
     sea_query::{Expr, Order},
 };
 
@@ -85,6 +87,54 @@ pub async fn find_other_owner_by_content_hash(
         .await?
         .map(|cart| (cart.title, cart.author));
     Ok(hit)
+}
+
+/// Backfills hashes for pre-blob-storage versions whose bytes still live on
+/// disk. Blob-backed versions are handled inside migration 13; this startup
+/// pass closes the remaining legacy-file gap before uploads are accepted.
+pub async fn backfill_legacy_cart_content_hashes(
+    db: &DatabaseConnection,
+    data_dir: &Path,
+) -> Result<usize> {
+    let backend = db.get_database_backend();
+    let rows = db
+        .query_all(sea_orm::Statement::from_string(
+            backend,
+            "SELECT id, legacy_cart_path FROM cart_versions \
+             WHERE content_hash IS NULL AND legacy_cart_path IS NOT NULL",
+        ))
+        .await?;
+    let mut updated = 0;
+    for row in rows {
+        let id: String = row.try_get("", "id")?;
+        let legacy_path: String = row.try_get("", "legacy_cart_path")?;
+        let bytes = match tokio::fs::read(data_dir.join(&legacy_path)).await {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                log::warn!("cannot read legacy cart {legacy_path} for hash backfill: {error}");
+                continue;
+            }
+        };
+        let content_hash = match caiven_cart::content_hash(&bytes) {
+            Ok(hash) => hash,
+            Err(error) => {
+                log::warn!("cannot hash legacy cart {legacy_path}: {error}");
+                continue;
+            }
+        };
+        let sql = match backend {
+            DatabaseBackend::Postgres => "UPDATE cart_versions SET content_hash = $1 WHERE id = $2",
+            _ => "UPDATE cart_versions SET content_hash = ? WHERE id = ?",
+        };
+        db.execute(Statement::from_sql_and_values(
+            backend,
+            sql,
+            [content_hash.into(), id.into()],
+        ))
+        .await?;
+        updated += 1;
+    }
+    Ok(updated)
 }
 
 /// Create a new cart owned by `owner_id`, plus its version-1 row and blob.

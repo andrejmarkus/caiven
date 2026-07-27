@@ -120,6 +120,7 @@ async fn main() -> Result<()> {
     opt.max_connections(10);
     let db = Database::connect(opt).await?;
     migration::Migrator::up(&db, None).await?;
+    caiven_port::db::backfill_legacy_cart_content_hashes(&db, &args.data_dir).await?;
 
     let limits = Limits::default()
         .limit("data-form", 2.mebibytes())

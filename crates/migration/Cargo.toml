@@ -12,5 +12,6 @@ name = "migration"
 path = "src/main.rs"
 
 [dependencies]
+caiven-cart = { workspace = true }
 sea-orm-migration = { workspace = true }
 tokio = { workspace = true }

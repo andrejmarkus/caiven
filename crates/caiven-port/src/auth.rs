@@ -441,8 +441,13 @@ pub async fn create_webauthn_challenge(
     kind: &str,
     state_json: String,
 ) -> anyhow::Result<String> {
+    let now = chrono::Utc::now();
+    webauthn_challenges::Entity::delete_many()
+        .filter(webauthn_challenges::Column::ExpiresAt.lt(now.to_rfc3339()))
+        .exec(db)
+        .await?;
     let token = random_secret();
-    let expires = chrono::Utc::now() + chrono::Duration::minutes(WEBAUTHN_CHALLENGE_MINUTES);
+    let expires = now + chrono::Duration::minutes(WEBAUTHN_CHALLENGE_MINUTES);
     webauthn_challenges::ActiveModel {
         id: Set(sha256_hex(&token)),
         user_id: Set(user_id.map(str::to_string)),
@@ -538,6 +543,10 @@ pub async fn is_breached_password(client: &reqwest::Client, password: &str) -> b
             return false;
         }
     };
+    pwned_response_contains_suffix(&body, suffix)
+}
+
+fn pwned_response_contains_suffix(body: &str, suffix: &str) -> bool {
     body.lines().any(|line| {
         line.split_once(':')
             .is_some_and(|(candidate, _count)| candidate.eq_ignore_ascii_case(suffix))
@@ -546,6 +555,18 @@ pub async fn is_breached_password(client: &reqwest::Client, password: &str) -> b
 
 fn to_hex_upper(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02X}")).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pwned_response_contains_suffix;
+
+    #[test]
+    fn breached_password_parser_matches_suffix_case_insensitively() {
+        let body = "001122:4\r\nAABBCC:99\r\n";
+        assert!(pwned_response_contains_suffix(body, "aabbcc"));
+        assert!(!pwned_response_contains_suffix(body, "ddeeff"));
+    }
 }
 
 async fn user_for_session(db: &DatabaseConnection, session_token: &str) -> Option<users::Model> {

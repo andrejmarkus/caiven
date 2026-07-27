@@ -7,7 +7,7 @@ use caiven_port::{
     PortState,
     auth::{self, CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE},
     build_rocket,
-    entities::{email_tokens, sessions, users, webauthn_credentials},
+    entities::{email_tokens, sessions, users, webauthn_challenges, webauthn_credentials},
 };
 use migration::MigratorTrait;
 use rocket::data::{Limits, ToByteUnit};
@@ -1162,6 +1162,76 @@ async fn legacy_carts_are_migrated_to_legacy_owner_with_v1() {
 }
 
 #[rocket::async_test]
+async fn existing_cart_versions_receive_content_hashes() {
+    let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
+    migration::Migrator::up(&db, Some(12)).await.unwrap();
+    db.execute_unprepared(
+        "INSERT INTO carts \
+            (id, title, author, description, tags, uploaded_at, downloads, owner_id, \
+             rating_count, rating_sum, plays) \
+         VALUES \
+            ('blob-cart', 'Blob', 'author', '', '', '2026-01-01T00:00:00Z', 0, NULL, 0, 0, 0), \
+            ('legacy-cart', 'Legacy', 'author', '', '', '2026-01-01T00:00:00Z', 0, NULL, 0, 0, 0)",
+    )
+    .await
+    .unwrap();
+    db.execute_unprepared(
+        "INSERT INTO cart_versions \
+            (id, cart_id, version, cart_size, changelog, has_screenshot, created_at, \
+             legacy_cart_path, editor_username) \
+         VALUES \
+            ('blob-version', 'blob-cart', 1, 0, '', 0, '2026-01-01T00:00:00Z', NULL, 'author'), \
+            ('legacy-version', 'legacy-cart', 1, 0, '', 0, '2026-01-01T00:00:00Z', \
+             'carts/legacy.cav', 'author')",
+    )
+    .await
+    .unwrap();
+    let cart = sample_cart();
+    db.execute(sea_orm::Statement::from_sql_and_values(
+        sea_orm::DatabaseBackend::Sqlite,
+        "INSERT INTO cart_blobs (version_id, cart_data, screenshot_data) VALUES (?, ?, NULL)",
+        ["blob-version".into(), cart.clone().into()],
+    ))
+    .await
+    .unwrap();
+
+    migration::Migrator::up(&db, None).await.unwrap();
+    let expected = caiven_cart::content_hash(&cart).unwrap();
+    let blob_hash: Option<String> = db
+        .query_one(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Sqlite,
+            "SELECT content_hash FROM cart_versions WHERE id = 'blob-version'",
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get("", "content_hash")
+        .unwrap();
+    assert_eq!(blob_hash.as_deref(), Some(expected.as_str()));
+
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("carts")).unwrap();
+    std::fs::write(dir.path().join("carts/legacy.cav"), &cart).unwrap();
+    assert_eq!(
+        caiven_port::db::backfill_legacy_cart_content_hashes(&db, dir.path())
+            .await
+            .unwrap(),
+        1
+    );
+    let legacy_hash: Option<String> = db
+        .query_one(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Sqlite,
+            "SELECT content_hash FROM cart_versions WHERE id = 'legacy-version'",
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get("", "content_hash")
+        .unwrap();
+    assert_eq!(legacy_hash.as_deref(), Some(expected.as_str()));
+}
+
+#[rocket::async_test]
 async fn play_event_is_idempotent_per_cart_session() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
@@ -1863,24 +1933,33 @@ async fn sessions_record_user_agent_and_ip() {
     assert!(sessions[0]["last_seen_at"].is_string());
 }
 
-// ── security round 3: breached-password, audit log, passkeys, deletion/export ──
-
 #[rocket::async_test]
-async fn breached_password_is_rejected_on_register() {
+async fn studio_link_polling_covers_advertised_lifetime() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
+    let start = client.post("/api/v2/auth/studio-link").dispatch().await;
+    assert_eq!(start.status(), Status::Ok);
+    let link: serde_json::Value =
+        serde_json::from_str(&start.into_string().await.unwrap()).unwrap();
+    let request = serde_json::json!({
+        "request_id": link["request_id"],
+        "poll_secret": link["poll_secret"],
+    })
+    .to_string();
 
-    // "Password1!" satisfies the format rules but is one of the most
-    // common breached passwords in existence, genuinely present in the
-    // real Pwned Passwords corpus this check calls.
-    let resp = client
-        .post("/api/v2/auth/register")
-        .header(ContentType::JSON)
-        .body(r#"{"username":"breached","password":"Password1!","email":"breached@example.test"}"#)
-        .dispatch()
-        .await;
-    assert_eq!(resp.status(), Status::BadRequest);
+    // Studio polls every two seconds for a ten-minute request lifetime.
+    for _ in 0..300 {
+        let poll = client
+            .post("/api/v2/auth/studio-link/poll")
+            .header(ContentType::JSON)
+            .body(request.clone())
+            .dispatch()
+            .await;
+        assert_eq!(poll.status(), Status::Ok);
+    }
 }
+
+// ── security round 3: breached-password, audit log, passkeys, deletion/export ──
 
 #[rocket::async_test]
 async fn audit_log_records_login_and_password_change() {
@@ -2025,6 +2104,57 @@ async fn webauthn_login_start_400_when_not_configured() {
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::BadRequest);
+}
+
+#[rocket::async_test]
+async fn webauthn_login_start_is_rate_limited() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    for _ in 0..10 {
+        let response = client
+            .post("/api/v2/auth/webauthn/login/start")
+            .header(ContentType::JSON)
+            .body(r#"{"identifier":"unknown"}"#)
+            .dispatch()
+            .await;
+        assert_eq!(response.status(), Status::BadRequest);
+    }
+    let response = client
+        .post("/api/v2/auth/webauthn/login/start")
+        .header(ContentType::JSON)
+        .body(r#"{"identifier":"unknown"}"#)
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::TooManyRequests);
+}
+
+#[rocket::async_test]
+async fn creating_webauthn_challenge_removes_expired_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    let state = client.rocket().state::<PortState>().unwrap();
+    webauthn_challenges::ActiveModel {
+        id: Set("expired".into()),
+        user_id: Set(None),
+        kind: Set("authenticate".into()),
+        state_json: Set("{}".into()),
+        expires_at: Set((chrono::Utc::now() - chrono::Duration::minutes(1)).to_rfc3339()),
+        created_at: Set((chrono::Utc::now() - chrono::Duration::minutes(6)).to_rfc3339()),
+    }
+    .insert(&state.db)
+    .await
+    .unwrap();
+
+    auth::create_webauthn_challenge(&state.db, None, "authenticate", "{}".into())
+        .await
+        .unwrap();
+    assert!(
+        webauthn_challenges::Entity::find_by_id("expired")
+            .one(&state.db)
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[rocket::async_test]

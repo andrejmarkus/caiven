@@ -51,6 +51,9 @@ const FORGOT_WINDOW: Duration = Duration::from_secs(3600);
 const STUDIO_LINK_LIMIT: u32 = 10;
 const STUDIO_LINK_WINDOW: Duration = Duration::from_secs(10 * 60);
 const STUDIO_LINK_TTL_MINUTES: i64 = 10;
+const STUDIO_LINK_POLL_LIMIT: u32 = 330;
+const PASSKEY_LOGIN_START_LIMIT: u32 = 10;
+const PASSKEY_LOGIN_START_WINDOW: Duration = Duration::from_secs(5 * 60);
 
 const OAUTH_STATE_COOKIE: &str = "caiven_oauth";
 const OAUTH_PATH: &str = "/api/v2/auth/oauth";
@@ -884,7 +887,7 @@ pub async fn studio_link_poll(
     if state
         .rate
         .hit("studio-link-poll", &ip.0, STUDIO_LINK_WINDOW)
-        > STUDIO_LINK_LIMIT * 12
+        > STUDIO_LINK_POLL_LIMIT
     {
         return Err(ApiError::TooManyRequests(
             "too many Studio link polls".into(),
@@ -1345,8 +1348,9 @@ async fn oauth_callback_inner(
     // Link to an existing account with a matching, already-verified email —
     // never auto-link to an unverified email, to avoid account takeover via
     // a spoofed email at the OAuth provider.
+    let verified_email_normalized = identity.verified_email().map(auth::normalize_email);
     let email_normalized = identity.email.as_deref().map(auth::normalize_email);
-    if let Some(norm) = &email_normalized
+    if let Some(norm) = &verified_email_normalized
         && let Some(existing) = users::Entity::find()
             .filter(users::Column::EmailNormalized.eq(norm))
             .filter(users::Column::EmailVerified.eq(true))
@@ -1607,8 +1611,18 @@ pub async fn webauthn_register_finish(
 #[post("/api/v2/auth/webauthn/login/start", data = "<input>")]
 pub async fn webauthn_login_start(
     state: &State<PortState>,
+    ip: ClientIp,
     input: Json<WebauthnLoginStartInput>,
 ) -> Result<Json<WebauthnStartResponse>, ApiError> {
+    if state
+        .rate
+        .hit("webauthn-login-start", &ip.0, PASSKEY_LOGIN_START_WINDOW)
+        > PASSKEY_LOGIN_START_LIMIT
+    {
+        return Err(ApiError::TooManyRequests(
+            "too many passkey login requests".into(),
+        ));
+    }
     let webauthn = state
         .webauthn
         .as_ref()

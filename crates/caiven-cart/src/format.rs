@@ -168,10 +168,11 @@ pub fn content_hash(data: &[u8]) -> Result<String, CartError> {
 }
 
 fn hex_encode(bytes: &[u8]) -> String {
-    use std::fmt::Write;
+    const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut s = String::with_capacity(bytes.len() * 2);
     for b in bytes {
-        write!(s, "{b:02x}").unwrap();
+        s.push(HEX[(b >> 4) as usize] as char);
+        s.push(HEX[(b & 0x0f) as usize] as char);
     }
     s
 }

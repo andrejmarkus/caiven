@@ -349,7 +349,7 @@ jobs:
   release:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, lint, doc, machine-artifacts, studio-bundles]
+    needs: [build, lint, security, doc, machine-artifacts, studio-bundles]
     runs-on: ubuntu-latest
     permissions:
       contents: write
