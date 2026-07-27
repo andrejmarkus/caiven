@@ -1,7 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-  import { Check, PanelRightOpen, WifiOff } from '@lucide/svelte';
+  import { PanelRightOpen, WifiOff } from '@lucide/svelte';
+  import { Button } from '@caiven/ui/button';
+  import * as Tooltip from '@caiven/ui/tooltip';
+  import { Toaster, toast } from '@caiven/ui/sonner';
   import Header from './components/Header.svelte';
   import ModeRail from './components/ModeRail.svelte';
   import Workspace from './components/Workspace.svelte';
@@ -37,7 +40,6 @@
   let consoleWidth = $state(604);
   let resizing = $state(false);
   let overlay = $state<'palette' | 'publish' | 'tour' | 'focus' | 'module' | 'new-cart' | null>(null);
-  let toast = $state('');
   let status = $state('Starting Studio…');
   let frameData = $state<Uint8Array | null>(null);
   let frameTime = $state(5.2);
@@ -129,8 +131,7 @@
   }
 
   function showToast(message: string) {
-    toast = message;
-    setTimeout(() => { if (toast === message) toast = ''; }, 2600);
+    toast(message);
   }
 
   function confirmDiscard(action: string) {
@@ -755,6 +756,7 @@
   });
 </script>
 
+<Tooltip.Provider delayDuration={300}>
 <div class="studio-app" class:drawer-open={drawerOpen}>
   <Header
     title={studio.title}
@@ -864,9 +866,9 @@
             onClose={() => consoleOpen = false}
           />
         {:else if consoleRelevant}
-          <button class="console-reopen" title="Show console" onclick={() => consoleOpen = true}>
+          <Button variant="ghost" class="console-reopen" title="Show console" onclick={() => consoleOpen = true}>
             <PanelRightOpen size={14} /><span>Console</span>
-          </button>
+          </Button>
         {/if}
       </div>
       <Drawer
@@ -913,10 +915,9 @@
     onCreateModule={doCreateModule}
   />
 
-  {#if toast}
-    <div class="studio-toast"><Check size={15} /><span>{toast}</span></div>
-  {/if}
+  <Toaster position="bottom-right" richColors />
   {#if !studio.connected}
     <div class="preview-badge" title="Open through Tauri for live VM and filesystem access"><WifiOff size={12} />Preview</div>
   {/if}
 </div>
+</Tooltip.Provider>

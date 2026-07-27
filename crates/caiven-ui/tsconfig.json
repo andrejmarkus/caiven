@@ -1,10 +1,13 @@
 {
-  "extends": "@tsconfig/svelte/tsconfig.json",
   "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
     "moduleResolution": "bundler",
     "strict": true,
     "baseUrl": ".",
     "paths": {
+      "@caiven/ui": ["./src/components/ui"],
+      "@caiven/ui/components": ["./src/components"],
       "@caiven/ui/utils": ["./src/utils.ts"],
       "@caiven/ui/*": ["./src/components/ui/*/index.ts"]
     }

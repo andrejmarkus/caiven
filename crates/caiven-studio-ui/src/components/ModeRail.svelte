@@ -3,6 +3,7 @@
     ChevronsLeftRight, Image, Volume2, Layers, Package, Library,
     BookOpen, CircleHelp, House,
   } from '@lucide/svelte';
+  import { Button } from '@caiven/ui/button';
   import type { Screen } from '../types';
 
   interface Props {
@@ -29,18 +30,18 @@
 <nav class="mode-rail" aria-label="Studio modes">
   {#each modes as mode}
     {@const Icon = mode.icon}
-    <button class:active={mode.active} title={`${mode.label}${mode.key ? ` — ${mode.key}` : ''}`} onclick={() => onNavigate(mode.id)}>
+    <Button variant="ghost" class={mode.active ? 'active' : undefined} title={`${mode.label}${mode.key ? ` — ${mode.key}` : ''}`} onclick={() => onNavigate(mode.id)}>
       <Icon size={20} />
       <span>{mode.label}</span>
-    </button>
+    </Button>
   {/each}
   <div class="rail-spacer"></div>
-  <button title="Take guided tour" onclick={onTour}>
+  <Button variant="ghost" title="Take guided tour" onclick={onTour}>
     <CircleHelp size={20} />
     <span>Learn</span>
-  </button>
-  <button class:active={screen === 'welcome'} title="Start screen" onclick={() => onNavigate('welcome')}>
+  </Button>
+  <Button variant="ghost" class={screen === 'welcome' ? 'active' : undefined} title="Start screen" onclick={() => onNavigate('welcome')}>
     <House size={20} />
     <span>Start</span>
-  </button>
+  </Button>
 </nav>

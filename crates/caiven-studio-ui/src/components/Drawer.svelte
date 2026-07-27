@@ -3,6 +3,10 @@
     Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Cpu, Eraser,
     Info, SquareTerminal, TriangleAlert,
   } from '@lucide/svelte';
+  import { Button } from '@caiven/ui/button';
+  import { Input } from '@caiven/ui/input';
+  import * as Select from '@caiven/ui/select';
+  import * as Tabs from '@caiven/ui/tabs';
   import type { Diagnostic } from '../types';
   import {
     MEMORY_PAGE_SIZE, MEMORY_REGIONS, clampMemoryBase, formatMemoryAddress,
@@ -55,11 +59,6 @@
     goMemory(parsed);
   }
 
-  function jumpMemoryRegion() {
-    if (memoryRegion) goMemory(Number(memoryRegion));
-    memoryRegion = '';
-  }
-
   function trackOutputScroll() {
     if (!outputViewport) return;
     followOutput = outputViewport.scrollHeight - outputViewport.scrollTop - outputViewport.clientHeight < 20;
@@ -73,24 +72,31 @@
       if (outputViewport) outputViewport.scrollTop = outputViewport.scrollHeight;
     });
   });
+
+  $effect(() => {
+    if (!memoryRegion) return;
+    goMemory(Number(memoryRegion));
+    memoryRegion = '';
+  });
 </script>
 
 <section class="bottom-drawer" class:open>
-  <div class="drawer-tabs" role="tablist" aria-label="Studio messages and memory">
-    <button role="tab" class:active={open && tab === 'problems'} aria-selected={open && tab === 'problems'} onclick={() => onTab('problems')}>
+  <Tabs.Root value={tab} class="contents">
+  <Tabs.List class="drawer-tabs" aria-label="Studio messages and memory">
+    <Tabs.Trigger value="problems" class={open && tab === 'problems' ? 'active' : undefined} onclick={() => onTab('problems')}>
       Problems <span class:danger-badge={errorCount > 0}>{diagnostics.length}</span>
-    </button>
-    <button role="tab" class:active={open && tab === 'output'} aria-selected={open && tab === 'output'} onclick={() => onTab('output')}>
+    </Tabs.Trigger>
+    <Tabs.Trigger value="output" class={open && tab === 'output' ? 'active' : undefined} onclick={() => onTab('output')}>
       Output <span>{output.length}</span>
-    </button>
-    <button role="tab" class:active={open && tab === 'memory'} aria-selected={open && tab === 'memory'} onclick={() => onTab('memory')}>
+    </Tabs.Trigger>
+    <Tabs.Trigger value="memory" class={open && tab === 'memory' ? 'active' : undefined} onclick={() => onTab('memory')}>
       Memory <span>64K</span>
-    </button>
+    </Tabs.Trigger>
     <code title={status}>{status}</code>
-    <button class="drawer-toggle" aria-label={open ? 'Collapse drawer' : 'Expand drawer'} title={open ? 'Collapse drawer' : 'Expand drawer'} onclick={onToggle}>
+    <Button class="drawer-toggle" aria-label={open ? 'Collapse drawer' : 'Expand drawer'} title={open ? 'Collapse drawer' : 'Expand drawer'} onclick={onToggle}>
       {#if open}<ChevronDown size={15} />{:else}<ChevronUp size={15} />{/if}
-    </button>
-  </div>
+    </Button>
+  </Tabs.List>
 
   {#if open}
     <div class="drawer-content">
@@ -98,11 +104,11 @@
         <div class="problems-list">
           {#each diagnostics as problem}
             {@const Icon = problem.severity === 'error' ? TriangleAlert : problem.severity === 'success' ? Check : Info}
-            <button class="problem-row {problem.severity}" onclick={() => onJump(problem)}>
+            <Button class="problem-row {problem.severity}" onclick={() => onJump(problem)}>
               <Icon size={15} />
               <div><strong>{problem.title}</strong><p>{problem.detail}</p></div>
               <code>{problem.path}{problem.line ? `:${problem.line}` : ''}</code>
-            </button>
+            </Button>
           {/each}
           {#if diagnostics.length === 0}
             <article class="problem-row success"><Check size={15} /><div><strong>No problems</strong><p>Latest compile and VM state are clean.</p></div></article>
@@ -112,7 +118,7 @@
         <div class="output-pane">
           <div class="drawer-toolbar output-toolbar">
             <span><SquareTerminal size={14} /><strong>Cart print stream</strong><code>{output.length}/200 lines</code></span>
-            <button disabled={!output.length} onclick={onClearOutput}><Eraser size={13} />Clear</button>
+            <Button disabled={!output.length} onclick={onClearOutput}><Eraser size={13} />Clear</Button>
           </div>
           <div class="output-scroll" bind:this={outputViewport} onscroll={trackOutputScroll}>
             {#if output.length}
@@ -129,14 +135,20 @@
           <div class="drawer-toolbar memory-toolbar">
             <span class="memory-title"><Cpu size={14} /><strong>RAM</strong><code>{ram.length ? `${ram.length / 1024} KiB` : 'disconnected'}</code></span>
             <div class="memory-pager">
-              <button aria-label="Previous memory page" title="Previous 96 bytes" disabled={resolvedMemoryBase === 0} onclick={() => shiftMemory(-1)}><ChevronLeft size={14} /></button>
-              <label class="memory-address"><span>Address</span><input bind:value={memoryAddress} spellcheck="false" onblur={commitMemoryAddress} onkeydown={(event) => { if (event.key === 'Enter') { commitMemoryAddress(); event.currentTarget.blur(); } }} /></label>
-              <button aria-label="Next memory page" title="Next 96 bytes" disabled={!ram.length || memoryEnd >= ram.length - 1} onclick={() => shiftMemory(1)}><ChevronRight size={14} /></button>
+              <Button aria-label="Previous memory page" title="Previous 96 bytes" disabled={resolvedMemoryBase === 0} onclick={() => shiftMemory(-1)}><ChevronLeft size={14} /></Button>
+              <label class="memory-address"><span>Address</span><Input bind:value={memoryAddress} spellcheck="false" onblur={commitMemoryAddress} onkeydown={(event) => { if (event.key === 'Enter') { commitMemoryAddress(); event.currentTarget.blur(); } }} /></label>
+              <Button aria-label="Next memory page" title="Next 96 bytes" disabled={!ram.length || memoryEnd >= ram.length - 1} onclick={() => shiftMemory(1)}><ChevronRight size={14} /></Button>
             </div>
-            <select bind:value={memoryRegion} aria-label="Jump to memory region" onchange={jumpMemoryRegion}>
-              <option value="">Jump to region…</option>
-              {#each MEMORY_REGIONS as region}<option value={region.address}>{formatMemoryAddress(region.address)} {region.label}</option>{/each}
-            </select>
+            <Select.Root type="single" bind:value={memoryRegion}>
+              <Select.Trigger size="sm" aria-label="Jump to memory region">
+                <span data-slot="select-value">Jump to region…</span>
+              </Select.Trigger>
+              <Select.Content>
+                {#each MEMORY_REGIONS as region}
+                  <Select.Item value={String(region.address)} label={`${formatMemoryAddress(region.address)} ${region.label}`} />
+                {/each}
+              </Select.Content>
+            </Select.Root>
             <code class="memory-range">{formatMemoryAddress(resolvedMemoryBase)}–{formatMemoryAddress(memoryEnd)}</code>
           </div>
           {#if memoryRows.length}
@@ -153,4 +165,5 @@
       {/if}
     </div>
   {/if}
+  </Tabs.Root>
 </section>

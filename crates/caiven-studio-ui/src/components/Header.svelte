@@ -2,6 +2,7 @@
   import {
     Play, Pause, RotateCcw, StepForward, Search, Save, Upload, Check,
   } from '@lucide/svelte';
+  import { Button } from '@caiven/ui/button';
   import type { RunState } from '../types';
   import { tidyPath } from '../lib/format';
 
@@ -28,13 +29,13 @@
 </script>
 
 <header class="studio-header">
-  <button class="brand-block" title="Caiven Studio home" onclick={onHome}>
+  <Button variant="ghost" class="brand-block" title="Caiven Studio home" onclick={onHome}>
     <span class="brand-mark"><span></span><i></i></span>
     <span class="brand-type">
       <strong>Caiven</strong>
       <small>Studio</small>
     </span>
-  </button>
+  </Button>
 
   <div class="cart-identity">
     <strong>{title || 'No cart open'}</strong>
@@ -43,17 +44,17 @@
   </div>
 
   <div class="transport" data-tour-target="run">
-    <button class="btn primary run-button" onclick={() => onTransport(running ? 'pause' : 'run')}>
+    <Button class="run-button" onclick={() => onTransport(running ? 'pause' : 'run')}>
       {#if running}<Pause size={15} />{:else}<Play size={15} fill="currentColor" />{/if}
       <span>{running ? 'Pause' : 'Run'}</span>
       <kbd>⌘R</kbd>
-    </button>
-    <button class="icon-btn" title="Reset" onclick={() => onTransport('reset')}>
+    </Button>
+    <Button variant="outline" size="icon" title="Reset" onclick={() => onTransport('reset')}>
       <RotateCcw size={16} />
-    </button>
-    <button class="icon-btn" title="Step one frame" disabled={running} onclick={() => onTransport('step')}>
+    </Button>
+    <Button variant="outline" size="icon" title="Step one frame" disabled={running} onclick={() => onTransport('step')}>
       <StepForward size={16} />
-    </button>
+    </Button>
     <div class="state-pill">
       <i class:running></i>
       <span>{running ? 'Running' : runState === 'paused' ? 'Paused' : 'Stopped'}</span>
@@ -64,11 +65,11 @@
 
   <span class="header-divider"></span>
 
-  <button class="command-field" onclick={onPalette}>
+  <Button variant="outline" class="command-field" onclick={onPalette}>
     <Search size={15} />
     <span>Search or run a command</span>
     <kbd>⌘K</kbd>
-  </button>
-  <button class="btn subtle" onclick={onSave}><Save size={15} />Save</button>
-  <button class="btn secondary" onclick={onPublish}><Upload size={15} />Publish</button>
+  </Button>
+  <Button variant="secondary" onclick={onSave}><Save size={15} />Save</Button>
+  <Button variant="outline" onclick={onPublish}><Upload size={15} />Publish</Button>
 </header>

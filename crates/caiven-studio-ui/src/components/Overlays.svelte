@@ -2,10 +2,15 @@
   import { onMount } from 'svelte';
   import { fade, fly } from 'svelte/transition';
   import {
-    Search, Play, Upload, Package, Image, Layers, ChevronsLeftRight,
+    Play, Upload, Package, Image, Layers, ChevronsLeftRight,
     Check, LoaderCircle, X, Pause, Minimize2, Sparkles, FilePlus2,
     FileCode2, FolderPlus, Gamepad2, Grid3X3, Trophy,
   } from '@lucide/svelte';
+  import { Button } from '@caiven/ui/button';
+  import { Input } from '@caiven/ui/input';
+  import * as Command from '@caiven/ui/command';
+  import * as Dialog from '@caiven/ui/dialog';
+  import { Progress } from '@caiven/ui/progress';
   import type { ApiEntry, CartMeta, CartTemplateSummary, PortSession, PublishProgress, Screen } from '../types';
   import { TOUR_STEPS, moveTourStep } from '../lib/tour';
 
@@ -48,9 +53,7 @@
   let tourWasOpen = $state(false);
   let tourLayout = $state('');
   let focusCanvas = $state<HTMLCanvasElement>();
-  let commandInput = $state<HTMLInputElement>();
   let moduleInput = $state<HTMLInputElement>();
-  let selectedCommand = $state(0);
   let moduleName = $state('module.lua');
   let moduleError = $state('');
   let moduleBusy = $state(false);
@@ -91,19 +94,6 @@
     onClose();
     if (command.screen) onNavigate(command.screen);
     command.action?.();
-  }
-
-  function commandKey(event: KeyboardEvent) {
-    if (!commands.length) return;
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      event.preventDefault();
-      const direction = event.key === 'ArrowDown' ? 1 : -1;
-      selectedCommand = (selectedCommand + direction + commands.length) % commands.length;
-      requestAnimationFrame(() => document.querySelector('.command-results button.selected')?.scrollIntoView({ block: 'nearest' }));
-    } else if (event.key === 'Enter') {
-      event.preventDefault();
-      activate(commands[selectedCommand]);
-    }
   }
 
   async function submitModule() {
@@ -197,14 +187,9 @@
   });
 
   $effect(() => {
-    overlay; query;
+    overlay;
     if (overlay === 'palette') {
-      if (!paletteWasOpen) {
-        query = '';
-        selectedCommand = 0;
-      }
-      selectedCommand = Math.min(selectedCommand, Math.max(0, commands.length - 1));
-      requestAnimationFrame(() => commandInput?.focus());
+      if (!paletteWasOpen) query = '';
     }
     paletteWasOpen = overlay === 'palette';
   });
@@ -241,33 +226,38 @@
   <div
     class="overlay-backdrop"
     class:tour-overlay={overlay === 'tour'}
+    class:primitive-overlay={overlay === 'palette' || overlay === 'new-cart' || overlay === 'module' || overlay === 'publish'}
     role="presentation"
     transition:fade={{ duration: 120 }}
     onclick={(event) => { if (event.currentTarget === event.target) onClose(); }}
     onkeydown={(event) => { if (event.key === 'Escape') onClose(); }}
   >
     {#if overlay === 'palette'}
-      <div class="command-palette" role="dialog" aria-label="Command palette" tabindex="-1" transition:fly={{ y: -8, duration: 180 }} onkeydown={commandKey}>
-        <div class="command-input"><Search size={18} /><input bind:this={commandInput} bind:value={query} placeholder="Search or run a command" /><kbd>esc</kbd></div>
-        <div class="command-results">
+      <Command.Dialog open title="Command palette" description="Search or run a Studio command" class="command-palette" onOpenChange={(open) => { if (!open) onClose(); }}>
+        <Command.Input bind:value={query} placeholder="Search or run a command" />
+        <Command.List class="command-results">
+          <Command.Empty>No matching commands.</Command.Empty>
           {#each ['Suggested','Go to','Insert a builtin'] as group}
             {@const items = commands.filter((command) => command.group === group)}
             {#if items.length}
-              <span class="eyebrow">{group}</span>
+              <Command.Group heading={group}>
               {#each items as command}
                 {@const Icon = command.icon}
-                <button class:selected={commands[selectedCommand] === command} onmouseenter={() => selectedCommand = commands.indexOf(command)} onclick={() => activate(command)}>
+                <Command.Item value={`${group}:${command.name}`} onSelect={() => activate(command)}>
                   <i><Icon size={15} /></i><span><strong>{command.name}</strong><small>{command.detail}</small></span>{#if command.keys}<kbd>{command.keys}</kbd>{/if}
-                </button>
+                </Command.Item>
               {/each}
+              </Command.Group>
             {/if}
           {/each}
-        </div>
+        </Command.List>
         <footer><span><kbd>↑↓</kbd> navigate</span><span><kbd>↵</kbd> select</span><span><kbd>esc</kbd> close</span></footer>
-      </div>
+      </Command.Dialog>
     {:else if overlay === 'new-cart'}
+      <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <Dialog.Content showCloseButton={false} class="dialog-frame">
       <form class="new-cart-dialog" aria-label="New cartridge from template" transition:fly={{ y: 8, duration: 180 }} onsubmit={(event) => { event.preventDefault(); void submitNewProject(); }}>
-        <button type="button" class="dialog-close" aria-label="Close" onclick={onClose}><X size={17} /></button>
+        <Button type="button" variant="ghost" size="icon-sm" class="dialog-close" aria-label="Close" onclick={onClose}><X size={17} /></Button>
         <header>
           <span class="eyebrow">New cartridge</span>
           <h2>Pick a world to start from.</h2>
@@ -275,10 +265,10 @@
         </header>
         <div class="template-grid">
           {#each templates as template}
-            <button
+            <Button
               type="button"
-              class="template-card"
-              class:selected={template.id === selectedTemplate}
+              variant="ghost"
+              class={`template-card${template.id === selectedTemplate ? ' selected' : ''}`}
               aria-pressed={template.id === selectedTemplate}
               onclick={() => { selectedTemplate = template.id; newCartError = ''; }}
               ondblclick={() => { selectedTemplate = template.id; void submitNewProject(); }}
@@ -299,31 +289,39 @@
               </span>
               <span class="template-copy"><strong>{template.name}</strong><small>{template.description}</small></span>
               <i class="template-check">{#if template.id === selectedTemplate}<Check size={12} />{/if}</i>
-            </button>
+            </Button>
           {/each}
         </div>
         {#if newCartError}<div class="new-cart-error" role="alert">{newCartError}</div>{/if}
         <footer>
           <span>{#if activeTemplate}<strong>{activeTemplate.name}</strong><small>Folder picker opens next.</small>{/if}</span>
-          <div><button type="button" class="btn secondary" onclick={onClose}>Cancel</button><button class="btn primary" disabled={newCartBusy || !selectedTemplate}>{#if newCartBusy}<LoaderCircle class="spin" size={15} />Creating…{:else}<FolderPlus size={15} />Choose folder{/if}</button></div>
+          <div><Button type="button" variant="outline" onclick={onClose}>Cancel</Button><Button disabled={newCartBusy || !selectedTemplate}>{#if newCartBusy}<LoaderCircle class="spin" size={15} />Creating…{:else}<FolderPlus size={15} />Choose folder{/if}</Button></div>
         </footer>
       </form>
+      </Dialog.Content>
+      </Dialog.Root>
     {:else if overlay === 'module'}
+      <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <Dialog.Content showCloseButton={false} class="dialog-frame">
       <form class="module-dialog" transition:fly={{ y: 8, duration: 180 }} onsubmit={(event) => { event.preventDefault(); void submitModule(); }}>
-        <button type="button" class="dialog-close" onclick={onClose}><X size={17} /></button>
+        <Button type="button" variant="ghost" size="icon-sm" class="dialog-close" onclick={onClose}><X size={17} /></Button>
         <span class="eyebrow">Project source</span>
         <h2>New Lua module</h2>
         <p>Use nested paths for folders, for example <code>ui/hud.lua</code>.</p>
         <label>
           Module path
-          <span><FilePlus2 size={15} /><input bind:this={moduleInput} bind:value={moduleName} aria-invalid={Boolean(moduleError)} autocomplete="off" spellcheck="false" /></span>
+          <span><FilePlus2 size={15} /><Input bind:ref={moduleInput} bind:value={moduleName} aria-invalid={Boolean(moduleError)} autocomplete="off" spellcheck="false" /></span>
         </label>
         {#if moduleError}<div class="form-error" role="alert">{moduleError}</div>{/if}
-        <footer><button type="button" class="btn secondary" onclick={onClose}>Cancel</button><button class="btn primary" disabled={moduleBusy || !moduleName.trim()}>{moduleBusy ? 'Creating…' : 'Create module'}</button></footer>
+        <footer><Button type="button" variant="outline" onclick={onClose}>Cancel</Button><Button disabled={moduleBusy || !moduleName.trim()}>{moduleBusy ? 'Creating…' : 'Create module'}</Button></footer>
       </form>
+      </Dialog.Content>
+      </Dialog.Root>
     {:else if overlay === 'publish'}
+      <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <Dialog.Content showCloseButton={false} class="dialog-frame">
       <section class="publish-dialog" transition:fly={{ y: 8, duration: 180 }}>
-        <button class="dialog-close" onclick={onClose}><X size={17} /></button>
+        <Button variant="ghost" size="icon-sm" class="dialog-close" onclick={onClose}><X size={17} /></Button>
         <span class="eyebrow">Publish {title || 'cart'}</span>
         <h2>{publishDone ? 'Cart shipped' : publishProgress ? 'Publishing to port' : 'Ship a new release'}</h2>
         <p>{publishError || publishDone || publishProgress?.note || (portAccount.authenticated ? `Signed in as ${portAccount.username}` : 'Log in from Library → Port before publishing.')}</p>
@@ -331,10 +329,8 @@
           <div>{#each Array(64) as _,p}<i style={`background:${palette[(p * 7 + 3) % 16]}`}></i>{/each}</div>
           <span><strong>{title}</strong><small>by {author}</small><code>{meta.tags.join(' · ') || 'untagged'}</code></span>
         </div>
-        {#if !publishProgress && !publishDone}<label class="publish-changelog">Changelog<input bind:value={changelog} placeholder="What changed?" /></label>{/if}
-        <div class="publish-progress">
-          <span style={`width:${publishProgress?.pct ?? (publishDone ? 100 : 0)}%`}></span>
-        </div>
+        {#if !publishProgress && !publishDone}<label class="publish-changelog">Changelog<Input bind:value={changelog} placeholder="What changed?" /></label>{/if}
+        <Progress class="publish-progress" value={publishProgress?.pct ?? (publishDone ? 100 : 0)} />
         <div class="publish-steps">
           {#each [['Pack cartridge','live buffers'],['Capture cover','30 frames'],['Upload to port','cartridge + PNG'],['Notify followers','server-side']] as row, index}
             <div class:done={Boolean(publishDone) || currentStep > index} class:busy={!publishDone && currentStep === index}>
@@ -342,15 +338,17 @@
             </div>
           {/each}
         </div>
-        <footer><button class="btn secondary" onclick={onClose}>{publishProgress && !publishDone ? 'Keep working' : 'Close'}</button>{#if !publishProgress && !publishDone}<button class="btn primary" disabled={!portAccount.authenticated} onclick={() => onStartPublish(changelog)}>Publish</button>{/if}</footer>
+        <footer><Button variant="outline" onclick={onClose}>{publishProgress && !publishDone ? 'Keep working' : 'Close'}</Button>{#if !publishProgress && !publishDone}<Button disabled={!portAccount.authenticated} onclick={() => onStartPublish(changelog)}>Publish</Button>{/if}</footer>
       </section>
+      </Dialog.Content>
+      </Dialog.Root>
     {:else if overlay === 'tour'}
       <div class="tour-layer" style={tourLayout}>
         <div class="tour-spotlight"></div>
         <div class="tour-popover" role="dialog" aria-live="polite" aria-label={`Tutorial step ${tourStep + 1}`} tabindex="-1" transition:fly={{ y: 8, duration: 180 }}>
           <nav class="tour-progress" aria-label="Tutorial steps">
             {#each TOUR_STEPS as step, index}
-              <button class:active={index === tourStep} class:done={index < tourStep} aria-current={index === tourStep ? 'step' : undefined} onclick={() => showTourStep(index)}><i>{index < tourStep ? '✓' : index + 1}</i><span>{step.eyebrow}</span></button>
+              <Button class={`${index === tourStep ? 'active ' : ''}${index < tourStep ? 'done' : ''}`.trim()} aria-current={index === tourStep ? 'step' : undefined} onclick={() => showTourStep(index)}><i>{index < tourStep ? '✓' : index + 1}</i><span>{step.eyebrow}</span></Button>
             {/each}
           </nav>
           {#key tourStep}
@@ -361,7 +359,7 @@
               {#if TOUR_STEPS[tourStep].visual === 'code'}
                 <div class="tour-visual tour-code"><code><b>function</b> _update()<br />&nbsp;&nbsp;<em>clear_screen</em>()<br />&nbsp;&nbsp;sprite(0, player.x, player.y)<br /><b>end</b></code></div>
               {:else if TOUR_STEPS[tourStep].visual === 'transport'}
-                <div class="tour-visual tour-transport"><button><Play size={14} fill="currentColor" />Run</button><button><Pause size={14} />Pause</button><span><i></i><strong>Running</strong><code>60 fps</code></span></div>
+                <div class="tour-visual tour-transport"><Button><Play size={14} fill="currentColor" />Run</Button><Button><Pause size={14} />Pause</Button><span><i></i><strong>Running</strong><code>60 fps</code></span></div>
               {:else if TOUR_STEPS[tourStep].visual === 'sprite'}
                 <div class="tour-visual tour-sprite"><div>{#each tilePreview as pixel}<i style={`background:${palette[pixel ? 8 : 0] ?? (pixel ? '#FF004D' : '#000')}`}></i>{/each}</div><span><Grid3X3 size={15} /><strong>Sprite 000</strong><code>8 × 8 · 64 bytes</code></span></div>
               {:else}
@@ -369,17 +367,17 @@
               {/if}
             </div>
           {/key}
-          <footer><button onclick={() => { onTourDone(); onClose(); }}>Skip tour</button><span>{#if tourStep > 0}<button class="btn secondary" onclick={() => changeTourStep(-1)}>Back</button>{/if}<button class="btn primary" onclick={() => { if (tourStep === TOUR_STEPS.length - 1) { onTourDone(); onClose(); } else changeTourStep(1); }}>{tourStep === TOUR_STEPS.length - 1 ? 'Start building' : `Next: ${TOUR_STEPS[tourStep + 1].eyebrow.toLowerCase()}`}</button></span></footer>
+          <footer><Button variant="ghost" onclick={() => { onTourDone(); onClose(); }}>Skip tour</Button><span>{#if tourStep > 0}<Button variant="outline" onclick={() => changeTourStep(-1)}>Back</Button>{/if}<Button onclick={() => { if (tourStep === TOUR_STEPS.length - 1) { onTourDone(); onClose(); } else changeTourStep(1); }}>{tourStep === TOUR_STEPS.length - 1 ? 'Start building' : `Next: ${TOUR_STEPS[tourStep + 1].eyebrow.toLowerCase()}`}</Button></span></footer>
         </div>
       </div>
     {:else}
       <section class="focus-mode" transition:fade={{ duration: 180 }}>
-        <button class="focus-exit" onclick={onClose}><Minimize2 size={16} />Exit focus <kbd>esc</kbd></button>
+        <Button class="focus-exit" onclick={onClose}><Minimize2 size={16} />Exit focus <kbd>esc</kbd></Button>
         <div class="focus-screen">
           <canvas class="focus-pixels" bind:this={focusCanvas} width="128" height="128" aria-label="Cart framebuffer"></canvas>
           <div class="scanline-overlay"></div><div class="crt-vignette"></div>
         </div>
-        <div class="focus-controls"><button class="btn primary" onclick={onRun}>{#if running}<Pause size={15} />Pause{:else}<Play size={15} />Run{/if}</button><span>WASD move · J/K buttons</span></div>
+        <div class="focus-controls"><Button onclick={onRun}>{#if running}<Pause size={15} />Pause{:else}<Play size={15} />Run{/if}</Button><span>WASD move · J/K buttons</span></div>
       </section>
     {/if}
   </div>

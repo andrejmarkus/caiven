@@ -1,2 +1,3 @@
-@import '../../caiven-port/web/src/app.css';
+@import '@caiven/ui/theme.css';
+@source "../node_modules/@caiven/ui/src";
 @import './studio.css';

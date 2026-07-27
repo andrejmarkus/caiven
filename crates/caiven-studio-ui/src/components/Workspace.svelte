@@ -6,6 +6,9 @@
     FlipHorizontal, RotateCw, Trash2, Search, FolderOpen, Play,
     ExternalLink, Sparkles, ArrowRight, CircleCheck, ChevronRight, X,
   } from '@lucide/svelte';
+  import { Button } from '@caiven/ui/button';
+  import { Input } from '@caiven/ui/input';
+  import { Textarea } from '@caiven/ui/textarea';
   import type {
     ApiEntry, AssetIndex, AssetRef, AudioState, Breakpoint, CartMeta, Diagnostic, EditorInsertRequest,
     EditorRevealRequest, LocalCart, PortCart, PortSession, Screen, SourceBuffer,
@@ -646,15 +649,15 @@
 <main class="workspace">
   {#if ['sprites', 'map', 'palette'].includes(screen)}
     <nav class="subnav">
-      <button class:active={screen === 'sprites'} onclick={() => onNavigate('sprites')}><Image size={15} />Sprites</button>
-      <button class:active={screen === 'map'} onclick={() => onNavigate('map')}><Layers size={15} />Map</button>
-      <button class:active={screen === 'palette'} onclick={() => onNavigate('palette')}><Pipette size={15} />Palette</button>
+      <Button variant="ghost" class={screen === 'sprites' ? 'active' : undefined} onclick={() => onNavigate('sprites')}><Image size={15} />Sprites</Button>
+      <Button variant="ghost" class={screen === 'map' ? 'active' : undefined} onclick={() => onNavigate('map')}><Layers size={15} />Map</Button>
+      <Button variant="ghost" class={screen === 'palette' ? 'active' : undefined} onclick={() => onNavigate('palette')}><Pipette size={15} />Palette</Button>
       <code>{screen === 'sprites' ? `${assetStats[0]?.used ?? 0} of 256 used` : screen === 'map' ? '64 × 64 tiles' : '16 colors'}</code>
     </nav>
   {:else if ['sfx', 'music'].includes(screen)}
     <nav class="subnav">
-      <button class:active={screen === 'sfx'} onclick={() => onNavigate('sfx')}><Volume2 size={15} />Sound effects</button>
-      <button class:active={screen === 'music'} onclick={() => onNavigate('music')}><Music size={15} />Music</button>
+      <Button variant="ghost" class={screen === 'sfx' ? 'active' : undefined} onclick={() => onNavigate('sfx')}><Volume2 size={15} />Sound effects</Button>
+      <Button variant="ghost" class={screen === 'music' ? 'active' : undefined} onclick={() => onNavigate('music')}><Music size={15} />Music</Button>
       <code>{screen === 'sfx' ? `${assetStats[1]?.used ?? 0} of 16 slots used` : `${assetStats[2]?.used ?? 0} of 8 patterns`}</code>
     </nav>
   {/if}
@@ -667,8 +670,8 @@
         <h1>Make small worlds.<br /><em>Keep every pixel.</em></h1>
         <p>Write real Lua, draw directly into cart memory, and publish something playable before idea cools.</p>
         <div class="welcome-actions">
-          <button class="btn primary" onclick={onNew}><Plus size={16} />New cart</button>
-          <button class="btn secondary" onclick={onOpen}><FolderOpen size={16} />Open project</button>
+          <Button onclick={onNew}><Plus size={16} />New cart</Button>
+          <Button variant="outline" onclick={onOpen}><FolderOpen size={16} />Open project</Button>
         </div>
       </div>
       {#if !tourDone}
@@ -678,11 +681,11 @@
               <div class:done={i < 2}><i>{i < 2 ? '✓' : step[0]}</i><span><strong>{step[1]}</strong><small>{['Real Lua, familiar tools.','See every change instantly.','Paint sprites and maps.','Pack or publish.'][i]}</small></span></div>
             {/each}
           </div>
-          <button onclick={onTour}>Take 4-step tour<ArrowRight size={15} /></button>
+          <Button variant="ghost" onclick={onTour}>Take 4-step tour<ArrowRight size={15} /></Button>
         </aside>
       {/if}
       <div class="recent-section">
-        <div class="section-heading"><span><strong>Recent carts</strong><small>Pick up where you left off.</small></span><button onclick={() => onNavigate('library')}>See library <ChevronRight size={14} /></button></div>
+        <div class="section-heading"><span><strong>Recent carts</strong><small>Pick up where you left off.</small></span><Button variant="ghost" onclick={() => onNavigate('library')}>See library <ChevronRight size={14} /></Button></div>
         <div class="recent-grid">
           {#each recent.slice(0, 4) as item, i (item)}
             <article class="recent-card">
@@ -1110,7 +1113,7 @@
 
   {:else if screen === 'assets'}
     <section class="page-screen assets-screen">
-      <header class="page-header"><span><span class="eyebrow">Cart inventory</span><h1>Assets</h1><p>Every byte of art and sound, with where it appears.</p></span><button class="btn secondary" onclick={() => assetFilterInput?.focus()}><Search size={15} />Find reference</button></header>
+      <header class="page-header"><span><span class="eyebrow">Cart inventory</span><h1>Assets</h1><p>Every byte of art and sound, with where it appears.</p></span><Button variant="outline" onclick={() => assetFilterInput?.focus()}><Search size={15} />Find reference</Button></header>
       <div class="asset-summary">
         {#each assetSummary as card}
           {@const Icon = card.icon}
@@ -1125,7 +1128,7 @@
 
       <div class="asset-filter">
         <Search size={14} />
-        <input bind:this={assetFilterInput} bind:value={assetFilter} placeholder="Filter assets and references" />
+        <Input bind:ref={assetFilterInput} bind:value={assetFilter} placeholder="Filter assets and references" />
         <code>{assetRows.length} of {assetIndex.entries.filter((entry) => entry.nonzero || entry.used).length}</code>
       </div>
 
@@ -1171,9 +1174,9 @@
       <header class="page-header"><span><span class="eyebrow">Project metadata</span><h1>Cart details</h1><p>What players see when cart reaches port.</p></span><span class="saved-note"><CircleCheck size={14} />{dirty ? 'Unsaved changes' : 'All changes saved'}</span></header>
       <div class="cart-layout" data-tour-target="ship">
         <div class="cart-form">
-          <label>Title<input maxlength="64" value={title} onblur={(event) => onMeta(event.currentTarget.value, author, meta)} /></label>
-          <label>Author<input maxlength="64" value={author} onblur={(event) => onMeta(title, event.currentTarget.value, meta)} /></label>
-          <label>Description<textarea maxlength="240" value={meta.description} onblur={(event) => onMeta(title, author, { ...meta, description: event.currentTarget.value })}></textarea><small>{meta.description.length} / 240</small></label>
+          <label>Title<Input maxlength={64} value={title} onblur={(event) => onMeta(event.currentTarget.value, author, meta)} /></label>
+          <label>Author<Input maxlength={64} value={author} onblur={(event) => onMeta(title, event.currentTarget.value, meta)} /></label>
+          <label>Description<Textarea maxlength={240} value={meta.description} onblur={(event) => onMeta(title, author, { ...meta, description: event.currentTarget.value })}></Textarea><small>{meta.description.length} / 240</small></label>
           <label>Tags<div class="tag-input">{#each meta.tags as tag}<button onclick={() => onMeta(title, author, { ...meta, tags: meta.tags.filter((value) => value !== tag) })}>{tag} ×</button>{/each}<input placeholder="Add tag…" onkeydown={(event) => { if (event.key === 'Enter' && event.currentTarget.value.trim()) { event.preventDefault(); onMeta(title, author, { ...meta, tags: [...meta.tags, event.currentTarget.value.trim()] }); event.currentTarget.value = ''; } }} /></div></label>
           <div class="cart-facts">{#each [['Format',path.endsWith('.cav') ? '.cav' : 'project dir'],['Estimated size',`${(cartBytes / 1024).toFixed(1)} KiB`],['Sources',`${sources.length} module${sources.length === 1 ? '' : 's'}`],['Port',portAccount.authenticated ? portAccount.username : 'not signed in']] as fact}<span><small>{fact[0]}</small><code>{fact[1]}</code></span>{/each}</div>
         </div>
@@ -1195,10 +1198,10 @@
 
   {:else if screen === 'library'}
     <section class="page-screen library-screen">
-      <header class="page-header"><span><span class="eyebrow">Your carts</span><h1>Library</h1><p>Local projects and carts from port.</p></span><div class="segmented"><button class:active={libraryTab === 'local'} onclick={() => libraryTab = 'local'}>Local</button><button class:active={libraryTab === 'port'} onclick={() => { libraryTab = 'port'; if (!portCarts.length) onSearchPort(''); }}>Port</button></div></header>
-      <div class="library-toolbar"><div><Search size={15} /><input bind:value={libraryQuery} placeholder="Search carts" onkeydown={(event) => { if (event.key === 'Enter' && libraryTab === 'port') onSearchPort(libraryQuery); }} /></div>{#if libraryTab === 'local'}<button class="btn secondary" onclick={onScanLibrary}><FolderOpen size={15} />Scan folder</button>{:else if portAccount.authenticated}<span class="port-account">{portAccount.username}<button onclick={onPortLogout}>Log out</button></span>{/if}</div>
+      <header class="page-header"><span><span class="eyebrow">Your carts</span><h1>Library</h1><p>Local projects and carts from port.</p></span><div class="segmented"><Button variant="ghost" class={libraryTab === 'local' ? 'active' : undefined} onclick={() => libraryTab = 'local'}>Local</Button><Button variant="ghost" class={libraryTab === 'port' ? 'active' : undefined} onclick={() => { libraryTab = 'port'; if (!portCarts.length) onSearchPort(''); }}>Port</Button></div></header>
+      <div class="library-toolbar"><div><Search size={15} /><Input bind:value={libraryQuery} placeholder="Search carts" onkeydown={(event) => { if (event.key === 'Enter' && libraryTab === 'port') onSearchPort(libraryQuery); }} /></div>{#if libraryTab === 'local'}<Button variant="outline" onclick={onScanLibrary}><FolderOpen size={15} />Scan folder</Button>{:else if portAccount.authenticated}<span class="port-account">{portAccount.username}<Button variant="ghost" onclick={onPortLogout}>Log out</Button></span>{/if}</div>
       {#if libraryTab === 'port' && !portAccount.authenticated}
-        <form class="port-login" onsubmit={(event) => { event.preventDefault(); onPortLogin(loginName, loginPassword); }}><span><strong>Port account</strong><small>Log in to publish. Browsing stays public.</small></span><input bind:value={loginName} placeholder="Username" autocomplete="username" /><input bind:value={loginPassword} type="password" placeholder="Password" autocomplete="current-password" /><button class="btn primary" disabled={portBusy || !loginName.trim() || !loginPassword}>Log in</button></form>
+        <form class="port-login" onsubmit={(event) => { event.preventDefault(); onPortLogin(loginName, loginPassword); }}><span><strong>Port account</strong><small>Log in to publish. Browsing stays public.</small></span><Input bind:value={loginName} placeholder="Username" autocomplete="username" /><Input bind:value={loginPassword} type="password" placeholder="Password" autocomplete="current-password" /><Button disabled={portBusy || !loginName.trim() || !loginPassword}>Log in</Button></form>
       {/if}
       {#if portError && libraryTab === 'port'}<div class="port-empty"><strong>Port unavailable</strong><p>{portError}</p><button onclick={() => onSearchPort(libraryQuery)}>Retry</button></div>{/if}
       <div class="cart-grid">
@@ -1226,7 +1229,7 @@
   {:else if screen === 'docs'}
     <section class="docs-screen">
       <aside class="docs-nav">
-        <div class="docs-search"><Search size={14} /><input bind:value={docQuery} placeholder="Search API" /></div>
+        <div class="docs-search"><Search size={14} /><Input bind:value={docQuery} placeholder="Search API" /></div>
         {#each docCategories as [name, count]}
           <button class:active={name === activeDocCategory} onclick={() => docCategory = name}><span>{name}</span><code>{count}</code></button>
         {/each}
@@ -1238,7 +1241,7 @@
             <article>
               <h3><code>{signature(entry)}</code><small>→ {entry.returns}</small></h3>
               <p>{entry.doc}</p>
-              <button onclick={() => { onInsertBuiltin(entry.name); onNavigate('code'); }}>Insert into editor <ExternalLink size={12} /></button>
+              <Button variant="ghost" onclick={() => { onInsertBuiltin(entry.name); onNavigate('code'); }}>Insert into editor <ExternalLink size={12} /></Button>
             </article>
           {/each}
         </div>
