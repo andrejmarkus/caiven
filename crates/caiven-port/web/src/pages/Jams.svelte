@@ -2,7 +2,7 @@
   import { api, type JamInfo } from '../api';
   import { currentUser } from '../stores.svelte';
   import { link } from '../router.svelte';
-  import { Button } from '$lib/components/ui/button';
+  import { Button } from '@caiven/ui/button';
   import TrophyIcon from '@lucide/svelte/icons/trophy';
   import PlusIcon from '@lucide/svelte/icons/plus';
 

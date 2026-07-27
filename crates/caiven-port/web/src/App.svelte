@@ -23,7 +23,7 @@
   import ForgotPassword from './pages/ForgotPassword.svelte';
   import ResetPassword from './pages/ResetPassword.svelte';
   import Upload from './pages/Upload.svelte';
-  import { Toaster } from '$lib/components/ui/sonner';
+  import { Toaster } from '@caiven/ui/sonner';
 
   hydrateUser();
   const match = $derived(matchRoute(route.path));

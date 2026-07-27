@@ -1,10 +1,10 @@
 <script lang="ts">
   import { api, type CommentInfo } from '../api';
   import { currentUser } from '../stores.svelte';
-  import { Textarea } from '$lib/components/ui/textarea';
-  import { Button } from '$lib/components/ui/button';
-  import { Skeleton } from '$lib/components/ui/skeleton';
-  import * as Alert from '$lib/components/ui/alert';
+  import { Textarea } from '@caiven/ui/textarea';
+  import { Button } from '@caiven/ui/button';
+  import { Skeleton } from '@caiven/ui/skeleton';
+  import * as Alert from '@caiven/ui/alert';
   import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
 
   let { cartId, ownerUsername }: { cartId: string; ownerUsername: string | null } = $props();

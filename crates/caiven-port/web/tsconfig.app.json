@@ -16,6 +16,7 @@
     "allowJs": true,
     "checkJs": true,
     "moduleDetection": "force",
+    "preserveSymlinks": true,
     "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {

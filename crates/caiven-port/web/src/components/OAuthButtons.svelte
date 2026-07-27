@@ -1,6 +1,6 @@
 <script lang="ts">
   import { api } from '../api';
-  import { Button } from '$lib/components/ui/button';
+  import { Button } from '@caiven/ui/button';
 
   let { providers }: { providers: string[] } = $props();
 

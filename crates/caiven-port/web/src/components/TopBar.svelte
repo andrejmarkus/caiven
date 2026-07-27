@@ -3,8 +3,8 @@
   import { currentUser, setUser } from '../stores.svelte';
   import { link, navigate } from '../router.svelte';
   import Logo from '$lib/components/Logo.svelte';
-  import { buttonVariants } from '$lib/components/ui/button';
-  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
+  import { buttonVariants } from '@caiven/ui/button';
+  import * as DropdownMenu from '@caiven/ui/dropdown-menu';
   import SearchIcon from '@lucide/svelte/icons/search';
   import UploadIcon from '@lucide/svelte/icons/upload';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';

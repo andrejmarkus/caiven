@@ -2,7 +2,7 @@
   import { api, type UserProfile } from '../api';
   import { currentUser } from '../stores.svelte';
   import CartCard from '../components/CartCard.svelte';
-  import { Button } from '$lib/components/ui/button';
+  import { Button } from '@caiven/ui/button';
   import { navigate } from '../router.svelte';
 
   let { username }: { username: string } = $props();

@@ -6,7 +6,7 @@
   import CartCard from '../components/CartCard.svelte';
   import { currentUser } from '../stores.svelte';
   import { navigate, link } from '../router.svelte';
-  import { Button, buttonVariants } from '$lib/components/ui/button';
+  import { Button, buttonVariants } from '@caiven/ui/button';
   import PlayIcon from '@lucide/svelte/icons/play';
   import DownloadIcon from '@lucide/svelte/icons/download';
   import FolderPlusIcon from '@lucide/svelte/icons/folder-plus';

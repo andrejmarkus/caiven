@@ -1,8 +1,8 @@
 <script lang="ts">
   import { api, type Cart, type DashboardInfo } from '../api';
   import { link } from '../router.svelte';
-  import { Button, buttonVariants } from '$lib/components/ui/button';
-  import * as AlertDialog from '$lib/components/ui/alert-dialog';
+  import { Button, buttonVariants } from '@caiven/ui/button';
+  import * as AlertDialog from '@caiven/ui/alert-dialog';
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import UploadIcon from '@lucide/svelte/icons/upload';
   import TrashIcon from '@lucide/svelte/icons/trash-2';

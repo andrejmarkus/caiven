@@ -1,8 +1,8 @@
 <script lang="ts">
   import { api, ApiError } from '../api';
   import { route, link } from '../router.svelte';
-  import * as Card from '$lib/components/ui/card';
-  import * as Alert from '$lib/components/ui/alert';
+  import * as Card from '@caiven/ui/card';
+  import * as Alert from '@caiven/ui/alert';
   import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
 
   let status = $state<'checking' | 'ok' | 'error'>('checking');

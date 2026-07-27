@@ -1,0 +1,13 @@
+{
+  "extends": "@tsconfig/svelte/tsconfig.json",
+  "compilerOptions": {
+    "moduleResolution": "bundler",
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "@caiven/ui/utils": ["./src/utils.ts"],
+      "@caiven/ui/*": ["./src/components/ui/*/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.svelte"]
+}

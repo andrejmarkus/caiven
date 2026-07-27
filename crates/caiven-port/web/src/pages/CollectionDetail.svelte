@@ -2,7 +2,7 @@
   import { api, type Cart, type CollectionInfo } from '../api';
   import { currentUser } from '../stores.svelte';
   import CartCard from '../components/CartCard.svelte';
-  import { Button } from '$lib/components/ui/button';
+  import { Button } from '@caiven/ui/button';
   import { navigate } from '../router.svelte';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import PlusIcon from '@lucide/svelte/icons/plus';

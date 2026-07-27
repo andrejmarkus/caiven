@@ -3,8 +3,8 @@
   import CartCard from '../components/CartCard.svelte';
   import ScreenshotImg from '../components/ScreenshotImg.svelte';
   import { link } from '../router.svelte';
-  import { buttonVariants } from '$lib/components/ui/button';
-  import { Skeleton } from '$lib/components/ui/skeleton';
+  import { buttonVariants } from '@caiven/ui/button';
+  import { Skeleton } from '@caiven/ui/skeleton';
   import PlayIcon from '@lucide/svelte/icons/play';
   import StarIcon from '@lucide/svelte/icons/star';
   import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';

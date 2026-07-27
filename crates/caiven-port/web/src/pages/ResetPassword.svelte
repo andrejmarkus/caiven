@@ -1,12 +1,12 @@
 <script lang="ts">
   import { api, ApiError } from '../api';
   import { navigate, link, route } from '../router.svelte';
-  import * as Card from '$lib/components/ui/card';
-  import * as Field from '$lib/components/ui/field';
-  import { Input } from '$lib/components/ui/input';
-  import { Button } from '$lib/components/ui/button';
-  import { Spinner } from '$lib/components/ui/spinner';
-  import * as Alert from '$lib/components/ui/alert';
+  import * as Card from '@caiven/ui/card';
+  import * as Field from '@caiven/ui/field';
+  import { Input } from '@caiven/ui/input';
+  import { Button } from '@caiven/ui/button';
+  import { Spinner } from '@caiven/ui/spinner';
+  import * as Alert from '@caiven/ui/alert';
   import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
 
   const token = route.search.get('token');

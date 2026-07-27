@@ -3,7 +3,7 @@
   import { currentUser } from '../stores.svelte';
   import { link, navigate } from '../router.svelte';
   import ScreenshotImg from '../components/ScreenshotImg.svelte';
-  import { Button } from '$lib/components/ui/button';
+  import { Button } from '@caiven/ui/button';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import UsersIcon from '@lucide/svelte/icons/users';
 

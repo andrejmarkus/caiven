@@ -2,10 +2,10 @@
   import { api, ApiError, type AuditEntry, type PasskeyInfo, type SessionInfo, type TokenInfo } from '../api';
   import { currentUser, setUser } from '../stores.svelte';
   import { navigate } from '../router.svelte';
-  import { Button } from '$lib/components/ui/button';
-  import { Input } from '$lib/components/ui/input';
-  import { Spinner } from '$lib/components/ui/spinner';
-  import { toast } from 'svelte-sonner';
+  import { Button } from '@caiven/ui/button';
+  import { Input } from '@caiven/ui/input';
+  import { Spinner } from '@caiven/ui/spinner';
+  import { toast } from '@caiven/ui/sonner';
   import CopyIcon from '@lucide/svelte/icons/copy';
   import KeyIcon from '@lucide/svelte/icons/key-round';
   import LockIcon from '@lucide/svelte/icons/lock-keyhole';

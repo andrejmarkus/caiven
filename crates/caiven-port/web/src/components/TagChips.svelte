@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Badge } from '$lib/components/ui/badge';
+  import { Badge } from '@caiven/ui/badge';
   import { navigate } from '../router.svelte';
 
   let { tags }: { tags: string[] } = $props();

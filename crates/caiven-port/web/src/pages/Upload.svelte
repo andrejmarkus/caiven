@@ -2,7 +2,7 @@
   import { api, type JamInfo } from '../api';
   import { currentUser } from '../stores.svelte';
   import { route, navigate } from '../router.svelte';
-  import { Button } from '$lib/components/ui/button';
+  import { Button } from '@caiven/ui/button';
   import UploadIcon from '@lucide/svelte/icons/upload-cloud';
 
   const cartId = $derived(route.search.get('cart') ?? '');
