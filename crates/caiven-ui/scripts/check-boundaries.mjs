@@ -73,6 +73,21 @@ for (const dependency of Object.keys(peerVersions)) {
   }
 }
 
+const dockerfilePath = join(repo, 'crates/caiven-port/Dockerfile');
+const dockerfile = readFileSync(dockerfilePath, 'utf8');
+const npmCiAt = dockerfile.indexOf('RUN npm ci');
+for (const required of [
+  'WORKDIR /app/crates/caiven-port/web',
+  'COPY crates/caiven-ui/package.json /app/crates/caiven-ui/package.json',
+  'COPY crates/caiven-ui/src/ /app/crates/caiven-ui/src/',
+]) {
+  const requiredAt = dockerfile.indexOf(required);
+  if (requiredAt < 0 || requiredAt > npmCiAt) failures.push(`Port Dockerfile must include "${required}" before npm ci`);
+}
+if (!dockerfile.includes('COPY --from=web /app/crates/caiven-port/web/dist /app/web')) {
+  failures.push('Port Dockerfile runtime stage must copy dist from workspace-preserving web path');
+}
+
 if (failures.length) {
   console.error(`Shared UI boundary check failed:\n- ${failures.join('\n- ')}`);
   process.exit(1);
