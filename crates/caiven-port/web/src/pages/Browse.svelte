@@ -6,6 +6,8 @@
   import SearchIcon from '@lucide/svelte/icons/search';
   import XIcon from '@lucide/svelte/icons/x';
   import DiscIcon from '@lucide/svelte/icons/disc';
+  import { Button } from '@caiven/ui/button';
+  import { Input } from '@caiven/ui/input';
 
   const PER_PAGE = 24;
   const sorts: Array<{ value: Sort; label: string }> = [
@@ -73,7 +75,7 @@
       <span class="label-mono text-[10px] text-muted-foreground">Sort</span>
       <div class="flex rounded-md border border-border bg-card p-1">
         {#each sorts as item}
-          <button onclick={() => applySort(item.value)} class="rounded px-3 py-1.5 text-sm" class:bg-primary={sort === item.value} class:text-primary-foreground={sort === item.value} class:text-muted-foreground={sort !== item.value}>{item.label}</button>
+          <Button type="button" variant={sort === item.value ? 'default' : 'ghost'} size="sm" onclick={() => applySort(item.value)}>{item.label}</Button>
         {/each}
       </div>
     </div>
@@ -81,20 +83,20 @@
 
   <form onsubmit={submit} class="mb-5 flex max-w-xl items-center gap-2 rounded-md border border-border bg-card px-3 focus-within:border-primary">
     <SearchIcon class="size-4 text-muted-foreground" />
-    <input bind:value={q} placeholder="Search title, creator, or tag…" class="h-11 min-w-0 flex-1 border-0 bg-transparent p-0 text-sm outline-none ring-0" />
-    <button class="rounded bg-secondary px-3 py-1.5 text-xs font-semibold">Search</button>
+    <Input bind:value={q} placeholder="Search title, creator, or tag…" class="h-auto min-w-0 flex-1 border-0 bg-transparent p-0 shadow-none focus-visible:border-0 focus-visible:ring-0" />
+    <Button type="submit" variant="secondary" size="sm">Search</Button>
   </form>
 
   <div class="mb-7 flex flex-wrap items-center gap-2 border-b border-border pb-5">
     {#if tag}
-      <button onclick={() => applyTag('')} class="flex items-center gap-2 rounded-full bg-accent px-3 py-1.5 text-sm text-accent-foreground">tag: {tag}<XIcon class="size-3" /></button>
+      <Button type="button" variant="secondary" size="sm" class="rounded-full" onclick={() => applyTag('')}>tag: {tag}<XIcon class="size-3" /></Button>
     {/if}
     {#if q}
-      <button onclick={() => { q = ''; push(); }} class="flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-sm text-muted-foreground">“{q}”<XIcon class="size-3" /></button>
+      <Button type="button" variant="outline" size="sm" class="rounded-full" onclick={() => { q = ''; push(); }}>“{q}”<XIcon class="size-3" /></Button>
     {/if}
     <div class="flex flex-wrap gap-2 md:ml-auto">
       {#each tags.slice(0, 8) as item}
-        <button onclick={() => applyTag(item.tag)} class="rounded-full border border-border px-3 py-1 text-sm text-muted-foreground hover:border-primary hover:text-primary">{item.tag}</button>
+        <Button type="button" variant="outline" size="sm" class="rounded-full" onclick={() => applyTag(item.tag)}>{item.tag}</Button>
       {/each}
     </div>
   </div>
@@ -107,7 +109,7 @@
       <DiscIcon class="mx-auto size-12 rounded-lg border border-border bg-card p-3 text-muted-foreground" />
       <h2 class="mt-4 text-lg font-semibold">Nothing matches that</h2>
       <p class="mx-auto mt-2 max-w-md text-sm text-muted-foreground">Drop tag filter or try shorter search. Every public cart is searchable.</p>
-      <button onclick={clearAll} class="mt-5 rounded-md bg-secondary px-4 py-2 text-sm font-semibold">Clear filters</button>
+      <Button type="button" variant="secondary" class="mt-5" onclick={clearAll}>Clear filters</Button>
     </div>
   {:else}
     <div class="cart-grid">{#each carts as cart (cart.id)}<CartCard {cart} />{/each}</div>

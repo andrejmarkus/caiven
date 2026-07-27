@@ -18,14 +18,8 @@ pub(crate) fn validate_meta(meta: &CartMeta) -> Result<(), ApiError> {
     if meta.title.trim().is_empty() {
         return Err(ApiError::bad_request("title required"));
     }
-    if meta.author.trim().is_empty() {
-        return Err(ApiError::bad_request("author required"));
-    }
     if meta.title.len() > 64 {
         return Err(ApiError::bad_request("title max 64 chars"));
-    }
-    if meta.author.len() > 64 {
-        return Err(ApiError::bad_request("author max 64 chars"));
     }
     if meta.description.len() > 512 {
         return Err(ApiError::bad_request("description max 512 chars"));
@@ -81,8 +75,27 @@ pub(crate) async fn create_cart_impl(
     let meta: CartMeta = serde_json::from_str(&upload.meta)?;
     validate_meta(&meta)?;
 
+    let content_hash = caiven_cart::content_hash(&bytes)
+        .map_err(|_| ApiError::bad_request("not a valid Caiven cart"))?;
+    if let Some((title, author)) =
+        db::find_other_owner_by_content_hash(&state.db, &content_hash, &user.id).await?
+    {
+        return Err(ApiError::conflict(format!(
+            "This cart's content matches an existing published cart \"{title}\" by {author}"
+        )));
+    }
+
     let id = Uuid::new_v4().to_string();
-    db::insert_cart(&state.db, &user.id, &id, &meta, &bytes).await?;
+    db::insert_cart(
+        &state.db,
+        &user.id,
+        &user.username,
+        &id,
+        &meta,
+        &bytes,
+        Some(&content_hash),
+    )
+    .await?;
     db::get(&state.db, &id)
         .await?
         .ok_or_else(|| ApiError::internal("insert failed"))

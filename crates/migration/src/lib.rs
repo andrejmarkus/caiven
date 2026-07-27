@@ -11,6 +11,8 @@ mod m20260725_000008_harden_auth;
 mod m20260726_000009_auth_modern;
 mod m20260726_000010_security_hardening;
 mod m20260726_000011_security_round3;
+mod m20260727_000012_creator_and_studio_link;
+mod m20260727_000013_cart_content_hash;
 
 pub struct Migrator;
 
@@ -29,6 +31,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20260726_000009_auth_modern::Migration),
             Box::new(m20260726_000010_security_hardening::Migration),
             Box::new(m20260726_000011_security_round3::Migration),
+            Box::new(m20260727_000012_creator_and_studio_link::Migration),
+            Box::new(m20260727_000013_cart_content_hash::Migration),
         ]
     }
 }

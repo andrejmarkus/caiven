@@ -21,6 +21,7 @@ pub mod oauth_identities;
 pub mod play_events;
 pub mod ratings;
 pub mod sessions;
+pub mod studio_link_requests;
 pub mod users;
 pub mod webauthn_challenges;
 pub mod webauthn_credentials;

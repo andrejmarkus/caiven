@@ -18,7 +18,7 @@
   import {
     bootstrap, chooseExportPath, chooseProject, exportCartridge, fallbackTemplates, listTemplates, newProject,
     openProject, readAssetIndex, readFrame, readMemory, readTick, saveProject, setInput, transport,
-    addWatch, audioTransport, clearOutput, closeProject, createModule, MEMORY, portDownload, portListCarts, portLogin,
+    addWatch, audioTransport, clearOutput, closeProject, createModule, MEMORY, portDownload, portLinkCancel, portLinkPoll, portLinkStart, portListCarts,
     portLogout, portPublish, portSession, scanLibrary, toggleBreakpoint, writeBuffer,
     removeRecent, removeWatch, writeMapCells, writeMemory, writeMeta, writePalette, writeSprite,
   } from './lib/ipc';
@@ -48,6 +48,7 @@
   let localCarts = $state<LocalCart[]>([]);
   let portCarts = $state<PortCart[]>([]);
   let portAccount = $state<PortSession>({ authenticated: false, username: '', portUrl: '' });
+  let portLink = $state<{ requestId: string; pollSecret: string; expiresAt: string } | null>(null);
   let portBusy = $state(false);
   let portError = $state('');
   let publishProgress = $state<PublishProgress | null>(null);
@@ -503,12 +504,30 @@
     finally { portBusy = false; }
   }
 
-  async function loginPort(username: string, password: string) {
+  async function linkPort() {
     portBusy = true;
-    try { portAccount = await portLogin(username, password); portError = ''; }
+    try { portLink = await portLinkStart(); portError = 'Browser opened. Finish linking, then return.'; }
     catch (error) { portError = String(error); }
     finally { portBusy = false; }
   }
+
+  async function pollPortLink() {
+    if (!portLink) return;
+    try {
+      const session = await portLinkPoll(portLink.requestId, portLink.pollSecret);
+      if (session) { portAccount = session; portLink = null; portError = ''; }
+    } catch (error) { portLink = null; portError = String(error); }
+  }
+
+  async function cancelPortLink() {
+    if (!portLink) return;
+    portBusy = true;
+    try { await portLinkCancel(portLink.requestId, portLink.pollSecret); portLink = null; portError = ''; }
+    catch (error) { portError = String(error); }
+    finally { portBusy = false; }
+  }
+
+  function openPortAccount() { screen = 'account'; }
 
   async function logoutPort() {
     try { portAccount = await portLogout(); } catch (error) { showToast(String(error)); }
@@ -522,7 +541,7 @@
       clearTimeout(writeTimer);
       await Promise.all(studio.sources.filter((source) => source.dirty).map((source) => writeBuffer(source.path, source.text)));
       const result = await portPublish({
-        title: studio.title, author: studio.author, description: studio.meta.description,
+        title: studio.title, description: studio.meta.description,
         tags: studio.meta.tags, changelog,
       });
       publishDone = `${result.cartId}${result.version ? ` · v${result.version}` : ''}`;
@@ -688,6 +707,7 @@
     void listTemplates().then((items) => { if (alive && items.length) templates = items; })
       .catch((error) => { if (alive) showToast(`Templates unavailable: ${errorText(error)}`); });
     void portSession().then((session) => { portAccount = session; });
+    const linkPoll = window.setInterval(() => void pollPortLink(), 2000);
     tourDone = localStorage.getItem('caiven-studio-tour-complete') === '1';
     void bootstrap().then((initial) => {
       if (!alive) return;
@@ -742,6 +762,7 @@
     });
 
     return () => {
+      clearInterval(linkPoll);
       alive = false;
       clearInterval(tickTimer);
       clearInterval(stateTimer);
@@ -825,12 +846,16 @@
           {portAccount}
           {portBusy}
           {portError}
+          portLinkPending={portLink !== null}
+          portLinkExpiresAt={portLink?.expiresAt ?? ''}
           onScanLibrary={() => void scanLocal()}
           onSearchPort={(query) => void searchPort(query)}
           onOpenLocal={(path) => void openPath(path)}
           onRemoveRecent={(path) => void doRemoveRecent(path)}
           onDownloadPort={(cart) => void downloadPort(cart)}
-          onPortLogin={(username, password) => void loginPort(username, password)}
+          onOpenPortAccount={openPortAccount}
+          onPortLink={() => void linkPort()}
+          onPortLinkCancel={() => void cancelPortLink()}
           onPortLogout={() => void logoutPort()}
           onInsertBuiltin={insertBuiltin}
           onOpenSource={jumpToSource}
@@ -903,6 +928,7 @@
     {publishError}
     {publishDone}
     onStartPublish={(changelog) => void doPublish(changelog)}
+    onLinkPort={openPortAccount}
     onTourDone={() => { localStorage.setItem('caiven-studio-tour-complete', '1'); tourDone = true; }}
     onOpenProject={() => void doOpen()}
     onNewProject={showNew}

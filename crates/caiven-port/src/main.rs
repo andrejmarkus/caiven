@@ -168,12 +168,22 @@ async fn main() -> Result<()> {
         log::warn!("CAIVEN_BASE_URL not set (or unparseable); passkey login is disabled");
     }
 
+    // 0.0.0.0/:: aren't browsable; substitute localhost for links opened in
+    // a real browser (Studio account linking, email fallback logging).
+    let local_host = if args.address.is_unspecified() {
+        "localhost".to_string()
+    } else {
+        args.address.to_string()
+    };
+    let local_origin = format!("http://{local_host}:{}", args.port);
+
     let state = PortState {
         db,
         rate: caiven_port::auth::RateLimiter::default(),
         web_dir: args.web_dir,
         secure_cookies: args.secure_cookies,
         base_url: args.base_url,
+        local_origin,
         http: reqwest::Client::new(),
         mailer,
         turnstile_site_key: args.turnstile_site_key,

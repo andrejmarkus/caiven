@@ -5,6 +5,7 @@
     Plus, Pencil, PaintBucket, Minus, Square, Undo2, Redo2, Eraser, ShieldCheck,
     FlipHorizontal, RotateCw, Trash2, Search, FolderOpen, Play,
     ExternalLink, Sparkles, ArrowRight, CircleCheck, ChevronRight, X,
+    UserRound, Globe,
   } from '@lucide/svelte';
   import { Button } from '@caiven/ui/button';
   import { Input } from '@caiven/ui/input';
@@ -76,12 +77,16 @@
     portAccount: PortSession;
     portBusy: boolean;
     portError: string;
+    portLinkPending: boolean;
+    portLinkExpiresAt: string;
     onScanLibrary: () => void;
     onSearchPort: (query: string) => void;
     onOpenLocal: (path: string) => void;
     onRemoveRecent: (path: string) => void;
     onDownloadPort: (cart: PortCart) => void;
-    onPortLogin: (username: string, password: string) => void;
+    onOpenPortAccount: () => void;
+    onPortLink: () => void;
+    onPortLinkCancel: () => void;
     onPortLogout: () => void;
     onInsertBuiltin: (name: string) => void;
     onOpenSource: (path: string, line: number | null, column?: number | null) => void;
@@ -93,8 +98,8 @@
     soundSelection,
     onNavigate, onSource, onCode, onSprite, onFlags, onFlagsBatch, onMap, onSfx, onMusic, onAudio,
     onBreakpoint, onMeta, onCreateModule, onPalette, onTour, onOpen, onNew,
-    localCarts, portCarts, portAccount, portBusy, portError, onScanLibrary,
-    onSearchPort, onOpenLocal, onRemoveRecent, onDownloadPort, onPortLogin, onPortLogout,
+    localCarts, portCarts, portAccount, portBusy, portError, portLinkPending, portLinkExpiresAt, onScanLibrary,
+    onSearchPort, onOpenLocal, onRemoveRecent, onDownloadPort, onOpenPortAccount, onPortLink, onPortLinkCancel, onPortLogout,
     onInsertBuiltin, onOpenSource,
   }: Props = $props();
 
@@ -224,8 +229,10 @@
   });
 
   let assetFilter = $state('');
-  let assetFilterInput = $state<HTMLInputElement>();
 
+  function focusAssetFilter() {
+    document.querySelector<HTMLInputElement>('#asset-filter')?.focus();
+  }
 
   function assetLabel(entry: { kind: string; id: number }) {
     const id = entry.id.toString().padStart(entry.kind === 'sprite' ? 3 : 2, '0');
@@ -1113,29 +1120,36 @@
 
   {:else if screen === 'assets'}
     <section class="page-screen assets-screen">
-      <header class="page-header"><span><span class="eyebrow">Cart inventory</span><h1>Assets</h1><p>Every byte of art and sound, with where it appears.</p></span><Button variant="outline" onclick={() => assetFilterInput?.focus()}><Search size={15} />Find reference</Button></header>
-      <div class="asset-summary">
-        {#each assetSummary as card}
-          {@const Icon = card.icon}
-          <div>
-            <span class="eyebrow"><Icon size={14} />{card.label}</span>
-            <strong>{card.value}</strong>
-            <div class="meter"><i style={`width:${Math.min(100, card.pct)}%`}></i></div>
-            <small>{card.detail}</small>
-          </div>
-        {/each}
-      </div>
+      <header class="page-header"><span><span class="eyebrow">Cart inventory</span><h1>Assets</h1><p>Every byte of art and sound, with where it appears.</p></span>{#if path}<Button variant="outline" onclick={focusAssetFilter}><Search size={15} />Find reference</Button>{/if}</header>
+      {#if !path}
+        <div class="port-empty">
+          <strong>No cart open</strong>
+          <p>Open or create cart before browsing its assets.</p>
+          <Button onclick={() => onNavigate('welcome')}>Open Start screen</Button>
+        </div>
+      {:else}
+        <div class="asset-summary">
+          {#each assetSummary as card}
+            {@const Icon = card.icon}
+            <div>
+              <span class="eyebrow"><Icon size={14} />{card.label}</span>
+              <strong>{card.value}</strong>
+              <div class="meter"><i style={`width:${Math.min(100, card.pct)}%`}></i></div>
+              <small>{card.detail}</small>
+            </div>
+          {/each}
+        </div>
 
-      <div class="asset-filter">
-        <Search size={14} />
-        <Input bind:ref={assetFilterInput} bind:value={assetFilter} placeholder="Filter assets and references" />
-        <code>{assetRows.length} of {assetIndex.entries.filter((entry) => entry.nonzero || entry.used).length}</code>
-      </div>
+        <div class="asset-filter">
+          <Search size={14} />
+          <Input id="asset-filter" bind:value={assetFilter} placeholder="Filter assets and references" />
+          <code>{assetRows.length} of {assetIndex.entries.filter((entry) => entry.nonzero || entry.used).length}</code>
+        </div>
 
-      <div class="xref-table">
-        <div class="table-head"><span>Preview</span><span>Asset</span><span>Used by</span><span>Edit</span></div>
-        {#each assetRows as row (row.kind + row.id)}
-          <div class="xref-row">
+        <div class="xref-table">
+          <div class="table-head"><span>Preview</span><span>Asset</span><span>Used by</span><span>Edit</span></div>
+          {#each assetRows as row (row.kind + row.id)}
+            <div class="xref-row">
             <span class="xref-preview">
               {#if row.kind === 'sprite'}
                 <em class="xref-sprite">{#each Array(64) as _, p}<i style={`background:${palette[spriteSheet[row.id * 64 + p] ?? 0]}`}></i>{/each}</em>
@@ -1161,12 +1175,13 @@
               {#if !row.refs.length && !assetUsage(row).length}<small>Not referenced</small>{/if}
             </span>
             <button class="xref-open" onclick={() => openAsset(row)}>Open <ArrowRight size={13} /></button>
-          </div>
-        {/each}
-        {#if !assetRows.length}
-          <div class="xref-empty">{assetFilter ? 'Nothing matches that filter.' : 'This cart has no assets yet.'}</div>
-        {/if}
-      </div>
+            </div>
+          {/each}
+          {#if !assetRows.length}
+            <div class="xref-empty">{assetFilter ? 'Nothing matches that filter.' : 'This cart has no assets yet.'}</div>
+          {/if}
+        </div>
+      {/if}
     </section>
 
   {:else if screen === 'cart'}
@@ -1175,10 +1190,11 @@
       <div class="cart-layout" data-tour-target="ship">
         <div class="cart-form">
           <label>Title<Input maxlength={64} value={title} onblur={(event) => onMeta(event.currentTarget.value, author, meta)} /></label>
-          <label>Author<Input maxlength={64} value={author} onblur={(event) => onMeta(title, event.currentTarget.value, meta)} /></label>
+          <label>Local author <Input maxlength={64} value={author} onblur={(event) => onMeta(title, event.currentTarget.value, meta)} /><small>Stored in local cart metadata. Port uses linked account when publishing.</small></label>
           <label>Description<Textarea maxlength={240} value={meta.description} onblur={(event) => onMeta(title, author, { ...meta, description: event.currentTarget.value })}></Textarea><small>{meta.description.length} / 240</small></label>
           <label>Tags<div class="tag-input">{#each meta.tags as tag}<button onclick={() => onMeta(title, author, { ...meta, tags: meta.tags.filter((value) => value !== tag) })}>{tag} ×</button>{/each}<input placeholder="Add tag…" onkeydown={(event) => { if (event.key === 'Enter' && event.currentTarget.value.trim()) { event.preventDefault(); onMeta(title, author, { ...meta, tags: [...meta.tags, event.currentTarget.value.trim()] }); event.currentTarget.value = ''; } }} /></div></label>
           <div class="cart-facts">{#each [['Format',path.endsWith('.cav') ? '.cav' : 'project dir'],['Estimated size',`${(cartBytes / 1024).toFixed(1)} KiB`],['Sources',`${sources.length} module${sources.length === 1 ? '' : 's'}`],['Port',portAccount.authenticated ? portAccount.username : 'not signed in']] as fact}<span><small>{fact[0]}</small><code>{fact[1]}</code></span>{/each}</div>
+          {#if !portAccount.authenticated}<Button variant="outline" onclick={onOpenPortAccount}>Open Port account</Button>{/if}
         </div>
         <aside class="cart-preview">
           <span class="eyebrow">Port preview</span>
@@ -1196,13 +1212,45 @@
       </div>
     </section>
 
+  {:else if screen === 'account'}
+    <section class="page-screen account-screen">
+      <header class="page-header"><span><span class="eyebrow">Caiven Port</span><h1>Account</h1><p>Port identity owns published carts and version edits.</p></span></header>
+      <div class="account-card">
+        {#if portAccount.authenticated}
+          <div class="account-avatar linked"><UserRound size={28} /></div>
+          <span class="account-status linked">Linked</span>
+          <h2>{portAccount.username}</h2>
+          <p>Publishing uses this Port account. Local cart author stays local metadata.</p>
+          <Button variant="outline" onclick={onPortLogout}>Log out</Button>
+        {:else if portLinkPending}
+          <div class="account-avatar pending"><Globe size={28} /></div>
+          <span class="account-status pending">Browser opened</span>
+          <h2>Finish linking in Port</h2>
+          <p>Sign in or register in the browser tab, then approve Caiven Studio there — Studio picks it up automatically.</p>
+          <p class="account-expiry">Link expires {portLinkExpiresAt ? new Date(portLinkExpiresAt).toLocaleTimeString() : 'soon'}.</p>
+          <Button variant="outline" disabled={portBusy} onclick={onPortLinkCancel}>Cancel</Button>
+        {:else}
+          <div class="account-avatar"><UserRound size={28} /></div>
+          <span class="account-status">Not linked</span>
+          <h2>Link Port account</h2>
+          <p>Required before publishing. The browser handles sign-in — Studio never sees your password.</p>
+          <Button disabled={portBusy} onclick={onPortLink}>Link Port account</Button>
+        {/if}
+        {#if portError}
+          <div class="port-empty account-issue">
+            <strong>Account issue</strong>
+            <p>{portError}</p>
+            {#if !portLinkPending && !portAccount.authenticated}<button onclick={onPortLink}>Retry</button>{/if}
+          </div>
+        {/if}
+      </div>
+    </section>
+
   {:else if screen === 'library'}
     <section class="page-screen library-screen">
       <header class="page-header"><span><span class="eyebrow">Your carts</span><h1>Library</h1><p>Local projects and carts from port.</p></span><div class="segmented"><Button variant="ghost" class={libraryTab === 'local' ? 'active' : undefined} onclick={() => libraryTab = 'local'}>Local</Button><Button variant="ghost" class={libraryTab === 'port' ? 'active' : undefined} onclick={() => { libraryTab = 'port'; if (!portCarts.length) onSearchPort(''); }}>Port</Button></div></header>
       <div class="library-toolbar"><div><Search size={15} /><Input bind:value={libraryQuery} placeholder="Search carts" onkeydown={(event) => { if (event.key === 'Enter' && libraryTab === 'port') onSearchPort(libraryQuery); }} /></div>{#if libraryTab === 'local'}<Button variant="outline" onclick={onScanLibrary}><FolderOpen size={15} />Scan folder</Button>{:else if portAccount.authenticated}<span class="port-account">{portAccount.username}<Button variant="ghost" onclick={onPortLogout}>Log out</Button></span>{/if}</div>
-      {#if libraryTab === 'port' && !portAccount.authenticated}
-        <form class="port-login" onsubmit={(event) => { event.preventDefault(); onPortLogin(loginName, loginPassword); }}><span><strong>Port account</strong><small>Log in to publish. Browsing stays public.</small></span><Input bind:value={loginName} placeholder="Username" autocomplete="username" /><Input bind:value={loginPassword} type="password" placeholder="Password" autocomplete="current-password" /><Button disabled={portBusy || !loginName.trim() || !loginPassword}>Log in</Button></form>
-      {/if}
+      {#if libraryTab === 'port' && !portAccount.authenticated}<div class="port-login"><span><strong>Port account</strong><small>Link before publishing.</small></span><Button onclick={onOpenPortAccount}>Open Account</Button></div>{/if}
       {#if portError && libraryTab === 'port'}<div class="port-empty"><strong>Port unavailable</strong><p>{portError}</p><button onclick={() => onSearchPort(libraryQuery)}>Retry</button></div>{/if}
       <div class="cart-grid">
         {#if libraryTab === 'local'}

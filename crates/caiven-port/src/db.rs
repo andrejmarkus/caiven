@@ -60,13 +60,42 @@ fn normalize_tags(tags: &[String]) -> String {
         .join(",")
 }
 
+/// Looks up whether `content_hash` already belongs to a cart owned by
+/// someone other than `exclude_owner_id`. Returns the existing cart's
+/// title and author for use in a rejection message.
+pub async fn find_other_owner_by_content_hash(
+    db: &DatabaseConnection,
+    content_hash: &str,
+    exclude_owner_id: &str,
+) -> Result<Option<(String, String)>> {
+    let cart_ids: Vec<String> = CartVersionEntity::find()
+        .filter(cart_versions::Column::ContentHash.eq(content_hash))
+        .all(db)
+        .await?
+        .into_iter()
+        .map(|v| v.cart_id)
+        .collect();
+    if cart_ids.is_empty() {
+        return Ok(None);
+    }
+    let hit = CartEntity::find()
+        .filter(carts::Column::Id.is_in(cart_ids))
+        .filter(carts::Column::OwnerId.ne(Some(exclude_owner_id.to_string())))
+        .one(db)
+        .await?
+        .map(|cart| (cart.title, cart.author));
+    Ok(hit)
+}
+
 /// Create a new cart owned by `owner_id`, plus its version-1 row and blob.
 pub async fn insert_cart(
     db: &DatabaseConnection,
     owner_id: &str,
+    author: &str,
     id: &str,
     meta: &CartMeta,
     cart_bytes: &[u8],
+    content_hash: Option<&str>,
 ) -> Result<()> {
     let now = chrono::Utc::now().to_rfc3339();
     let txn = db.begin().await?;
@@ -74,7 +103,7 @@ pub async fn insert_cart(
     carts::ActiveModel {
         id: Set(id.to_string()),
         title: Set(meta.title.clone()),
-        author: Set(meta.author.clone()),
+        author: Set(author.to_string()),
         description: Set(meta.description.clone()),
         tags: Set(normalize_tags(&meta.tags)),
         uploaded_at: Set(now.clone()),
@@ -96,6 +125,8 @@ pub async fn insert_cart(
         changelog: Set(String::new()),
         has_screenshot: Set(false),
         created_at: Set(now),
+        editor_username: Set(author.to_string()),
+        content_hash: Set(content_hash.map(str::to_string)),
     }
     .insert(&txn)
     .await?;
@@ -117,7 +148,9 @@ pub async fn insert_version(
     db: &DatabaseConnection,
     cart_id: &str,
     changelog: &str,
+    editor_username: &str,
     cart_bytes: &[u8],
+    content_hash: Option<&str>,
 ) -> Result<i32> {
     let txn = db.begin().await?;
     let next = latest_version(&txn, cart_id)
@@ -134,6 +167,8 @@ pub async fn insert_version(
         changelog: Set(changelog.to_string()),
         has_screenshot: Set(false),
         created_at: Set(chrono::Utc::now().to_rfc3339()),
+        editor_username: Set(editor_username.to_string()),
+        content_hash: Set(content_hash.map(str::to_string)),
     }
     .insert(&txn)
     .await?;

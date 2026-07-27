@@ -69,6 +69,11 @@ pub struct PortState {
     /// redirect URIs and links embedded in emails. Without it, OAuth and
     /// outbound email links are disabled.
     pub base_url: Option<String>,
+    /// Best-effort local origin (e.g. `http://localhost:8080`), used to build
+    /// browser-facing links (Studio account linking, email fallback) when
+    /// `base_url` isn't configured. Unlike `base_url` this is never trusted
+    /// for security-sensitive purposes (OAuth redirect URIs, WebAuthn RP id).
+    pub local_origin: String,
     pub http: reqwest::Client,
     pub mailer: Option<mailer::Mailer>,
     pub turnstile_site_key: Option<String>,
@@ -94,6 +99,7 @@ impl PortState {
             web_dir,
             secure_cookies,
             base_url: None,
+            local_origin: "http://localhost:8080".to_string(),
             http: reqwest::Client::new(),
             mailer: None,
             turnstile_site_key: None,
@@ -138,9 +144,11 @@ impl Fairing for AuthNoStore {
 
 /// Baseline security response headers on every response. `script-src` has
 /// no `unsafe-inline` so a reflected/stored-XSS bug can't execute inline
-/// script; `style-src` allows it pragmatically for Tailwind/shadcn's
-/// inline-styled components. `challenges.cloudflare.com` is allow-listed
-/// for the Turnstile widget (script + frame + XHR).
+/// script; `wasm-unsafe-eval` is allowed so cart playback's WASM module can
+/// compile (still blocks JS `eval`/`unsafe-inline`). `style-src` allows
+/// `unsafe-inline` pragmatically for Tailwind/shadcn's inline-styled
+/// components. `challenges.cloudflare.com` is allow-listed for the
+/// Turnstile widget (script + frame + XHR).
 struct SecurityHeaders;
 
 #[rocket::async_trait]
@@ -166,7 +174,7 @@ impl Fairing for SecurityHeaders {
         response.set_header(Header::new(
             "Content-Security-Policy",
             "default-src 'self'; \
-             script-src 'self' https://challenges.cloudflare.com; \
+             script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com; \
              style-src 'self' 'unsafe-inline'; \
              img-src 'self' data: blob:; \
              connect-src 'self' https://challenges.cloudflare.com; \
@@ -205,6 +213,11 @@ pub fn build_rocket(config: rocket::Config, state: PortState) -> rocket::Rocket<
                 handlers::auth::list_tokens,
                 handlers::auth::create_token,
                 handlers::auth::revoke_token,
+                handlers::auth::studio_link_start,
+                handlers::auth::studio_link_poll,
+                handlers::auth::studio_link_status,
+                handlers::auth::studio_link_approve,
+                handlers::auth::studio_link_cancel,
                 handlers::auth::auth_config,
                 handlers::auth::verify_email,
                 handlers::auth::resend_verification,

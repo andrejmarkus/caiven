@@ -13,10 +13,28 @@ use caiven_vm::rendering::screen::Screen;
 use caiven_vm::vm::audio::{AudioPeripheral, Sound, Synth};
 use caiven_vm::{LuaRunOutcome, Vm, VmConfig};
 use std::cell::RefCell;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Mutex};
 
 const FONT_BYTES: &[u8] = include_bytes!("../../../assets/font.png");
 const FONT_GLYPHS: &str = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!?\"'()+-=.:,[]<>";
+
+/// Extracts a human-readable message from a `catch_unwind` payload.
+///
+/// These `extern "C"` exports are plain (non-unwind) ABI, so a panic that
+/// escapes one is UB and aborts the whole wasm module without printing the
+/// original message (only Rust's secondary "cannot unwind" panic shows up).
+/// Catching panics here and reporting them through the normal error paths
+/// keeps the module alive and preserves the actual message.
+fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        s.to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unknown panic".to_string()
+    }
+}
 
 struct Player {
     vm: Vm,
@@ -142,13 +160,17 @@ thread_local! {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn caiven_new() -> i32 {
-    match Player::new() {
-        Ok(p) => {
+    match catch_unwind(Player::new) {
+        Ok(Ok(p)) => {
             PLAYER.with(|cell| *cell.borrow_mut() = Some(p));
             0
         }
-        Err(e) => {
+        Ok(Err(e)) => {
             eprintln!("caiven_new failed: {e}");
+            -1
+        }
+        Err(payload) => {
+            eprintln!("caiven_new panicked: {}", panic_message(payload));
             -1
         }
     }
@@ -171,10 +193,14 @@ pub unsafe extern "C" fn caiven_load_cart(ptr: *const u8, len: usize) -> i32 {
         // SAFETY: pointer is derived from the RefCell we're already inside;
         // no re-entrant access happens while it's live.
         let player = unsafe { &mut *player };
-        match player.load_cart(bytes) {
-            Ok(()) => 0,
-            Err(e) => {
+        match catch_unwind(AssertUnwindSafe(|| player.load_cart(bytes))) {
+            Ok(Ok(())) => 0,
+            Ok(Err(e)) => {
                 eprintln!("caiven_load_cart failed: {e}");
+                -1
+            }
+            Err(payload) => {
+                eprintln!("caiven_load_cart panicked: {}", panic_message(payload));
                 -1
             }
         }
@@ -193,8 +219,17 @@ pub extern "C" fn caiven_set_button(idx: u32, down: i32) {
 #[unsafe(no_mangle)]
 pub extern "C" fn caiven_tick(frames: u32) {
     PLAYER.with(|cell| {
-        if let Some(player) = cell.borrow_mut().as_mut() {
-            player.tick(frames);
+        let Some(player) = cell.borrow_mut().as_mut().map(|p| p as *mut Player) else {
+            return;
+        };
+        // SAFETY: pointer is derived from the RefCell we're already inside;
+        // no re-entrant access happens while it's live.
+        let player = unsafe { &mut *player };
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| player.tick(frames))) {
+            let message = format!("engine panic: {}", panic_message(payload));
+            eprintln!("caiven_tick panicked: {message}");
+            player.fault_bytes = message.into_bytes();
+            player.fault = true;
         }
     });
 }

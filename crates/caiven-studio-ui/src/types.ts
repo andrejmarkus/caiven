@@ -9,6 +9,7 @@ export type Screen =
   | 'assets'
   | 'cart'
   | 'library'
+  | 'account'
   | 'docs';
 
 export type RunState = 'running' | 'paused' | 'stopped';

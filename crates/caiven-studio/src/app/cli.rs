@@ -31,6 +31,10 @@ enum Command {
         /// Output .cav path
         #[arg(short, long)]
         out: PathBuf,
+        /// Keep Lua source as-is (comments, indentation) instead of
+        /// stripping it for distribution
+        #[arg(long)]
+        no_minify: bool,
     },
     /// Unpack a binary .cav cart into an editable project directory
     Unpack {
@@ -221,9 +225,16 @@ pub fn run() -> Result<()> {
             }
             Ok(())
         }
-        Some(Command::Build { project, out }) => {
-            let cart = caiven_cart::load_project(project)
+        Some(Command::Build {
+            project,
+            out,
+            no_minify,
+        }) => {
+            let mut cart = caiven_cart::load_project(project)
                 .with_context(|| format!("failed to load project from {}", project.display()))?;
+            if !no_minify {
+                caiven_cart::minify_cart_lua(&mut cart.sections);
+            }
             let extra: Vec<(caiven_cart::SectionKind, Vec<u8>)> = cart
                 .sections
                 .into_iter()
@@ -255,8 +266,9 @@ pub fn run() -> Result<()> {
             // raw source files.
             let packed_temp = if caiven_cart::is_project(cart) {
                 let temp = crate::studio::cart::temp_cav_path();
-                let project = caiven_cart::load_project(cart)
+                let mut project = caiven_cart::load_project(cart)
                     .with_context(|| format!("failed to load project from {}", cart.display()))?;
+                caiven_cart::minify_cart_lua(&mut project.sections);
                 let extra: Vec<(caiven_cart::SectionKind, Vec<u8>)> = project
                     .sections
                     .into_iter()

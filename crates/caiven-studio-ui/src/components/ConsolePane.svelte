@@ -143,8 +143,8 @@
     </div>
   </div>
 
-  <Tabs.Root value={debugTab} class="debugger">
-    <Tabs.List variant="line" class="debug-tabs">
+  <Tabs.Root value={debugTab} class="debugger gap-0">
+    <Tabs.List variant="line" class="debug-tabs w-full">
       <Tabs.Trigger value="watches" class={debugTab === 'watches' ? 'active' : undefined} onclick={() => debugTab = 'watches'}>Watches</Tabs.Trigger>
       <Tabs.Trigger value="globals" class={debugTab === 'globals' ? 'active' : undefined} onclick={() => debugTab = 'globals'}>Globals</Tabs.Trigger>
       <Tabs.Trigger value="stack" class={debugTab === 'stack' ? 'active' : undefined} onclick={() => debugTab = 'stack'}>Call stack</Tabs.Trigger>

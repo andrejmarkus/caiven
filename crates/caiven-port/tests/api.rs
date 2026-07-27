@@ -126,10 +126,19 @@ fn multipart_content_type() -> ContentType {
     ContentType::parse_flexible(&format!("multipart/form-data; boundary={BOUNDARY}")).unwrap()
 }
 
+/// Builds a real, parseable `.cav` with the given program bytes (via the
+/// shared `caiven-cart` writer), so uploads pass content-hash validation
+/// the same way a real Studio-published cart would.
+fn build_cart(program: &[u8]) -> Vec<u8> {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("t.cav");
+    let header = caiven_cart::CartHeader::new("T", "A");
+    caiven_cart::write(&path, &header, program, &[]).unwrap();
+    std::fs::read(&path).unwrap()
+}
+
 fn sample_cart() -> Vec<u8> {
-    let mut cart = b"CAIVEN".to_vec();
-    cart.extend_from_slice(&[0u8; 64]);
-    cart
+    build_cart(&[0u8; 64])
 }
 
 /// Register a user, mint a token for it, then log out so the client's
@@ -776,8 +785,7 @@ async fn versioning_upload_list_download_and_delete() {
     let cart: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     let id = cart["id"].as_str().unwrap().to_string();
 
-    let mut cart_v2 = b"CAIVEN".to_vec();
-    cart_v2.extend_from_slice(&[1u8; 80]);
+    let cart_v2 = build_cart(&[1u8; 80]);
     let resp = client
         .post(format!("/api/v2/carts/{id}/versions"))
         .header(Header::new("X-Api-Key", token.clone()))
@@ -850,10 +858,16 @@ async fn discovery_tag_author_filters_and_lookups() {
     assert_eq!(list["total"], 1);
     assert_eq!(list["carts"][0]["title"], "Alpha");
 
-    let resp = client.get("/api/v2/carts?author=Amy").dispatch().await;
+    let resp = client.get("/api/v2/carts?author=tester").dispatch().await;
     let list: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
-    assert_eq!(list["total"], 1);
-    assert_eq!(list["carts"][0]["title"], "Beta");
+    assert_eq!(list["total"], 2);
+    assert!(
+        list["carts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|cart| cart["author"] == "tester")
+    );
 
     let resp = client.get("/api/v2/tags").dispatch().await;
     let tags: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();

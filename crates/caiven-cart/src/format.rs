@@ -11,6 +11,8 @@
 ///   section data: packed at the offsets listed in the table
 use std::path::Path;
 
+use sha2::{Digest, Sha256};
+
 use crate::error::CartError;
 use crate::header::CartHeader;
 use crate::section::{CartSection, SectionKind};
@@ -146,6 +148,32 @@ pub fn write(
 
     std::fs::write(path, out)?;
     Ok(())
+}
+
+/// Content-identity hash used for theft/dedup detection: covers only the
+/// program and asset sections, deliberately excluding the header (title,
+/// author, entry point, flags) so a cosmetic rename before re-upload can't
+/// evade detection. Section order doesn't affect the hash.
+pub fn content_hash(data: &[u8]) -> Result<String, CartError> {
+    let cart = parse(data)?;
+    let mut hasher = Sha256::new();
+    hasher.update(&cart.program);
+    let mut sections: Vec<&CartSection> = cart.sections.iter().collect();
+    sections.sort_by_key(|s| s.kind.to_u16());
+    for s in sections {
+        hasher.update(s.kind.to_u16().to_le_bytes());
+        hasher.update(&s.data);
+    }
+    Ok(hex_encode(&hasher.finalize()))
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        write!(s, "{b:02x}").unwrap();
+    }
+    s
 }
 
 fn append_section_entry(out: &mut Vec<u8>, kind: SectionKind, offset: usize, data: &[u8]) {

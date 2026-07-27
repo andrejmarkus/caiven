@@ -23,6 +23,7 @@ export interface CartVersionInfo {
   changelog: string;
   has_screenshot: boolean;
   created_at: string;
+  editor: string;
 }
 
 export interface CartDetail extends Cart {
@@ -247,7 +248,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(res.status, message);
   }
   if (res.status === 204) return undefined as T;
-  return res.json() as Promise<T>;
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 function qs(params: Record<string, string | number | undefined>): string {
@@ -315,6 +317,7 @@ export const api = {
   createToken: (name: string) =>
     request<TokenCreated>('/auth/tokens', { method: 'POST', body: JSON.stringify({ name }) }),
   revokeToken: (id: string) => request<void>(`/auth/tokens/${id}`, { method: 'DELETE' }),
+  approveStudioLink: (requestId: string) => request<void>(`/auth/studio-link/${requestId}/approve`, { method: 'POST' }),
 
   webauthnRegisterStart: () =>
     request<WebauthnStartResponse>('/auth/webauthn/register/start', { method: 'POST' }),
@@ -347,7 +350,7 @@ export const api = {
   listCarts: (opts: { page?: number; per_page?: number; q?: string; tag?: string; author?: string; sort?: Sort } = {}) =>
     request<CartList>(`/carts${qs(opts)}`),
   getCart: (id: string) => request<CartDetail>(`/carts/${id}`),
-  createCart: (cart: File, meta: { title: string; author: string; description: string; tags: string[] }) => {
+  createCart: (cart: File, meta: { title: string; description: string; tags: string[] }) => {
     const form = new FormData();
     form.set('cart', cart);
     form.set('meta', JSON.stringify(meta));

@@ -82,7 +82,7 @@
 
 <section class="bottom-drawer" class:open>
   <Tabs.Root value={tab} class="contents">
-  <Tabs.List class="drawer-tabs" aria-label="Studio messages and memory">
+  <Tabs.List class="drawer-tabs w-full" aria-label="Studio messages and memory">
     <Tabs.Trigger value="problems" class={open && tab === 'problems' ? 'active' : undefined} onclick={() => onTab('problems')}>
       Problems <span class:danger-badge={errorCount > 0}>{diagnostics.length}</span>
     </Tabs.Trigger>

@@ -7,7 +7,6 @@
 
   const cartId = $derived(route.search.get('cart') ?? '');
   let title = $state('');
-  let author = $state('');
   let description = $state('');
   let tags = $state('');
   let changelog = $state('');
@@ -18,7 +17,7 @@
   let jams = $state<JamInfo[]>([]);
   let jamSlug = $state('');
 
-  $effect(() => { author ||= currentUser.value?.username ?? ''; api.listJams().then((rows) => (jams = rows.filter((j) => j.status === 'open'))).catch(() => {}); });
+  $effect(() => { api.listJams().then((rows) => (jams = rows.filter((j) => j.status === 'open'))).catch(() => {}); });
   function pick(file?: File) { if (file) cartFile = file; }
   async function submit(e: Event) {
     e.preventDefault();
@@ -29,7 +28,7 @@
         const cart = await api.createVersion(cartId, cartFile, changelog);
         navigate(`/cart/${cart.id}`);
       } else {
-        const cart = await api.createCart(cartFile, { title, author, description, tags: tags.split(',').map((x) => x.trim()).filter(Boolean) });
+        const cart = await api.createCart(cartFile, { title, description, tags: tags.split(',').map((x) => x.trim()).filter(Boolean) });
         if (jamSlug) await api.enterJam(jamSlug, cart.id);
         navigate(`/cart/${cart.id}`);
       }
@@ -66,7 +65,7 @@
         <label class="block text-sm font-semibold">Changelog<textarea bind:value={changelog} rows={4} placeholder="What changed in this version?" class="mt-2 w-full rounded-md border border-border bg-background p-3 font-normal"></textarea></label>
       {:else}
         <label class="block text-sm font-semibold">Title<input bind:value={title} maxlength={64} required placeholder="Read from cart header" class="mt-2 h-10 w-full rounded-md border border-border bg-background px-3 font-normal" /></label>
-        <label class="block text-sm font-semibold">Author metadata<input bind:value={author} maxlength={64} required class="mt-2 h-10 w-full rounded-md border border-border bg-background px-3 font-normal" /><span class="mt-1 block text-xs font-normal text-muted-foreground">Public creator identity remains account owner.</span></label>
+        <p class="text-sm font-semibold">Author<span class="mt-1 block text-sm font-normal">Publishing as <strong>@{currentUser.value?.username}</strong></span><span class="mt-1 block text-xs font-normal text-muted-foreground">Creator identity is your account and can't be changed here.</span></p>
         <label class="block text-sm font-semibold">Short description<textarea bind:value={description} maxlength={512} rows={3} class="mt-2 w-full rounded-md border border-border bg-background p-3 font-normal"></textarea><span class="mt-1 block text-xs font-normal text-muted-foreground">Say what player does, not what game is about.</span></label>
         <label class="block text-sm font-semibold">Tags<input bind:value={tags} placeholder="platformer, dark" class="mt-2 h-10 w-full rounded-md border border-border bg-background px-3 font-normal" /><span class="mt-1 block text-xs font-normal text-muted-foreground">Comma separated.</span></label>
         {#if jams.length}

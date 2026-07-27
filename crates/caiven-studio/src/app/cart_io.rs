@@ -3,7 +3,7 @@
 //! treated as a project directory (the git-friendly authoring format).
 
 use anyhow::{Context, Result};
-use caiven_cart::{CartHeader, SectionKind};
+use caiven_cart::{CartHeader, CartSection, SectionKind};
 use caiven_vm::Vm;
 use std::path::{Path, PathBuf};
 
@@ -94,6 +94,18 @@ fn write_binary(
         }
         None => &meta.program,
     };
+    // Both callers (GUI "Export Cartridge" and the publish flow's temp pack)
+    // produce a distribution artifact meant for someone other than the
+    // author, so strip comments/formatting from the bundled Lua here.
+    let mut sections: Vec<CartSection> = extra
+        .into_iter()
+        .map(|(kind, data)| CartSection { kind, data })
+        .collect();
+    caiven_cart::minify_cart_lua(&mut sections);
+    let extra: Vec<(SectionKind, Vec<u8>)> = sections
+        .into_iter()
+        .map(|s| (s.kind, s.data))
+        .collect();
     caiven_cart::write(dest, &meta.header, program, &extra)
         .with_context(|| format!("failed to write cart to {}", dest.display()))
 }

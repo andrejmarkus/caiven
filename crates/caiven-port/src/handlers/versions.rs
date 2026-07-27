@@ -254,7 +254,27 @@ pub async fn create_version(
     } else {
         serde_json::from_str(&upload.meta)?
     };
-    let version = db::insert_version(&state.db, id, &meta.changelog, &bytes).await?;
+
+    let content_hash = caiven_cart::content_hash(&bytes)
+        .map_err(|_| ApiError::bad_request("not a valid Caiven cart"))?;
+    let owner_id = cart.owner_id.as_deref().unwrap_or(db::LEGACY_USER_ID);
+    if let Some((title, author)) =
+        db::find_other_owner_by_content_hash(&state.db, &content_hash, owner_id).await?
+    {
+        return Err(ApiError::conflict(format!(
+            "This cart's content matches an existing published cart \"{title}\" by {author}"
+        )));
+    }
+
+    let version = db::insert_version(
+        &state.db,
+        id,
+        &meta.changelog,
+        &user.username,
+        &bytes,
+        Some(&content_hash),
+    )
+    .await?;
     let v = db::get_version(&state.db, id, version)
         .await?
         .ok_or_else(|| ApiError::internal("insert failed"))?;

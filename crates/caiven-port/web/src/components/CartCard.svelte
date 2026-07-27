@@ -2,6 +2,7 @@
   import type { Cart } from '../api';
   import { link, navigate } from '../router.svelte';
   import ScreenshotImg from './ScreenshotImg.svelte';
+  import { Button } from '@caiven/ui/button';
   import PlayIcon from '@lucide/svelte/icons/play';
   import StarIcon from '@lucide/svelte/icons/star';
 
@@ -22,13 +23,15 @@
 >
   <div class="cart-notch relative aspect-square overflow-hidden bg-secondary">
     <ScreenshotImg id={cart.id} hasScreenshot={cart.has_screenshot} alt={cart.title} />
-    <button
+    <Button
+      type="button"
+      size="icon"
       onclick={play}
       aria-label="Play {cart.title}"
-      class="ember-glow absolute right-2 bottom-2 flex size-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition-transform hover:scale-105"
+      class="ember-glow absolute right-2 bottom-2 rounded-full transition-transform hover:scale-105"
     >
       <PlayIcon class="ml-0.5 size-4" fill="currentColor" />
-    </button>
+    </Button>
   </div>
   <div class={compact ? 'p-3' : 'p-3.5'}>
     <h3 class="truncate font-display text-base font-semibold">{cart.title}</h3>

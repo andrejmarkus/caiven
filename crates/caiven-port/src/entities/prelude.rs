@@ -31,6 +31,7 @@ pub use super::play_events::Entity as PlayEvents;
 pub use super::ratings::Entity as Ratings;
 #[allow(unused_imports)]
 pub use super::sessions::Entity as Sessions;
+pub use super::studio_link_requests::Entity as StudioLinkRequests;
 #[allow(unused_imports)]
 pub use super::users::Entity as Users;
 #[allow(unused_imports)]

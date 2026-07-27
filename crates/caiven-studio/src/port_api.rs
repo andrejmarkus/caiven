@@ -3,8 +3,7 @@ use caiven_vm::VmConfig;
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-
-const SESSION_COOKIE: &str = "caiven_session";
+use tauri_plugin_opener::OpenerExt;
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -55,8 +54,28 @@ pub(crate) struct PortCartList {
 }
 
 #[derive(Deserialize)]
-struct TokenCreated {
-    token: String,
+#[serde(rename_all = "snake_case")]
+struct StudioLinkStart {
+    request_id: String,
+    poll_secret: String,
+    browser_url: String,
+    expires_at: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+struct StudioLinkPoll {
+    status: String,
+    username: Option<String>,
+    token: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PortLinkPending {
+    pub request_id: String,
+    pub poll_secret: String,
+    pub expires_at: String,
 }
 
 #[derive(Serialize)]
@@ -95,7 +114,6 @@ pub(crate) struct PublishResult {
 
 pub(crate) struct PublishMeta {
     pub title: String,
-    pub author: String,
     pub description: String,
     pub tags: Vec<String>,
     pub changelog: String,
@@ -169,16 +187,6 @@ fn error_message(error: ureq::Error) -> String {
     }
 }
 
-fn parse_session_cookie(response: &ureq::Response) -> Option<String> {
-    response
-        .header("Set-Cookie")?
-        .split(';')
-        .next()?
-        .split_once('=')
-        .filter(|(name, _)| name.trim() == SESSION_COOKIE)
-        .map(|(_, value)| value.trim().to_string())
-}
-
 #[tauri::command]
 pub(crate) fn port_session() -> PortSession {
     let saved = load_token();
@@ -190,27 +198,67 @@ pub(crate) fn port_session() -> PortSession {
 }
 
 #[tauri::command]
-pub(crate) fn port_login(username: String, password: String) -> Result<PortSession, String> {
+pub(crate) fn port_link_start(app: tauri::AppHandle) -> Result<PortLinkPending, String> {
     let base = port_url();
-    let response = ureq::post(&format!("{base}/api/v2/auth/login"))
-        .set("Content-Type", "application/json")
-        .send_string(&serde_json::json!({ "username": username, "password": password }).to_string())
+    let response = ureq::post(&format!("{base}/api/v2/auth/studio-link"))
+        .send_string("")
         .map_err(error_message)?;
-    let session = parse_session_cookie(&response)
-        .ok_or_else(|| "Login returned no session cookie".to_string())?;
-    let token_response = ureq::post(&format!("{base}/api/v2/auth/tokens"))
-        .set("Cookie", &format!("{SESSION_COOKIE}={session}"))
+    let link: StudioLinkStart = serde_json::from_reader(response.into_reader())
+        .map_err(|error| format!("Invalid Studio link response: {error}"))?;
+    app.opener()
+        .open_url(&link.browser_url, None::<&str>)
+        .map_err(|error| error.to_string())?;
+    Ok(PortLinkPending {
+        request_id: link.request_id,
+        poll_secret: link.poll_secret,
+        expires_at: link.expires_at,
+    })
+}
+
+#[tauri::command]
+pub(crate) fn port_link_poll(
+    request_id: String,
+    poll_secret: String,
+) -> Result<Option<PortSession>, String> {
+    let base = port_url();
+    let response = ureq::post(&format!("{base}/api/v2/auth/studio-link/poll"))
         .set("Content-Type", "application/json")
-        .send_string(&serde_json::json!({ "name": "Studio" }).to_string())
+        .send_string(
+            &serde_json::json!({ "request_id": request_id, "poll_secret": poll_secret })
+                .to_string(),
+        )
         .map_err(error_message)?;
-    let token: TokenCreated = serde_json::from_reader(token_response.into_reader())
-        .map_err(|error| format!("Invalid token response: {error}"))?;
-    save_token(&username, &token.token)?;
-    Ok(PortSession {
+    let link: StudioLinkPoll = serde_json::from_reader(response.into_reader())
+        .map_err(|error| format!("Invalid Studio link poll response: {error}"))?;
+    if link.status == "pending" {
+        return Ok(None);
+    }
+    let username = link
+        .username
+        .ok_or_else(|| "Studio link returned no username".to_string())?;
+    let token = link
+        .token
+        .ok_or_else(|| "Studio link returned no token".to_string())?;
+    save_token(&username, &token)?;
+    Ok(Some(PortSession {
         authenticated: true,
         username,
         port_url: base,
-    })
+    }))
+}
+
+#[tauri::command]
+pub(crate) fn port_link_cancel(request_id: String, poll_secret: String) -> Result<(), String> {
+    let base = port_url();
+    ureq::post(&format!(
+        "{base}/api/v2/auth/studio-link/{request_id}/cancel"
+    ))
+    .set("Content-Type", "application/json")
+    .send_string(
+        &serde_json::json!({ "request_id": request_id, "poll_secret": poll_secret }).to_string(),
+    )
+    .map_err(error_message)?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -362,7 +410,7 @@ pub(crate) fn publish(
         ),
         None => (
             format!("{base}/api/v2/carts"),
-            serde_json::json!({ "title": meta.title, "author": meta.author, "description": meta.description, "tags": meta.tags }),
+            serde_json::json!({ "title": meta.title, "description": meta.description, "tags": meta.tags }),
         ),
     };
     let metadata = metadata.to_string();

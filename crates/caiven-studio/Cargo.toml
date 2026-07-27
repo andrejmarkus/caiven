@@ -28,6 +28,7 @@ serde_json = { workspace = true }
 tauri = { workspace = true }
 tauri-runtime = { workspace = true }
 tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
 toml = { workspace = true }
 ureq = { workspace = true }
 wry = { workspace = true }

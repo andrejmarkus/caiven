@@ -4,6 +4,7 @@
   import { link, navigate } from '../router.svelte';
   import Logo from '$lib/components/Logo.svelte';
   import { buttonVariants } from '@caiven/ui/button';
+  import { Input } from '@caiven/ui/input';
   import * as DropdownMenu from '@caiven/ui/dropdown-menu';
   import SearchIcon from '@lucide/svelte/icons/search';
   import UploadIcon from '@lucide/svelte/icons/upload';
@@ -17,7 +18,7 @@
   import BookIcon from '@lucide/svelte/icons/book-marked';
 
   let q = $state('');
-  let searchInput = $state<HTMLInputElement | undefined>();
+  let searchInput = $state<HTMLInputElement | null>(null);
 
   function search(e: Event) {
     e.preventDefault();
@@ -50,11 +51,11 @@
   <form onsubmit={search} class="hidden w-full max-w-[520px] sm:block">
     <div class="flex h-10 items-center gap-2.5 rounded-md border border-border bg-card px-3 focus-within:border-primary">
       <SearchIcon class="size-4 text-muted-foreground" />
-      <input
-        bind:this={searchInput}
+      <Input
+        bind:ref={searchInput}
         bind:value={q}
         placeholder="Search carts, creators, tags…"
-        class="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-foreground outline-none ring-0 placeholder:text-muted-foreground"
+        class="h-auto min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-foreground shadow-none outline-none ring-0 placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0"
       />
       <kbd class="hidden rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground lg:block">⌘K</kbd>
     </div>

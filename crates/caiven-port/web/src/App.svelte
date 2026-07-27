@@ -23,6 +23,7 @@
   import ForgotPassword from './pages/ForgotPassword.svelte';
   import ResetPassword from './pages/ResetPassword.svelte';
   import Upload from './pages/Upload.svelte';
+  import LinkStudio from './pages/LinkStudio.svelte';
   import { Toaster } from '@caiven/ui/sonner';
 
   hydrateUser();
@@ -56,6 +57,7 @@
   {:else if match.name === 'forgot-password'}<ForgotPassword />
   {:else if match.name === 'reset-password'}<ResetPassword />
   {:else if match.name === 'upload'}<Upload />
+  {:else if match.name === 'link-studio'}<LinkStudio />
   {:else}
     <div class="container-page py-24 text-center"><h1 class="text-2xl font-semibold">Page not found</h1><p class="mt-2 text-muted-foreground">Address points beyond Port.</p></div>
   {/if}

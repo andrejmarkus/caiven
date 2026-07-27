@@ -124,7 +124,7 @@ export async function listTemplates(): Promise<CartTemplateSummary[]> {
 }
 
 export async function chooseProject(title = 'Open cart project'): Promise<string | null> {
-  if (!isTauri()) return null;
+  if (!isTauri()) throw new Error('Folder chooser needs native Caiven Studio. Launch with `npm --prefix ../caiven-studio-ui exec tauri dev` from crates/caiven-studio.');
   const selected = await openDialog({ directory: true, multiple: false, title });
   return typeof selected === 'string' ? selected : null;
 }
@@ -265,8 +265,16 @@ export async function portSession(): Promise<PortSession> {
   return isTauri() ? invoke<PortSession>('port_session') : { authenticated: false, username: '', portUrl: 'http://localhost:8080' };
 }
 
-export async function portLogin(username: string, password: string): Promise<PortSession> {
-  return invoke<PortSession>('port_login', { username, password });
+export interface PortLinkPending { requestId: string; pollSecret: string; expiresAt: string; }
+export async function portLinkStart(): Promise<PortLinkPending> {
+  if (!isTauri()) throw new Error('Port account linking needs native Caiven Studio. Browser preview cannot store Studio token.');
+  return invoke<PortLinkPending>('port_link_start');
+}
+export async function portLinkPoll(requestId: string, pollSecret: string): Promise<PortSession | null> {
+  return invoke<PortSession | null>('port_link_poll', { requestId, pollSecret });
+}
+export async function portLinkCancel(requestId: string, pollSecret: string): Promise<void> {
+  return invoke<void>('port_link_cancel', { requestId, pollSecret });
 }
 
 export async function portLogout(): Promise<PortSession> {
@@ -286,7 +294,7 @@ export async function scanLibrary(path: string): Promise<LocalCart[]> {
 }
 
 export async function portPublish(input: {
-  title: string; author: string; description: string; tags: string[];
+  title: string; description: string; tags: string[];
   changelog: string; targetCartId?: string; frames?: number;
 }): Promise<PublishResult> {
   return invoke<PublishResult>('studio_port_publish', {

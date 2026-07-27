@@ -1660,7 +1660,6 @@ fn studio_port_publish(
     app: tauri::AppHandle,
     state: State<'_, StudioBridge>,
     title: String,
-    author: String,
     description: String,
     tags: Vec<String>,
     changelog: String,
@@ -1685,7 +1684,6 @@ fn studio_port_publish(
         &packed,
         crate::port_api::PublishMeta {
             title,
-            author,
             description,
             tags,
             changelog,
@@ -1822,6 +1820,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
 pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(spawn_core(initial_path))
         .menu(build_menu)
         .on_menu_event(|app, event| {
@@ -1878,7 +1877,9 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
             studio_asset_index,
             studio_port_publish,
             crate::port_api::port_session,
-            crate::port_api::port_login,
+            crate::port_api::port_link_start,
+            crate::port_api::port_link_poll,
+            crate::port_api::port_link_cancel,
             crate::port_api::port_logout,
             crate::port_api::port_list_carts,
             crate::port_api::port_download,

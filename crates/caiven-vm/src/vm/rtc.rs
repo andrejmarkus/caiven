@@ -5,7 +5,7 @@
 use crate::peripheral::Peripheral;
 use crate::vm::memory::Memory;
 use caiven_core::memory::RTC_RAM_BASE;
-use chrono::{Local, Timelike};
+use chrono::{Timelike, Utc};
 
 pub struct RealTimeClock;
 
@@ -24,7 +24,7 @@ impl Peripheral for RealTimeClock {
 }
 
 fn write_time(mem: &mut Memory) {
-    let now = Local::now();
+    let now = Utc::now();
     let _ = mem.write(RTC_RAM_BASE, now.hour() as u8);
     let _ = mem.write(RTC_RAM_BASE + 1, now.minute() as u8);
     let _ = mem.write(RTC_RAM_BASE + 2, now.second() as u8);

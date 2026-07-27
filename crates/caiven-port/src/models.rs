@@ -62,7 +62,6 @@ impl Cart {
 #[serde(crate = "rocket::serde")]
 pub struct CartMeta {
     pub title: String,
-    pub author: String,
     #[serde(default)]
     pub description: String,
     #[serde(default)]
@@ -92,6 +91,32 @@ pub struct CartVersionInfo {
     pub changelog: String,
     pub has_screenshot: bool,
     pub created_at: String,
+    pub editor: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde", rename_all = "snake_case")]
+pub struct StudioLinkStart {
+    pub request_id: String,
+    pub poll_secret: String,
+    pub browser_url: String,
+    pub expires_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct StudioLinkPoll {
+    pub request_id: String,
+    pub poll_secret: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde", rename_all = "snake_case")]
+pub struct StudioLinkPollResult {
+    pub status: String,
+    pub username: Option<String>,
+    pub token: Option<String>,
+    pub expires_at: Option<String>,
 }
 
 impl From<cart_versions::Model> for CartVersionInfo {
@@ -102,6 +127,7 @@ impl From<cart_versions::Model> for CartVersionInfo {
             changelog: v.changelog,
             has_screenshot: v.has_screenshot,
             created_at: v.created_at,
+            editor: v.editor_username,
         }
     }
 }

@@ -20,8 +20,8 @@ use crate::{
     auth::{self, AuthUser, CSRF_COOKIE, ClientIp, SESSION_COOKIE, UserAgent},
     db,
     entities::{
-        api_tokens, audit_log as audit_log_entity, carts, oauth_identities, sessions, users,
-        webauthn_credentials,
+        api_tokens, audit_log as audit_log_entity, carts, oauth_identities, sessions,
+        studio_link_requests, users, webauthn_credentials,
     },
     error::ApiError,
     mailer,
@@ -29,9 +29,9 @@ use crate::{
         AuditEntry, AuthConfigInfo, DeleteAccountInput, ForgotPasswordInput, LoginInput,
         LoginMfaInput, LoginOutcome, MfaConfirmInput, MfaConfirmed, MfaDisableInput, MfaSetupInfo,
         MfaStatus, PasskeyInfo, PasswordChange, RegisterInput, ResetPasswordInput, SessionInfo,
-        SetPasswordInput, TokenCreate, TokenCreated, TokenInfo, UserInfo, VerifyEmailInput,
-        WebauthnLoginFinishInput, WebauthnLoginStartInput, WebauthnRegisterFinishInput,
-        WebauthnStartResponse,
+        SetPasswordInput, StudioLinkPoll, StudioLinkPollResult, StudioLinkStart, TokenCreate,
+        TokenCreated, TokenInfo, UserInfo, VerifyEmailInput, WebauthnLoginFinishInput,
+        WebauthnLoginStartInput, WebauthnRegisterFinishInput, WebauthnStartResponse,
     },
     oauth, turnstile,
 };
@@ -48,6 +48,9 @@ const RESEND_LIMIT: u32 = 3;
 const RESEND_WINDOW: Duration = Duration::from_secs(3600);
 const FORGOT_LIMIT: u32 = 5;
 const FORGOT_WINDOW: Duration = Duration::from_secs(3600);
+const STUDIO_LINK_LIMIT: u32 = 10;
+const STUDIO_LINK_WINDOW: Duration = Duration::from_secs(10 * 60);
+const STUDIO_LINK_TTL_MINUTES: i64 = 10;
 
 const OAUTH_STATE_COOKIE: &str = "caiven_oauth";
 const OAUTH_PATH: &str = "/api/v2/auth/oauth";
@@ -116,7 +119,8 @@ fn to_user_info(u: users::Model) -> UserInfo {
 }
 
 fn link_for(state: &PortState, path: &str) -> String {
-    format!("{}{path}", state.base_url.as_deref().unwrap_or(""))
+    let origin = state.base_url.as_deref().unwrap_or(&state.local_origin);
+    format!("{origin}{path}")
 }
 
 async fn start_session(
@@ -825,6 +829,236 @@ pub async fn revoke_token(
     if res.rows_affected == 0 {
         return Err(ApiError::not_found("token not found"));
     }
+    Ok(())
+}
+
+fn studio_link_expired(expires_at: &str) -> bool {
+    chrono::DateTime::parse_from_rfc3339(expires_at)
+        .map(|expiry| expiry <= chrono::Utc::now())
+        .unwrap_or(true)
+}
+
+#[post("/api/v2/auth/studio-link")]
+pub async fn studio_link_start(
+    state: &State<PortState>,
+    ip: ClientIp,
+) -> Result<Json<StudioLinkStart>, ApiError> {
+    if state
+        .rate
+        .hit("studio-link-start", &ip.0, STUDIO_LINK_WINDOW)
+        > STUDIO_LINK_LIMIT
+    {
+        return Err(ApiError::TooManyRequests(
+            "too many Studio link requests".into(),
+        ));
+    }
+    let id = Uuid::new_v4().to_string();
+    let poll_secret = auth::random_secret();
+    let expires_at =
+        (chrono::Utc::now() + chrono::Duration::minutes(STUDIO_LINK_TTL_MINUTES)).to_rfc3339();
+    studio_link_requests::ActiveModel {
+        id: Set(id.clone()),
+        poll_secret_hash: Set(auth::sha256_hex(&poll_secret)),
+        approved_user_id: Set(None),
+        expires_at: Set(expires_at.clone()),
+        consumed_at: Set(None),
+        cancelled_at: Set(None),
+        created_at: Set(chrono::Utc::now().to_rfc3339()),
+    }
+    .insert(&state.db)
+    .await?;
+    Ok(Json(StudioLinkStart {
+        browser_url: link_for(state, &format!("/link-studio?request={id}")),
+        request_id: id,
+        poll_secret,
+        expires_at,
+    }))
+}
+
+#[post("/api/v2/auth/studio-link/poll", data = "<request>")]
+pub async fn studio_link_poll(
+    state: &State<PortState>,
+    ip: ClientIp,
+    request: Json<StudioLinkPoll>,
+) -> Result<Json<StudioLinkPollResult>, ApiError> {
+    if state
+        .rate
+        .hit("studio-link-poll", &ip.0, STUDIO_LINK_WINDOW)
+        > STUDIO_LINK_LIMIT * 12
+    {
+        return Err(ApiError::TooManyRequests(
+            "too many Studio link polls".into(),
+        ));
+    }
+    let Some(row) = studio_link_requests::Entity::find_by_id(&request.request_id)
+        .one(&state.db)
+        .await?
+    else {
+        return Err(ApiError::not_found("link request not found"));
+    };
+    if !auth::constant_time_eq_str(
+        &row.poll_secret_hash,
+        &auth::sha256_hex(&request.poll_secret),
+    ) {
+        return Err(ApiError::Unauthorized);
+    }
+    if row.cancelled_at.is_some() {
+        return Err(ApiError::bad_request("link request cancelled"));
+    }
+    if studio_link_expired(&row.expires_at) {
+        return Err(ApiError::bad_request("link request expired"));
+    }
+    if row.consumed_at.is_some() {
+        return Err(ApiError::bad_request("link request already consumed"));
+    }
+    let Some(user_id) = row.approved_user_id.clone() else {
+        return Ok(Json(StudioLinkPollResult {
+            status: "pending".into(),
+            username: None,
+            token: None,
+            expires_at: Some(row.expires_at),
+        }));
+    };
+    let txn = state.db.begin().await?;
+    let result = studio_link_requests::Entity::update_many()
+        .col_expr(
+            studio_link_requests::Column::ConsumedAt,
+            sea_orm::sea_query::Expr::value(chrono::Utc::now().to_rfc3339()),
+        )
+        .filter(studio_link_requests::Column::Id.eq(&row.id))
+        .filter(studio_link_requests::Column::ConsumedAt.is_null())
+        .exec(&txn)
+        .await?;
+    if result.rows_affected != 1 {
+        return Err(ApiError::bad_request("link request already consumed"));
+    }
+    let user = users::Entity::find_by_id(&user_id)
+        .one(&txn)
+        .await?
+        .ok_or(ApiError::Unauthorized)?;
+    let token = auth::random_secret();
+    api_tokens::ActiveModel {
+        id: Set(Uuid::new_v4().to_string()),
+        user_id: Set(user_id.clone()),
+        token_hash: Set(auth::sha256_hex(&token)),
+        name: Set("Caiven Studio".into()),
+        created_at: Set(chrono::Utc::now().to_rfc3339()),
+        last_used_at: Set(None),
+    }
+    .insert(&txn)
+    .await?;
+    txn.commit().await?;
+    auth::audit(
+        &state.db,
+        &user_id,
+        "studio_link_token_created",
+        None,
+        None,
+        None,
+    )
+    .await;
+    Ok(Json(StudioLinkPollResult {
+        status: "linked".into(),
+        username: Some(user.username),
+        token: Some(token),
+        expires_at: None,
+    }))
+}
+
+#[get("/api/v2/auth/studio-link/<request_id>/status?<poll_secret>")]
+pub async fn studio_link_status(
+    state: &State<PortState>,
+    request_id: &str,
+    poll_secret: &str,
+) -> Result<Json<StudioLinkPollResult>, ApiError> {
+    let Some(row) = studio_link_requests::Entity::find_by_id(request_id)
+        .one(&state.db)
+        .await?
+    else {
+        return Err(ApiError::not_found("link request not found"));
+    };
+    if !auth::constant_time_eq_str(&row.poll_secret_hash, &auth::sha256_hex(poll_secret)) {
+        return Err(ApiError::Unauthorized);
+    }
+    let status = if row.cancelled_at.is_some() {
+        "cancelled"
+    } else if studio_link_expired(&row.expires_at) {
+        "expired"
+    } else if row.consumed_at.is_some() {
+        "consumed"
+    } else if row.approved_user_id.is_some() {
+        "approved"
+    } else {
+        "pending"
+    };
+    Ok(Json(StudioLinkPollResult {
+        status: status.into(),
+        username: None,
+        token: None,
+        expires_at: Some(row.expires_at),
+    }))
+}
+
+#[post("/api/v2/auth/studio-link/<request_id>/approve")]
+pub async fn studio_link_approve(
+    state: &State<PortState>,
+    user: AuthUser,
+    request_id: &str,
+) -> Result<(), ApiError> {
+    let Some(row) = studio_link_requests::Entity::find_by_id(request_id)
+        .one(&state.db)
+        .await?
+    else {
+        return Err(ApiError::not_found("link request not found"));
+    };
+    if row.cancelled_at.is_some()
+        || row.consumed_at.is_some()
+        || studio_link_expired(&row.expires_at)
+    {
+        return Err(ApiError::bad_request("link request unavailable"));
+    }
+    let mut active: studio_link_requests::ActiveModel = row.into();
+    active.approved_user_id = Set(Some(user.id.clone()));
+    active.update(&state.db).await?;
+    auth::audit(
+        &state.db,
+        &user.id,
+        "studio_link_approved",
+        None,
+        None,
+        Some(request_id),
+    )
+    .await;
+    Ok(())
+}
+
+#[post("/api/v2/auth/studio-link/<request_id>/cancel", data = "<request>")]
+pub async fn studio_link_cancel(
+    state: &State<PortState>,
+    request_id: &str,
+    request: Json<StudioLinkPoll>,
+) -> Result<(), ApiError> {
+    if request.request_id != request_id {
+        return Err(ApiError::bad_request("request mismatch"));
+    }
+    let Some(row) = studio_link_requests::Entity::find_by_id(request_id)
+        .one(&state.db)
+        .await?
+    else {
+        return Err(ApiError::not_found("link request not found"));
+    };
+    if !auth::constant_time_eq_str(
+        &row.poll_secret_hash,
+        &auth::sha256_hex(&request.poll_secret),
+    ) {
+        return Err(ApiError::Unauthorized);
+    }
+    if row.consumed_at.is_some() {
+        return Err(ApiError::bad_request("link request already consumed"));
+    }
+    let mut active: studio_link_requests::ActiveModel = row.into();
+    active.cancelled_at = Set(Some(chrono::Utc::now().to_rfc3339()));
+    active.update(&state.db).await?;
     Ok(())
 }
 

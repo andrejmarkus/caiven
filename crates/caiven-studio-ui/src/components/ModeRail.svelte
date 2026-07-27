@@ -1,7 +1,7 @@
 <script lang="ts">
   import {
     ChevronsLeftRight, Image, Volume2, Layers, Package, Library,
-    BookOpen, CircleHelp, House,
+    BookOpen, CircleHelp, House, UserRound,
   } from '@lucide/svelte';
   import { Button } from '@caiven/ui/button';
   import type { Screen } from '../types';
@@ -23,6 +23,7 @@
     { id: 'assets' as Screen, label: 'Assets', key: '', icon: Layers, active: screen === 'assets' },
     { id: 'cart' as Screen, label: 'Cart', key: 'F7', icon: Package, active: screen === 'cart' },
     { id: 'library' as Screen, label: 'Library', key: 'F8', icon: Library, active: screen === 'library' },
+    { id: 'account' as Screen, label: 'Account', key: '', icon: UserRound, active: screen === 'account' },
     { id: 'docs' as Screen, label: 'Docs', key: 'F9', icon: BookOpen, active: screen === 'docs' },
   ]);
 </script>

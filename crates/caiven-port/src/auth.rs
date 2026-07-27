@@ -668,7 +668,7 @@ fn csrf_ok(req: &Request<'_>) -> bool {
     constant_time_eq_str(cookie.value(), header)
 }
 
-fn constant_time_eq_str(a: &str, b: &str) -> bool {
+pub fn constant_time_eq_str(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
     }

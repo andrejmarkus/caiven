@@ -5,6 +5,7 @@
   import MobileTabs from './MobileTabs.svelte';
   import { currentUser } from '../stores.svelte';
   import { api } from '../api';
+  import { Button } from '@caiven/ui/button';
 
   let { children }: { children: Snippet } = $props();
 
@@ -30,14 +31,16 @@
     {#if needsVerification}
       <div class="flex items-center justify-between gap-4 bg-amber-500/10 px-4 py-2 text-sm text-amber-700 dark:text-amber-300">
         <span>Confirm your email to publish, comment, or join jams.</span>
-        <button
+        <Button
           type="button"
-          class="shrink-0 underline underline-offset-2 disabled:opacity-60"
+          variant="link"
+          size="sm"
+          class="h-auto shrink-0 p-0 text-amber-700 underline-offset-2 dark:text-amber-300"
           disabled={resent}
           onclick={resend}
         >
           {resent ? 'Link sent' : 'Resend link'}
-        </button>
+        </Button>
       </div>
     {/if}
     <main class="min-h-[calc(100vh-4rem)] pb-16 md:pb-0">

@@ -31,6 +31,7 @@
     publishError: string;
     publishDone: string;
     onStartPublish: (changelog: string) => void;
+    onLinkPort: () => void;
     onTourDone: () => void;
     onOpenProject: () => void;
     onNewProject: () => void;
@@ -45,7 +46,7 @@
 
   let { overlay, running, palette, onClose, onNavigate, onRun, onExport, onPublish,
     title, author, meta, portAccount, publishProgress, publishError, publishDone,
-    onStartPublish, onTourDone, onOpenProject, onNewProject, onCloseProject,
+    onStartPublish, onLinkPort, onTourDone, onOpenProject, onNewProject, onCloseProject,
     templates, onCreateProject, frameData, api, onInsertBuiltin, onCreateModule }: Props = $props();
   let query = $state('');
   let changelog = $state('');
@@ -295,7 +296,7 @@
         {#if newCartError}<div class="new-cart-error" role="alert">{newCartError}</div>{/if}
         <footer>
           <span>{#if activeTemplate}<strong>{activeTemplate.name}</strong><small>Folder picker opens next.</small>{/if}</span>
-          <div><Button type="button" variant="outline" onclick={onClose}>Cancel</Button><Button disabled={newCartBusy || !selectedTemplate}>{#if newCartBusy}<LoaderCircle class="spin" size={15} />Creating…{:else}<FolderPlus size={15} />Choose folder{/if}</Button></div>
+          <div><Button type="button" variant="outline" onclick={onClose}>Cancel</Button><Button type="submit" disabled={newCartBusy || !selectedTemplate}>{#if newCartBusy}<LoaderCircle class="spin" size={15} />Creating…{:else}<FolderPlus size={15} />Choose folder{/if}</Button></div>
         </footer>
       </form>
       </Dialog.Content>
@@ -313,7 +314,7 @@
           <span><FilePlus2 size={15} /><Input bind:ref={moduleInput} bind:value={moduleName} aria-invalid={Boolean(moduleError)} autocomplete="off" spellcheck="false" /></span>
         </label>
         {#if moduleError}<div class="form-error" role="alert">{moduleError}</div>{/if}
-        <footer><Button type="button" variant="outline" onclick={onClose}>Cancel</Button><Button disabled={moduleBusy || !moduleName.trim()}>{moduleBusy ? 'Creating…' : 'Create module'}</Button></footer>
+        <footer><Button type="button" variant="outline" onclick={onClose}>Cancel</Button><Button type="submit" disabled={moduleBusy || !moduleName.trim()}>{moduleBusy ? 'Creating…' : 'Create module'}</Button></footer>
       </form>
       </Dialog.Content>
       </Dialog.Root>
@@ -324,10 +325,10 @@
         <Button variant="ghost" size="icon-sm" class="dialog-close" onclick={onClose}><X size={17} /></Button>
         <span class="eyebrow">Publish {title || 'cart'}</span>
         <h2>{publishDone ? 'Cart shipped' : publishProgress ? 'Publishing to port' : 'Ship a new release'}</h2>
-        <p>{publishError || publishDone || publishProgress?.note || (portAccount.authenticated ? `Signed in as ${portAccount.username}` : 'Log in from Library → Port before publishing.')}</p>
+        <p>{publishError || publishDone || publishProgress?.note || (portAccount.authenticated ? `Signed in as ${portAccount.username}` : 'Link Port account before publishing.')}</p>
         <div class="publish-cover">
           <div>{#each Array(64) as _,p}<i style={`background:${palette[(p * 7 + 3) % 16]}`}></i>{/each}</div>
-          <span><strong>{title}</strong><small>by {author}</small><code>{meta.tags.join(' · ') || 'untagged'}</code></span>
+          <span><strong>{title}</strong><small>by {portAccount.authenticated ? portAccount.username : author}</small><code>{meta.tags.join(' · ') || 'untagged'}</code></span>
         </div>
         {#if !publishProgress && !publishDone}<label class="publish-changelog">Changelog<Input bind:value={changelog} placeholder="What changed?" /></label>{/if}
         <Progress class="publish-progress" value={publishProgress?.pct ?? (publishDone ? 100 : 0)} />
@@ -338,7 +339,7 @@
             </div>
           {/each}
         </div>
-        <footer><Button variant="outline" onclick={onClose}>{publishProgress && !publishDone ? 'Keep working' : 'Close'}</Button>{#if !publishProgress && !publishDone}<Button disabled={!portAccount.authenticated} onclick={() => onStartPublish(changelog)}>Publish</Button>{/if}</footer>
+        <footer><Button variant="outline" onclick={onClose}>{publishProgress && !publishDone ? 'Keep working' : 'Close'}</Button>{#if !publishProgress && !publishDone}{#if portAccount.authenticated}<Button onclick={() => onStartPublish(changelog)}>Publish</Button>{:else}<Button onclick={onLinkPort}>Open Account</Button>{/if}{/if}</footer>
       </section>
       </Dialog.Content>
       </Dialog.Root>
