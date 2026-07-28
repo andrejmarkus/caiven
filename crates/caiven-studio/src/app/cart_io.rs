@@ -43,6 +43,26 @@ fn gather_sections(vm: &Vm, meta: &CartMeta) -> Vec<(SectionKind, Vec<u8>)> {
                     .as_deref()
                     .and_then(decode_asset_bank)
                     .map(|(id, _)| (AssetBankKind::Map, id)),
+                SectionKind::SpriteFlagsBank => s
+                    .preserved_data
+                    .as_deref()
+                    .and_then(decode_asset_bank)
+                    .map(|(id, _)| (AssetBankKind::SpriteFlags, id)),
+                SectionKind::PaletteBank => s
+                    .preserved_data
+                    .as_deref()
+                    .and_then(decode_asset_bank)
+                    .map(|(id, _)| (AssetBankKind::Palette, id)),
+                SectionKind::SfxBanks => s
+                    .preserved_data
+                    .as_deref()
+                    .and_then(decode_asset_bank)
+                    .map(|(id, _)| (AssetBankKind::Sfx, id)),
+                SectionKind::MusicBanks => s
+                    .preserved_data
+                    .as_deref()
+                    .and_then(decode_asset_bank)
+                    .map(|(id, _)| (AssetBankKind::Music, id)),
                 _ => None,
             };
             let bytes = if let Some((kind, id)) = bank {

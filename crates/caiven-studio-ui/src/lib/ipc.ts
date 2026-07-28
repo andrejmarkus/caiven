@@ -60,6 +60,11 @@ export const MEMORY = {
   palette: 0x9100, sfx: 0x9200, music: 0x9600,
 } as const;
 
+/** Flattens `#RRGGBB` palette slots into the raw RGB byte layout a palette bank stores. */
+function paletteToBytes(colors: string[]): number[] {
+  return colors.flatMap((hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) || 0));
+}
+
 const emptyAudio: AudioState = {
   sfxActive: false, sfxId: 0, sfxStep: 0,
   musicActive: false, musicPattern: 0, musicRow: 0, musicLoop: true,
@@ -89,6 +94,12 @@ const fallback: StudioBootstrap = {
   spriteFlags: Array(256).fill(0),
   sfx: Array(1024).fill(0),
   music: Array(256).fill(0),
+  paletteBanks: [0],
+  activePaletteBank: 0,
+  sfxBanks: [0],
+  activeSfxBank: 0,
+  musicBanks: [0],
+  activeMusicBank: 0,
   ram: Array(65536).fill(0),
   globals: [{ name: 'player', value: '{x=60, y=60, score=0}' }],
   watches: [],
@@ -166,7 +177,7 @@ export async function transport(action: 'run' | 'pause' | 'reset' | 'step'): Pro
     fallback.pauseReason = action === 'pause' || action === 'step'
       ? { kind: 'manual', source: null, line: null, message: null }
       : null;
-    return { runState: fallback.runState, frame: fallback.frame, fps: fallback.fps, frameTimeMs: 5.2, globals: fallback.globals, watches: fallback.watches, callStack: fallback.callStack, pauseReason: fallback.pauseReason, audio: fallback.audio, diagnostics: fallback.diagnostics, output: fallback.output, activeSpriteBank: fallback.activeSpriteBank, activeMapBank: fallback.activeMapBank };
+    return { runState: fallback.runState, frame: fallback.frame, fps: fallback.fps, frameTimeMs: 5.2, globals: fallback.globals, watches: fallback.watches, callStack: fallback.callStack, pauseReason: fallback.pauseReason, audio: fallback.audio, diagnostics: fallback.diagnostics, output: fallback.output, activeSpriteBank: fallback.activeSpriteBank, activeMapBank: fallback.activeMapBank, activePaletteBank: fallback.activePaletteBank, activeSfxBank: fallback.activeSfxBank, activeMusicBank: fallback.activeMusicBank };
   }
   return invoke<TickSnapshot>('studio_transport', { action });
 }
@@ -187,7 +198,7 @@ export async function readFrame(): Promise<Uint8Array | null> {
 
 export async function readTick(): Promise<TickSnapshot> {
   if (isTauri()) return invoke<TickSnapshot>('studio_tick');
-  return { runState: fallback.runState, frame: fallback.frame++, fps: 60, frameTimeMs: 5.2, globals: fallback.globals, watches: fallback.watches, callStack: fallback.callStack, pauseReason: fallback.pauseReason, audio: fallback.audio, diagnostics: fallback.diagnostics, output: fallback.output, activeSpriteBank: fallback.activeSpriteBank, activeMapBank: fallback.activeMapBank };
+  return { runState: fallback.runState, frame: fallback.frame++, fps: 60, frameTimeMs: 5.2, globals: fallback.globals, watches: fallback.watches, callStack: fallback.callStack, pauseReason: fallback.pauseReason, audio: fallback.audio, diagnostics: fallback.diagnostics, output: fallback.output, activeSpriteBank: fallback.activeSpriteBank, activeMapBank: fallback.activeMapBank, activePaletteBank: fallback.activePaletteBank, activeSfxBank: fallback.activeSfxBank, activeMusicBank: fallback.activeMusicBank };
 }
 
 export async function setInput(button: number, pressed: boolean): Promise<void> {
@@ -247,15 +258,17 @@ export async function writeMapCells(cells: { offset: number; tile: number }[]): 
 }
 
 export async function assetBank(
-  kind: 'sprites' | 'map', action: 'read' | 'select' | 'create' | 'delete', id?: number,
+  kind: 'sprites' | 'map' | 'palette' | 'sfx' | 'music', action: 'read' | 'select' | 'create' | 'delete', id?: number,
 ): Promise<AssetBankState> {
   if (isTauri()) return invoke<AssetBankState>('studio_asset_bank', { kind, action, id: id ?? null });
-  return {
-    kind,
-    ids: kind === 'sprites' ? fallback.spriteBanks : fallback.mapBanks,
-    active: kind === 'sprites' ? fallback.activeSpriteBank : fallback.activeMapBank,
-    data: kind === 'sprites' ? fallback.spriteSheet : fallback.map,
-  };
+  const byKind = {
+    sprites: { ids: fallback.spriteBanks, active: fallback.activeSpriteBank, data: fallback.spriteSheet },
+    map: { ids: fallback.mapBanks, active: fallback.activeMapBank, data: fallback.map },
+    palette: { ids: fallback.paletteBanks, active: fallback.activePaletteBank, data: paletteToBytes(fallback.palette) },
+    sfx: { ids: fallback.sfxBanks, active: fallback.activeSfxBank, data: fallback.sfx },
+    music: { ids: fallback.musicBanks, active: fallback.activeMusicBank, data: fallback.music },
+  } as const;
+  return { kind, ...byKind[kind] };
 }
 
 export async function writeMeta(title: string, author: string, meta: CartMeta): Promise<void> {

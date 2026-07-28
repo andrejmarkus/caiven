@@ -27,7 +27,7 @@
   let studio = $state<StudioBootstrap>({
     connected: false, title: '', path: '', author: '', runState: 'stopped',
     frame: 0, fps: 0, cartSize: { packedBytes: 0, maxBytes: 128 * 1024 }, sources: [], palette: [], spriteSheet: [], map: [], spriteBanks: [0], mapBanks: [0], activeSpriteBank: 0, activeMapBank: 0, spriteFlags: [],
-    sfx: [], music: [], ram: [], globals: [], watches: [], callStack: [], breakpoints: [], pauseReason: null, diagnostics: [], output: [],
+    sfx: [], music: [], paletteBanks: [0], activePaletteBank: 0, sfxBanks: [0], activeSfxBank: 0, musicBanks: [0], activeMusicBank: 0, ram: [], globals: [], watches: [], callStack: [], breakpoints: [], pauseReason: null, diagnostics: [], output: [],
     meta: { description: '', tags: [] }, assetIndex: { entries: [], computedRefs: 0 },
     audio: { sfxActive: false, sfxId: 0, sfxStep: 0, musicActive: false, musicPattern: 0, musicRow: 0, musicLoop: true },
     recent: [], api: [],
@@ -61,7 +61,8 @@
   let revealRequest = $state<EditorRevealRequest | null>(null);
   let insertSerial = 0;
   let revealSerial = 0;
-  const bankRefreshes = new Set<'sprites' | 'map'>();
+  type BankKind = 'sprites' | 'map' | 'palette' | 'sfx' | 'music';
+  const bankRefreshes = new Set<BankKind>();
   let templates = $state<CartTemplateSummary[]>(fallbackTemplates);
 
   const GAME_KEYS: Record<string, number> = {
@@ -177,6 +178,9 @@
     studio.output = tick.output;
     if (tick.activeSpriteBank !== studio.activeSpriteBank) void refreshAssetBank('sprites');
     if (tick.activeMapBank !== studio.activeMapBank) void refreshAssetBank('map');
+    if (tick.activePaletteBank !== studio.activePaletteBank) void refreshAssetBank('palette');
+    if (tick.activeSfxBank !== studio.activeSfxBank) void refreshAssetBank('sfx');
+    if (tick.activeMusicBank !== studio.activeMusicBank) void refreshAssetBank('music');
 
     const firstError = tick.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     const diagnosticKey = firstError
@@ -204,21 +208,36 @@
     if (wasRunning && tick.runState !== 'running') releaseInputs();
   }
 
+  const bankLabels: Record<BankKind, string> = {
+    sprites: 'Sprite', map: 'Map', palette: 'Palette', sfx: 'SFX', music: 'Music',
+  };
+
+  /** `#RRGGBB` byte layout <-> raw RGB triples, matching a palette bank's on-disk shape. */
+  function bytesToHexColors(bytes: number[]): string[] {
+    const colors: string[] = [];
+    for (let i = 0; i < bytes.length; i += 3) {
+      const rgb = [bytes[i] ?? 0, bytes[i + 1] ?? 0, bytes[i + 2] ?? 0];
+      colors.push(`#${rgb.map((c) => c.toString(16).padStart(2, '0')).join('')}`.toUpperCase());
+    }
+    return colors;
+  }
+
   function applyAssetBank(bank: Awaited<ReturnType<typeof assetBank>>) {
+    studio.ram.splice(MEMORY[bank.kind], bank.data.length, ...bank.data);
     if (bank.kind === 'sprites') {
-      studio.spriteBanks = bank.ids;
-      studio.activeSpriteBank = bank.active;
-      studio.spriteSheet = bank.data;
-      studio.ram.splice(MEMORY.sprites, bank.data.length, ...bank.data);
+      studio.spriteBanks = bank.ids; studio.activeSpriteBank = bank.active; studio.spriteSheet = bank.data;
+    } else if (bank.kind === 'map') {
+      studio.mapBanks = bank.ids; studio.activeMapBank = bank.active; studio.map = bank.data;
+    } else if (bank.kind === 'palette') {
+      studio.paletteBanks = bank.ids; studio.activePaletteBank = bank.active; studio.palette = bytesToHexColors(bank.data);
+    } else if (bank.kind === 'sfx') {
+      studio.sfxBanks = bank.ids; studio.activeSfxBank = bank.active; studio.sfx = bank.data;
     } else {
-      studio.mapBanks = bank.ids;
-      studio.activeMapBank = bank.active;
-      studio.map = bank.data;
-      studio.ram.splice(MEMORY.map, bank.data.length, ...bank.data);
+      studio.musicBanks = bank.ids; studio.activeMusicBank = bank.active; studio.music = bank.data;
     }
   }
 
-  async function refreshAssetBank(kind: 'sprites' | 'map') {
+  async function refreshAssetBank(kind: BankKind) {
     if (bankRefreshes.has(kind)) return;
     bankRefreshes.add(kind);
     try { applyAssetBank(await assetBank(kind, 'read')); }
@@ -226,13 +245,18 @@
     finally { bankRefreshes.delete(kind); }
   }
 
-  async function changeAssetBank(kind: 'sprites' | 'map', action: 'select' | 'create' | 'delete', id?: number) {
+  const activeBankOf: Record<BankKind, () => number> = {
+    sprites: () => studio.activeSpriteBank, map: () => studio.activeMapBank,
+    palette: () => studio.activePaletteBank, sfx: () => studio.activeSfxBank, music: () => studio.activeMusicBank,
+  };
+
+  async function changeAssetBank(kind: BankKind, action: 'select' | 'create' | 'delete', id?: number) {
     if (action === 'delete' && !window.confirm(`Delete ${kind} bank ${id}?`)) return;
     try {
       applyAssetBank(await assetBank(kind, action, id));
       studio.assetIndex = await readAssetIndex();
       await refreshCartSize();
-      status = `${kind === 'sprites' ? 'Sprite' : 'Map'} bank ${kind === 'sprites' ? studio.activeSpriteBank : studio.activeMapBank}`;
+      status = `${bankLabels[kind]} bank ${activeBankOf[kind]()}`;
     } catch (error) {
       showToast(`Bank ${action} failed: ${errorText(error)}`);
     }
@@ -855,6 +879,12 @@
           spriteFlags={studio.spriteFlags}
           sfx={studio.sfx}
           music={studio.music}
+          paletteBanks={studio.paletteBanks}
+          sfxBanks={studio.sfxBanks}
+          musicBanks={studio.musicBanks}
+          activePaletteBank={studio.activePaletteBank}
+          activeSfxBank={studio.activeSfxBank}
+          activeMusicBank={studio.activeMusicBank}
           cartSize={studio.cartSize}
           audio={studio.audio}
           assetIndex={studio.assetIndex}

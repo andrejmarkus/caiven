@@ -191,6 +191,12 @@ struct BootstrapPayload {
     sprite_flags: Vec<u8>,
     sfx: Vec<u8>,
     music: Vec<u8>,
+    palette_banks: Vec<u8>,
+    active_palette_bank: u8,
+    sfx_banks: Vec<u8>,
+    active_sfx_bank: u8,
+    music_banks: Vec<u8>,
+    active_music_bank: u8,
     ram: Vec<u8>,
     globals: Vec<GlobalPayload>,
     watches: Vec<GlobalPayload>,
@@ -222,6 +228,9 @@ struct TickPayload {
     output: Vec<String>,
     active_sprite_bank: u8,
     active_map_bank: u8,
+    active_palette_bank: u8,
+    active_sfx_bank: u8,
+    active_music_bank: u8,
 }
 
 #[derive(Clone)]
@@ -256,6 +265,9 @@ impl Default for SharedSnapshot {
                 output: Vec::new(),
                 active_sprite_bank: 0,
                 active_map_bank: 0,
+                active_palette_bank: 0,
+                active_sfx_bank: 0,
+                active_music_bank: 0,
             },
         }
     }
@@ -658,6 +670,12 @@ impl StudioCore {
             sprite_flags,
             sfx: sfx.clone(),
             music: music.clone(),
+            palette_banks: self.console.vm.asset_bank_ids(AssetBankKind::Palette),
+            active_palette_bank: self.console.vm.active_asset_bank(AssetBankKind::Palette),
+            sfx_banks: self.console.vm.asset_bank_ids(AssetBankKind::Sfx),
+            active_sfx_bank: self.console.vm.active_asset_bank(AssetBankKind::Sfx),
+            music_banks: self.console.vm.asset_bank_ids(AssetBankKind::Music),
+            active_music_bank: self.console.vm.active_asset_bank(AssetBankKind::Music),
             ram: read_region(&self.console, 0, RAM_SIZE),
             globals: self.globals(),
             watches: self.watches(),
@@ -725,6 +743,9 @@ impl StudioCore {
             output: self.output.clone(),
             active_sprite_bank: self.console.vm.active_asset_bank(AssetBankKind::Sprites),
             active_map_bank: self.console.vm.active_asset_bank(AssetBankKind::Map),
+            active_palette_bank: self.console.vm.active_asset_bank(AssetBankKind::Palette),
+            active_sfx_bank: self.console.vm.active_asset_bank(AssetBankKind::Sfx),
+            active_music_bank: self.console.vm.active_asset_bank(AssetBankKind::Music),
         }
     }
 
@@ -785,11 +806,21 @@ impl StudioCore {
         action: &str,
         id: Option<u8>,
     ) -> Result<AssetBankPayload, String> {
-        let (bank_kind, section_kind, label) = match kind {
-            "sprites" => (AssetBankKind::Sprites, SectionKind::SpriteBank, "sprites"),
-            "map" => (AssetBankKind::Map, SectionKind::MapBank, "map"),
+        // Only kinds a user can pick from Studio's UI are dispatchable here.
+        // SpriteFlags has no entry — it's a *companion* bank (see
+        // `AssetBankKind::companion`) that always follows Sprites in
+        // lockstep, so it's created/selected/deleted below as a side effect
+        // of the Sprites bank operation rather than through its own kind.
+        let bank_kind = match kind {
+            "sprites" => AssetBankKind::Sprites,
+            "map" => AssetBankKind::Map,
+            "palette" => AssetBankKind::Palette,
+            "sfx" => AssetBankKind::Sfx,
+            "music" => AssetBankKind::Music,
             _ => return Err(format!("Unknown asset bank kind: {kind}")),
         };
+        let section_kind = section_kind_for_bank(bank_kind);
+        let label = kind;
         match action {
             "read" => {}
             "select" => {
@@ -816,6 +847,18 @@ impl StudioCore {
                     len: 1,
                     preserved_data: Some(encode_asset_bank(id, &[])),
                 });
+                // The VM already created the companion bank's live data
+                // (`create_asset_bank` cascades); track its section too so
+                // `gather_sections` actually saves it instead of silently
+                // dropping the companion on the next write.
+                if let Some(companion_kind) = bank_kind.companion() {
+                    meta.sections.push(crate::app::cart_io::SectionLayout {
+                        kind: section_kind_for_bank(companion_kind),
+                        ram_base: 0,
+                        len: 1,
+                        preserved_data: Some(encode_asset_bank(id, &[])),
+                    });
+                }
             }
             "delete" => {
                 let id = id.ok_or_else(|| "Bank id required".to_string())?;
@@ -823,13 +866,17 @@ impl StudioCore {
                     return Err(format!("Cannot delete {label} bank {id}"));
                 }
                 if let Some(meta) = self.cart.as_mut() {
+                    let companion_section =
+                        bank_kind.companion().map(section_kind_for_bank);
                     meta.sections.retain(|section| {
-                        section.kind != section_kind
-                            || section
-                                .preserved_data
-                                .as_deref()
-                                .and_then(caiven_cart::decode_asset_bank)
-                                .is_none_or(|(bank_id, _)| bank_id != id)
+                        let tracked_kind = section.kind == section_kind
+                            || Some(section.kind) == companion_section;
+                        let matches_id = section
+                            .preserved_data
+                            .as_deref()
+                            .and_then(caiven_cart::decode_asset_bank)
+                            .is_some_and(|(bank_id, _)| bank_id == id);
+                        !(tracked_kind && matches_id)
                     });
                 }
             }
@@ -1162,6 +1209,22 @@ impl StudioCore {
         }
         cart_io::export_binary(&self.console.vm, meta, path, &modules)
             .map_err(|error| format!("{error:#}"))
+    }
+}
+
+/// The additional-bank `SectionKind` (id != 0 wrapper) that round-trips a
+/// given `AssetBankKind` to disk. Single source of truth shared by
+/// `StudioCore::asset_bank`'s primary dispatch and its companion-bank
+/// bookkeeping, so the two can't drift apart on which section a bank kind
+/// serializes as.
+fn section_kind_for_bank(kind: AssetBankKind) -> SectionKind {
+    match kind {
+        AssetBankKind::Sprites => SectionKind::SpriteBank,
+        AssetBankKind::Map => SectionKind::MapBank,
+        AssetBankKind::SpriteFlags => SectionKind::SpriteFlagsBank,
+        AssetBankKind::Palette => SectionKind::PaletteBank,
+        AssetBankKind::Sfx => SectionKind::SfxBanks,
+        AssetBankKind::Music => SectionKind::MusicBanks,
     }
 }
 

@@ -22,8 +22,8 @@ use crate::rendering::font::Font;
 use crate::rendering::screen::ScreenLayer;
 use crate::rendering::text::draw_text;
 use caiven_core::memory::{
-    MAP_H, MAP_RAM_BASE, MAP_W, RTC_RAM_BASE, SPRITE_BYTES, SPRITE_FLAGS_RAM_BASE,
-    SPRITE_SHEET_RAM_BASE,
+    MAP_H, MAP_RAM_BASE, MAP_W, PALETTE_RAM_BASE, RTC_RAM_BASE, SPRITE_BYTES,
+    SPRITE_FLAGS_RAM_BASE, SPRITE_SHEET_RAM_BASE,
 };
 use caiven_core::{Color, Vec2};
 use mlua::{HookTriggers, Lua, MultiValue, Scope, Table, VmState};
@@ -735,11 +735,26 @@ fn register_builtins<'scope, 'env>(
     globals.set(
         "load_palette_bank",
         scope.create_function_mut(|_, id: u8| {
-            Ok(asset_banks.borrow_mut().select_with_companion(
+            let selected = asset_banks.borrow_mut().select_with_companion(
                 AssetBankKind::Palette,
                 id,
                 &mut memory.borrow_mut(),
-            ))
+            );
+            // Bank switches only move raw bytes through Memory; the
+            // render-time Palette (parsed Color list) needs an explicit
+            // refresh or on-screen colors would keep showing the bank that
+            // was active before this call.
+            if selected {
+                let mem = memory.borrow();
+                let mut colors = palette.borrow_mut();
+                for i in 0..16usize {
+                    let r = mem.read(PALETTE_RAM_BASE + i * 3).unwrap_or(0);
+                    let g = mem.read(PALETTE_RAM_BASE + i * 3 + 1).unwrap_or(0);
+                    let b = mem.read(PALETTE_RAM_BASE + i * 3 + 2).unwrap_or(0);
+                    colors.set_color(i, Color::new_rgb(r, g, b));
+                }
+            }
+            Ok(selected)
         })?,
     )?;
 

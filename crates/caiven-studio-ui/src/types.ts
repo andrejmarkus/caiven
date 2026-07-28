@@ -44,7 +44,7 @@ export interface GlobalValue { name: string; value: string; }
 export interface CallFrame { label: string; location: string; }
 export interface CartMeta { description: string; tags: string[]; }
 export interface CartSize { packedBytes: number; maxBytes: number; }
-export interface AssetBankState { kind: 'sprites' | 'map'; ids: number[]; active: number; data: number[]; }
+export interface AssetBankState { kind: 'sprites' | 'map' | 'palette' | 'sfx' | 'music'; ids: number[]; active: number; data: number[]; }
 export interface AudioState {
   sfxActive: boolean; sfxId: number; sfxStep: number;
   musicActive: boolean; musicPattern: number; musicRow: number; musicLoop: boolean;
@@ -100,6 +100,12 @@ export interface StudioBootstrap {
   spriteFlags: number[];
   sfx: number[];
   music: number[];
+  paletteBanks: number[];
+  activePaletteBank: number;
+  sfxBanks: number[];
+  activeSfxBank: number;
+  musicBanks: number[];
+  activeMusicBank: number;
   ram: number[];
   globals: GlobalValue[];
   watches: GlobalValue[];
@@ -129,6 +135,9 @@ export interface TickSnapshot {
   output: string[];
   activeSpriteBank: number;
   activeMapBank: number;
+  activePaletteBank: number;
+  activeSfxBank: number;
+  activeMusicBank: number;
 }
 
 declare global {

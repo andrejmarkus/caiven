@@ -40,6 +40,12 @@
     spriteFlags: number[];
     sfx: number[];
     music: number[];
+    paletteBanks: number[];
+    sfxBanks: number[];
+    musicBanks: number[];
+    activePaletteBank: number;
+    activeSfxBank: number;
+    activeMusicBank: number;
     cartSize: CartSize;
     audio: AudioState;
     assetIndex: AssetIndex;
@@ -67,7 +73,7 @@
     onFlags: (sprite: number, flags: number) => void;
     onFlagsBatch: (edits: SpriteFlagEdit[]) => void;
     onMap: (cells: { offset: number; tile: number }[]) => void;
-    onAssetBank: (kind: 'sprites' | 'map', action: 'select' | 'create' | 'delete', id?: number) => void;
+    onAssetBank: (kind: 'sprites' | 'map' | 'palette' | 'sfx' | 'music', action: 'select' | 'create' | 'delete', id?: number) => void;
     onSfx: (slot: number, bytes: number[]) => void;
     onMusic: (pattern: number, bytes: number[]) => void;
     onAudio: (kind: 'sfx' | 'music', id: number, action: 'play' | 'stop') => void;
@@ -99,7 +105,8 @@
   }
 
   let {
-    screen, sources, activeSource, palette, spriteSheet, map, spriteBanks, mapBanks, activeSpriteBank, activeMapBank, spriteFlags, sfx, music, cartSize,
+    screen, sources, activeSource, palette, spriteSheet, map, spriteBanks, mapBanks, activeSpriteBank, activeMapBank, spriteFlags, sfx, music,
+    paletteBanks, sfxBanks, musicBanks, activePaletteBank, activeSfxBank, activeMusicBank, cartSize,
     audio, assetIndex, diagnostics, breakpoints, title, author, path, meta, dirty, tourDone, recent, api, frameData, insertRequest, revealRequest, onInsertHandled, onRevealHandled,
     soundSelection,
     onNavigate, onSource, onCode, onSprite, onFlags, onFlagsBatch, onMap, onAssetBank, onSfx, onMusic, onAudio,
@@ -676,10 +683,10 @@
       <Button variant="ghost" class={screen === 'sprites' ? 'active' : undefined} onclick={() => onNavigate('sprites')}><Image size={15} />Sprites</Button>
       <Button variant="ghost" class={screen === 'map' ? 'active' : undefined} onclick={() => onNavigate('map')}><Layers size={15} />Map</Button>
       <Button variant="ghost" class={screen === 'palette' ? 'active' : undefined} onclick={() => onNavigate('palette')}><Pipette size={15} />Palette</Button>
-      {#if screen === 'sprites' || screen === 'map'}
-        {@const bankKind = screen === 'sprites' ? 'sprites' : 'map'}
-        {@const bankIds = screen === 'sprites' ? spriteBanks : mapBanks}
-        {@const activeBank = screen === 'sprites' ? activeSpriteBank : activeMapBank}
+      {#if screen === 'sprites' || screen === 'map' || screen === 'palette'}
+        {@const bankKind = screen === 'sprites' ? 'sprites' : screen === 'map' ? 'map' : 'palette'}
+        {@const bankIds = screen === 'sprites' ? spriteBanks : screen === 'map' ? mapBanks : paletteBanks}
+        {@const activeBank = screen === 'sprites' ? activeSpriteBank : screen === 'map' ? activeMapBank : activePaletteBank}
         <div class="bank-picker">
           <span>Bank</span>
           <select value={activeBank} onchange={(event) => onAssetBank(bankKind, 'select', Number(event.currentTarget.value))}>
@@ -695,6 +702,19 @@
     <nav class="subnav">
       <Button variant="ghost" class={screen === 'sfx' ? 'active' : undefined} onclick={() => onNavigate('sfx')}><Volume2 size={15} />Sound effects</Button>
       <Button variant="ghost" class={screen === 'music' ? 'active' : undefined} onclick={() => onNavigate('music')}><Music size={15} />Music</Button>
+      {#if screen === 'sfx' || screen === 'music'}
+        {@const bankKind = screen === 'sfx' ? 'sfx' : 'music'}
+        {@const bankIds = screen === 'sfx' ? sfxBanks : musicBanks}
+        {@const activeBank = screen === 'sfx' ? activeSfxBank : activeMusicBank}
+        <div class="bank-picker">
+          <span>Bank</span>
+          <select value={activeBank} onchange={(event) => onAssetBank(bankKind, 'select', Number(event.currentTarget.value))}>
+            {#each bankIds as id}<option value={id}>{id}</option>{/each}
+          </select>
+          <button title={`Create ${bankKind} bank`} onclick={() => onAssetBank(bankKind, 'create')}><Plus size={14} /></button>
+          <button class="danger" disabled={activeBank === 0} title={`Delete ${bankKind} bank ${activeBank}`} onclick={() => onAssetBank(bankKind, 'delete', activeBank)}><Trash2 size={14} /></button>
+        </div>
+      {/if}
       <code>{screen === 'sfx' ? `${assetStats[1]?.used ?? 0} of 16 slots used` : `${assetStats[2]?.used ?? 0} of 8 patterns`}</code>
     </nav>
   {/if}

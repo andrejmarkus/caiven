@@ -51,7 +51,7 @@ impl AssetBankKind {
     /// The bank this kind shadows, if any. Whenever the primary is
     /// selected, created, or removed, the same operation is applied to its
     /// companion at the same bank id — see `Vm::{select,create,remove}_asset_bank`.
-    fn companion(self) -> Option<AssetBankKind> {
+    pub fn companion(self) -> Option<AssetBankKind> {
         match self {
             AssetBankKind::Sprites => Some(AssetBankKind::SpriteFlags),
             _ => None,
@@ -405,8 +405,26 @@ impl Vm {
     /// `AssetBankKind::companion`), the companion follows to the same id —
     /// e.g. selecting a Sprites bank also selects its SpriteFlags bank.
     pub fn select_asset_bank(&mut self, kind: AssetBankKind, id: u8) -> bool {
-        self.asset_banks
-            .select_with_companion(kind, id, &mut self.memory)
+        let selected = self
+            .asset_banks
+            .select_with_companion(kind, id, &mut self.memory);
+        if selected && kind == AssetBankKind::Palette {
+            self.sync_palette_from_ram();
+        }
+        selected
+    }
+
+    /// Refreshes the render-time `Palette` (parsed `Color` list) from
+    /// whatever bytes are currently at `PALETTE_RAM_BASE`. Palette bank
+    /// switches only move raw bytes through `AssetBanks`/`Memory` — without
+    /// this, rendering would keep using the *previous* bank's colors since
+    /// `self.palette` is otherwise only synced from RAM at cart-load time
+    /// or by explicit `set_palette_color` pokes.
+    fn sync_palette_from_ram(&mut self) {
+        let bytes: Vec<u8> = (0..PALETTE_SIZE * 3)
+            .map(|offset| self.memory.read(PALETTE_RAM_BASE + offset).unwrap_or(0))
+            .collect();
+        self.set_palette_from_bytes(&bytes);
     }
 
     /// Creates and selects bank `id` for `kind`. A companion bank (if any)
@@ -418,8 +436,13 @@ impl Vm {
         }
         let (_, len) = AssetBanks::region(kind);
         self.asset_banks.banks_mut(kind).insert(id, vec![0; len]);
-        self.asset_banks
-            .select_with_companion(kind, id, &mut self.memory)
+        let created = self
+            .asset_banks
+            .select_with_companion(kind, id, &mut self.memory);
+        if created && kind == AssetBankKind::Palette {
+            self.sync_palette_from_ram();
+        }
+        created
     }
 
     pub fn replace_asset_bank(&mut self, kind: AssetBankKind, id: u8, data: &[u8]) {
@@ -430,6 +453,9 @@ impl Vm {
             let (base, _) = AssetBanks::region(kind);
             for (offset, byte) in data.into_iter().enumerate() {
                 let _ = self.memory.write(base + offset, byte);
+            }
+            if kind == AssetBankKind::Palette {
+                self.sync_palette_from_ram();
             }
         }
     }
@@ -442,6 +468,9 @@ impl Vm {
         }
         if self.asset_banks.active(kind) == id {
             let _ = self.asset_banks.select(kind, 0, &mut self.memory);
+            if kind == AssetBankKind::Palette {
+                self.sync_palette_from_ram();
+            }
         }
         let removed = self.asset_banks.banks_mut(kind).remove(&id).is_some();
         if removed {
@@ -671,6 +700,25 @@ mod asset_bank_tests {
     }
 
     #[test]
+    fn selecting_palette_bank_updates_render_time_colors() {
+        let mut vm = Vm::new(VmConfig::default());
+        vm.load_cart_sections(&[CartSection {
+            kind: SectionKind::PaletteBank,
+            data: encode_asset_bank(1, &[11, 22, 33]),
+        }]);
+
+        // Before the switch, slot 0 has whatever the default palette is —
+        // definitely not (11, 22, 33).
+        assert_ne!(vm.get_palette()[0].to_rgb(), [11, 22, 33]);
+        assert!(vm.select_asset_bank(AssetBankKind::Palette, 1));
+        // Raw RAM moved (this part already worked)...
+        assert_eq!(vm.peek_memory(PALETTE_RAM_BASE), 11);
+        // ...and critically, so did the render-time Color cache actually
+        // used by drawing — this is the bug this test guards against.
+        assert_eq!(vm.get_palette()[0].to_rgb(), [11, 22, 33]);
+    }
+
+    #[test]
     fn lua_can_switch_palette_sfx_and_music_banks() {
         let mut vm = Vm::new(VmConfig::default());
         vm.load_cart_sections(&[
@@ -712,5 +760,9 @@ mod asset_bank_tests {
                 "true"
             );
         }
+        // The Lua-driven switch must refresh render-time colors too, not
+        // just RAM — same bug class as select_asset_bank, fixed separately
+        // in the load_palette_bank builtin itself.
+        assert_eq!(vm.get_palette()[0].to_rgb(), [9, 9, 9]);
     }
 }
