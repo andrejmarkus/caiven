@@ -10,6 +10,8 @@
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
     "check:ui": "node ../caiven-ui/scripts/check-boundaries.mjs",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "tauri": "tauri"
   },
   "devDependencies": {
@@ -23,6 +25,7 @@
     "@codemirror/view": "^6.36.5",
     "@lezer/highlight": "^1.2.3",
     "@lucide/svelte": "1.26.0",
+    "@playwright/test": "1.62.0",
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@tailwindcss/vite": "^4.3.0",
     "@tauri-apps/api": "2.10.1",

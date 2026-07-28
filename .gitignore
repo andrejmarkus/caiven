@@ -1,3 +1,6 @@
 /target
 /data/
 .env
+.playwright-mcp/
+playwright-report/
+test-results/

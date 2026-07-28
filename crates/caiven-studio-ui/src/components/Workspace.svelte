@@ -73,7 +73,7 @@
     onFlags: (sprite: number, flags: number) => void;
     onFlagsBatch: (edits: SpriteFlagEdit[]) => void;
     onMap: (cells: { offset: number; tile: number }[]) => void;
-    onAssetBank: (kind: 'sprites' | 'map' | 'palette' | 'sfx' | 'music', action: 'select' | 'create' | 'delete', id?: number) => void;
+    onAssetBank: (kind: 'sprites' | 'map' | 'palette' | 'sfx' | 'music', action: 'select' | 'create' | 'delete', id?: number) => void | Promise<boolean | void>;
     onSfx: (slot: number, bytes: number[]) => void;
     onMusic: (pattern: number, bytes: number[]) => void;
     onAudio: (kind: 'sfx' | 'music', id: number, action: 'play' | 'stop') => void;
@@ -689,7 +689,7 @@
         {@const activeBank = screen === 'sprites' ? activeSpriteBank : screen === 'map' ? activeMapBank : activePaletteBank}
         <div class="bank-picker">
           <span>Bank</span>
-          <select value={activeBank} onchange={(event) => onAssetBank(bankKind, 'select', Number(event.currentTarget.value))}>
+          <select value={activeBank} onchange={async (event) => { const select = event.currentTarget; if (await onAssetBank(bankKind, 'select', Number(select.value)) === false) select.value = String(activeBank); }}>
             {#each bankIds as id}<option value={id}>{id}</option>{/each}
           </select>
           <button title={`Create ${bankKind} bank`} onclick={() => onAssetBank(bankKind, 'create')}><Plus size={14} /></button>
@@ -708,7 +708,7 @@
         {@const activeBank = screen === 'sfx' ? activeSfxBank : activeMusicBank}
         <div class="bank-picker">
           <span>Bank</span>
-          <select value={activeBank} onchange={(event) => onAssetBank(bankKind, 'select', Number(event.currentTarget.value))}>
+          <select value={activeBank} onchange={async (event) => { const select = event.currentTarget; if (await onAssetBank(bankKind, 'select', Number(select.value)) === false) select.value = String(activeBank); }}>
             {#each bankIds as id}<option value={id}>{id}</option>{/each}
           </select>
           <button title={`Create ${bankKind} bank`} onclick={() => onAssetBank(bankKind, 'create')}><Plus size={14} /></button>

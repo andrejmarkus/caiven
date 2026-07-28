@@ -16,7 +16,7 @@
     PublishProgress, Screen, StudioBootstrap, TickSnapshot,
   } from './types';
   import {
-    bootstrap, chooseExportPath, chooseProject, exportCartridge, fallbackTemplates, listTemplates, newProject,
+    bootstrap, chooseExportPath, chooseProject, exportCartridge, fallbackTemplates, isTauri, listTemplates, newProject,
     openProject, readAssetIndex, readCartSize, readFrame, readMemory, readTick, saveProject, setInput, transport,
     addWatch, assetBank, audioTransport, clearOutput, closeProject, createModule, MEMORY, portDownload, portLinkCancel, portLinkPoll, portLinkStart, portListCarts,
     portLogout, portPublish, portSession, scanLibrary, toggleBreakpoint, writeBuffer,
@@ -257,8 +257,10 @@
       studio.assetIndex = await readAssetIndex();
       await refreshCartSize();
       status = `${bankLabels[kind]} bank ${activeBankOf[kind]()}`;
+      return true;
     } catch (error) {
       showToast(`Bank ${action} failed: ${errorText(error)}`);
+      return false;
     }
   }
 
@@ -428,7 +430,12 @@
   }
 
   async function doMeta(title: string, author: string, meta: StudioBootstrap['meta']) {
-    const previous = { title: studio.title, author: studio.author, meta: structuredClone(studio.meta), dirty: metaDirty };
+    const previous = {
+      title: studio.title,
+      author: studio.author,
+      meta: { description: studio.meta.description, tags: [...studio.meta.tags] },
+      dirty: metaDirty,
+    };
     studio.title = title;
     studio.author = author;
     studio.meta = meta;
@@ -761,18 +768,20 @@
     window.addEventListener('keydown', handleKeys);
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('blur', releaseInputs);
-    void listen<PublishProgress>('publish:progress', (event) => { publishProgress = event.payload; }).then((fn) => { unlistenPublish = fn; });
-    void listen<string>('menu-action', (event) => {
-      switch (event.payload) {
-        case 'new': showNew(); break;
-        case 'open': void doOpen(); break;
-        case 'save': void doSave(); break;
-        case 'export': void doExport(); break;
-        case 'close': void doClose(); break;
-        case 'run_toggle': void doTransport(running ? 'pause' : 'run'); break;
-        case 'palette': overlay = overlay === 'palette' ? null : 'palette'; break;
-      }
-    }).then((fn) => { unlistenMenu = fn; });
+    if (isTauri()) {
+      void listen<PublishProgress>('publish:progress', (event) => { publishProgress = event.payload; }).then((fn) => { unlistenPublish = fn; });
+      void listen<string>('menu-action', (event) => {
+        switch (event.payload) {
+          case 'new': showNew(); break;
+          case 'open': void doOpen(); break;
+          case 'save': void doSave(); break;
+          case 'export': void doExport(); break;
+          case 'close': void doClose(); break;
+          case 'run_toggle': void doTransport(running ? 'pause' : 'run'); break;
+          case 'palette': overlay = overlay === 'palette' ? null : 'palette'; break;
+        }
+      }).then((fn) => { unlistenMenu = fn; });
+    }
     void listTemplates().then((items) => { if (alive && items.length) templates = items; })
       .catch((error) => { if (alive) showToast(`Templates unavailable: ${errorText(error)}`); });
     void portSession().then((session) => { portAccount = session; });
@@ -910,7 +919,7 @@
           onFlags={updateFlags}
           onFlagsBatch={updateFlagsBatch}
           onMap={updateMap}
-          onAssetBank={(kind, action, id) => void changeAssetBank(kind, action, id)}
+          onAssetBank={changeAssetBank}
           onSfx={updateSfx}
           onMusic={updateMusic}
           {soundSelection}

@@ -54,7 +54,7 @@
   let tourWasOpen = $state(false);
   let tourLayout = $state('');
   let focusCanvas = $state<HTMLCanvasElement>();
-  let moduleInput = $state<HTMLInputElement>();
+  let moduleInput = $state<HTMLInputElement | null>(null);
   let moduleName = $state('module.lua');
   let moduleError = $state('');
   let moduleBusy = $state(false);
