@@ -363,7 +363,7 @@ export const api = {
     const form = new FormData();
     form.set('cart', cart);
     form.set('meta', JSON.stringify({ changelog }));
-    return request<Cart>(`/carts/${id}/versions`, { method: 'POST', body: form });
+    return request<CartVersionInfo>(`/carts/${id}/versions`, { method: 'POST', body: form });
   },
   cartUrl: (id: string, version?: number) => `${BASE}/carts/${id}/cart${qs({ version })}`,
   screenshotUrl: (id: string, version?: number) => `${BASE}/carts/${id}/screenshot${qs({ version })}`,

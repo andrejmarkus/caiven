@@ -11,5 +11,9 @@ export default defineConfig({
       $lib: path.resolve("./src/lib"),
     },
   },
-  server: { proxy: { '/api': 'http://localhost:8080' } }
+  server: {
+    proxy: {
+      '/api': process.env.CAIVEN_E2E_API_TARGET ?? 'http://localhost:8080',
+    },
+  },
 });

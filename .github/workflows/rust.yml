@@ -41,7 +41,7 @@ jobs:
       - name: Test Studio frontend
         run: npm --prefix crates/caiven-studio-ui test
       - name: Install Playwright Chromium
-        run: npm --prefix crates/caiven-studio-ui exec playwright install --with-deps chromium
+        run: npm --prefix crates/caiven-port/web exec playwright install --with-deps chromium
       - name: Test Studio end-to-end (3x)
         run: npm --prefix crates/caiven-studio-ui run test:e2e:stress
       - name: Upload Playwright diagnostics
@@ -57,6 +57,18 @@ jobs:
         run: npm --prefix crates/caiven-studio-ui run build
       - name: Build Port frontend
         run: npm --prefix crates/caiven-port/web run build
+      - name: Test Port mocked end-to-end (desktop + mobile, 3x)
+        run: npm --prefix crates/caiven-port/web run test:e2e:stress
+      - name: Upload Port Playwright diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: port-playwright-diagnostics
+          path: |
+            crates/caiven-port/web/playwright-report
+            crates/caiven-port/web/playwright-report/live
+            crates/caiven-port/web/test-results
+          if-no-files-found: ignore
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install system dependencies
@@ -84,6 +96,17 @@ jobs:
           path: build.log
       - name: Test
         run: cargo test --locked --verbose
+      - name: Test Port live full-stack gate
+        run: npm --prefix crates/caiven-port/web run test:e2e:live
+      - name: Upload Port live Playwright diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: port-live-playwright-diagnostics
+          path: |
+            crates/caiven-port/web/playwright-report/live
+            crates/caiven-port/web/test-results/live
+          if-no-files-found: ignore
 
   lint:
     name: Lint

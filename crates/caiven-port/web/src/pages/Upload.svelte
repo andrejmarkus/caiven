@@ -25,8 +25,8 @@
     busy = true; error = '';
     try {
       if (cartId) {
-        const cart = await api.createVersion(cartId, cartFile, changelog);
-        navigate(`/cart/${cart.id}`);
+        await api.createVersion(cartId, cartFile, changelog);
+        navigate(`/cart/${cartId}`);
       } else {
         const cart = await api.createCart(cartFile, { title, description, tags: tags.split(',').map((x) => x.trim()).filter(Boolean) });
         if (jamSlug) await api.enterJam(jamSlug, cart.id);

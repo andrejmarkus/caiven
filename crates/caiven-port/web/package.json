@@ -8,10 +8,16 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
-    "check:ui": "node ../../caiven-ui/scripts/check-boundaries.mjs"
+    "check:ui": "node ../../caiven-ui/scripts/check-boundaries.mjs",
+    "test:e2e": "npm run test:e2e:mock && npm run test:e2e:live",
+    "test:e2e:mock": "playwright test --config playwright.config.ts",
+    "test:e2e:live": "playwright test --config playwright.live.config.ts",
+    "test:e2e:stress": "playwright test --config playwright.config.ts --repeat-each=3",
+    "test:e2e:ui": "playwright test --config playwright.config.ts --ui"
   },
   "devDependencies": {
     "@lucide/svelte": "1.26.0",
+    "@playwright/test": "1.62.0",
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@tailwindcss/vite": "^4.3.0",
     "@tsconfig/svelte": "^5.0.8",
