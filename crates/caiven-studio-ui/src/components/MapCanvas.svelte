@@ -5,7 +5,7 @@
   } from '../lib/editorMath';
 
   type MapLayer = 'tiles' | 'collision';
-  type MapTool = 'paint' | 'fill' | 'rect' | 'pick' | 'erase' | 'line';
+  type MapTool = 'pencil' | 'fill' | 'rect' | 'pick' | 'erase' | 'line';
   type Cell = { offset: number; tile: number };
 
   interface Props {
@@ -141,7 +141,7 @@
 
   function drawStroke(at: number) {
     // Never called with tool === 'pick' — begin() branches to pick() first.
-    const drawTool: StrokeTool = tool === 'paint' ? 'pencil' : (tool as Exclude<MapTool, 'paint' | 'pick'>);
+    const drawTool: StrokeTool = tool as Exclude<MapTool, 'pick'>;
     const values = layer === 'tiles' ? map : collisionStates();
     const replacement = layer === 'tiles' ? activeTile() : activeCollisionBrush();
     const offsets = strokeCells(drawTool, anchor ?? at, at, previousCell, values, replacement, 64, 64);
@@ -193,7 +193,7 @@
     const at = pointerCell(event);
     if (tool === 'rect' || tool === 'line') {
       drawStroke(at);
-    } else if ((tool === 'paint' || tool === 'erase') && previousCell !== at) {
+    } else if ((tool === 'pencil' || tool === 'erase') && previousCell !== at) {
       drawStroke(at);
       previousCell = at;
     }

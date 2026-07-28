@@ -20,8 +20,9 @@
   } from '../lib/editorMath';
   import LuaEditor from './LuaEditor.svelte';
   import MapCanvas from './MapCanvas.svelte';
+  import SpriteCanvas, { type Pixel, type SpriteTool } from './SpriteCanvas.svelte';
 
-  type MapTool = 'paint' | 'fill' | 'rect' | 'pick' | 'erase' | 'line';
+  type MapTool = 'pencil' | 'fill' | 'rect' | 'pick' | 'erase' | 'line';
   type MapHistoryEntry =
     | { kind: 'tiles'; changes: { offset: number; before: number; after: number }[] }
     | { kind: 'flags'; changes: { tile: number; before: number; after: number }[] };
@@ -123,7 +124,7 @@
   const selectedSfx = $derived(soundSelection.sfx);
   const selectedPattern = $derived(soundSelection.pattern);
   let selectedTile = $state(0);
-  let mapTool = $state<MapTool>('paint');
+  let mapTool = $state<MapTool>('pencil');
   let mapLayer = $state<'tiles' | 'collision'>('tiles');
   let collisionBrush = $state<CollisionBrush>(1);
   let mapZoom = $state(1);
@@ -144,8 +145,7 @@
   let mapHover = $state<{ x: number; y: number; tile: number } | null>(null);
   let spriteUndo = $state<number[][]>([]);
   let spriteRedo = $state<number[][]>([]);
-  let shapeStart = $state<number | null>(null);
-  let tool = $state('pencil');
+  let tool = $state<SpriteTool>('pencil');
   let docQuery = $state('');
   let docCategory = $state<string | null>(null);
   let libraryTab = $state<'local' | 'port'>('local');
@@ -180,12 +180,15 @@
     const ctx = coverCanvas.getContext('2d');
     ctx?.putImageData(new ImageData(new Uint8ClampedArray(frameData), 128, 128), 0, 0);
   });
-  const spriteTools = [
-    { icon: Pencil, id: 'pencil' },
-    { icon: Pipette, id: 'pick' },
-    { icon: PaintBucket, id: 'fill' },
-    { icon: Minus, id: 'line' },
-    { icon: Square, id: 'rect' },
+  // Shared by the sprite rail and map toolbar so both editors present the same
+  // order, icons, and keyboard shortcuts for their parity toolset.
+  const editorTools: { id: SpriteTool | MapTool; icon: typeof Pencil; shortcut: string; label: string }[] = [
+    { id: 'pencil', icon: Pencil, shortcut: 'p', label: 'Pencil' },
+    { id: 'line', icon: Minus, shortcut: 'l', label: 'Line' },
+    { id: 'rect', icon: Square, shortcut: 'r', label: 'Rectangle' },
+    { id: 'fill', icon: PaintBucket, shortcut: 'f', label: 'Fill' },
+    { id: 'pick', icon: Pipette, shortcut: 'i', label: 'Pick' },
+    { id: 'erase', icon: Eraser, shortcut: 'e', label: 'Erase' },
   ];
 
   const active = $derived(sources[activeSource]);
@@ -210,9 +213,8 @@
     mapUndo = [];
     mapRedo = [];
     mapLayer = 'tiles';
-    mapTool = 'paint';
+    mapTool = 'pencil';
     collisionBrush = 1;
-    shapeStart = null;
     sourceCursor = {};
   });
   $effect(() => {
@@ -225,7 +227,6 @@
     activeSpriteBank;
     spriteUndo = [];
     spriteRedo = [];
-    shapeStart = null;
   });
   $effect(() => {
     activeMapBank;
@@ -349,49 +350,9 @@
     onSprite(selectedSprite, next);
   }
 
-  function paintPixel(index: number) {
-    if (tool === 'pick') {
-      selectedColor = sprite[index] ?? 0;
-      return;
-    }
-    if (tool === 'line' || tool === 'rect') {
-      if (shapeStart === null) { shapeStart = index; return; }
-      const next = [...sprite];
-      const x0 = shapeStart % 8; const y0 = Math.floor(shapeStart / 8);
-      const x1 = index % 8; const y1 = Math.floor(index / 8);
-      if (tool === 'rect') {
-        for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x += 1) {
-          next[Math.min(y0, y1) * 8 + x] = selectedColor; next[Math.max(y0, y1) * 8 + x] = selectedColor;
-        }
-        for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y += 1) {
-          next[y * 8 + Math.min(x0, x1)] = selectedColor; next[y * 8 + Math.max(x0, x1)] = selectedColor;
-        }
-      } else {
-        let x = x0; let y = y0; const dx = Math.abs(x1 - x0); const sx = x0 < x1 ? 1 : -1;
-        const dy = -Math.abs(y1 - y0); const sy = y0 < y1 ? 1 : -1; let error = dx + dy;
-        while (true) { next[y * 8 + x] = selectedColor; if (x === x1 && y === y1) break; const twice = 2 * error; if (twice >= dy) { error += dy; x += sx; } if (twice <= dx) { error += dx; y += sy; } }
-      }
-      shapeStart = null; commitSprite(next); return;
-    }
-    if (tool === 'fill') {
-      const target = sprite[index];
-      if (target === selectedColor) return;
-      const next = [...sprite];
-      const queue = [index];
-      const seen = new Set<number>();
-      while (queue.length) {
-        const at = queue.pop()!;
-        if (seen.has(at) || next[at] !== target) continue;
-        seen.add(at); next[at] = selectedColor;
-        const x = at % 8; const y = Math.floor(at / 8);
-        if (x) queue.push(at - 1); if (x < 7) queue.push(at + 1);
-        if (y) queue.push(at - 8); if (y < 7) queue.push(at + 8);
-      }
-      commitSprite(next);
-      return;
-    }
+  function strokeSprite(pixels: Pixel[]) {
     const next = [...sprite];
-    next[index] = selectedColor;
+    for (const pixel of pixels) next[pixel.index] = pixel.color;
     commitSprite(next);
   }
 
@@ -547,7 +508,7 @@
   }
 
   function selectSprite(index: number) {
-    selectedSprite = index; spriteUndo = []; spriteRedo = []; shapeStart = null;
+    selectedSprite = index; spriteUndo = []; spriteRedo = [];
   }
 
   // Each sfx slot is 16 steps x 4 bytes: note, volume, wave (0 square / 1 noise),
@@ -663,15 +624,29 @@
     return `${entry.name}(${entry.params.map((p) => `${p.name}: ${p.ty}`).join(', ')})`;
   }
 
+  function isTypingTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) return false;
+    return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+  }
+
   function handleWorkspaceKeys(event: KeyboardEvent) {
-    if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'z') return;
-    if (screen === 'sprites') {
-      event.preventDefault();
-      if (event.shiftKey) redoSpriteEdit(); else undoSprite();
-    } else if (screen === 'map') {
-      event.preventDefault();
-      if (event.shiftKey) redoMapEdit(); else undoMap();
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
+      if (screen === 'sprites') {
+        event.preventDefault();
+        if (event.shiftKey) redoSpriteEdit(); else undoSprite();
+      } else if (screen === 'map') {
+        event.preventDefault();
+        if (event.shiftKey) redoMapEdit(); else undoMap();
+      }
+      return;
     }
+    if (event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) return;
+    if (screen !== 'sprites' && screen !== 'map') return;
+    const match = editorTools.find((item) => item.shortcut === event.key.toLowerCase());
+    if (!match) return;
+    event.preventDefault();
+    if (screen === 'sprites') tool = match.id as SpriteTool;
+    else mapTool = match.id as MapTool;
   }
 </script>
 
@@ -830,9 +805,9 @@
   {:else if screen === 'sprites'}
     <section class="asset-editor sprite-editor">
       <aside class="tool-rail">
-        {#each spriteTools as item}
+        {#each editorTools as item}
           {@const Icon = item.icon}
-          <button class:active={tool === item.id} title={item.id} onclick={() => tool = item.id}><Icon size={18} /></button>
+          <button class:active={tool === item.id} title={`${item.label} (${item.shortcut})`} onclick={() => tool = item.id as SpriteTool}><Icon size={18} /></button>
         {/each}
         <span></span>
         <button title="Undo sprite edit" disabled={!spriteUndo.length} onclick={undoSprite}><Undo2 size={18} /></button><button title="Redo sprite edit" disabled={!spriteRedo.length} onclick={redoSpriteEdit}><Redo2 size={18} /></button>
@@ -841,17 +816,14 @@
       </aside>
       <div class="asset-canvas-wrap" data-tour-target="draw">
         <div class="asset-heading"><span><span class="eyebrow">Sprite</span><strong>{selectedSprite.toString().padStart(3,'0')}</strong></span><code>8 × 8 px · 64 bytes</code></div>
-        <div class="pixel-canvas">
-          {#each sprite as color, index}
-            <button
-              style={`background:${palette[color]}`}
-              onpointerdown={(event) => { event.preventDefault(); if (event.button === 2 || event.ctrlKey) selectedColor = color; else paintPixel(index); }}
-              onpointerenter={(event) => { if (event.buttons === 1 && tool === 'pencil') paintPixel(index); }}
-              oncontextmenu={(event) => event.preventDefault()}
-              aria-label={`Pixel ${index}`}
-            ></button>
-          {/each}
-        </div>
+        <SpriteCanvas
+          {sprite}
+          {palette}
+          {selectedColor}
+          {tool}
+          onStroke={strokeSprite}
+          onPick={(color) => selectedColor = color}
+        />
         <div class="palette-strip">
           {#each palette as color, index}<button aria-label={`Color ${index}`} class:active={selectedColor === index} style={`--swatch:${color}`} onclick={() => selectedColor = index}></button>{/each}
         </div>
@@ -901,23 +873,21 @@
       <div class="map-toolbar">
         <div class="map-layer-switch" aria-label="Map edit layer">
           <button class:active={mapLayer === 'tiles'} onclick={() => mapLayer = 'tiles'}><Layers size={15} />Tiles</button>
-          <button class:active={mapLayer === 'collision'} onclick={() => { mapLayer = 'collision'; collisionOverlay = true; if (mapTool === 'pick') mapTool = 'paint'; }}><ShieldCheck size={15} />Collision</button>
+          <button class:active={mapLayer === 'collision'} onclick={() => { mapLayer = 'collision'; collisionOverlay = true; if (mapTool === 'pick') mapTool = 'pencil'; }}><ShieldCheck size={15} />Collision</button>
         </div>
         <i class="map-toolbar-divider"></i>
-        <button class:active={mapTool === 'paint'} onclick={() => mapTool = 'paint'}><Pencil size={16} />Paint</button>
-        <button class:active={mapTool === 'line'} onclick={() => mapTool = 'line'}><Minus size={16} />Line</button>
-        <button class:active={mapTool === 'fill'} onclick={() => mapTool = 'fill'}><PaintBucket size={16} />Fill</button>
-        <button class:active={mapTool === 'rect'} onclick={() => mapTool = 'rect'}><Square size={16} />Rectangle</button>
-        <button class:active={mapTool === 'pick'} onclick={() => mapTool = 'pick'}><Pipette size={16} />Pick</button>
-        <button class:active={mapTool === 'erase'} onclick={() => mapTool = 'erase'}><Eraser size={16} />Erase</button>
+        {#each editorTools as item}
+          {@const Icon = item.icon}
+          <button class:active={mapTool === item.id} title={`${item.label} (${item.shortcut})`} onclick={() => mapTool = item.id as MapTool}><Icon size={16} />{item.label}</button>
+        {/each}
         <button title="Undo map edit" disabled={!mapUndo.length} onclick={undoMap}><Undo2 size={16} /></button>
         <button title="Redo map edit" disabled={!mapRedo.length} onclick={redoMapEdit}><Redo2 size={16} /></button>
         <span class="map-toolbar-spacer"></span>
         {#if mapLayer === 'collision'}
           <div class="collision-brush" aria-label="Collision brush">
-            <button class:active={collisionBrush === 0 && mapTool !== 'erase'} onclick={() => { collisionBrush = 0; if (mapTool === 'erase') mapTool = 'paint'; }}>Walkable</button>
-            <button class:active={collisionBrush === 1 && mapTool !== 'erase'} onclick={() => { collisionBrush = 1; if (mapTool === 'erase') mapTool = 'paint'; }}>Solid</button>
-            <button class:active={collisionBrush === 2 && mapTool !== 'erase'} onclick={() => { collisionBrush = 2; if (mapTool === 'erase') mapTool = 'paint'; }}>Hazard</button>
+            <button class:active={collisionBrush === 0 && mapTool !== 'erase'} onclick={() => { collisionBrush = 0; if (mapTool === 'erase') mapTool = 'pencil'; }}>Walkable</button>
+            <button class:active={collisionBrush === 1 && mapTool !== 'erase'} onclick={() => { collisionBrush = 1; if (mapTool === 'erase') mapTool = 'pencil'; }}>Solid</button>
+            <button class:active={collisionBrush === 2 && mapTool !== 'erase'} onclick={() => { collisionBrush = 2; if (mapTool === 'erase') mapTool = 'pencil'; }}>Hazard</button>
           </div>
         {/if}
         <label><input type="checkbox" bind:checked={collisionOverlay} />Collision overlay</label>
@@ -954,7 +924,7 @@
           onStroke={commitMap}
           onCollisionStroke={commitCollision}
           onPick={(tile) => selectedTile = tile}
-          onCollisionPick={(brush) => { collisionBrush = brush; mapTool = 'paint'; }}
+          onCollisionPick={(brush) => { collisionBrush = brush; mapTool = 'pencil'; }}
           onHover={(cell) => mapHover = cell}
         />
         {/key}

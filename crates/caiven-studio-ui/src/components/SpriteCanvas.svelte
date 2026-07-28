@@ -151,7 +151,7 @@
 </div>
 
 <style>
-  .sprite-canvas-wrap { width: 256px; height: 256px; flex: none; position: relative; border: 1px solid var(--color-void-600); box-shadow: var(--shadow-lg); background: #000; }
+  .sprite-canvas-wrap { width: min(512px, 100%, calc(100vh - 390px)); aspect-ratio: 1; position: relative; border: 1px solid var(--color-void-600); border-radius: 8px; box-shadow: var(--shadow-lg); background: #000; }
   .sprite-canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; cursor: crosshair; touch-action: none; }
   .sprite-canvas.picking { cursor: copy; }
   .sprite-canvas.erasing { cursor: not-allowed; }

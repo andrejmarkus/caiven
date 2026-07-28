@@ -81,7 +81,7 @@ test('debounced source buffer and saved dirty state survive browser reload', asy
 test('art, sound, asset reference, and navigation flow', async ({ page, e2e }) => {
   await page.getByTitle(/^Art/).click();
   await page.getByLabel('Color 8').click();
-  await page.getByLabel('Pixel 0').click();
+  await page.getByLabel('8 by 8 sprite grid').click({ position: { x: 10, y: 10 } });
   await page.getByTitle('Flip horizontally').click();
   await page.getByTitle('Undo sprite edit').click();
   await page.locator('.flags input[type=checkbox]').first().check();
