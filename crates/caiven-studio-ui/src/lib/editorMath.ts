@@ -76,6 +76,33 @@ export function filledRectangle(from: number, to: number, width: number): number
   return cells;
 }
 
+export type StrokeTool = 'pencil' | 'line' | 'rect' | 'fill' | 'erase';
+
+export function strokeCells(
+  tool: StrokeTool,
+  anchor: number,
+  current: number,
+  previous: number | null,
+  values: readonly number[],
+  replacement: number,
+  width: number,
+  height: number,
+): number[] {
+  switch (tool) {
+    case 'pencil':
+    case 'erase':
+      return rasterLine(previous ?? current, current, width);
+    case 'line':
+      return rasterLine(anchor, current, width);
+    case 'rect':
+      return filledRectangle(anchor, current, width);
+    case 'fill':
+      return floodCells(values, current, replacement, width, height).map((cell) => cell.offset);
+    default:
+      return [];
+  }
+}
+
 export function floodCells(
   values: readonly number[], start: number, replacement: number, width: number, height: number,
 ): MapCell[] {

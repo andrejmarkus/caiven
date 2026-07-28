@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   collisionFlagEdits, dragPanScroll, filledRectangle, floodCells, nextMapZoom, rasterLine,
-  sourceOffset,
+  sourceOffset, strokeCells,
 } from '../src/lib/editorMath.ts';
 
 test('rasterLine bridges skipped pointer cells', () => {
@@ -56,4 +56,26 @@ test('collision brush edits unique nonzero tile flags and preserves unrelated bi
   flags[3] = 0b1010;
   assert.deepEqual(collisionFlagEdits([3], flags, [0], 2), []);
   assert.deepEqual(collisionFlagEdits([3], flags, [0], 0), [{ tile: 3, flags: 0b1000 }]);
+});
+
+test('strokeCells: pencil/erase bridges from previous point, or is a dot with no previous', () => {
+  assert.deepEqual(strokeCells('pencil', 0, 3, 0, [], 1, 8, 8), [0, 1, 2, 3]);
+  assert.deepEqual(strokeCells('erase', 0, 5, null, [], 0, 8, 8), [5]);
+});
+
+test('strokeCells: line recomputes from anchor each call for live preview', () => {
+  assert.deepEqual(strokeCells('line', 0, 3, 1, [], 1, 8, 8), [0, 1, 2, 3]);
+  assert.deepEqual(strokeCells('line', 0, 27, 99, [], 1, 8, 8), [0, 9, 18, 27]);
+});
+
+test('strokeCells: rect is filled between anchor and current', () => {
+  assert.deepEqual(strokeCells('rect', 9, 0, null, [], 1, 8, 8), [0, 1, 8, 9]);
+});
+
+test('strokeCells: fill floods from current using values/replacement, ignoring anchor/previous', () => {
+  const map = [0, 0, 2, 0, 2, 2, 0, 0, 2];
+  assert.deepEqual(
+    strokeCells('fill', 99, 0, null, map, 7, 3, 3).sort((a, b) => a - b),
+    [0, 1, 3, 6, 7],
+  );
 });
