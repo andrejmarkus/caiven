@@ -58,6 +58,26 @@ test('code, runtime, shortcuts, watches, module, drawer, and console flow', asyn
   expect(commands).toEqual(expect.arrayContaining(['studio_save', 'studio_transport', 'studio_set_input', 'studio_add_watch', 'studio_create_module']));
 });
 
+test('debounced source buffer and saved dirty state survive browser reload', async ({ page, e2e }) => {
+  const editor = page.locator('.cm-content');
+  await editor.click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('\n-- survives reload');
+  await expect(page.getByTitle('Unsaved changes')).toBeVisible();
+  await expect.poll(async () => (await e2e.calls()).some((call) => call.command === 'studio_write_buffer' && String(call.args.text).includes('-- survives reload'))).toBeTruthy();
+
+  await page.reload();
+  await expect(page.getByText('test-cart', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.cm-content')).toContainText('-- survives reload');
+  await expect(page.getByTitle('Unsaved changes')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByTitle('Unsaved changes')).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator('.cm-content')).toContainText('-- survives reload');
+  await expect(page.getByTitle('Unsaved changes')).toHaveCount(0);
+});
+
 test('art, sound, asset reference, and navigation flow', async ({ page, e2e }) => {
   await page.getByTitle(/^Art/).click();
   await page.getByLabel('Color 8').click();
@@ -138,7 +158,7 @@ test('navigation reaches every top-level Studio screen', async ({ page, e2e: _e2
   }
 });
 
-test('critical failures preserve user state and surface errors', async ({ page, e2e }) => {
+test('discard cancellation keeps dirty cart open', async ({ page, e2e }) => {
   await page.getByTitle(/^Cart/).click();
   const titleInput = page.getByLabel('Title');
   await titleInput.fill('dirty title'); await titleInput.blur();
@@ -147,7 +167,10 @@ test('critical failures preserve user state and surface errors', async ({ page, 
   page.once('dialog', (dialog) => dialog.dismiss());
   await page.getByRole('button', { name: 'Open project' }).click();
   expect((await e2e.calls()).some((call) => call.command === 'studio_open_project')).toBeFalsy();
+  await expect(page.getByText('dirty title', { exact: true }).first()).toBeVisible();
+});
 
+test('failed asset mutation restores prior visible and mock state', async ({ page, e2e }) => {
   await page.getByTitle(/^Art/).click();
   await page.getByRole('button', { name: 'Palette', exact: true }).click();
   await page.getByRole('button', { name: /^00 #000000/ }).click();
@@ -155,14 +178,21 @@ test('critical failures preserve user state and surface errors', async ({ page, 
   const hex = page.getByLabel('Hex'); await hex.fill('#ABCDEF'); await hex.blur();
   await expect(page.getByText('Palette slot 00 failed: readonly cart')).toBeVisible();
   await expect(page.getByRole('heading', { name: '#000000' })).toBeVisible();
+  expect((await e2e.snapshot() as any).banks.palette['0'].slice(0, 3)).toEqual([0, 0, 0]);
+});
 
+test('invalid module stays open with actionable error', async ({ page, e2e: _e2e }) => {
   await page.getByTitle(/^Code/).click();
   await page.getByTitle('New Lua module').click();
   await page.locator('.module-dialog input').fill('bad.txt');
   await page.getByRole('button', { name: 'Create module' }).click();
   await expect(page.getByRole('alert')).toContainText('Module name must end in .lua');
-
+  await expect(page.locator('.module-dialog input')).toBeFocused();
   await page.keyboard.press('Escape');
+  await expect(page.locator('.module-dialog')).toHaveCount(0);
+});
+
+test('save failure keeps edited source dirty', async ({ page, e2e }) => {
   await page.locator('.cm-content').click(); await page.keyboard.type('--dirty');
   await e2e.failNext('studio_save', 'disk full');
   await page.getByRole('button', { name: 'Save', exact: true }).click();

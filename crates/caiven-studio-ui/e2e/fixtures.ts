@@ -5,6 +5,7 @@ export type BankKind = 'sprites' | 'map' | 'palette' | 'sfx' | 'music';
 export interface E2EControl {
   calls(): Promise<{ command: string; args: Record<string, unknown> }[]>;
   failNext(key: string, message: string): Promise<void>;
+  delayNext(key: string, milliseconds: number): Promise<void>;
   queueDialog(kind: 'open' | 'save', value: string | null): Promise<void>;
   emit(event: string, payload: unknown): Promise<void>;
   setTickBanks(active: Partial<Record<BankKind, number>>): Promise<void>;
@@ -19,14 +20,20 @@ declare global {
 }
 
 function installBridge() {
-  localStorage.clear();
-  localStorage.setItem('caiven-studio-tour-complete', '1');
+  const sessionKey = '__caiven_e2e_session';
+  const sourcesKey = '__caiven_e2e_sources';
+  if (localStorage.getItem(sessionKey) !== 'active') {
+    localStorage.clear();
+    localStorage.setItem(sessionKey, 'active');
+    localStorage.setItem('caiven-studio-tour-complete', '1');
+  }
 
   type Kind = 'sprites' | 'map' | 'palette' | 'sfx' | 'music';
   const lengths: Record<Kind, number> = { sprites: 16384, map: 4096, palette: 48, sfx: 1024, music: 256 };
   const offsets: Record<Kind, number> = { sprites: 0x4000, map: 0x8000, palette: 0x9100, sfx: 0x9200, music: 0x9600 };
   const calls: { command: string; args: Record<string, unknown> }[] = [];
   const faults = new Map<string, string[]>();
+  const delays = new Map<string, number[]>();
   const dialogs = { open: [] as (string | null)[], save: [] as (string | null)[] };
   const callbacks = new Map<number, (event: unknown) => void>();
   const listeners = new Map<string, Set<number>>();
@@ -51,10 +58,17 @@ function installBridge() {
   const ram = make(65536);
   let runState: 'running' | 'paused' | 'stopped' = 'paused';
   let frame = 42;
-  let sources = [
+  const initialSources = [
     { path: '/carts/test/main.lua', name: 'main.lua', text: 'function _update()\n  sprite(0, 1, 2)\nend', dirty: false },
     { path: '/carts/test/enemy.lua', name: 'enemy.lua', text: 'return {}', dirty: false },
   ];
+  let sources = initialSources;
+  try {
+    const stored = localStorage.getItem(sourcesKey);
+    if (stored) sources = JSON.parse(stored) as typeof initialSources;
+  } catch {
+    localStorage.removeItem(sourcesKey);
+  }
   let recent = ['/carts/test', '/carts/other'];
   let breakpoints: { source: string; line: number }[] = [];
   let watches: { name: string; value: string }[] = [];
@@ -95,16 +109,28 @@ function installBridge() {
     api: [{ name: 'sprite', params: [{ name: 'id', ty: 'int' }], returns: 'nil', doc: 'Draw sprite.', category: 'Graphics' }],
   });
 
-  function maybeFail(command: string, args: Record<string, unknown>) {
-    const keys = [
+  function requestKeys(command: string, args: Record<string, unknown>) {
+    return [
       `${command}:${String(args.kind ?? '')}:${String(args.action ?? '')}`,
       `${command}:${String(args.kind ?? '')}`,
       command,
     ];
-    for (const key of keys) {
+  }
+  function maybeFail(command: string, args: Record<string, unknown>) {
+    for (const key of requestKeys(command, args)) {
       const queue = faults.get(key);
       if (queue?.length) throw new Error(queue.shift()!);
     }
+  }
+  function takeDelay(command: string, args: Record<string, unknown>) {
+    for (const key of requestKeys(command, args)) {
+      const queue = delays.get(key);
+      if (queue?.length) return queue.shift()!;
+    }
+    return 0;
+  }
+  function persistSources() {
+    localStorage.setItem(sourcesKey, JSON.stringify(sources));
   }
   function emit(event: string, payload: unknown) {
     for (const id of listeners.get(event) ?? []) callbacks.get(id)?.({ event, id: 0, payload });
@@ -114,6 +140,7 @@ function installBridge() {
     const args = rawArgs ?? {};
     calls.push({ command, args: JSON.parse(JSON.stringify(args)) as Record<string, unknown> });
     maybeFail(command, args);
+    const delay = takeDelay(command, args);
     if (command === 'plugin:event|listen') {
       const id = ++listenerId;
       const event = String(args.event);
@@ -159,10 +186,12 @@ function installBridge() {
         banks[kind].delete(id); if (kind === 'sprites') flags.delete(id);
         active[kind] = 0; tickActive[kind] = 0; sync(kind);
       } else if (action !== 'read') throw new Error(`Unknown bank action: ${action}`);
-      return { kind, ids: [...banks[kind].keys()], active: active[kind], data: [...banks[kind].get(active[kind])!] };
+      const result = { kind, ids: [...banks[kind].keys()], active: active[kind], data: [...banks[kind].get(active[kind])!] };
+      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+      return result;
     }
-    if (command === 'studio_write_buffer') { const source = sources.find((item) => item.path === args.path); if (source) source.text = String(args.text); return null; }
-    if (command === 'studio_save') return sources.map((source) => source.name);
+    if (command === 'studio_write_buffer') { const source = sources.find((item) => item.path === args.path); if (source) { source.text = String(args.text); source.dirty = true; persistSources(); } return null; }
+    if (command === 'studio_save') { for (const source of sources) source.dirty = false; persistSources(); return sources.map((source) => source.name); }
     if (command === 'studio_transport') { const action = String(args.action); runState = action === 'pause' || action === 'step' ? 'paused' : 'running'; if (action === 'step') frame += 1; return { ...(await invoke('studio_tick')), runState }; }
     if (command === 'studio_set_input') return null;
     if (command === 'studio_write_sprite') { const at = Number(args.sprite) * 64; banks.sprites.get(active.sprites)!.splice(at, 64, ...args.pixels as number[]); sync('sprites'); return null; }
@@ -181,8 +210,8 @@ function installBridge() {
     if (command === 'studio_clear_output') return null;
     if (command === 'studio_remove_recent') { recent = recent.filter((path) => path !== args.path); return [...recent]; }
     if (command === 'studio_write_meta') return null;
-    if (command === 'studio_create_module') { const name = String(args.name); if (!/^[\w/-]+\.lua$/.test(name)) throw new Error('Module name must end in .lua'); const source = { path: `/carts/test/${name}`, name, text: '', dirty: true }; sources.push(source); return source; }
-    if (command === 'studio_open_project' || command === 'studio_new_project') { if (command === 'studio_new_project') sources = [{ path: `${args.path}/main.lua`, name: 'main.lua', text: '', dirty: false }]; return { ...bootstrap(), path: String(args.path), title: command === 'studio_new_project' ? 'new-cart' : 'test-cart' }; }
+    if (command === 'studio_create_module') { const name = String(args.name); if (!/^[\w/-]+\.lua$/.test(name)) throw new Error('Module name must end in .lua'); const source = { path: `/carts/test/${name}`, name, text: '', dirty: true }; sources.push(source); persistSources(); return source; }
+    if (command === 'studio_open_project' || command === 'studio_new_project') { if (command === 'studio_new_project') { sources = [{ path: `${args.path}/main.lua`, name: 'main.lua', text: '', dirty: false }]; persistSources(); } return { ...bootstrap(), path: String(args.path), title: command === 'studio_new_project' ? 'new-cart' : 'test-cart' }; }
     if (command === 'studio_close_project') return { ...bootstrap(), connected: false, title: '', path: '', sources: [] };
     if (command === 'studio_export') return null;
     if (command === 'studio_audio_transport') return { ...audio(), [`${String(args.kind)}Active`]: args.action === 'play', [`${String(args.kind)}${args.kind === 'sfx' ? 'Id' : 'Pattern'}`]: Number(args.id) };
@@ -207,6 +236,7 @@ function installBridge() {
   window.__CAIVEN_E2E__ = {
     async calls() { return structuredClone(calls); },
     async failNext(key, message) { const queue = faults.get(key) ?? []; queue.push(message); faults.set(key, queue); },
+    async delayNext(key, milliseconds) { const queue = delays.get(key) ?? []; queue.push(milliseconds); delays.set(key, queue); },
     async queueDialog(kind, value) { dialogs[kind].push(value); },
     async emit(event, payload) { emit(event, payload); },
     async setTickBanks(next) {
@@ -232,6 +262,7 @@ export const test = base.extend<{ e2e: E2EControl; errorGuard: ErrorGuard }>({
     await use({
       calls: () => page.evaluate(() => window.__CAIVEN_E2E__.calls()),
       failNext: (key, message) => page.evaluate(([nextKey, nextMessage]) => window.__CAIVEN_E2E__.failNext(nextKey, nextMessage), [key, message] as const),
+      delayNext: (key, milliseconds) => page.evaluate(([nextKey, nextMilliseconds]) => window.__CAIVEN_E2E__.delayNext(nextKey, nextMilliseconds), [key, milliseconds] as const),
       queueDialog: (kind, value) => page.evaluate(([nextKind, nextValue]) => window.__CAIVEN_E2E__.queueDialog(nextKind, nextValue), [kind, value] as const),
       emit: (event, payload) => page.evaluate(([nextEvent, nextPayload]) => window.__CAIVEN_E2E__.emit(nextEvent, nextPayload), [event, payload] as const),
       setTickBanks: (active) => page.evaluate((next) => window.__CAIVEN_E2E__.setTickBanks(next), active),
@@ -242,11 +273,17 @@ export const test = base.extend<{ e2e: E2EControl; errorGuard: ErrorGuard }>({
   errorGuard: [async ({ page }, use) => {
     const errors: string[] = [];
     const allowed: RegExp[] = [];
-    const recordConsole = (message: ConsoleMessage) => { if (message.type() === 'error') errors.push(message.text()); };
+    const recordConsole = (message: ConsoleMessage) => {
+      if (message.type() === 'error' || message.type() === 'warning') {
+        const location = message.location();
+        const source = location.url ? ` (${location.url}:${location.lineNumber}:${location.columnNumber})` : '';
+        errors.push(`[${message.type()}] ${message.text()}${source}`);
+      }
+    };
     page.on('console', recordConsole);
     page.on('pageerror', (error) => errors.push(error.message));
     await use({ allow: (pattern) => allowed.push(pattern) });
-    expect(errors.filter((message) => !allowed.some((pattern) => pattern.test(message))), 'unexpected console/page errors').toEqual([]);
+    expect(errors.filter((message) => !allowed.some((pattern) => pattern.test(message))), 'unexpected console warnings/page errors').toEqual([]);
   }, { auto: true }],
 });
 

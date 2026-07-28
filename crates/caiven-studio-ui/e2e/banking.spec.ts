@@ -94,3 +94,20 @@ test('bank create, select, and delete failures preserve active data and report t
   await expect(page.locator('.bank-picker select')).toHaveValue('1');
   expect((await e2e.snapshot() as any).active.palette).toBe(1);
 });
+
+test('latest bank selection wins when an older response arrives late', async ({ page, e2e }) => {
+  await openBankEditor(page, 'palette');
+  const picker = page.locator('.bank-picker select');
+  await e2e.delayNext('studio_asset_bank:palette:select', 300);
+
+  await picker.selectOption('1');
+  await expect.poll(async () => (await e2e.calls()).filter((call) => call.command === 'studio_asset_bank' && call.args.action === 'select').length).toBe(1);
+  await picker.selectOption('0');
+
+  await expect(picker).toHaveValue('0');
+  await page.waitForTimeout(350);
+  await expect(picker).toHaveValue('0');
+  expect((await e2e.snapshot() as any).active.palette).toBe(0);
+  await page.getByRole('button', { name: /^00 #000000/ }).click();
+  await expect(page.getByRole('heading', { name: '#000000' })).toBeVisible();
+});

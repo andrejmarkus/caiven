@@ -42,8 +42,8 @@ jobs:
         run: npm --prefix crates/caiven-studio-ui test
       - name: Install Playwright Chromium
         run: npm --prefix crates/caiven-studio-ui exec playwright install --with-deps chromium
-      - name: Test Studio end-to-end
-        run: npm --prefix crates/caiven-studio-ui run test:e2e
+      - name: Test Studio end-to-end (3x)
+        run: npm --prefix crates/caiven-studio-ui run test:e2e:stress
       - name: Upload Playwright diagnostics
         if: failure()
         uses: actions/upload-artifact@v4

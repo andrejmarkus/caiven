@@ -11,6 +11,7 @@
     "check:ui": "node ../caiven-ui/scripts/check-boundaries.mjs",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "test:e2e": "playwright test",
+    "test:e2e:stress": "playwright test --repeat-each=3",
     "test:e2e:ui": "playwright test --ui",
     "tauri": "tauri"
   },

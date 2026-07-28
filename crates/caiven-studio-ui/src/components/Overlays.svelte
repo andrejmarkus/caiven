@@ -97,6 +97,10 @@
     command.action?.();
   }
 
+  function handleOpenChange(open: boolean) {
+    if (!open) queueMicrotask(onClose);
+  }
+
   async function submitModule() {
     const name = moduleName.trim();
     if (!name || moduleBusy) return;
@@ -234,7 +238,7 @@
     onkeydown={(event) => { if (event.key === 'Escape') onClose(); }}
   >
     {#if overlay === 'palette'}
-      <Command.Dialog open title="Command palette" description="Search or run a Studio command" class="command-palette" onOpenChange={(open) => { if (!open) onClose(); }}>
+      <Command.Dialog open title="Command palette" description="Search or run a Studio command" class="command-palette" onOpenChange={handleOpenChange}>
         <Command.Input bind:value={query} placeholder="Search or run a command" />
         <Command.List class="command-results">
           <Command.Empty>No matching commands.</Command.Empty>
@@ -255,7 +259,7 @@
         <footer><span><kbd>↑↓</kbd> navigate</span><span><kbd>↵</kbd> select</span><span><kbd>esc</kbd> close</span></footer>
       </Command.Dialog>
     {:else if overlay === 'new-cart'}
-      <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <Dialog.Root open onOpenChange={handleOpenChange}>
       <Dialog.Content showCloseButton={false} class="dialog-frame">
       <form class="new-cart-dialog" aria-label="New cartridge from template" transition:fly={{ y: 8, duration: 180 }} onsubmit={(event) => { event.preventDefault(); void submitNewProject(); }}>
         <Button type="button" variant="ghost" size="icon-sm" class="dialog-close" aria-label="Close" onclick={onClose}><X size={17} /></Button>
@@ -302,7 +306,7 @@
       </Dialog.Content>
       </Dialog.Root>
     {:else if overlay === 'module'}
-      <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <Dialog.Root open onOpenChange={handleOpenChange}>
       <Dialog.Content showCloseButton={false} class="dialog-frame">
       <form class="module-dialog" transition:fly={{ y: 8, duration: 180 }} onsubmit={(event) => { event.preventDefault(); void submitModule(); }}>
         <Button type="button" variant="ghost" size="icon-sm" class="dialog-close" onclick={onClose}><X size={17} /></Button>
@@ -319,7 +323,7 @@
       </Dialog.Content>
       </Dialog.Root>
     {:else if overlay === 'publish'}
-      <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <Dialog.Root open onOpenChange={handleOpenChange}>
       <Dialog.Content showCloseButton={false} class="dialog-frame">
       <section class="publish-dialog" transition:fly={{ y: 8, duration: 180 }}>
         <Button variant="ghost" size="icon-sm" class="dialog-close" onclick={onClose}><X size={17} /></Button>

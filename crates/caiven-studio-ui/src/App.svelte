@@ -237,10 +237,16 @@
     }
   }
 
+  const bankRequestSerial: Record<BankKind, number> = { sprites: 0, map: 0, palette: 0, sfx: 0, music: 0 };
+
   async function refreshAssetBank(kind: BankKind) {
     if (bankRefreshes.has(kind)) return;
     bankRefreshes.add(kind);
-    try { applyAssetBank(await assetBank(kind, 'read')); }
+    const request = bankRequestSerial[kind];
+    try {
+      const next = await assetBank(kind, 'read');
+      if (request === bankRequestSerial[kind]) applyAssetBank(next);
+    }
     catch (error) { showToast(`Bank refresh failed: ${errorText(error)}`); }
     finally { bankRefreshes.delete(kind); }
   }
@@ -252,13 +258,19 @@
 
   async function changeAssetBank(kind: BankKind, action: 'select' | 'create' | 'delete', id?: number) {
     if (action === 'delete' && !window.confirm(`Delete ${kind} bank ${id}?`)) return;
+    const request = ++bankRequestSerial[kind];
     try {
-      applyAssetBank(await assetBank(kind, action, id));
+      const next = await assetBank(kind, action, id);
+      if (request !== bankRequestSerial[kind]) return false;
+      applyAssetBank(next);
       studio.assetIndex = await readAssetIndex();
+      if (request !== bankRequestSerial[kind]) return false;
       await refreshCartSize();
+      if (request !== bankRequestSerial[kind]) return false;
       status = `${bankLabels[kind]} bank ${activeBankOf[kind]()}`;
       return true;
     } catch (error) {
+      if (request !== bankRequestSerial[kind]) return false;
       showToast(`Bank ${action} failed: ${errorText(error)}`);
       return false;
     }
