@@ -24,70 +24,99 @@ use crate::vm::Camera;
 use crate::vm::audio::{NoiseChannel, Sound, SquareChannel};
 use caiven_cart::{CartSection, SectionKind, decode_asset_bank};
 use caiven_core::memory::{
-    MAP_LEN, MAP_RAM_BASE, MUSIC_RAM_BASE, PALETTE_RAM_BASE, SFX_RAM_BASE, SPRITE_FLAGS_RAM_BASE,
-    SPRITE_SHEET_LEN, SPRITE_SHEET_RAM_BASE,
+    MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE, PALETTE_RAM_BASE, PALETTE_SIZE,
+    SFX_BANK_LEN, SFX_RAM_BASE, SPRITE_FLAGS_LEN, SPRITE_FLAGS_RAM_BASE, SPRITE_SHEET_LEN,
+    SPRITE_SHEET_RAM_BASE,
 };
 use caiven_core::{Color, Vec2};
 use log::error;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AssetBankKind {
     Sprites,
     Map,
+    /// Behavior-flag table that shadows the active Sprites bank. A
+    /// "companion" bank: created, selected, and removed in lockstep with
+    /// its primary (see `AssetBankKind::companion`) and has no independent
+    /// Lua selector — it always follows `load_sprite_bank`.
+    SpriteFlags,
+    Palette,
+    Sfx,
+    Music,
+}
+
+impl AssetBankKind {
+    /// The bank this kind shadows, if any. Whenever the primary is
+    /// selected, created, or removed, the same operation is applied to its
+    /// companion at the same bank id — see `Vm::{select,create,remove}_asset_bank`.
+    fn companion(self) -> Option<AssetBankKind> {
+        match self {
+            AssetBankKind::Sprites => Some(AssetBankKind::SpriteFlags),
+            _ => None,
+        }
+    }
 }
 
 struct AssetBanks {
-    sprites: BTreeMap<u8, Vec<u8>>,
-    maps: BTreeMap<u8, Vec<u8>>,
-    active_sprites: u8,
-    active_map: u8,
+    banks: BTreeMap<AssetBankKind, BTreeMap<u8, Vec<u8>>>,
+    active: BTreeMap<AssetBankKind, u8>,
 }
 
 impl AssetBanks {
+    const KINDS: [AssetBankKind; 6] = [
+        AssetBankKind::Sprites,
+        AssetBankKind::Map,
+        AssetBankKind::SpriteFlags,
+        AssetBankKind::Palette,
+        AssetBankKind::Sfx,
+        AssetBankKind::Music,
+    ];
+
     fn new() -> Self {
-        Self {
-            sprites: BTreeMap::from([(0, vec![0; SPRITE_SHEET_LEN])]),
-            maps: BTreeMap::from([(0, vec![0; MAP_LEN])]),
-            active_sprites: 0,
-            active_map: 0,
+        let mut banks = BTreeMap::new();
+        let mut active = BTreeMap::new();
+        for kind in Self::KINDS {
+            let (_, len) = Self::region(kind);
+            banks.insert(kind, BTreeMap::from([(0, vec![0; len])]));
+            active.insert(kind, 0);
         }
+        Self { banks, active }
     }
 
     fn region(kind: AssetBankKind) -> (usize, usize) {
         match kind {
             AssetBankKind::Sprites => (SPRITE_SHEET_RAM_BASE, SPRITE_SHEET_LEN),
             AssetBankKind::Map => (MAP_RAM_BASE, MAP_LEN),
+            AssetBankKind::SpriteFlags => (SPRITE_FLAGS_RAM_BASE, SPRITE_FLAGS_LEN),
+            AssetBankKind::Palette => (PALETTE_RAM_BASE, PALETTE_SIZE * 3),
+            AssetBankKind::Sfx => (SFX_RAM_BASE, SFX_BANK_LEN),
+            AssetBankKind::Music => (MUSIC_RAM_BASE, MUSIC_BANK_LEN),
         }
     }
 
     fn banks(&self, kind: AssetBankKind) -> &BTreeMap<u8, Vec<u8>> {
-        match kind {
-            AssetBankKind::Sprites => &self.sprites,
-            AssetBankKind::Map => &self.maps,
-        }
+        self.banks
+            .get(&kind)
+            .expect("all AssetBankKind variants are seeded in AssetBanks::new")
     }
 
     fn banks_mut(&mut self, kind: AssetBankKind) -> &mut BTreeMap<u8, Vec<u8>> {
-        match kind {
-            AssetBankKind::Sprites => &mut self.sprites,
-            AssetBankKind::Map => &mut self.maps,
-        }
+        self.banks
+            .get_mut(&kind)
+            .expect("all AssetBankKind variants are seeded in AssetBanks::new")
     }
 
     fn active(&self, kind: AssetBankKind) -> u8 {
-        match kind {
-            AssetBankKind::Sprites => self.active_sprites,
-            AssetBankKind::Map => self.active_map,
-        }
+        *self
+            .active
+            .get(&kind)
+            .expect("all AssetBankKind variants are seeded in AssetBanks::new")
     }
 
     fn set_active(&mut self, kind: AssetBankKind, id: u8) {
-        match kind {
-            AssetBankKind::Sprites => self.active_sprites = id,
-            AssetBankKind::Map => self.active_map = id,
-        }
+        self.active.insert(kind, id);
     }
 
     fn normalized(data: &[u8], len: usize) -> Vec<u8> {
@@ -250,20 +279,20 @@ impl Vm {
             let ram_base = match section.kind {
                 SectionKind::SpriteSheet => {
                     self.asset_banks
-                        .sprites
+                        .banks_mut(AssetBankKind::Sprites)
                         .insert(0, AssetBanks::normalized(&section.data, SPRITE_SHEET_LEN));
                     continue;
                 }
                 SectionKind::Map => {
                     self.asset_banks
-                        .maps
+                        .banks_mut(AssetBankKind::Map)
                         .insert(0, AssetBanks::normalized(&section.data, MAP_LEN));
                     continue;
                 }
                 SectionKind::SpriteBank => {
                     if let Some((id, data)) = decode_asset_bank(&section.data) {
                         self.asset_banks
-                            .sprites
+                            .banks_mut(AssetBankKind::Sprites)
                             .insert(id, AssetBanks::normalized(data, SPRITE_SHEET_LEN));
                     }
                     continue;
@@ -271,7 +300,7 @@ impl Vm {
                 SectionKind::MapBank => {
                     if let Some((id, data)) = decode_asset_bank(&section.data) {
                         self.asset_banks
-                            .maps
+                            .banks_mut(AssetBankKind::Map)
                             .insert(id, AssetBanks::normalized(data, MAP_LEN));
                     }
                     continue;
@@ -315,17 +344,41 @@ impl Vm {
         self.asset_banks.active(kind)
     }
 
+    /// Selects bank `id` for `kind`. If `kind` has a companion (see
+    /// `AssetBankKind::companion`), the companion follows to the same id —
+    /// e.g. selecting a Sprites bank also selects its SpriteFlags bank.
     pub fn select_asset_bank(&mut self, kind: AssetBankKind, id: u8) -> bool {
-        self.asset_banks.select(kind, id, &mut self.memory)
+        let selected = self.asset_banks.select(kind, id, &mut self.memory);
+        if selected {
+            if let Some(companion) = kind.companion() {
+                self.asset_banks.select(companion, id, &mut self.memory);
+            }
+        }
+        selected
     }
 
+    /// Creates and selects bank `id` for `kind`. A companion bank (if any)
+    /// is created and selected alongside it at the same id, so the two stay
+    /// in lockstep for the rest of their lifetime.
     pub fn create_asset_bank(&mut self, kind: AssetBankKind, id: u8) -> bool {
         if id == 0 || self.asset_banks.banks(kind).contains_key(&id) {
             return false;
         }
         let (_, len) = AssetBanks::region(kind);
         self.asset_banks.banks_mut(kind).insert(id, vec![0; len]);
-        self.asset_banks.select(kind, id, &mut self.memory)
+        let created = self.asset_banks.select(kind, id, &mut self.memory);
+        if created {
+            if let Some(companion) = kind.companion() {
+                if !self.asset_banks.banks(companion).contains_key(&id) {
+                    let (_, companion_len) = AssetBanks::region(companion);
+                    self.asset_banks
+                        .banks_mut(companion)
+                        .insert(id, vec![0; companion_len]);
+                }
+                self.asset_banks.select(companion, id, &mut self.memory);
+            }
+        }
+        created
     }
 
     pub fn replace_asset_bank(&mut self, kind: AssetBankKind, id: u8, data: &[u8]) {
@@ -340,6 +393,8 @@ impl Vm {
         }
     }
 
+    /// Removes bank `id` for `kind`, falling back to bank 0 if it was
+    /// active. A companion bank (if any) is removed alongside it.
     pub fn remove_asset_bank(&mut self, kind: AssetBankKind, id: u8) -> bool {
         if id == 0 || !self.asset_banks.banks(kind).contains_key(&id) {
             return false;
@@ -347,7 +402,16 @@ impl Vm {
         if self.asset_banks.active(kind) == id {
             let _ = self.asset_banks.select(kind, 0, &mut self.memory);
         }
-        self.asset_banks.banks_mut(kind).remove(&id).is_some()
+        let removed = self.asset_banks.banks_mut(kind).remove(&id).is_some();
+        if removed {
+            if let Some(companion) = kind.companion() {
+                if self.asset_banks.active(companion) == id {
+                    let _ = self.asset_banks.select(companion, 0, &mut self.memory);
+                }
+                self.asset_banks.banks_mut(companion).remove(&id);
+            }
+        }
+        removed
     }
 
     /// Returns current bank bytes, including unswitched RAM edits for active bank.
@@ -487,6 +551,34 @@ mod asset_bank_tests {
         assert!(vm.select_asset_bank(AssetBankKind::Sprites, 2));
         assert_eq!(vm.peek_memory(SPRITE_SHEET_RAM_BASE), 9);
         assert!(!vm.select_asset_bank(AssetBankKind::Sprites, 3));
+    }
+
+    #[test]
+    fn sprite_flags_bank_follows_sprites_as_companion() {
+        let mut vm = Vm::new(VmConfig::default());
+        // Bank 0's flags start out with some data written.
+        vm.poke_memory(SPRITE_FLAGS_RAM_BASE, 5);
+
+        // Creating a new Sprites bank creates and selects a fresh,
+        // zero-filled SpriteFlags bank at the same id — not a copy of bank 0.
+        assert!(vm.create_asset_bank(AssetBankKind::Sprites, 2));
+        assert_eq!(vm.active_asset_bank(AssetBankKind::SpriteFlags), 2);
+        assert_eq!(vm.peek_memory(SPRITE_FLAGS_RAM_BASE), 0);
+
+        // Switching Sprites banks carries SpriteFlags along in lockstep,
+        // and runtime edits to each bank's flags are preserved independently.
+        vm.poke_memory(SPRITE_FLAGS_RAM_BASE, 9);
+        assert!(vm.select_asset_bank(AssetBankKind::Sprites, 0));
+        assert_eq!(vm.active_asset_bank(AssetBankKind::SpriteFlags), 0);
+        assert_eq!(vm.peek_memory(SPRITE_FLAGS_RAM_BASE), 5);
+        assert!(vm.select_asset_bank(AssetBankKind::Sprites, 2));
+        assert_eq!(vm.active_asset_bank(AssetBankKind::SpriteFlags), 2);
+        assert_eq!(vm.peek_memory(SPRITE_FLAGS_RAM_BASE), 9);
+
+        // Removing the Sprites bank removes its companion flags bank too.
+        assert!(vm.remove_asset_bank(AssetBankKind::Sprites, 2));
+        assert_eq!(vm.active_asset_bank(AssetBankKind::SpriteFlags), 0);
+        assert!(!vm.asset_bank_ids(AssetBankKind::SpriteFlags).contains(&2));
     }
 
     #[test]
