@@ -866,11 +866,10 @@ impl StudioCore {
                     return Err(format!("Cannot delete {label} bank {id}"));
                 }
                 if let Some(meta) = self.cart.as_mut() {
-                    let companion_section =
-                        bank_kind.companion().map(section_kind_for_bank);
+                    let companion_section = bank_kind.companion().map(section_kind_for_bank);
                     meta.sections.retain(|section| {
-                        let tracked_kind = section.kind == section_kind
-                            || Some(section.kind) == companion_section;
+                        let tracked_kind =
+                            section.kind == section_kind || Some(section.kind) == companion_section;
                         let matches_id = section
                             .preserved_data
                             .as_deref()

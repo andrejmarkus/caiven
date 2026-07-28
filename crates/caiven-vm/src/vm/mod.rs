@@ -161,14 +161,12 @@ impl AssetBanks {
     /// (`lua_exec.rs`) so the three call paths can't drift on this.
     fn select_with_companion(&mut self, kind: AssetBankKind, id: u8, memory: &mut Memory) -> bool {
         let selected = self.select(kind, id, memory);
-        if selected {
-            if let Some(companion) = kind.companion() {
-                if !self.banks(companion).contains_key(&id) {
-                    let (_, len) = Self::region(companion);
-                    self.banks_mut(companion).insert(id, vec![0; len]);
-                }
-                self.select(companion, id, memory);
+        if selected && let Some(companion) = kind.companion() {
+            if !self.banks(companion).contains_key(&id) {
+                let (_, len) = Self::region(companion);
+                self.banks_mut(companion).insert(id, vec![0; len]);
             }
+            self.select(companion, id, memory);
         }
         selected
     }
@@ -473,13 +471,11 @@ impl Vm {
             }
         }
         let removed = self.asset_banks.banks_mut(kind).remove(&id).is_some();
-        if removed {
-            if let Some(companion) = kind.companion() {
-                if self.asset_banks.active(companion) == id {
-                    let _ = self.asset_banks.select(companion, 0, &mut self.memory);
-                }
-                self.asset_banks.banks_mut(companion).remove(&id);
+        if removed && let Some(companion) = kind.companion() {
+            if self.asset_banks.active(companion) == id {
+                let _ = self.asset_banks.select(companion, 0, &mut self.memory);
             }
+            self.asset_banks.banks_mut(companion).remove(&id);
         }
         removed
     }

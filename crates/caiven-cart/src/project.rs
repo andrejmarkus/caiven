@@ -346,8 +346,7 @@ pub fn save_project(
             };
             let png_path = dir.join(format!("{stem}_{id}.png"));
             let hex_path = dir.join(format!("{stem}_{id}.hex"));
-            let write_png =
-                supports_png(*base_kind) && (png_path.is_file() || !hex_path.is_file());
+            let write_png = supports_png(*base_kind) && (png_path.is_file() || !hex_path.is_file());
             if write_png {
                 let palette = sections
                     .iter()
