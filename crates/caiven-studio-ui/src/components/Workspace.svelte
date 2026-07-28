@@ -21,7 +21,7 @@
   import LuaEditor from './LuaEditor.svelte';
   import MapCanvas from './MapCanvas.svelte';
 
-  type MapTool = 'paint' | 'fill' | 'rect' | 'pick' | 'erase';
+  type MapTool = 'paint' | 'fill' | 'rect' | 'pick' | 'erase' | 'line';
   type MapHistoryEntry =
     | { kind: 'tiles'; changes: { offset: number; before: number; after: number }[] }
     | { kind: 'flags'; changes: { tile: number; before: number; after: number }[] };
@@ -905,6 +905,7 @@
         </div>
         <i class="map-toolbar-divider"></i>
         <button class:active={mapTool === 'paint'} onclick={() => mapTool = 'paint'}><Pencil size={16} />Paint</button>
+        <button class:active={mapTool === 'line'} onclick={() => mapTool = 'line'}><Minus size={16} />Line</button>
         <button class:active={mapTool === 'fill'} onclick={() => mapTool = 'fill'}><PaintBucket size={16} />Fill</button>
         <button class:active={mapTool === 'rect'} onclick={() => mapTool = 'rect'}><Square size={16} />Rectangle</button>
         <button class:active={mapTool === 'pick'} onclick={() => mapTool = 'pick'}><Pipette size={16} />Pick</button>

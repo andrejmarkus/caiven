@@ -1,12 +1,11 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import {
-    collisionFlagEdits, filledRectangle, floodCells, rasterLine,
-    type CollisionBrush, type SpriteFlagEdit,
+    collisionFlagEdits, strokeCells, type CollisionBrush, type SpriteFlagEdit, type StrokeTool,
   } from '../lib/editorMath';
 
   type MapLayer = 'tiles' | 'collision';
-  type MapTool = 'paint' | 'fill' | 'rect' | 'pick' | 'erase';
+  type MapTool = 'paint' | 'fill' | 'rect' | 'pick' | 'erase' | 'line';
   type Cell = { offset: number; tile: number };
 
   interface Props {
@@ -134,25 +133,25 @@
     flagDraft = next;
   }
 
-  function addLine(from: number, to: number) {
-    applyOffsets(rasterLine(from, to, 64));
+  function collisionStates(): number[] {
+    const effectiveFlags = [...spriteFlags];
+    for (const [tile, flags] of flagDraft) effectiveFlags[tile] = flags;
+    return map.map((tile) => (effectiveFlags[tile] ?? 0) & 3);
   }
 
-  function addFill(at: number) {
-    if (layer === 'tiles') {
-      const cells = floodCells(map, at, activeTile(), 64, 64);
-      tileDraft = new Map(cells.map((cell) => [cell.offset, cell.tile]));
-      return;
+  function drawStroke(at: number) {
+    // Never called with tool === 'pick' — begin() branches to pick() first.
+    const drawTool: StrokeTool = tool === 'paint' ? 'pencil' : (tool as Exclude<MapTool, 'paint' | 'pick'>);
+    const values = layer === 'tiles' ? map : collisionStates();
+    const replacement = layer === 'tiles' ? activeTile() : activeCollisionBrush();
+    const offsets = strokeCells(drawTool, anchor ?? at, at, previousCell, values, replacement, 64, 64);
+    // line/rect recompute the whole shape from anchor each move (live preview), so the
+    // draft is replaced rather than accumulated; paint/erase/fill accumulate across a drag.
+    if (tool === 'line' || tool === 'rect') {
+      tileDraft = new Map();
+      flagDraft = new Map();
     }
-    const states = map.map((tile) => (flagDraft.get(tile) ?? spriteFlags[tile] ?? 0) & 3);
-    applyOffsets(floodCells(states, at, activeCollisionBrush(), 64, 64).map((cell) => cell.offset));
-  }
-
-  function addRectangle(to: number) {
-    if (anchor === null) return;
-    tileDraft = new Map();
-    flagDraft = new Map();
-    applyOffsets(filledRectangle(anchor, to, 64));
+    applyOffsets(offsets);
   }
 
   function pick(at: number) {
@@ -180,22 +179,22 @@
     previousCell = at;
     drawing = true;
     if (tool === 'fill') {
-      addFill(at);
+      drawStroke(at);
       finish(event);
       return;
     }
     canvas.setPointerCapture(event.pointerId);
-    if (tool === 'rect') addRectangle(at);
-    else addLine(at, at);
+    drawStroke(at);
   }
 
   function move(event: PointerEvent) {
     reportHover(event);
     if (!drawing) return;
     const at = pointerCell(event);
-    if (tool === 'rect') addRectangle(at);
-    else if ((tool === 'paint' || tool === 'erase') && previousCell !== at) {
-      addLine(previousCell ?? at, at);
+    if (tool === 'rect' || tool === 'line') {
+      drawStroke(at);
+    } else if ((tool === 'paint' || tool === 'erase') && previousCell !== at) {
+      drawStroke(at);
       previousCell = at;
     }
   }
