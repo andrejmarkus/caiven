@@ -150,6 +150,28 @@ impl AssetBanks {
         self.set_active(kind, id);
         true
     }
+
+    /// Selects `kind`'s bank `id`, cascading to its companion (if any) at
+    /// the same id — creating a fresh zero-filled companion bank first if
+    /// one doesn't exist yet, so a companion can never lag behind on stale
+    /// data from whatever bank was previously active (e.g. switching to a
+    /// Sprites bank that has no matching SpriteFlags bank must not leave
+    /// the old bank's flags governing the new sprites). Shared by
+    /// `Vm::{select,create}_asset_bank` and the Lua `load_*_bank` builtins
+    /// (`lua_exec.rs`) so the three call paths can't drift on this.
+    fn select_with_companion(&mut self, kind: AssetBankKind, id: u8, memory: &mut Memory) -> bool {
+        let selected = self.select(kind, id, memory);
+        if selected {
+            if let Some(companion) = kind.companion() {
+                if !self.banks(companion).contains_key(&id) {
+                    let (_, len) = Self::region(companion);
+                    self.banks_mut(companion).insert(id, vec![0; len]);
+                }
+                self.select(companion, id, memory);
+            }
+        }
+        selected
+    }
 }
 
 pub struct Vm {
@@ -383,13 +405,8 @@ impl Vm {
     /// `AssetBankKind::companion`), the companion follows to the same id —
     /// e.g. selecting a Sprites bank also selects its SpriteFlags bank.
     pub fn select_asset_bank(&mut self, kind: AssetBankKind, id: u8) -> bool {
-        let selected = self.asset_banks.select(kind, id, &mut self.memory);
-        if selected {
-            if let Some(companion) = kind.companion() {
-                self.asset_banks.select(companion, id, &mut self.memory);
-            }
-        }
-        selected
+        self.asset_banks
+            .select_with_companion(kind, id, &mut self.memory)
     }
 
     /// Creates and selects bank `id` for `kind`. A companion bank (if any)
@@ -401,19 +418,8 @@ impl Vm {
         }
         let (_, len) = AssetBanks::region(kind);
         self.asset_banks.banks_mut(kind).insert(id, vec![0; len]);
-        let created = self.asset_banks.select(kind, id, &mut self.memory);
-        if created {
-            if let Some(companion) = kind.companion() {
-                if !self.asset_banks.banks(companion).contains_key(&id) {
-                    let (_, companion_len) = AssetBanks::region(companion);
-                    self.asset_banks
-                        .banks_mut(companion)
-                        .insert(id, vec![0; companion_len]);
-                }
-                self.asset_banks.select(companion, id, &mut self.memory);
-            }
-        }
-        created
+        self.asset_banks
+            .select_with_companion(kind, id, &mut self.memory)
     }
 
     pub fn replace_asset_bank(&mut self, kind: AssetBankKind, id: u8, data: &[u8]) {
@@ -637,5 +643,74 @@ mod asset_bank_tests {
                 .expect("Lua global should be readable"),
             "true"
         );
+    }
+
+    #[test]
+    fn lua_load_sprite_bank_carries_flags_companion() {
+        let mut vm = Vm::new(VmConfig::default());
+        vm.load_cart_sections(&[CartSection {
+            kind: SectionKind::SpriteBank,
+            data: encode_asset_bank(3, &vec![7; SPRITE_SHEET_LEN]),
+        }]);
+        vm.load_lua_source(
+            "function _init() switched = load_sprite_bank(3) end\nfunction _update() end",
+            &Input::new(),
+            &Font::empty(),
+        )
+        .expect("Lua banking fixture should load");
+
+        // The Lua-driven switch (not just the Rust-side select_asset_bank
+        // API) must carry the SpriteFlags companion along too.
+        assert_eq!(vm.active_asset_bank(AssetBankKind::Sprites), 3);
+        assert_eq!(vm.active_asset_bank(AssetBankKind::SpriteFlags), 3);
+        assert_eq!(
+            vm.lua_watch("switched")
+                .expect("Lua global should be readable"),
+            "true"
+        );
+    }
+
+    #[test]
+    fn lua_can_switch_palette_sfx_and_music_banks() {
+        let mut vm = Vm::new(VmConfig::default());
+        vm.load_cart_sections(&[
+            CartSection {
+                kind: SectionKind::PaletteBank,
+                data: encode_asset_bank(1, &[9, 9, 9]),
+            },
+            CartSection {
+                kind: SectionKind::SfxBanks,
+                data: encode_asset_bank(1, &[5; SFX_BANK_LEN]),
+            },
+            CartSection {
+                kind: SectionKind::MusicBanks,
+                data: encode_asset_bank(1, &[3; MUSIC_BANK_LEN]),
+            },
+        ]);
+        vm.load_lua_source(
+            "function _init()\n\
+             palette_ok = load_palette_bank(1)\n\
+             sfx_ok = load_sfx_bank(1)\n\
+             music_ok = load_music_bank(1)\n\
+             end\n\
+             function _update() end",
+            &Input::new(),
+            &Font::empty(),
+        )
+        .expect("Lua banking fixture should load");
+
+        assert_eq!(vm.active_asset_bank(AssetBankKind::Palette), 1);
+        assert_eq!(vm.active_asset_bank(AssetBankKind::Sfx), 1);
+        assert_eq!(vm.active_asset_bank(AssetBankKind::Music), 1);
+        assert_eq!(vm.peek_memory(PALETTE_RAM_BASE), 9);
+        assert_eq!(vm.peek_memory(SFX_RAM_BASE), 5);
+        assert_eq!(vm.peek_memory(MUSIC_RAM_BASE), 3);
+        for global in ["palette_ok", "sfx_ok", "music_ok"] {
+            assert_eq!(
+                vm.lua_watch(global)
+                    .unwrap_or_else(|_| panic!("{global} should be readable")),
+                "true"
+            );
+        }
     }
 }

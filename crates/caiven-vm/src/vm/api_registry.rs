@@ -225,6 +225,24 @@ pub const BUILTINS: &[ApiEntry] = &[
         doc: "Switch the map RAM window to bank id; false when it does not exist.",
     },
     ApiEntry {
+        name: "load_palette_bank",
+        params: &[param!("id": "u8")],
+        returns: "bool",
+        doc: "Switch the palette RAM window to bank id; false when it does not exist.",
+    },
+    ApiEntry {
+        name: "load_sfx_bank",
+        params: &[param!("id": "u8")],
+        returns: "bool",
+        doc: "Switch the SFX RAM window to bank id; false when it does not exist.",
+    },
+    ApiEntry {
+        name: "load_music_bank",
+        params: &[param!("id": "u8")],
+        returns: "bool",
+        doc: "Switch the music RAM window to bank id; false when it does not exist.",
+    },
+    ApiEntry {
         name: "play_sfx",
         params: &[param!("id": "u8")],
         returns: "nil",

@@ -56,6 +56,9 @@ const BUILTIN_NAMES: &[&str] = &[
     "set_sprite_flags",
     "load_sprite_bank",
     "load_map_bank",
+    "load_palette_bank",
+    "load_sfx_bank",
+    "load_music_bank",
     "play_sfx",
     "play_music",
     "stop_music",
@@ -710,7 +713,7 @@ fn register_builtins<'scope, 'env>(
     globals.set(
         "load_sprite_bank",
         scope.create_function_mut(|_, id: u8| {
-            Ok(asset_banks.borrow_mut().select(
+            Ok(asset_banks.borrow_mut().select_with_companion(
                 AssetBankKind::Sprites,
                 id,
                 &mut memory.borrow_mut(),
@@ -721,9 +724,44 @@ fn register_builtins<'scope, 'env>(
     globals.set(
         "load_map_bank",
         scope.create_function_mut(|_, id: u8| {
-            Ok(asset_banks
-                .borrow_mut()
-                .select(AssetBankKind::Map, id, &mut memory.borrow_mut()))
+            Ok(asset_banks.borrow_mut().select_with_companion(
+                AssetBankKind::Map,
+                id,
+                &mut memory.borrow_mut(),
+            ))
+        })?,
+    )?;
+
+    globals.set(
+        "load_palette_bank",
+        scope.create_function_mut(|_, id: u8| {
+            Ok(asset_banks.borrow_mut().select_with_companion(
+                AssetBankKind::Palette,
+                id,
+                &mut memory.borrow_mut(),
+            ))
+        })?,
+    )?;
+
+    globals.set(
+        "load_sfx_bank",
+        scope.create_function_mut(|_, id: u8| {
+            Ok(asset_banks.borrow_mut().select_with_companion(
+                AssetBankKind::Sfx,
+                id,
+                &mut memory.borrow_mut(),
+            ))
+        })?,
+    )?;
+
+    globals.set(
+        "load_music_bank",
+        scope.create_function_mut(|_, id: u8| {
+            Ok(asset_banks.borrow_mut().select_with_companion(
+                AssetBankKind::Music,
+                id,
+                &mut memory.borrow_mut(),
+            ))
         })?,
     )?;
 
