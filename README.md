@@ -226,6 +226,8 @@ Math (`sin`/`cos`/`abs`/`floor`/`sqrt`/`max`/`min`/`random`), strings (`..`, `su
 | `draw_map(cell_x, cell_y, sx, sy, w, h)` | Draw a block of the tilemap |
 | `get_tile(x, y)` / `set_tile(x, y, tile)` | Read / write a map cell |
 | `get_sprite_flags(id)` / `set_sprite_flags(id, flags)` | Read / write per-sprite flag byte |
+| `load_sprite_bank(id)` | Copy sprite bank into sprite RAM; returns `false` when missing |
+| `load_map_bank(id)` | Copy map bank into map RAM; returns `false` when missing |
 
 ### Input
 
@@ -361,8 +363,12 @@ are unsigned. Public trusted releases need
 | **RAM** | 64 KiB (asset/RAM regions below; script state lives in the Lua VM, not guest RAM) |
 | **Cartridge** | 128 KiB maximum packed `.cav` size |
 | **Palette** | 16 colors |
-| **Sprites** | 256 × 8×8 pixels |
-| **Map** | 64×64 tiles |
+| **Sprites** | 256 × 8×8 pixels per bank; bank 0 always available |
+| **Map** | 64×64 tiles per bank; bank 0 always available |
+
+Additional banks live in cartridge storage, not guest RAM. Studio writes them
+as `sprites_<id>.png` and `map_<id>.png`; runtime calls copy selected bank into
+fixed sprite/map RAM windows. Changes made through RAM survive later switches.
 
 ### Memory Map
 

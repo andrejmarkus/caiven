@@ -9,9 +9,9 @@ use caiven_core::memory::{
     MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE, PALETTE_RAM_BASE, SFX_BANK_LEN,
     SFX_RAM_BASE, SPRITE_FLAGS_LEN, SPRITE_FLAGS_RAM_BASE, SPRITE_SHEET_LEN, SPRITE_SHEET_RAM_BASE,
 };
-use caiven_vm::Vm;
 use caiven_vm::input::Input;
 use caiven_vm::rendering::font::Font;
+use caiven_vm::{AssetBankKind, Vm};
 use std::path::{Path, PathBuf};
 
 fn stored_cart_path(path: &Path) -> PathBuf {
@@ -39,19 +39,11 @@ pub fn load_cart(vm: &mut Vm, path: &Path, input: &Input, font: &Font) -> Result
         }
     }
 
-    let lua_source = cart
-        .sections
-        .iter()
-        .find(|s| s.kind == SectionKind::LuaSource)
-        .map(|s| String::from_utf8_lossy(&s.data).into_owned());
+    let lua_source = vm.load_cart_sections(&cart.sections);
 
     let mut sections: Vec<SectionLayout> = Vec::new();
     for section in &cart.sections {
         if let Some(ram_base) = section_ram_base(section.kind) {
-            vm.load_section_to_ram(ram_base, &section.data);
-            if section.kind == SectionKind::Palette {
-                vm.set_palette_from_bytes(&section.data);
-            }
             sections.push(SectionLayout {
                 kind: section.kind,
                 ram_base,
@@ -280,6 +272,17 @@ pub fn section_ram_base(kind: SectionKind) -> Option<usize> {
 
 pub fn apply_sections(vm: &mut Vm, sections: &[(SectionKind, Vec<u8>)]) {
     for (kind, data) in sections {
+        match kind {
+            SectionKind::SpriteSheet => {
+                vm.replace_asset_bank(AssetBankKind::Sprites, 0, data);
+                continue;
+            }
+            SectionKind::Map => {
+                vm.replace_asset_bank(AssetBankKind::Map, 0, data);
+                continue;
+            }
+            _ => {}
+        }
         let Some(ram_base) = section_ram_base(*kind) else {
             continue;
         };

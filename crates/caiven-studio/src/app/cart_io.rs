@@ -3,8 +3,8 @@
 //! treated as a project directory (the git-friendly authoring format).
 
 use anyhow::{Context, Result};
-use caiven_cart::{CartHeader, CartSection, SectionKind};
-use caiven_vm::Vm;
+use caiven_cart::{CartHeader, CartSection, SectionKind, decode_asset_bank, encode_asset_bank};
+use caiven_vm::{AssetBankKind, Vm};
 use std::path::{Path, PathBuf};
 
 pub struct SectionLayout {
@@ -30,9 +30,33 @@ fn gather_sections(vm: &Vm, meta: &CartMeta) -> Vec<(SectionKind, Vec<u8>)> {
     meta.sections
         .iter()
         .map(|s| {
-            let bytes = match &s.preserved_data {
-                Some(data) => data.clone(),
-                None => (0..s.len).map(|i| vm.peek_memory(s.ram_base + i)).collect(),
+            let bank = match s.kind {
+                SectionKind::SpriteSheet => Some((AssetBankKind::Sprites, 0)),
+                SectionKind::Map => Some((AssetBankKind::Map, 0)),
+                SectionKind::SpriteBank => s
+                    .preserved_data
+                    .as_deref()
+                    .and_then(decode_asset_bank)
+                    .map(|(id, _)| (AssetBankKind::Sprites, id)),
+                SectionKind::MapBank => s
+                    .preserved_data
+                    .as_deref()
+                    .and_then(decode_asset_bank)
+                    .map(|(id, _)| (AssetBankKind::Map, id)),
+                _ => None,
+            };
+            let bytes = if let Some((kind, id)) = bank {
+                let data = vm.asset_bank_bytes(kind, id).unwrap_or_default();
+                if id == 0 {
+                    data
+                } else {
+                    encode_asset_bank(id, &data)
+                }
+            } else {
+                match &s.preserved_data {
+                    Some(data) => data.clone(),
+                    None => (0..s.len).map(|i| vm.peek_memory(s.ram_base + i)).collect(),
+                }
             };
             (s.kind, bytes)
         })

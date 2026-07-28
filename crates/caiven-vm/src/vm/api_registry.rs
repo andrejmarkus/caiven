@@ -213,6 +213,18 @@ pub const BUILTINS: &[ApiEntry] = &[
         doc: "Write the per-sprite flag byte for sprite_id.",
     },
     ApiEntry {
+        name: "load_sprite_bank",
+        params: &[param!("id": "u8")],
+        returns: "bool",
+        doc: "Switch the sprite RAM window to bank id; false when it does not exist.",
+    },
+    ApiEntry {
+        name: "load_map_bank",
+        params: &[param!("id": "u8")],
+        returns: "bool",
+        doc: "Switch the map RAM window to bank id; false when it does not exist.",
+    },
+    ApiEntry {
         name: "play_sfx",
         params: &[param!("id": "u8")],
         returns: "nil",

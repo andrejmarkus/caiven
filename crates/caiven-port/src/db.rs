@@ -90,8 +90,9 @@ pub async fn find_other_owner_by_content_hash(
 }
 
 /// Backfills hashes for pre-blob-storage versions whose bytes still live on
-/// disk. Blob-backed versions are handled inside migration 13; this startup
-/// pass closes the remaining legacy-file gap before uploads are accepted.
+/// disk. Blob-backed versions are handled inside hash migrations; this startup
+/// pass closes the remaining legacy-file gap before uploads are accepted and
+/// rebuilds hashes invalidated by canonicalization changes.
 pub async fn backfill_legacy_cart_content_hashes(
     db: &DatabaseConnection,
     data_dir: &Path,

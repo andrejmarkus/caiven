@@ -10,6 +10,10 @@ pub enum SectionKind {
     ModManifest,
     SpriteFlags,
     LuaSource,
+    /// Additional sprite sheet. Data starts with bank id, followed by pixels.
+    SpriteBank,
+    /// Additional tile map. Data starts with bank id, followed by tile ids.
+    MapBank,
     Custom(u16),
 }
 
@@ -26,6 +30,8 @@ impl SectionKind {
             Self::ModManifest => 0x0008,
             Self::SpriteFlags => 0x0009,
             Self::LuaSource => 0x000A,
+            Self::SpriteBank => 0x000B,
+            Self::MapBank => 0x000C,
             Self::Custom(n) => n,
         }
     }
@@ -42,6 +48,8 @@ impl SectionKind {
             0x0008 => Self::ModManifest,
             0x0009 => Self::SpriteFlags,
             0x000A => Self::LuaSource,
+            0x000B => Self::SpriteBank,
+            0x000C => Self::MapBank,
             n => Self::Custom(n),
         }
     }
@@ -58,9 +66,26 @@ impl SectionKind {
             Self::ModManifest => "ModManifest",
             Self::SpriteFlags => "SpriteFlags",
             Self::LuaSource => "LuaSource",
+            Self::SpriteBank => "SpriteBank",
+            Self::MapBank => "MapBank",
             Self::Custom(_) => "Custom",
         }
     }
+}
+
+/// Encodes an additional asset bank section. Bank 0 uses legacy
+/// `SpriteSheet`/`Map` sections and must not use this wrapper.
+pub fn encode_asset_bank(id: u8, data: &[u8]) -> Vec<u8> {
+    let mut encoded = Vec::with_capacity(data.len() + 1);
+    encoded.push(id);
+    encoded.extend_from_slice(data);
+    encoded
+}
+
+/// Decodes bank id and payload from an additional asset bank section.
+pub fn decode_asset_bank(data: &[u8]) -> Option<(u8, &[u8])> {
+    let (&id, payload) = data.split_first()?;
+    (id != 0).then_some((id, payload))
 }
 
 pub struct CartSection {

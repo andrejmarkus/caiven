@@ -179,7 +179,12 @@ pub fn content_hash(data: &[u8]) -> Result<String, CartError> {
     let mut hasher = Sha256::new();
     hasher.update(&cart.program);
     let mut sections: Vec<&CartSection> = cart.sections.iter().collect();
-    sections.sort_by_key(|s| s.kind.to_u16());
+    sections.sort_by(|a, b| {
+        a.kind
+            .to_u16()
+            .cmp(&b.kind.to_u16())
+            .then_with(|| a.data.cmp(&b.data))
+    });
     for s in sections {
         hasher.update(s.kind.to_u16().to_le_bytes());
         hasher.update(&s.data);

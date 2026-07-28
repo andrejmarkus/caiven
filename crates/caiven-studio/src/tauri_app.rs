@@ -7,7 +7,7 @@
 use crate::app::cart_io::{self, CartMeta};
 use crate::debugger::{Breakpoint, Debugger};
 use crate::studio::{SourceFile, asset_index, cart, recent, templates};
-use caiven_cart::SectionKind;
+use caiven_cart::{SectionKind, encode_asset_bank};
 use caiven_core::Color;
 use caiven_core::memory::{
     MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE, PALETTE_RAM_BASE, PALETTE_SIZE,
@@ -17,7 +17,7 @@ use caiven_core::memory::{
 use caiven_vm::input::Button;
 use caiven_vm::runtime::ConsoleCore;
 use caiven_vm::vm::api_registry;
-use caiven_vm::{LuaBreakpoint, LuaRunOutcome};
+use caiven_vm::{AssetBankKind, LuaBreakpoint, LuaRunOutcome};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock, mpsc};
@@ -153,6 +153,15 @@ struct CartSizePayload {
     max_bytes: usize,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AssetBankPayload {
+    kind: String,
+    ids: Vec<u8>,
+    active: u8,
+    data: Vec<u8>,
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MapCellPayload {
@@ -175,6 +184,10 @@ struct BootstrapPayload {
     palette: Vec<String>,
     sprite_sheet: Vec<u8>,
     map: Vec<u8>,
+    sprite_banks: Vec<u8>,
+    map_banks: Vec<u8>,
+    active_sprite_bank: u8,
+    active_map_bank: u8,
     sprite_flags: Vec<u8>,
     sfx: Vec<u8>,
     music: Vec<u8>,
@@ -207,6 +220,8 @@ struct TickPayload {
     audio: AudioPayload,
     diagnostics: Vec<DiagnosticPayload>,
     output: Vec<String>,
+    active_sprite_bank: u8,
+    active_map_bank: u8,
 }
 
 #[derive(Clone)]
@@ -239,6 +254,8 @@ impl Default for SharedSnapshot {
                 },
                 diagnostics: Vec::new(),
                 output: Vec::new(),
+                active_sprite_bank: 0,
+                active_map_bank: 0,
             },
         }
     }
@@ -338,6 +355,12 @@ enum CoreCommand {
         reply: mpsc::Sender<Result<AudioPayload, String>>,
     },
     AssetIndex(mpsc::Sender<Result<asset_index::AssetIndex, String>>),
+    AssetBank {
+        kind: String,
+        action: String,
+        id: Option<u8>,
+        reply: mpsc::Sender<Result<AssetBankPayload, String>>,
+    },
     PreparePublish(mpsc::Sender<Result<PathBuf, String>>),
 }
 
@@ -628,6 +651,10 @@ impl StudioCore {
             palette: palette_hex(&self.console),
             sprite_sheet: sprite_sheet.clone(),
             map: map.clone(),
+            sprite_banks: self.console.vm.asset_bank_ids(AssetBankKind::Sprites),
+            map_banks: self.console.vm.asset_bank_ids(AssetBankKind::Map),
+            active_sprite_bank: self.console.vm.active_asset_bank(AssetBankKind::Sprites),
+            active_map_bank: self.console.vm.active_asset_bank(AssetBankKind::Map),
             sprite_flags,
             sfx: sfx.clone(),
             music: music.clone(),
@@ -696,6 +723,8 @@ impl StudioCore {
             audio: self.audio_payload(),
             diagnostics: self.diagnostics.clone(),
             output: self.output.clone(),
+            active_sprite_bank: self.console.vm.active_asset_bank(AssetBankKind::Sprites),
+            active_map_bank: self.console.vm.active_asset_bank(AssetBankKind::Map),
         }
     }
 
@@ -748,6 +777,76 @@ impl StudioCore {
             &read_region(&self.console, MUSIC_RAM_BASE, MUSIC_BANK_LEN),
             &read_region(&self.console, PALETTE_RAM_BASE, PALETTE_SIZE * 3),
         )
+    }
+
+    fn asset_bank(
+        &mut self,
+        kind: &str,
+        action: &str,
+        id: Option<u8>,
+    ) -> Result<AssetBankPayload, String> {
+        let (bank_kind, section_kind, label) = match kind {
+            "sprites" => (AssetBankKind::Sprites, SectionKind::SpriteBank, "sprites"),
+            "map" => (AssetBankKind::Map, SectionKind::MapBank, "map"),
+            _ => return Err(format!("Unknown asset bank kind: {kind}")),
+        };
+        match action {
+            "read" => {}
+            "select" => {
+                let id = id.ok_or_else(|| "Bank id required".to_string())?;
+                if !self.console.vm.select_asset_bank(bank_kind, id) {
+                    return Err(format!("{label} bank {id} does not exist"));
+                }
+            }
+            "create" => {
+                let ids = self.console.vm.asset_bank_ids(bank_kind);
+                let id = (1..=u8::MAX)
+                    .find(|id| !ids.contains(id))
+                    .ok_or_else(|| format!("No free {label} bank ids"))?;
+                if !self.console.vm.create_asset_bank(bank_kind, id) {
+                    return Err(format!("Could not create {label} bank {id}"));
+                }
+                let meta = self
+                    .cart
+                    .as_mut()
+                    .ok_or_else(|| "No cart open".to_string())?;
+                meta.sections.push(crate::app::cart_io::SectionLayout {
+                    kind: section_kind,
+                    ram_base: 0,
+                    len: 1,
+                    preserved_data: Some(encode_asset_bank(id, &[])),
+                });
+            }
+            "delete" => {
+                let id = id.ok_or_else(|| "Bank id required".to_string())?;
+                if !self.console.vm.remove_asset_bank(bank_kind, id) {
+                    return Err(format!("Cannot delete {label} bank {id}"));
+                }
+                if let Some(meta) = self.cart.as_mut() {
+                    meta.sections.retain(|section| {
+                        section.kind != section_kind
+                            || section
+                                .preserved_data
+                                .as_deref()
+                                .and_then(caiven_cart::decode_asset_bank)
+                                .is_none_or(|(bank_id, _)| bank_id != id)
+                    });
+                }
+            }
+            _ => return Err(format!("Unknown asset bank action: {action}")),
+        }
+        let active = self.console.vm.active_asset_bank(bank_kind);
+        let data = self
+            .console
+            .vm
+            .asset_bank_bytes(bank_kind, active)
+            .unwrap_or_default();
+        Ok(AssetBankPayload {
+            kind: kind.to_string(),
+            ids: self.console.vm.asset_bank_ids(bank_kind),
+            active,
+            data,
+        })
     }
 
     fn watches(&self) -> Vec<GlobalPayload> {
@@ -1374,6 +1473,14 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
         CoreCommand::AssetIndex(reply) => {
             let _ = reply.send(Ok(studio.asset_index()));
         }
+        CoreCommand::AssetBank {
+            kind,
+            action,
+            id,
+            reply,
+        } => {
+            let _ = reply.send(studio.asset_bank(&kind, &action, id));
+        }
         CoreCommand::PreparePublish(reply) => {
             let path = cart::temp_cav_path();
             let result = studio.export(&path).map(|()| path);
@@ -1684,6 +1791,21 @@ fn studio_asset_index(state: State<'_, StudioBridge>) -> Result<asset_index::Ass
     state.request(CoreCommand::AssetIndex)
 }
 
+#[tauri::command]
+fn studio_asset_bank(
+    kind: String,
+    action: String,
+    id: Option<u8>,
+    state: State<'_, StudioBridge>,
+) -> Result<AssetBankPayload, String> {
+    state.request(|reply| CoreCommand::AssetBank {
+        kind,
+        action,
+        id,
+        reply,
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 fn studio_port_publish(
@@ -1906,6 +2028,7 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
             studio_close_project,
             studio_audio_transport,
             studio_asset_index,
+            studio_asset_bank,
             studio_port_publish,
             crate::port_api::port_session,
             crate::port_api::port_link_start,

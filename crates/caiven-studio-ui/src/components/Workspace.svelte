@@ -33,6 +33,10 @@
     palette: string[];
     spriteSheet: number[];
     map: number[];
+    spriteBanks: number[];
+    mapBanks: number[];
+    activeSpriteBank: number;
+    activeMapBank: number;
     spriteFlags: number[];
     sfx: number[];
     music: number[];
@@ -63,6 +67,7 @@
     onFlags: (sprite: number, flags: number) => void;
     onFlagsBatch: (edits: SpriteFlagEdit[]) => void;
     onMap: (cells: { offset: number; tile: number }[]) => void;
+    onAssetBank: (kind: 'sprites' | 'map', action: 'select' | 'create' | 'delete', id?: number) => void;
     onSfx: (slot: number, bytes: number[]) => void;
     onMusic: (pattern: number, bytes: number[]) => void;
     onAudio: (kind: 'sfx' | 'music', id: number, action: 'play' | 'stop') => void;
@@ -94,10 +99,10 @@
   }
 
   let {
-    screen, sources, activeSource, palette, spriteSheet, map, spriteFlags, sfx, music, cartSize,
+    screen, sources, activeSource, palette, spriteSheet, map, spriteBanks, mapBanks, activeSpriteBank, activeMapBank, spriteFlags, sfx, music, cartSize,
     audio, assetIndex, diagnostics, breakpoints, title, author, path, meta, dirty, tourDone, recent, api, frameData, insertRequest, revealRequest, onInsertHandled, onRevealHandled,
     soundSelection,
-    onNavigate, onSource, onCode, onSprite, onFlags, onFlagsBatch, onMap, onSfx, onMusic, onAudio,
+    onNavigate, onSource, onCode, onSprite, onFlags, onFlagsBatch, onMap, onAssetBank, onSfx, onMusic, onAudio,
     onBreakpoint, onMeta, onCreateModule, onPalette, onTour, onOpen, onNew,
     localCarts, portCarts, portAccount, portBusy, portError, portLinkPending, portLinkExpiresAt, onScanLibrary,
     onSearchPort, onOpenLocal, onRemoveRecent, onDownloadPort, onOpenPortAccount, onPortLink, onPortLinkCancel, onPortLogout,
@@ -208,6 +213,18 @@
     const firstUsed = spriteUsed.findIndex((used, index) => used && index > 0);
     selectedTile = firstUsed >= 0 ? firstUsed : 1;
     tileSelectionReady = true;
+  });
+  $effect(() => {
+    activeSpriteBank;
+    spriteUndo = [];
+    spriteRedo = [];
+    shapeStart = null;
+  });
+  $effect(() => {
+    activeMapBank;
+    mapUndo = [];
+    mapRedo = [];
+    mapHover = null;
   });
   const docCategories = $derived.by(() => {
     const counts = new Map<string, number>();
@@ -659,6 +676,19 @@
       <Button variant="ghost" class={screen === 'sprites' ? 'active' : undefined} onclick={() => onNavigate('sprites')}><Image size={15} />Sprites</Button>
       <Button variant="ghost" class={screen === 'map' ? 'active' : undefined} onclick={() => onNavigate('map')}><Layers size={15} />Map</Button>
       <Button variant="ghost" class={screen === 'palette' ? 'active' : undefined} onclick={() => onNavigate('palette')}><Pipette size={15} />Palette</Button>
+      {#if screen === 'sprites' || screen === 'map'}
+        {@const bankKind = screen === 'sprites' ? 'sprites' : 'map'}
+        {@const bankIds = screen === 'sprites' ? spriteBanks : mapBanks}
+        {@const activeBank = screen === 'sprites' ? activeSpriteBank : activeMapBank}
+        <div class="bank-picker">
+          <span>Bank</span>
+          <select value={activeBank} onchange={(event) => onAssetBank(bankKind, 'select', Number(event.currentTarget.value))}>
+            {#each bankIds as id}<option value={id}>{id}</option>{/each}
+          </select>
+          <button title={`Create ${bankKind} bank`} onclick={() => onAssetBank(bankKind, 'create')}><Plus size={14} /></button>
+          <button class="danger" disabled={activeBank === 0} title={`Delete ${bankKind} bank ${activeBank}`} onclick={() => onAssetBank(bankKind, 'delete', activeBank)}><Trash2 size={14} /></button>
+        </div>
+      {/if}
       <code>{screen === 'sprites' ? `${assetStats[0]?.used ?? 0} of 256 used` : screen === 'map' ? '64 × 64 tiles' : '16 colors'}</code>
     </nav>
   {:else if ['sfx', 'music'].includes(screen)}
@@ -888,6 +918,7 @@
         oncontextmenu={(event) => event.preventDefault()}
         onauxclick={(event) => event.preventDefault()}
       >
+        {#key activeMapBank}
         <MapCanvas
           {map}
           {spriteSheet}
@@ -905,6 +936,7 @@
           onCollisionPick={(brush) => { collisionBrush = brush; mapTool = 'paint'; }}
           onHover={(cell) => mapHover = cell}
         />
+        {/key}
       </div>
       <aside class="map-inspector">
         {#if mapLayer === 'collision'}

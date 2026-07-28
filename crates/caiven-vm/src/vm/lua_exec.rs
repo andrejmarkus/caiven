@@ -16,7 +16,7 @@
 use super::memory::Memory;
 use super::palette::Palette;
 use super::sfx::{MusicPlayer, SfxPlayer};
-use super::{Camera, Vm, VmFault};
+use super::{AssetBankKind, AssetBanks, Camera, Vm, VmFault};
 use crate::input::{Button, Input};
 use crate::rendering::font::Font;
 use crate::rendering::screen::ScreenLayer;
@@ -54,6 +54,8 @@ const BUILTIN_NAMES: &[&str] = &[
     "set_tile",
     "get_sprite_flags",
     "set_sprite_flags",
+    "load_sprite_bank",
+    "load_map_bank",
     "play_sfx",
     "play_music",
     "stop_music",
@@ -380,6 +382,7 @@ fn register_builtins<'scope, 'env>(
     camera: &'env RefCell<&'env mut Camera>,
     sfx_player: &'env RefCell<&'env mut SfxPlayer>,
     music_player: &'env RefCell<&'env mut MusicPlayer>,
+    asset_banks: &'env RefCell<&'env mut AssetBanks>,
     input: &'env Input,
     font: &'env Font,
     sprite_size: u32,
@@ -705,6 +708,26 @@ fn register_builtins<'scope, 'env>(
     )?;
 
     globals.set(
+        "load_sprite_bank",
+        scope.create_function_mut(|_, id: u8| {
+            Ok(asset_banks.borrow_mut().select(
+                AssetBankKind::Sprites,
+                id,
+                &mut memory.borrow_mut(),
+            ))
+        })?,
+    )?;
+
+    globals.set(
+        "load_map_bank",
+        scope.create_function_mut(|_, id: u8| {
+            Ok(asset_banks
+                .borrow_mut()
+                .select(AssetBankKind::Map, id, &mut memory.borrow_mut()))
+        })?,
+    )?;
+
+    globals.set(
         "play_sfx",
         scope.create_function_mut(|_, id: u8| {
             sfx_player.borrow_mut().start(id);
@@ -771,6 +794,7 @@ impl Vm {
         let camera = RefCell::new(&mut self.camera);
         let sfx_player = RefCell::new(&mut self.sfx_player);
         let music_player = RefCell::new(&mut self.music_player);
+        let asset_banks = RefCell::new(&mut self.asset_banks);
         let sprite_size = self.config.sprite_size;
         let width = self.config.width;
         let height = self.config.height;
@@ -787,6 +811,7 @@ impl Vm {
                 &camera,
                 &sfx_player,
                 &music_player,
+                &asset_banks,
                 input,
                 font,
                 sprite_size,
@@ -845,6 +870,7 @@ impl Vm {
         let camera = RefCell::new(&mut self.camera);
         let sfx_player = RefCell::new(&mut self.sfx_player);
         let music_player = RefCell::new(&mut self.music_player);
+        let asset_banks = RefCell::new(&mut self.asset_banks);
         let sprite_size = self.config.sprite_size;
         let width = self.config.width;
         let height = self.config.height;
@@ -861,6 +887,7 @@ impl Vm {
                 &camera,
                 &sfx_player,
                 &music_player,
+                &asset_banks,
                 input,
                 font,
                 sprite_size,
@@ -917,6 +944,7 @@ impl Vm {
         let camera = RefCell::new(&mut self.camera);
         let sfx_player = RefCell::new(&mut self.sfx_player);
         let music_player = RefCell::new(&mut self.music_player);
+        let asset_banks = RefCell::new(&mut self.asset_banks);
         let sprite_size = self.config.sprite_size;
         let width = self.config.width;
         let height = self.config.height;
@@ -972,6 +1000,7 @@ impl Vm {
                 &camera,
                 &sfx_player,
                 &music_player,
+                &asset_banks,
                 input,
                 font,
                 sprite_size,

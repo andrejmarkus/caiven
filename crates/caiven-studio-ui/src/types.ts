@@ -44,6 +44,7 @@ export interface GlobalValue { name: string; value: string; }
 export interface CallFrame { label: string; location: string; }
 export interface CartMeta { description: string; tags: string[]; }
 export interface CartSize { packedBytes: number; maxBytes: number; }
+export interface AssetBankState { kind: 'sprites' | 'map'; ids: number[]; active: number; data: number[]; }
 export interface AudioState {
   sfxActive: boolean; sfxId: number; sfxStep: number;
   musicActive: boolean; musicPattern: number; musicRow: number; musicLoop: boolean;
@@ -92,6 +93,10 @@ export interface StudioBootstrap {
   palette: string[];
   spriteSheet: number[];
   map: number[];
+  spriteBanks: number[];
+  mapBanks: number[];
+  activeSpriteBank: number;
+  activeMapBank: number;
   spriteFlags: number[];
   sfx: number[];
   music: number[];
@@ -122,6 +127,8 @@ export interface TickSnapshot {
   audio: AudioState;
   diagnostics: Diagnostic[];
   output: string[];
+  activeSpriteBank: number;
+  activeMapBank: number;
 }
 
 declare global {

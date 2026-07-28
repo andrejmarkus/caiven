@@ -1,5 +1,5 @@
 import type {
-  AssetIndex, AudioState, Breakpoint, CartMeta, CartSize, CartTemplateSummary, GlobalValue, LocalCart, PortCartList, PortSession,
+  AssetBankState, AssetIndex, AudioState, Breakpoint, CartMeta, CartSize, CartTemplateSummary, GlobalValue, LocalCart, PortCartList, PortSession,
   PublishResult, SourceBuffer, StudioBootstrap, TickSnapshot,
 } from '../types';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
@@ -82,6 +82,10 @@ const fallback: StudioBootstrap = {
   palette: defaultPalette,
   spriteSheet: [...defaultSprite, ...Array(255 * 64).fill(0)],
   map: Array(4096).fill(0),
+  spriteBanks: [0],
+  mapBanks: [0],
+  activeSpriteBank: 0,
+  activeMapBank: 0,
   spriteFlags: Array(256).fill(0),
   sfx: Array(1024).fill(0),
   music: Array(256).fill(0),
@@ -162,7 +166,7 @@ export async function transport(action: 'run' | 'pause' | 'reset' | 'step'): Pro
     fallback.pauseReason = action === 'pause' || action === 'step'
       ? { kind: 'manual', source: null, line: null, message: null }
       : null;
-    return { runState: fallback.runState, frame: fallback.frame, fps: fallback.fps, frameTimeMs: 5.2, globals: fallback.globals, watches: fallback.watches, callStack: fallback.callStack, pauseReason: fallback.pauseReason, audio: fallback.audio, diagnostics: fallback.diagnostics, output: fallback.output };
+    return { runState: fallback.runState, frame: fallback.frame, fps: fallback.fps, frameTimeMs: 5.2, globals: fallback.globals, watches: fallback.watches, callStack: fallback.callStack, pauseReason: fallback.pauseReason, audio: fallback.audio, diagnostics: fallback.diagnostics, output: fallback.output, activeSpriteBank: fallback.activeSpriteBank, activeMapBank: fallback.activeMapBank };
   }
   return invoke<TickSnapshot>('studio_transport', { action });
 }
@@ -183,7 +187,7 @@ export async function readFrame(): Promise<Uint8Array | null> {
 
 export async function readTick(): Promise<TickSnapshot> {
   if (isTauri()) return invoke<TickSnapshot>('studio_tick');
-  return { runState: fallback.runState, frame: fallback.frame++, fps: 60, frameTimeMs: 5.2, globals: fallback.globals, watches: fallback.watches, callStack: fallback.callStack, pauseReason: fallback.pauseReason, audio: fallback.audio, diagnostics: fallback.diagnostics, output: fallback.output };
+  return { runState: fallback.runState, frame: fallback.frame++, fps: 60, frameTimeMs: 5.2, globals: fallback.globals, watches: fallback.watches, callStack: fallback.callStack, pauseReason: fallback.pauseReason, audio: fallback.audio, diagnostics: fallback.diagnostics, output: fallback.output, activeSpriteBank: fallback.activeSpriteBank, activeMapBank: fallback.activeMapBank };
 }
 
 export async function setInput(button: number, pressed: boolean): Promise<void> {
@@ -240,6 +244,18 @@ export async function writeMemory(address: number, bytes: number[]): Promise<voi
 
 export async function writeMapCells(cells: { offset: number; tile: number }[]): Promise<void> {
   if (isTauri()) await invoke('studio_write_map_cells', { cells });
+}
+
+export async function assetBank(
+  kind: 'sprites' | 'map', action: 'read' | 'select' | 'create' | 'delete', id?: number,
+): Promise<AssetBankState> {
+  if (isTauri()) return invoke<AssetBankState>('studio_asset_bank', { kind, action, id: id ?? null });
+  return {
+    kind,
+    ids: kind === 'sprites' ? fallback.spriteBanks : fallback.mapBanks,
+    active: kind === 'sprites' ? fallback.activeSpriteBank : fallback.activeMapBank,
+    data: kind === 'sprites' ? fallback.spriteSheet : fallback.map,
+  };
 }
 
 export async function writeMeta(title: string, author: string, meta: CartMeta): Promise<void> {

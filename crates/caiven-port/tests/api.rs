@@ -141,6 +141,23 @@ fn sample_cart() -> Vec<u8> {
     build_cart(&[0u8; 64])
 }
 
+fn cart_with_repeated_sections() -> Vec<u8> {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("banked.cav");
+    let header = caiven_cart::CartHeader::new("T", "A");
+    caiven_cart::write(
+        &path,
+        &header,
+        &[0u8; 64],
+        &[
+            (caiven_cart::SectionKind::SpriteBank, vec![2, 0x22]),
+            (caiven_cart::SectionKind::SpriteBank, vec![1, 0x11]),
+        ],
+    )
+    .unwrap();
+    std::fs::read(path).unwrap()
+}
+
 /// Register a user, mint a token for it, then log out so the client's
 /// cookie jar (shared across all these helpers) doesn't leak that user's
 /// session into later requests authenticated by a *different* user's token.
@@ -1208,6 +1225,78 @@ async fn existing_cart_versions_receive_content_hashes() {
         .try_get("", "content_hash")
         .unwrap();
     assert_eq!(blob_hash.as_deref(), Some(expected.as_str()));
+
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("carts")).unwrap();
+    std::fs::write(dir.path().join("carts/legacy.cav"), &cart).unwrap();
+    assert_eq!(
+        caiven_port::db::backfill_legacy_cart_content_hashes(&db, dir.path())
+            .await
+            .unwrap(),
+        1
+    );
+    let legacy_hash: Option<String> = db
+        .query_one(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Sqlite,
+            "SELECT content_hash FROM cart_versions WHERE id = 'legacy-version'",
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get("", "content_hash")
+        .unwrap();
+    assert_eq!(legacy_hash.as_deref(), Some(expected.as_str()));
+}
+
+#[rocket::async_test]
+async fn canonical_hash_migration_rehashes_existing_versions() {
+    let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
+    migration::Migrator::up(&db, Some(13)).await.unwrap();
+    db.execute_unprepared(
+        "INSERT INTO carts \
+            (id, title, author, description, tags, uploaded_at, downloads, owner_id, \
+             rating_count, rating_sum, plays) \
+         VALUES \
+            ('blob-cart', 'Blob', 'author', '', '', '2026-01-01T00:00:00Z', 0, NULL, 0, 0, 0), \
+            ('legacy-cart', 'Legacy', 'author', '', '', '2026-01-01T00:00:00Z', 0, NULL, 0, 0, 0)",
+    )
+    .await
+    .unwrap();
+    db.execute_unprepared(
+        "INSERT INTO cart_versions \
+            (id, cart_id, version, cart_size, changelog, has_screenshot, created_at, \
+             legacy_cart_path, editor_username, content_hash) \
+         VALUES \
+            ('blob-version', 'blob-cart', 1, 0, '', 0, '2026-01-01T00:00:00Z', \
+             NULL, 'author', 'old-order-hash'), \
+            ('legacy-version', 'legacy-cart', 1, 0, '', 0, '2026-01-01T00:00:00Z', \
+             'carts/legacy.cav', 'author', 'old-order-hash')",
+    )
+    .await
+    .unwrap();
+    let cart = cart_with_repeated_sections();
+    db.execute(sea_orm::Statement::from_sql_and_values(
+        sea_orm::DatabaseBackend::Sqlite,
+        "INSERT INTO cart_blobs (version_id, cart_data, screenshot_data) VALUES (?, ?, NULL)",
+        ["blob-version".into(), cart.clone().into()],
+    ))
+    .await
+    .unwrap();
+
+    migration::Migrator::up(&db, None).await.unwrap();
+
+    let expected = caiven_cart::content_hash(&cart).unwrap();
+    let rows = db
+        .query_all(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Sqlite,
+            "SELECT id, content_hash FROM cart_versions ORDER BY id",
+        ))
+        .await
+        .unwrap();
+    let blob_hash: Option<String> = rows[0].try_get("", "content_hash").unwrap();
+    let legacy_hash: Option<String> = rows[1].try_get("", "content_hash").unwrap();
+    assert_eq!(blob_hash.as_deref(), Some(expected.as_str()));
+    assert_eq!(legacy_hash, None);
 
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("carts")).unwrap();

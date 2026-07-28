@@ -13,6 +13,7 @@ mod m20260726_000010_security_hardening;
 mod m20260726_000011_security_round3;
 mod m20260727_000012_creator_and_studio_link;
 mod m20260727_000013_cart_content_hash;
+mod m20260728_000014_rehash_cart_content;
 
 pub struct Migrator;
 
@@ -33,6 +34,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260726_000011_security_round3::Migration),
             Box::new(m20260727_000012_creator_and_studio_link::Migration),
             Box::new(m20260727_000013_cart_content_hash::Migration),
+            Box::new(m20260728_000014_rehash_cart_content::Migration),
         ]
     }
 }

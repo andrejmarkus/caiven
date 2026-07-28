@@ -18,7 +18,7 @@
   import {
     bootstrap, chooseExportPath, chooseProject, exportCartridge, fallbackTemplates, listTemplates, newProject,
     openProject, readAssetIndex, readCartSize, readFrame, readMemory, readTick, saveProject, setInput, transport,
-    addWatch, audioTransport, clearOutput, closeProject, createModule, MEMORY, portDownload, portLinkCancel, portLinkPoll, portLinkStart, portListCarts,
+    addWatch, assetBank, audioTransport, clearOutput, closeProject, createModule, MEMORY, portDownload, portLinkCancel, portLinkPoll, portLinkStart, portListCarts,
     portLogout, portPublish, portSession, scanLibrary, toggleBreakpoint, writeBuffer,
     removeRecent, removeWatch, writeMapCells, writeMemory, writeMeta, writePalette, writeSprite,
   } from './lib/ipc';
@@ -26,7 +26,7 @@
 
   let studio = $state<StudioBootstrap>({
     connected: false, title: '', path: '', author: '', runState: 'stopped',
-    frame: 0, fps: 0, cartSize: { packedBytes: 0, maxBytes: 128 * 1024 }, sources: [], palette: [], spriteSheet: [], map: [], spriteFlags: [],
+    frame: 0, fps: 0, cartSize: { packedBytes: 0, maxBytes: 128 * 1024 }, sources: [], palette: [], spriteSheet: [], map: [], spriteBanks: [0], mapBanks: [0], activeSpriteBank: 0, activeMapBank: 0, spriteFlags: [],
     sfx: [], music: [], ram: [], globals: [], watches: [], callStack: [], breakpoints: [], pauseReason: null, diagnostics: [], output: [],
     meta: { description: '', tags: [] }, assetIndex: { entries: [], computedRefs: 0 },
     audio: { sfxActive: false, sfxId: 0, sfxStep: 0, musicActive: false, musicPattern: 0, musicRow: 0, musicLoop: true },
@@ -61,6 +61,7 @@
   let revealRequest = $state<EditorRevealRequest | null>(null);
   let insertSerial = 0;
   let revealSerial = 0;
+  const bankRefreshes = new Set<'sprites' | 'map'>();
   let templates = $state<CartTemplateSummary[]>(fallbackTemplates);
 
   const GAME_KEYS: Record<string, number> = {
@@ -174,6 +175,8 @@
     studio.audio = tick.audio;
     studio.diagnostics = tick.diagnostics;
     studio.output = tick.output;
+    if (tick.activeSpriteBank !== studio.activeSpriteBank) void refreshAssetBank('sprites');
+    if (tick.activeMapBank !== studio.activeMapBank) void refreshAssetBank('map');
 
     const firstError = tick.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     const diagnosticKey = firstError
@@ -199,6 +202,40 @@
     }
     handledPause = pauseKey;
     if (wasRunning && tick.runState !== 'running') releaseInputs();
+  }
+
+  function applyAssetBank(bank: Awaited<ReturnType<typeof assetBank>>) {
+    if (bank.kind === 'sprites') {
+      studio.spriteBanks = bank.ids;
+      studio.activeSpriteBank = bank.active;
+      studio.spriteSheet = bank.data;
+      studio.ram.splice(MEMORY.sprites, bank.data.length, ...bank.data);
+    } else {
+      studio.mapBanks = bank.ids;
+      studio.activeMapBank = bank.active;
+      studio.map = bank.data;
+      studio.ram.splice(MEMORY.map, bank.data.length, ...bank.data);
+    }
+  }
+
+  async function refreshAssetBank(kind: 'sprites' | 'map') {
+    if (bankRefreshes.has(kind)) return;
+    bankRefreshes.add(kind);
+    try { applyAssetBank(await assetBank(kind, 'read')); }
+    catch (error) { showToast(`Bank refresh failed: ${errorText(error)}`); }
+    finally { bankRefreshes.delete(kind); }
+  }
+
+  async function changeAssetBank(kind: 'sprites' | 'map', action: 'select' | 'create' | 'delete', id?: number) {
+    if (action === 'delete' && !window.confirm(`Delete ${kind} bank ${id}?`)) return;
+    try {
+      applyAssetBank(await assetBank(kind, action, id));
+      studio.assetIndex = await readAssetIndex();
+      await refreshCartSize();
+      status = `${kind === 'sprites' ? 'Sprite' : 'Map'} bank ${kind === 'sprites' ? studio.activeSpriteBank : studio.activeMapBank}`;
+    } catch (error) {
+      showToast(`Bank ${action} failed: ${errorText(error)}`);
+    }
   }
 
   async function doTransport(action: 'run' | 'pause' | 'reset' | 'step') {
@@ -811,6 +848,10 @@
           palette={studio.palette}
           spriteSheet={studio.spriteSheet}
           map={studio.map}
+          spriteBanks={studio.spriteBanks}
+          mapBanks={studio.mapBanks}
+          activeSpriteBank={studio.activeSpriteBank}
+          activeMapBank={studio.activeMapBank}
           spriteFlags={studio.spriteFlags}
           sfx={studio.sfx}
           music={studio.music}
@@ -839,6 +880,7 @@
           onFlags={updateFlags}
           onFlagsBatch={updateFlagsBatch}
           onMap={updateMap}
+          onAssetBank={(kind, action, id) => void changeAssetBank(kind, action, id)}
           onSfx={updateSfx}
           onMusic={updateMusic}
           {soundSelection}
