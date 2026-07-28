@@ -78,8 +78,32 @@ fn write_binary(
     dest: &Path,
     modules: &[(PathBuf, String)],
 ) -> Result<()> {
+    let (program, extra) = distribution_content(extra, meta, meta.lua_source.as_deref(), modules);
+    caiven_cart::write(dest, &meta.header, &program, &extra)
+        .with_context(|| format!("failed to write cart to {}", dest.display()))
+}
+
+/// Exact size of the distribution cartridge built from current live buffers
+/// and VM-backed assets. Uses the same bundling and minification path as export.
+pub(crate) fn packed_size(
+    vm: &Vm,
+    meta: &CartMeta,
+    entry: Option<&str>,
+    modules: &[(PathBuf, String)],
+) -> usize {
+    let extra = gather_sections(vm, meta);
+    let (program, extra) = distribution_content(&extra, meta, entry, modules);
+    caiven_cart::packed_len(&program, &extra)
+}
+
+fn distribution_content(
+    extra: &[(SectionKind, Vec<u8>)],
+    meta: &CartMeta,
+    entry: Option<&str>,
+    modules: &[(PathBuf, String)],
+) -> (Vec<u8>, Vec<(SectionKind, Vec<u8>)>) {
     let mut extra = extra.to_vec();
-    let program: &[u8] = match &meta.lua_source {
+    let program = match entry {
         Some(entry) => {
             // A distributed .cav has no filesystem, so sibling modules
             // can't stay separate files — bundle them into one LuaSource
@@ -90,9 +114,9 @@ fn write_binary(
                 .collect();
             let bundled = caiven_cart::bundle_lua(entry, &bundle_modules);
             extra.push((SectionKind::LuaSource, bundled.into_bytes()));
-            &[]
+            Vec::new()
         }
-        None => &meta.program,
+        None => meta.program.clone(),
     };
     // Both callers (GUI "Export Cartridge" and the publish flow's temp pack)
     // produce a distribution artifact meant for someone other than the
@@ -104,6 +128,5 @@ fn write_binary(
     caiven_cart::minify_cart_lua(&mut sections);
     let extra: Vec<(SectionKind, Vec<u8>)> =
         sections.into_iter().map(|s| (s.kind, s.data)).collect();
-    caiven_cart::write(dest, &meta.header, program, &extra)
-        .with_context(|| format!("failed to write cart to {}", dest.display()))
+    (program, extra)
 }

@@ -359,6 +359,7 @@ are unsigned. Public trusted releases need
 | **Script engine** | Lua 5.4 via `mlua` (vendored) |
 | **Resolution** | 128×128 (upscaled 4×) |
 | **RAM** | 64 KiB (asset/RAM regions below; script state lives in the Lua VM, not guest RAM) |
+| **Cartridge** | 128 KiB maximum packed `.cav` size |
 | **Palette** | 16 colors |
 | **Sprites** | 256 × 8×8 pixels |
 | **Map** | 64×64 tiles |

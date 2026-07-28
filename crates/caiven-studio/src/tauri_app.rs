@@ -146,6 +146,13 @@ struct AudioPayload {
     music_loop: bool,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CartSizePayload {
+    packed_bytes: usize,
+    max_bytes: usize,
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MapCellPayload {
@@ -163,6 +170,7 @@ struct BootstrapPayload {
     run_state: RunState,
     frame: u64,
     fps: f32,
+    cart_size: CartSizePayload,
     sources: Vec<SourcePayload>,
     palette: Vec<String>,
     sprite_sheet: Vec<u8>,
@@ -238,6 +246,7 @@ impl Default for SharedSnapshot {
 
 enum CoreCommand {
     Bootstrap(mpsc::Sender<Result<BootstrapPayload, String>>),
+    CartSize(mpsc::Sender<Result<CartSizePayload, String>>),
     OpenProject {
         path: PathBuf,
         reply: mpsc::Sender<Result<BootstrapPayload, String>>,
@@ -604,6 +613,7 @@ impl StudioCore {
             run_state: self.run_state,
             frame: self.frame,
             fps: self.fps,
+            cart_size: self.cart_size(),
             sources: self
                 .sources
                 .iter()
@@ -658,6 +668,18 @@ impl StudioCore {
                 category: category.to_string(),
             })
             .collect(),
+        }
+    }
+
+    fn cart_size(&self) -> CartSizePayload {
+        let packed_bytes = self.cart.as_ref().map_or(0, |meta| {
+            let modules = self.modules();
+            let entry = self.sources.first().map(|source| source.text.as_str());
+            cart_io::packed_size(&self.console.vm, meta, entry, &modules)
+        });
+        CartSizePayload {
+            packed_bytes,
+            max_bytes: caiven_cart::MAX_CART_BYTES,
         }
     }
 
@@ -1123,6 +1145,9 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
         CoreCommand::Bootstrap(reply) => {
             let _ = reply.send(Ok(studio.bootstrap()));
         }
+        CoreCommand::CartSize(reply) => {
+            let _ = reply.send(Ok(studio.cart_size()));
+        }
         CoreCommand::OpenProject { path, reply } => {
             let result = studio
                 .open(&path)
@@ -1441,6 +1466,11 @@ fn spawn_core(initial_path: Option<PathBuf>) -> StudioBridge {
 #[tauri::command]
 fn studio_bootstrap(state: State<'_, StudioBridge>) -> Result<BootstrapPayload, String> {
     state.request(CoreCommand::Bootstrap)
+}
+
+#[tauri::command]
+fn studio_cart_size(state: State<'_, StudioBridge>) -> Result<CartSizePayload, String> {
+    state.request(CoreCommand::CartSize)
 }
 
 #[tauri::command]
@@ -1852,6 +1882,7 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
         })
         .invoke_handler(tauri::generate_handler![
             studio_bootstrap,
+            studio_cart_size,
             studio_open_project,
             studio_new_project,
             studio_list_templates,

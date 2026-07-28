@@ -43,6 +43,7 @@ export interface Diagnostic {
 export interface GlobalValue { name: string; value: string; }
 export interface CallFrame { label: string; location: string; }
 export interface CartMeta { description: string; tags: string[]; }
+export interface CartSize { packedBytes: number; maxBytes: number; }
 export interface AudioState {
   sfxActive: boolean; sfxId: number; sfxStep: number;
   musicActive: boolean; musicPattern: number; musicRow: number; musicLoop: boolean;
@@ -86,6 +87,7 @@ export interface StudioBootstrap {
   runState: RunState;
   frame: number;
   fps: number;
+  cartSize: CartSize;
   sources: SourceBuffer[];
   palette: string[];
   spriteSheet: number[];

@@ -11,6 +11,9 @@ pub enum CartError {
     #[error("cart data is truncated")]
     Truncated,
 
+    #[error("packed cart is {size} bytes; maximum is {max} bytes")]
+    TooLarge { size: usize, max: usize },
+
     #[error("CRC32 mismatch: expected {expected:#010x}, got {actual:#010x}")]
     ChecksumMismatch { expected: u32, actual: u32 },
 

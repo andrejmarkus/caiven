@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use caiven_cart::{CartError, CartHeader, SectionKind, load, write};
+use caiven_cart::{CartError, CartHeader, MAX_CART_BYTES, SectionKind, load, packed_len, write};
 
 /// Write a cart with one program and two asset sections, return its path.
 fn write_sample(dir: &tempfile::TempDir) -> PathBuf {
@@ -20,6 +20,35 @@ fn write_sample(dir: &tempfile::TempDir) -> PathBuf {
     ];
     write(&path, &header, &program, &extra).unwrap();
     path
+}
+
+#[test]
+fn packed_len_matches_written_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("size.cav");
+    let program = vec![1, 2, 3];
+    let extra = vec![(SectionKind::Map, vec![4; 17])];
+    write(&path, &CartHeader::new("", ""), &program, &extra).unwrap();
+    assert_eq!(
+        packed_len(&program, &extra),
+        std::fs::metadata(path).unwrap().len() as usize
+    );
+}
+
+#[test]
+fn write_rejects_cart_over_shared_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("large.cav");
+    let program = vec![0; MAX_CART_BYTES];
+    let error = write(&path, &CartHeader::new("", ""), &program, &[]).unwrap_err();
+    assert!(matches!(
+        error,
+        CartError::TooLarge {
+            max: MAX_CART_BYTES,
+            ..
+        }
+    ));
+    assert!(!path.exists());
 }
 
 #[test]

@@ -1,3 +1,4 @@
+use caiven_cart::MAX_CART_BYTES;
 use rocket::{
     FromForm, State, data::Capped, form::Form, fs::TempFile, get, post, serde::json::Json,
 };
@@ -10,7 +11,7 @@ use crate::{
     db,
     entities::{cart_blobs, cart_versions},
     error::ApiError,
-    handlers::carts::require_owner,
+    handlers::carts::{cart_too_large, require_owner},
     models::{CartVersionInfo, VersionMeta},
 };
 
@@ -225,11 +226,11 @@ pub async fn create_version(
     require_owner(&user, &cart)?;
 
     if !upload.cart.is_complete() {
-        return Err(ApiError::PayloadTooLarge("cart max 1MB".into()));
+        return Err(cart_too_large());
     }
     let cart_len = upload.cart.n.written as usize;
-    if cart_len > 1024 * 1024 {
-        return Err(ApiError::PayloadTooLarge("cart max 1MB".into()));
+    if cart_len > MAX_CART_BYTES {
+        return Err(cart_too_large());
     }
 
     let tmp_path = upload

@@ -11,7 +11,7 @@
   import { Input } from '@caiven/ui/input';
   import { Textarea } from '@caiven/ui/textarea';
   import type {
-    ApiEntry, AssetIndex, AssetRef, AudioState, Breakpoint, CartMeta, Diagnostic, EditorInsertRequest,
+    ApiEntry, AssetIndex, AssetRef, AudioState, Breakpoint, CartMeta, CartSize, Diagnostic, EditorInsertRequest,
     EditorRevealRequest, LocalCart, PortCart, PortSession, Screen, SourceBuffer,
   } from '../types';
   import {
@@ -36,6 +36,7 @@
     spriteFlags: number[];
     sfx: number[];
     music: number[];
+    cartSize: CartSize;
     audio: AudioState;
     assetIndex: AssetIndex;
     diagnostics: Diagnostic[];
@@ -93,7 +94,7 @@
   }
 
   let {
-    screen, sources, activeSource, palette, spriteSheet, map, spriteFlags, sfx, music,
+    screen, sources, activeSource, palette, spriteSheet, map, spriteFlags, sfx, music, cartSize,
     audio, assetIndex, diagnostics, breakpoints, title, author, path, meta, dirty, tourDone, recent, api, frameData, insertRequest, revealRequest, onInsertHandled, onRevealHandled,
     soundSelection,
     onNavigate, onSource, onCode, onSprite, onFlags, onFlagsBatch, onMap, onSfx, onMusic, onAudio,
@@ -298,14 +299,13 @@
   const codeBytes = $derived(sources.reduce((sum, source) => sum + new TextEncoder().encode(source.text).length, 0));
   const artBytes = $derived(spriteSheet.length + map.length + spriteFlags.length);
   const soundBytes = $derived(sfx.length + music.length);
-  const cartBytes = $derived(codeBytes + artBytes + soundBytes);
-  const cartPercent = $derived(Math.min(100, Math.round(cartBytes / 32_768 * 100)));
+  const cartPercent = $derived(Math.min(100, Math.round(cartSize.packedBytes / cartSize.maxBytes * 100)));
 
   const assetSummary = $derived([
     { label: 'Sprites', icon: Image, value: `${assetStats[0]?.used ?? 0}`, pct: ((assetStats[0]?.used ?? 0) / 256) * 100, detail: 'of 256 slots' },
     { label: 'Map tiles', icon: Layers, value: `${[...mapTileCounts.values()].reduce((sum, n) => sum + n, 0)}`, pct: (([...mapTileCounts.values()].reduce((sum, n) => sum + n, 0)) / 4096) * 100, detail: 'of 4 096 cells' },
     { label: 'Sound effects', icon: Volume2, value: `${assetStats[1]?.used ?? 0}`, pct: ((assetStats[1]?.used ?? 0) / 16) * 100, detail: 'of 16 slots' },
-    { label: 'Cart size', icon: Sparkles, value: `${(cartBytes / 1024).toFixed(1)} KiB`, pct: cartPercent, detail: 'of 32 KiB budget' },
+    { label: 'Cart size', icon: Sparkles, value: `${(cartSize.packedBytes / 1024).toFixed(1)} KiB`, pct: cartPercent, detail: `of ${cartSize.maxBytes / 1024} KiB budget` },
   ]);
 
   const assetRows = $derived.by(() => {
@@ -730,8 +730,8 @@
         </div>
         <div class="budget-card">
           <span class="eyebrow">Cart budget</span>
-          <div><i style={`width:${cartPercent}%`}></i></div><code>{(cartBytes / 1024).toFixed(1)} / 32 KiB</code>
-          <small>Code {(codeBytes / 1024).toFixed(1)} · Art {(artBytes / 1024).toFixed(1)} · Sound {(soundBytes / 1024).toFixed(1)}</small>
+          <div><i style={`width:${cartPercent}%`}></i></div><code>{(cartSize.packedBytes / 1024).toFixed(1)} / {cartSize.maxBytes / 1024} KiB</code>
+          <small>Code {(codeBytes / 1024).toFixed(1)} KiB · Art {(artBytes / 1024).toFixed(1)} KiB · Sound {(soundBytes / 1024).toFixed(1)} KiB</small>
         </div>
       </aside>
       <div
@@ -1193,7 +1193,7 @@
           <label>Local author <Input maxlength={64} value={author} onblur={(event) => onMeta(title, event.currentTarget.value, meta)} /><small>Stored in local cart metadata. Port uses linked account when publishing.</small></label>
           <label>Description<Textarea maxlength={240} value={meta.description} onblur={(event) => onMeta(title, author, { ...meta, description: event.currentTarget.value })}></Textarea><small>{meta.description.length} / 240</small></label>
           <label>Tags<div class="tag-input">{#each meta.tags as tag}<button onclick={() => onMeta(title, author, { ...meta, tags: meta.tags.filter((value) => value !== tag) })}>{tag} ×</button>{/each}<input placeholder="Add tag…" onkeydown={(event) => { if (event.key === 'Enter' && event.currentTarget.value.trim()) { event.preventDefault(); onMeta(title, author, { ...meta, tags: [...meta.tags, event.currentTarget.value.trim()] }); event.currentTarget.value = ''; } }} /></div></label>
-          <div class="cart-facts">{#each [['Format',path.endsWith('.cav') ? '.cav' : 'project dir'],['Estimated size',`${(cartBytes / 1024).toFixed(1)} KiB`],['Sources',`${sources.length} module${sources.length === 1 ? '' : 's'}`],['Port',portAccount.authenticated ? portAccount.username : 'not signed in']] as fact}<span><small>{fact[0]}</small><code>{fact[1]}</code></span>{/each}</div>
+          <div class="cart-facts">{#each [['Format',path.endsWith('.cav') ? '.cav' : 'project dir'],['Packed size',`${(cartSize.packedBytes / 1024).toFixed(1)} KiB`],['Sources',`${sources.length} module${sources.length === 1 ? '' : 's'}`],['Port',portAccount.authenticated ? portAccount.username : 'not signed in']] as fact}<span><small>{fact[0]}</small><code>{fact[1]}</code></span>{/each}</div>
           {#if !portAccount.authenticated}<Button variant="outline" onclick={onOpenPortAccount}>Open Port account</Button>{/if}
         </div>
         <aside class="cart-preview">

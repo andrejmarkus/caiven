@@ -679,7 +679,7 @@ async fn oversize_cart_is_413() {
     let token = auth_token(&client).await;
 
     let mut cart_bytes = sample_cart();
-    cart_bytes.resize(1024 * 1024 + 1, 0);
+    cart_bytes.resize(caiven_cart::MAX_CART_BYTES + 1, 0);
     let resp = upload(
         &client,
         &token,

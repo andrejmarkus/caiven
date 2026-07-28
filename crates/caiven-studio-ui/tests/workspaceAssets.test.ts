@@ -26,6 +26,7 @@ test('Assets screen renders both no-cart and open-cart states', async (context) 
     spriteFlags: Array(256).fill(0),
     sfx: Array(16 * 64).fill(0),
     music: Array(8 * 32).fill(0),
+    cartSize: { packedBytes: 22 * 1024, maxBytes: 128 * 1024 },
     api: [],
     assetIndex: {
       entries: [

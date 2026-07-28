@@ -17,7 +17,7 @@
   } from './types';
   import {
     bootstrap, chooseExportPath, chooseProject, exportCartridge, fallbackTemplates, listTemplates, newProject,
-    openProject, readAssetIndex, readFrame, readMemory, readTick, saveProject, setInput, transport,
+    openProject, readAssetIndex, readCartSize, readFrame, readMemory, readTick, saveProject, setInput, transport,
     addWatch, audioTransport, clearOutput, closeProject, createModule, MEMORY, portDownload, portLinkCancel, portLinkPoll, portLinkStart, portListCarts,
     portLogout, portPublish, portSession, scanLibrary, toggleBreakpoint, writeBuffer,
     removeRecent, removeWatch, writeMapCells, writeMemory, writeMeta, writePalette, writeSprite,
@@ -26,7 +26,7 @@
 
   let studio = $state<StudioBootstrap>({
     connected: false, title: '', path: '', author: '', runState: 'stopped',
-    frame: 0, fps: 0, sources: [], palette: [], spriteSheet: [], map: [], spriteFlags: [],
+    frame: 0, fps: 0, cartSize: { packedBytes: 0, maxBytes: 128 * 1024 }, sources: [], palette: [], spriteSheet: [], map: [], spriteFlags: [],
     sfx: [], music: [], ram: [], globals: [], watches: [], callStack: [], breakpoints: [], pauseReason: null, diagnostics: [], output: [],
     meta: { description: '', tags: [] }, assetIndex: { entries: [], computedRefs: 0 },
     audio: { sfxActive: false, sfxId: 0, sfxStep: 0, musicActive: false, musicPattern: 0, musicRow: 0, musicLoop: true },
@@ -143,10 +143,16 @@
     return error instanceof Error ? error.message : String(error);
   }
 
+  async function refreshCartSize() {
+    try { studio.cartSize = await readCartSize(); }
+    catch { /* Size display must not turn a successful edit into a failed edit. */ }
+  }
+
   async function commitMutation(label: string, write: () => Promise<void>, rollback: () => void) {
     pendingWrites += 1;
     try {
       await write();
+      await refreshCartSize();
     } catch (error) {
       rollback();
       showToast(`${label} failed: ${errorText(error)}`);
@@ -237,6 +243,7 @@
     writeTimer = setTimeout(() => {
       pendingWrites += 1;
       void writeBuffer(source.path, text)
+        .then(() => refreshCartSize())
         .catch((error) => showToast(`Write ${source.name} failed: ${errorText(error)}`))
         .finally(() => pendingWrites -= 1);
     }, 180);
@@ -383,6 +390,7 @@
       screen = 'code';
       overlay = null;
       status = `Created ${source.name}`;
+      await refreshCartSize();
       return null;
     } catch (error) {
       return errorText(error);
@@ -806,6 +814,7 @@
           spriteFlags={studio.spriteFlags}
           sfx={studio.sfx}
           music={studio.music}
+          cartSize={studio.cartSize}
           audio={studio.audio}
           assetIndex={studio.assetIndex}
           diagnostics={studio.diagnostics}

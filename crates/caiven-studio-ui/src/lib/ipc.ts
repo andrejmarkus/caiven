@@ -1,5 +1,5 @@
 import type {
-  AssetIndex, AudioState, Breakpoint, CartMeta, CartTemplateSummary, GlobalValue, LocalCart, PortCartList, PortSession,
+  AssetIndex, AudioState, Breakpoint, CartMeta, CartSize, CartTemplateSummary, GlobalValue, LocalCart, PortCartList, PortSession,
   PublishResult, SourceBuffer, StudioBootstrap, TickSnapshot,
 } from '../types';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
@@ -73,6 +73,7 @@ const fallback: StudioBootstrap = {
   runState: 'running',
   frame: 1284,
   fps: 60,
+  cartSize: { packedBytes: 22 * 1024, maxBytes: 128 * 1024 },
   sources: [
     { path: '~/carts/catch/main.lua', name: 'main.lua', text: fallbackCode, dirty: false },
     { path: '~/carts/catch/enemy.lua', name: 'enemy.lua', text: '-- Enemy movement\nreturn {}', dirty: true },
@@ -116,6 +117,10 @@ async function invoke<T>(command: string, args?: Record<string, unknown>): Promi
 export async function bootstrap(): Promise<StudioBootstrap> {
   if (!isTauri()) return structuredClone(fallback);
   return invoke<StudioBootstrap>('studio_bootstrap');
+}
+
+export async function readCartSize(): Promise<CartSize> {
+  return isTauri() ? invoke<CartSize>('studio_cart_size') : structuredClone(fallback.cartSize);
 }
 
 export async function listTemplates(): Promise<CartTemplateSummary[]> {

@@ -13,6 +13,7 @@ use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
+use crate::MAX_CART_BYTES;
 use crate::error::CartError;
 use crate::header::CartHeader;
 use crate::section::{CartSection, SectionKind};
@@ -116,6 +117,13 @@ pub fn write(
     extra_sections: &[(SectionKind, Vec<u8>)],
 ) -> Result<(), CartError> {
     let n = 1 + extra_sections.len();
+    let packed_len = packed_len(program, extra_sections);
+    if packed_len > MAX_CART_BYTES {
+        return Err(CartError::TooLarge {
+            size: packed_len,
+            max: MAX_CART_BYTES,
+        });
+    }
     let header_body = header.to_bytes();
     let table_len = n * SECTION_ENTRY_LEN;
     let data_start = FIXED_HDR + table_len;
@@ -129,7 +137,7 @@ pub fn write(
         cur += d.len();
     }
 
-    let mut out = Vec::with_capacity(cur);
+    let mut out = Vec::with_capacity(packed_len);
 
     out.extend_from_slice(MAGIC);
     out.extend_from_slice(&3u16.to_le_bytes()); // version
@@ -148,6 +156,18 @@ pub fn write(
 
     std::fs::write(path, out)?;
     Ok(())
+}
+
+/// Exact byte length produced by [`write`] for this program and section set.
+pub fn packed_len(program: &[u8], extra_sections: &[(SectionKind, Vec<u8>)]) -> usize {
+    let section_count = 1 + extra_sections.len();
+    FIXED_HDR
+        + section_count * SECTION_ENTRY_LEN
+        + program.len()
+        + extra_sections
+            .iter()
+            .map(|(_, data)| data.len())
+            .sum::<usize>()
 }
 
 /// Content-identity hash used for theft/dedup detection: covers only the
