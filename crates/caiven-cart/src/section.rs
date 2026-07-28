@@ -14,6 +14,15 @@ pub enum SectionKind {
     SpriteBank,
     /// Additional tile map. Data starts with bank id, followed by tile ids.
     MapBank,
+    /// Additional sprite flags table, companion of a `SpriteBank`. Data
+    /// starts with bank id, followed by one flag byte per sprite.
+    SpriteFlagsBank,
+    /// Additional palette. Data starts with bank id, followed by RGB triples.
+    PaletteBank,
+    /// Additional SFX bank. Data starts with bank id, followed by SFX bytes.
+    SfxBanks,
+    /// Additional music bank. Data starts with bank id, followed by pattern bytes.
+    MusicBanks,
     Custom(u16),
 }
 
@@ -32,6 +41,10 @@ impl SectionKind {
             Self::LuaSource => 0x000A,
             Self::SpriteBank => 0x000B,
             Self::MapBank => 0x000C,
+            Self::SpriteFlagsBank => 0x000D,
+            Self::PaletteBank => 0x000E,
+            Self::SfxBanks => 0x000F,
+            Self::MusicBanks => 0x0010,
             Self::Custom(n) => n,
         }
     }
@@ -50,6 +63,10 @@ impl SectionKind {
             0x000A => Self::LuaSource,
             0x000B => Self::SpriteBank,
             0x000C => Self::MapBank,
+            0x000D => Self::SpriteFlagsBank,
+            0x000E => Self::PaletteBank,
+            0x000F => Self::SfxBanks,
+            0x0010 => Self::MusicBanks,
             n => Self::Custom(n),
         }
     }
@@ -68,6 +85,10 @@ impl SectionKind {
             Self::LuaSource => "LuaSource",
             Self::SpriteBank => "SpriteBank",
             Self::MapBank => "MapBank",
+            Self::SpriteFlagsBank => "SpriteFlagsBank",
+            Self::PaletteBank => "PaletteBank",
+            Self::SfxBanks => "SfxBanks",
+            Self::MusicBanks => "MusicBanks",
             Self::Custom(_) => "Custom",
         }
     }

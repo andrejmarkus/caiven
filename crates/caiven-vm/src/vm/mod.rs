@@ -305,6 +305,41 @@ impl Vm {
                     }
                     continue;
                 }
+                // Additional (id != 0) banks for the kinds whose bank-0 data
+                // still loads straight to RAM below. Bank 0 self-heals into
+                // `asset_banks` on first `select`/`sync`; see `AssetBanks::sync`.
+                SectionKind::SpriteFlagsBank => {
+                    if let Some((id, data)) = decode_asset_bank(&section.data) {
+                        self.asset_banks
+                            .banks_mut(AssetBankKind::SpriteFlags)
+                            .insert(id, AssetBanks::normalized(data, SPRITE_FLAGS_LEN));
+                    }
+                    continue;
+                }
+                SectionKind::PaletteBank => {
+                    if let Some((id, data)) = decode_asset_bank(&section.data) {
+                        self.asset_banks
+                            .banks_mut(AssetBankKind::Palette)
+                            .insert(id, AssetBanks::normalized(data, PALETTE_SIZE * 3));
+                    }
+                    continue;
+                }
+                SectionKind::SfxBanks => {
+                    if let Some((id, data)) = decode_asset_bank(&section.data) {
+                        self.asset_banks
+                            .banks_mut(AssetBankKind::Sfx)
+                            .insert(id, AssetBanks::normalized(data, SFX_BANK_LEN));
+                    }
+                    continue;
+                }
+                SectionKind::MusicBanks => {
+                    if let Some((id, data)) = decode_asset_bank(&section.data) {
+                        self.asset_banks
+                            .banks_mut(AssetBankKind::Music)
+                            .insert(id, AssetBanks::normalized(data, MUSIC_BANK_LEN));
+                    }
+                    continue;
+                }
                 SectionKind::SpriteFlags => SPRITE_FLAGS_RAM_BASE,
                 SectionKind::Palette => PALETTE_RAM_BASE,
                 SectionKind::SfxBank => SFX_RAM_BASE,
