@@ -200,15 +200,17 @@ test('save failure keeps edited source dirty', async ({ page, e2e }) => {
   await expect(page.getByTitle('Unsaved changes')).toBeVisible();
 });
 
-test('frame polling only runs while the cart cover-art preview is visible', async ({ page, e2e }) => {
-  await page.waitForTimeout(300);
-  expect((await e2e.calls()).some((call) => call.command === 'studio_frame')).toBe(false);
+test('frame polling runs on the console/cart screens and pauses elsewhere', async ({ page, e2e }) => {
+  // Default landing screen is 'code', which shows the live console preview —
+  // frame polling must already be running here, not just on the 'cart' screen.
+  await expect.poll(async () => (await e2e.calls()).some((call) => call.command === 'studio_frame')).toBe(true);
 
   await page.keyboard.press('F7');
   await expect(page.getByText('Port preview')).toBeVisible();
   await expect.poll(async () => (await e2e.calls()).some((call) => call.command === 'studio_frame')).toBe(true);
 
-  await page.keyboard.press('F3');
+  // 'docs' has no console preview and no cart cover-art — polling should stop there.
+  await page.keyboard.press('F9');
   const callsAfterLeaving = (await e2e.calls()).filter((call) => call.command === 'studio_frame').length;
   await page.waitForTimeout(300);
   const callsLater = (await e2e.calls()).filter((call) => call.command === 'studio_frame').length;

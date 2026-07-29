@@ -438,6 +438,7 @@ impl StudioCore {
     }
 
     fn open(&mut self, path: &Path) -> anyhow::Result<()> {
+        self.console.reset_vm();
         let meta = cart::load_cart(
             &mut self.console.vm,
             path,

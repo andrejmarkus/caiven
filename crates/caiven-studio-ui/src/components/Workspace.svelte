@@ -890,7 +890,9 @@
             <button class:active={collisionBrush === 2 && mapTool !== 'erase'} onclick={() => { collisionBrush = 2; if (mapTool === 'erase') mapTool = 'pencil'; }}><i class="brush-dot hazard"></i>Hazard</button>
           </div>
         {/if}
-        <label><input type="checkbox" bind:checked={collisionOverlay} />Collision overlay</label>
+        {#if mapLayer === 'tiles'}
+          <label><input type="checkbox" bind:checked={collisionOverlay} />Collision overlay</label>
+        {/if}
         <div class="map-zoom" aria-label="Map zoom">{#each MAP_ZOOM_LEVELS as value}<button class:active={Math.abs(mapZoom - value) < 0.02} onclick={() => mapZoom = value}>{value * 100}%</button>{/each}</div>
         <code class="map-zoom-readout">{Math.round(mapZoom * 100)}%</code>
       </div>

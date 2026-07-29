@@ -845,11 +845,12 @@
 
       const pullFrame = async () => {
         if (!alive) return;
-        // frameData only feeds the cart screen's cover-art preview — polling it off-screen
+        // frameData feeds the live console preview (code/sprites/map/palette/sfx/music
+        // screens) and the cart screen's cover-art preview — polling it off those screens
         // wastes a 128x128 RGBA IPC round-trip every animation frame and, in the real Tauri
         // app, competes with MapCanvas/SpriteCanvas's own rAF-driven redraw for the main
         // thread, causing visible lag while drawing.
-        if (screen === 'cart') {
+        if (consoleRelevant || screen === 'cart') {
           try {
             const next = await readFrame();
             if (next) frameData = next;
