@@ -885,9 +885,9 @@
         <span class="map-toolbar-spacer"></span>
         {#if mapLayer === 'collision'}
           <div class="collision-brush" aria-label="Collision brush">
-            <button class:active={collisionBrush === 0 && mapTool !== 'erase'} onclick={() => { collisionBrush = 0; if (mapTool === 'erase') mapTool = 'pencil'; }}>Walkable</button>
-            <button class:active={collisionBrush === 1 && mapTool !== 'erase'} onclick={() => { collisionBrush = 1; if (mapTool === 'erase') mapTool = 'pencil'; }}>Solid</button>
-            <button class:active={collisionBrush === 2 && mapTool !== 'erase'} onclick={() => { collisionBrush = 2; if (mapTool === 'erase') mapTool = 'pencil'; }}>Hazard</button>
+            <button class:active={collisionBrush === 0 && mapTool !== 'erase'} onclick={() => { collisionBrush = 0; if (mapTool === 'erase') mapTool = 'pencil'; }}><i class="brush-dot walkable"></i>Walkable</button>
+            <button class:active={collisionBrush === 1 && mapTool !== 'erase'} onclick={() => { collisionBrush = 1; if (mapTool === 'erase') mapTool = 'pencil'; }}><i class="brush-dot solid"></i>Solid</button>
+            <button class:active={collisionBrush === 2 && mapTool !== 'erase'} onclick={() => { collisionBrush = 2; if (mapTool === 'erase') mapTool = 'pencil'; }}><i class="brush-dot hazard"></i>Hazard</button>
           </div>
         {/if}
         <label><input type="checkbox" bind:checked={collisionOverlay} />Collision overlay</label>
@@ -934,7 +934,7 @@
           <div class="collision-edit-note">
             <span class="eyebrow"><ShieldCheck size={13} />Collision painting</span>
             <strong>{mapTool === 'erase' || collisionBrush === 0 ? 'Walkable' : collisionBrush === 1 ? 'Solid' : 'Hazard'} brush</strong>
-            <p>Collision belongs to tile type. Painting one cell updates every map cell using same tile while preserving flags 2–7.</p>
+            <p>Per tile type, not per cell — painting one cell recolors every cell using that tile everywhere on the map. Other flags (2–7) stay untouched.</p>
           </div>
         {/if}
         <span class="eyebrow">Tile picker</span>

@@ -557,6 +557,9 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .collision-brush button { font-family: var(--font-mono); font-size: 9px; }
 .collision-brush button:nth-child(2).active { color: var(--color-ember); }
 .collision-brush button:nth-child(3).active { color: var(--destructive); }
+.brush-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--color-ink-faint); }
+.brush-dot.solid { background: var(--color-ember); }
+.brush-dot.hazard { background: var(--destructive); }
 .map-toolbar-divider { width: 1px; height: 22px; flex: none; background: var(--border-subtle); }
 .map-toolbar .map-zoom { padding: 2px; display: flex; border-radius: 7px; background: var(--color-void-900); }
 .map-toolbar .map-zoom button { height: 25px; padding: 0 7px; font-family: var(--font-mono); font-size: 9px; }

@@ -64,15 +64,15 @@
       const flags = flagDraft.get(tile) ?? spriteFlags[tile] ?? 0;
       if (collision && (flags & 3) !== 0) {
         const hazard = (flags & 2) !== 0;
-        const tint: [number, number, number, number] = hazard ? [229, 85, 95, 255] : [254, 176, 93, 255];
+        const tint: [number, number, number] = hazard ? [229, 85, 95] : [254, 176, 93];
         for (let pixelY = 0; pixelY < 8; pixelY += 1) for (let pixelX = 0; pixelX < 8; pixelX += 1) {
-          const border = pixelX === 0 || pixelX === 7 || pixelY === 0 || pixelY === 7;
+          const border = pixelX <= 1 || pixelX >= 6 || pixelY <= 1 || pixelY >= 6;
           const hatch = hazard && (pixelX + pixelY) % 4 === 0;
-          if (!border && !hatch) continue;
           const at = ((tileY * 8 + pixelY) * 512 + tileX * 8 + pixelX) * 4;
-          image.data[at] = tint[0];
-          image.data[at + 1] = tint[1];
-          image.data[at + 2] = tint[2];
+          const alpha = border || hatch ? 0.85 : 0.3;
+          image.data[at] = image.data[at] * (1 - alpha) + tint[0] * alpha;
+          image.data[at + 1] = image.data[at + 1] * (1 - alpha) + tint[1] * alpha;
+          image.data[at + 2] = image.data[at + 2] * (1 - alpha) + tint[2] * alpha;
           image.data[at + 3] = 255;
         }
       }
