@@ -80,12 +80,17 @@
     context.putImageData(image, 0, 0);
   }
 
+  // Coalesces redraws triggered by prop changes (bank switch, external map edits) that
+  // aren't already followed by a direct render() call. Not requestAnimationFrame: WKWebView's
+  // native mouse-tracking run loop (active for the whole time a button is held) starves rAF's
+  // display-link callback, so a deferred rAF redraw can silently stall for seconds — confirmed
+  // by instrumentation. setTimeout keeps running in that mode.
   function scheduleRender() {
     if (!canvas || renderFrame !== undefined) return;
-    renderFrame = requestAnimationFrame(() => {
+    renderFrame = window.setTimeout(() => {
       renderFrame = undefined;
       render();
-    });
+    }, 16);
   }
 
   $effect(() => {
@@ -94,7 +99,7 @@
   });
 
   onDestroy(() => {
-    if (renderFrame !== undefined) cancelAnimationFrame(renderFrame);
+    if (renderFrame !== undefined) clearTimeout(renderFrame);
   });
 
   function pointerCell(event: PointerEvent) {
@@ -185,17 +190,25 @@
     }
     canvas.setPointerCapture(event.pointerId);
     drawStroke(at);
+    render(); // paint inline — see move() for why this can't wait for scheduleRender()
   }
 
   function move(event: PointerEvent) {
     reportHover(event);
     if (!drawing) return;
     const at = pointerCell(event);
+    // Paints happen synchronously, in the pointer handler itself, rather than deferring to
+    // scheduleRender()'s timer: the timer callback still *runs* while the mouse button is
+    // held, but WKWebView doesn't actually composite/flush the canvas to screen again until
+    // the native tracking loop ends — confirmed by comparing a scheduled render (invisible
+    // for the whole drag) against a synchronous one (paints every move) in the same build.
     if (tool === 'rect' || tool === 'line') {
       drawStroke(at);
+      render();
     } else if ((tool === 'pencil' || tool === 'erase') && previousCell !== at) {
       drawStroke(at);
       previousCell = at;
+      render();
     }
   }
 

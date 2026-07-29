@@ -141,6 +141,9 @@ function installBridge() {
     calls.push({ command, args: JSON.parse(JSON.stringify(args)) as Record<string, unknown> });
     maybeFail(command, args);
     const delay = takeDelay(command, args);
+    // studio_asset_bank mutates state synchronously, then delays only the reply (below) —
+    // preserves "which mutation wins" ordering for out-of-order-response tests.
+    if (delay > 0 && command !== 'studio_asset_bank') await new Promise((resolve) => setTimeout(resolve, delay));
     if (command === 'plugin:event|listen') {
       const id = ++listenerId;
       const event = String(args.event);

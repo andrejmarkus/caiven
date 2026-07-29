@@ -45,12 +45,17 @@
     }
   }
 
+  // Coalesces redraws triggered by prop changes (bank switch, external sprite edits) that
+  // aren't already followed by a direct render() call. Not requestAnimationFrame: WKWebView's
+  // native mouse-tracking run loop (active for the whole time a button is held) starves rAF's
+  // display-link callback, so a deferred rAF redraw can silently stall for seconds — confirmed
+  // by instrumentation. setTimeout keeps running in that mode.
   function scheduleRender() {
     if (!canvas || renderFrame !== undefined) return;
-    renderFrame = requestAnimationFrame(() => {
+    renderFrame = window.setTimeout(() => {
       renderFrame = undefined;
       render();
-    });
+    }, 16);
   }
 
   $effect(() => {
@@ -59,7 +64,7 @@
   });
 
   onDestroy(() => {
-    if (renderFrame !== undefined) cancelAnimationFrame(renderFrame);
+    if (renderFrame !== undefined) clearTimeout(renderFrame);
   });
 
   function pointerPixel(event: PointerEvent) {
@@ -106,16 +111,24 @@
     }
     canvas.setPointerCapture(event.pointerId);
     applyStroke(at);
+    render(); // paint inline — see move() for why this can't wait for scheduleRender()
   }
 
   function move(event: PointerEvent) {
     if (!drawing) return;
     const at = pointerPixel(event);
+    // Paints happen synchronously, in the pointer handler itself, rather than deferring to
+    // scheduleRender()'s timer: the timer callback still *runs* while the mouse button is
+    // held, but WKWebView doesn't actually composite/flush the canvas to screen again until
+    // the native tracking loop ends — confirmed by comparing a scheduled render (invisible
+    // for the whole drag) against a synchronous one (paints every move) in the same build.
     if (tool === 'rect' || tool === 'line') {
       applyStroke(at);
+      render();
     } else if ((tool === 'pencil' || tool === 'erase') && previousPixel !== at) {
       applyStroke(at);
       previousPixel = at;
+      render();
     }
   }
 

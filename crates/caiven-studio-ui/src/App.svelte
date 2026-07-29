@@ -817,15 +817,20 @@
       else if (!localStorage.getItem('caiven-studio-tour-complete')) overlay = 'tour';
       status = initial.connected ? `Loaded ${tidyPath(initial.path)}` : 'Browser preview · IPC disconnected';
 
+      let tickInFlight = false;
       tickTimer = setInterval(() => {
+        if (tickInFlight) return;
+        tickInFlight = true;
         void readTick().then((tick) => {
           if (!alive) return;
           applyTick(tick);
-        }).catch(() => {});
+        }).catch(() => {}).finally(() => { tickInFlight = false; });
       }, 120);
 
+      let stateInFlight = false;
       stateTimer = setInterval(() => {
-        if (pendingWrites > 0) return;
+        if (pendingWrites > 0 || stateInFlight) return;
+        stateInFlight = true;
         void Promise.all([readMemory(0, 65536), readAssetIndex()]).then(([ram, index]) => {
           if (!alive) return;
           studio.ram = ram;
@@ -835,7 +840,7 @@
           studio.sfx = ram.slice(MEMORY.sfx, MEMORY.music);
           studio.music = ram.slice(MEMORY.music, MEMORY.music + 256);
           studio.assetIndex = index;
-        }).catch(() => {});
+        }).catch(() => {}).finally(() => { stateInFlight = false; });
       }, 1000);
 
       const pullFrame = async () => {

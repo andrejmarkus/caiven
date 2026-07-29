@@ -215,6 +215,26 @@ test('frame polling only runs while the cart cover-art preview is visible', asyn
   expect(callsLater).toBe(callsAfterLeaving);
 });
 
+test('tick and state polling do not overlap when a round-trip runs long', async ({ page, e2e }) => {
+  await page.waitForTimeout(300);
+  const baseline = (await e2e.calls()).filter((call) => call.command === 'studio_tick').length;
+
+  // One slow studio_tick response (much longer than the 120ms poll interval) must not cause
+  // a pile-up of concurrent in-flight requests — the poller should skip ticks until it
+  // resolves. Wide margins (3s delay, sampled well clear of both ends) keep this robust
+  // against normal test-runner scheduling jitter.
+  await e2e.delayNext('studio_tick', 3000);
+  await page.waitForTimeout(200); // let the slow call actually start before measuring
+  const duringSlowCall = (await e2e.calls()).filter((call) => call.command === 'studio_tick').length;
+  await page.waitForTimeout(2500); // still well within the 3s delay window
+  const stillDuringSlowCall = (await e2e.calls()).filter((call) => call.command === 'studio_tick').length;
+  expect(stillDuringSlowCall).toBe(duringSlowCall);
+  expect(duringSlowCall).toBeGreaterThan(baseline);
+
+  await expect.poll(async () => (await e2e.calls()).filter((call) => call.command === 'studio_tick').length)
+    .toBeGreaterThan(stillDuringSlowCall);
+});
+
 test('Port unreachable, expired session, and publish failure stay actionable', async ({ page, e2e, errorGuard }) => {
   errorGuard.allow(/port request failed:/);
   await page.getByTitle(/^Library/).click();
