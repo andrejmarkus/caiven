@@ -2033,9 +2033,12 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
 }
 
 pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_opener::init());
+    #[cfg(debug_assertions)]
+    let builder = builder.plugin(tauri_plugin_webdriver_automation::init());
+    builder
         .manage(spawn_core(initial_path))
         .menu(build_menu)
         .on_menu_event(|app, event| {

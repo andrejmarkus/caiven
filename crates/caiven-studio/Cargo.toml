@@ -29,6 +29,9 @@ tauri = { workspace = true }
 tauri-runtime = { workspace = true }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
+
+[target.'cfg(debug_assertions)'.dependencies]
+tauri-plugin-webdriver-automation = "0.1"
 toml = { workspace = true }
 ureq = { workspace = true }
 wry = { workspace = true }
