@@ -14,7 +14,8 @@
 //! 0x9200 ─ 0x95FF   SFX bank (16 sfx × 64 bytes)
 //! 0x9600 ─ 0x96FF   music bank (8 patterns × 32 bytes)
 //! 0x9700 ─ 0x9702   RTC peripheral (hour, minute, second)
-//! 0x9703 ─ 0xFFFF   general purpose / heap
+//! 0x9703 ─ 0xA702   per-cell collision (64 × 64 tiles, 1 byte per cell)
+//! 0xA703 ─ 0xFFFF   general purpose / heap
 //! ```
 
 /// Screen width in pixels.
@@ -68,8 +69,13 @@ pub const RTC_RAM_BASE: usize = 0x9700;
 /// RTC register block length in bytes (hour, minute, second).
 pub const RTC_LEN: usize = 3;
 
+/// RAM base address of the per-cell collision layer (companion of Map).
+pub const COLLISION_RAM_BASE: usize = 0x9703;
+/// Collision layer length in bytes (64 × 64 cells, 1 byte per cell).
+pub const COLLISION_LEN: usize = MAP_W * MAP_H;
+
 /// RAM base address of general-purpose/heap space.
-pub const HEAP_RAM_BASE: usize = 0x9703;
+pub const HEAP_RAM_BASE: usize = 0xA703;
 
 #[cfg(test)]
 mod tests {
@@ -81,7 +87,7 @@ mod tests {
     /// runs past the next region's start.
     #[test]
     fn ram_regions_do_not_overlap_and_fit_in_ram() {
-        let regions: [(&str, usize, usize); 7] = [
+        let regions: [(&str, usize, usize); 8] = [
             ("sprite_sheet", SPRITE_SHEET_RAM_BASE, SPRITE_SHEET_LEN),
             ("map", MAP_RAM_BASE, MAP_LEN),
             ("sprite_flags", SPRITE_FLAGS_RAM_BASE, SPRITE_FLAGS_LEN),
@@ -89,6 +95,7 @@ mod tests {
             ("sfx", SFX_RAM_BASE, SFX_BANK_LEN),
             ("music", MUSIC_RAM_BASE, MUSIC_BANK_LEN),
             ("rtc", RTC_RAM_BASE, RTC_LEN),
+            ("collision", COLLISION_RAM_BASE, COLLISION_LEN),
         ];
 
         let mut prev_end = 0usize;
