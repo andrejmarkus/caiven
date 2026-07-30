@@ -369,6 +369,8 @@ impl Vm {
                 | SectionKind::ModManifest
                 | SectionKind::LuaSource
                 | SectionKind::Custom(_) => continue,
+                // Wired up in Step P2.3 (banked collision, companion of Map).
+                SectionKind::Collision | SectionKind::CollisionBank => continue,
             };
             self.load_section_to_ram(ram_base, &section.data);
             if section.kind == SectionKind::Palette {

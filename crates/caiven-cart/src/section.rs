@@ -23,6 +23,11 @@ pub enum SectionKind {
     SfxBanks,
     /// Additional music bank. Data starts with bank id, followed by pattern bytes.
     MusicBanks,
+    /// Per-cell collision layer for the bank-0 map (64 × 64, one byte per cell).
+    Collision,
+    /// Additional collision layer, companion of a `MapBank`. Data starts
+    /// with bank id, followed by one collision byte per cell.
+    CollisionBank,
     Custom(u16),
 }
 
@@ -45,6 +50,8 @@ impl SectionKind {
             Self::PaletteBank => 0x000E,
             Self::SfxBanks => 0x000F,
             Self::MusicBanks => 0x0010,
+            Self::Collision => 0x0011,
+            Self::CollisionBank => 0x0012,
             Self::Custom(n) => n,
         }
     }
@@ -67,6 +74,8 @@ impl SectionKind {
             0x000E => Self::PaletteBank,
             0x000F => Self::SfxBanks,
             0x0010 => Self::MusicBanks,
+            0x0011 => Self::Collision,
+            0x0012 => Self::CollisionBank,
             n => Self::Custom(n),
         }
     }
@@ -89,6 +98,8 @@ impl SectionKind {
             Self::PaletteBank => "PaletteBank",
             Self::SfxBanks => "SfxBanks",
             Self::MusicBanks => "MusicBanks",
+            Self::Collision => "Collision",
+            Self::CollisionBank => "CollisionBank",
             Self::Custom(_) => "Custom",
         }
     }

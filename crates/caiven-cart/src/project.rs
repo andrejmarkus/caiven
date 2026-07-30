@@ -22,13 +22,15 @@
 //!   sfx_1.hex         (additional SFX bank 1)
 //!   music.hex         (__music__)
 //!   music_1.hex       (additional music bank 1)
+//!   collision.hex     (per-cell collision, companion of map)
+//!   collision_1.hex   (additional collision bank 1, companion of map bank 1)
 //! ```
 //!
 //! Sprites, map, and palette each support both `.png` (visual, editable in
 //! any image tool) and `.hex` (per-line text diffs) — whichever file is
 //! already on disk is preserved on save; a brand-new asset is written as
-//! `.png`. Sprite flags, SFX, and music are index/audio data rather than
-//! images, so they're `.hex` only.
+//! `.png`. Sprite flags, SFX, music, and collision are index/audio data
+//! rather than images, so they're `.hex` only.
 
 use std::path::{Path, PathBuf};
 
@@ -50,13 +52,14 @@ const DEFAULT_ENTRY: &str = "main.lua";
 /// first so its bytes are available for `SpriteSheet`'s PNG decode/encode
 /// (an indexed PNG's own PLTE is used when present; the loaded palette is
 /// only a fallback for nearest-color matching a plain RGB PNG).
-const SECTION_STEMS: [(SectionKind, &str); 6] = [
+const SECTION_STEMS: [(SectionKind, &str); 7] = [
     (SectionKind::Palette, "palette"),
     (SectionKind::SpriteSheet, "sprites"),
     (SectionKind::Map, "map"),
     (SectionKind::SpriteFlags, "sprite_flags"),
     (SectionKind::SfxBank, "sfx"),
     (SectionKind::MusicBank, "music"),
+    (SectionKind::Collision, "collision"),
 ];
 
 /// Additional-bank section kinds (id != 0): the wrapper `SectionKind` that
@@ -65,7 +68,7 @@ const SECTION_STEMS: [(SectionKind, &str); 6] = [
 /// `SpriteFlagsBank` has no independent Lua selector — it's a companion of
 /// `SpriteBank` (see `AssetBankKind::companion` in caiven-vm) but still
 /// round-trips as its own sibling file per bank id.
-const BANK_KINDS: [(SectionKind, SectionKind, &str); 6] = [
+const BANK_KINDS: [(SectionKind, SectionKind, &str); 7] = [
     (SectionKind::SpriteBank, SectionKind::SpriteSheet, "sprites"),
     (SectionKind::MapBank, SectionKind::Map, "map"),
     (
@@ -76,6 +79,11 @@ const BANK_KINDS: [(SectionKind, SectionKind, &str); 6] = [
     (SectionKind::PaletteBank, SectionKind::Palette, "palette"),
     (SectionKind::SfxBanks, SectionKind::SfxBank, "sfx"),
     (SectionKind::MusicBanks, SectionKind::MusicBank, "music"),
+    (
+        SectionKind::CollisionBank,
+        SectionKind::Collision,
+        "collision",
+    ),
 ];
 
 fn stem_for(kind: SectionKind) -> Option<&'static str> {
@@ -715,6 +723,37 @@ mod tests {
         save_project(dir.path(), &header, "-- code\n", &[], &[]).unwrap();
         assert!(!dir.path().join("palette_1.png").exists());
         assert!(!dir.path().join("sfx_1.hex").exists());
+    }
+
+    #[test]
+    fn collision_additional_bank_roundtrips() {
+        let dir = tempfile::tempdir().unwrap();
+        let header = CartHeader::new("Banks", "");
+        let collision_bank = encode_asset_bank(1, &[0, 1, 2, 1]);
+        save_project(
+            dir.path(),
+            &header,
+            "-- code\n",
+            &[],
+            &[(SectionKind::CollisionBank, collision_bank)],
+        )
+        .unwrap();
+        // Collision is index data, not an image: hex-only, like sprite flags.
+        assert!(dir.path().join("collision_1.hex").is_file());
+        assert!(!dir.path().join("collision_1.png").exists());
+
+        let cart = load_project(dir.path()).unwrap();
+        let collision = cart
+            .sections
+            .iter()
+            .find(|s| s.kind == SectionKind::CollisionBank)
+            .unwrap();
+        let (id, cells) = decode_asset_bank(&collision.data).unwrap();
+        assert_eq!(id, 1);
+        assert_eq!(&cells[..4], &[0, 1, 2, 1]);
+
+        save_project(dir.path(), &header, "-- code\n", &[], &[]).unwrap();
+        assert!(!dir.path().join("collision_1.hex").exists());
     }
 
     #[test]
