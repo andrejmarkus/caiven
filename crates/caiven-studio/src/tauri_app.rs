@@ -1225,6 +1225,7 @@ fn section_kind_for_bank(kind: AssetBankKind) -> SectionKind {
         AssetBankKind::Palette => SectionKind::PaletteBank,
         AssetBankKind::Sfx => SectionKind::SfxBanks,
         AssetBankKind::Music => SectionKind::MusicBanks,
+        AssetBankKind::Collision => SectionKind::CollisionBank,
     }
 }
 

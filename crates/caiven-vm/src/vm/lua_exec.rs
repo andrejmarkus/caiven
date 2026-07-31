@@ -22,7 +22,7 @@ use crate::rendering::font::Font;
 use crate::rendering::screen::ScreenLayer;
 use crate::rendering::text::draw_text;
 use caiven_core::memory::{
-    MAP_H, MAP_RAM_BASE, MAP_W, PALETTE_RAM_BASE, RTC_RAM_BASE, SPRITE_BYTES,
+    COLLISION_RAM_BASE, MAP_H, MAP_RAM_BASE, MAP_W, PALETTE_RAM_BASE, RTC_RAM_BASE, SPRITE_BYTES,
     SPRITE_FLAGS_RAM_BASE, SPRITE_SHEET_RAM_BASE,
 };
 use caiven_core::{Color, Vec2};
@@ -54,6 +54,8 @@ const BUILTIN_NAMES: &[&str] = &[
     "set_tile",
     "get_sprite_flags",
     "set_sprite_flags",
+    "get_collision",
+    "set_collision",
     "load_sprite_bank",
     "load_map_bank",
     "load_palette_bank",
@@ -706,6 +708,32 @@ fn register_builtins<'scope, 'env>(
             let _ = memory
                 .borrow_mut()
                 .write(SPRITE_FLAGS_RAM_BASE + sprite_id as usize, flags);
+            Ok(())
+        })?,
+    )?;
+
+    globals.set(
+        "get_collision",
+        scope.create_function(|_, (tx, ty): (i64, i64)| {
+            if !(0..MAP_W as i64).contains(&tx) || !(0..MAP_H as i64).contains(&ty) {
+                return Ok(0u8);
+            }
+            Ok(memory
+                .borrow()
+                .read(COLLISION_RAM_BASE + ty as usize * MAP_W + tx as usize)
+                .unwrap_or(0))
+        })?,
+    )?;
+
+    globals.set(
+        "set_collision",
+        scope.create_function_mut(|_, (tx, ty, value): (i64, i64, u8)| {
+            if (0..MAP_W as i64).contains(&tx) && (0..MAP_H as i64).contains(&ty) {
+                let _ = memory.borrow_mut().write(
+                    COLLISION_RAM_BASE + ty as usize * MAP_W + tx as usize,
+                    value,
+                );
+            }
             Ok(())
         })?,
     )?;

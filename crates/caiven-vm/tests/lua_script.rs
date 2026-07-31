@@ -530,8 +530,7 @@ fn prelude_aabb_overlap() {
 fn prelude_tile_solid_and_box_touches_solid() {
     let got = run_and_get(
         r#"
-        set_tile(0, 0, 5)
-        set_sprite_flags(5, 1)
+        set_collision(0, 0, 1)
         a = tile_solid(0, 0)
         b = tile_solid(1, 0)
         c = box_touches_solid(0, 0, SPRITE_SIZE, SPRITE_SIZE)

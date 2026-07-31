@@ -24,9 +24,9 @@ use crate::vm::Camera;
 use crate::vm::audio::{NoiseChannel, Sound, SquareChannel};
 use caiven_cart::{CartSection, SectionKind, decode_asset_bank};
 use caiven_core::memory::{
-    MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE, PALETTE_RAM_BASE, PALETTE_SIZE,
-    SFX_BANK_LEN, SFX_RAM_BASE, SPRITE_FLAGS_LEN, SPRITE_FLAGS_RAM_BASE, SPRITE_SHEET_LEN,
-    SPRITE_SHEET_RAM_BASE,
+    COLLISION_LEN, COLLISION_RAM_BASE, MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE,
+    PALETTE_RAM_BASE, PALETTE_SIZE, SFX_BANK_LEN, SFX_RAM_BASE, SPRITE_FLAGS_LEN,
+    SPRITE_FLAGS_RAM_BASE, SPRITE_SHEET_LEN, SPRITE_SHEET_RAM_BASE,
 };
 use caiven_core::{Color, Vec2};
 use log::error;
@@ -45,6 +45,10 @@ pub enum AssetBankKind {
     Palette,
     Sfx,
     Music,
+    /// Per-cell collision layer (`0` walkable / `1` solid / `2` hazard) that
+    /// shadows the active Map bank — a companion bank like `SpriteFlags`,
+    /// no independent Lua selector, always follows `load_map_bank`.
+    Collision,
 }
 
 impl AssetBankKind {
@@ -54,6 +58,7 @@ impl AssetBankKind {
     pub fn companion(self) -> Option<AssetBankKind> {
         match self {
             AssetBankKind::Sprites => Some(AssetBankKind::SpriteFlags),
+            AssetBankKind::Map => Some(AssetBankKind::Collision),
             _ => None,
         }
     }
@@ -65,13 +70,14 @@ struct AssetBanks {
 }
 
 impl AssetBanks {
-    const KINDS: [AssetBankKind; 6] = [
+    const KINDS: [AssetBankKind; 7] = [
         AssetBankKind::Sprites,
         AssetBankKind::Map,
         AssetBankKind::SpriteFlags,
         AssetBankKind::Palette,
         AssetBankKind::Sfx,
         AssetBankKind::Music,
+        AssetBankKind::Collision,
     ];
 
     fn new() -> Self {
@@ -93,6 +99,7 @@ impl AssetBanks {
             AssetBankKind::Palette => (PALETTE_RAM_BASE, PALETTE_SIZE * 3),
             AssetBankKind::Sfx => (SFX_RAM_BASE, SFX_BANK_LEN),
             AssetBankKind::Music => (MUSIC_RAM_BASE, MUSIC_BANK_LEN),
+            AssetBankKind::Collision => (COLLISION_RAM_BASE, COLLISION_LEN),
         }
     }
 
@@ -295,6 +302,11 @@ impl Vm {
     /// once each grew a second, independently-written call site.
     pub fn load_cart_sections(&mut self, sections: &[CartSection]) -> Option<String> {
         self.asset_banks = AssetBanks::new();
+        // Bank ids the cart genuinely carried Collision data for — distinct
+        // from `asset_banks`' always-present zero-filled bank-0 default, so
+        // the synthesis pass below can tell "no collision authored" from
+        // "collision authored, and it happens to be all zero".
+        let mut collision_ids_from_cart = std::collections::BTreeSet::new();
         for section in sections {
             let ram_base = match section.kind {
                 SectionKind::SpriteSheet => {
@@ -322,6 +334,22 @@ impl Vm {
                         self.asset_banks
                             .banks_mut(AssetBankKind::Map)
                             .insert(id, AssetBanks::normalized(data, MAP_LEN));
+                    }
+                    continue;
+                }
+                SectionKind::Collision => {
+                    self.asset_banks
+                        .banks_mut(AssetBankKind::Collision)
+                        .insert(0, AssetBanks::normalized(&section.data, COLLISION_LEN));
+                    collision_ids_from_cart.insert(0);
+                    continue;
+                }
+                SectionKind::CollisionBank => {
+                    if let Some((id, data)) = decode_asset_bank(&section.data) {
+                        self.asset_banks
+                            .banks_mut(AssetBankKind::Collision)
+                            .insert(id, AssetBanks::normalized(data, COLLISION_LEN));
+                        collision_ids_from_cart.insert(id);
                     }
                     continue;
                 }
@@ -369,15 +397,56 @@ impl Vm {
                 | SectionKind::ModManifest
                 | SectionKind::LuaSource
                 | SectionKind::Custom(_) => continue,
-                // Wired up in Step P2.3 (banked collision, companion of Map).
-                SectionKind::Collision | SectionKind::CollisionBank => continue,
             };
             self.load_section_to_ram(ram_base, &section.data);
             if section.kind == SectionKind::Palette {
                 self.set_palette_from_bytes(&section.data);
             }
         }
-        for kind in [AssetBankKind::Sprites, AssetBankKind::Map] {
+        // Carts with no Collision/CollisionBank sections synthesize one per
+        // map bank from legacy per-tile-type sprite flags, using the
+        // SpriteFlags bank at the same id if one exists, else bank 0.
+        let map_ids: Vec<u8> = self
+            .asset_banks
+            .banks(AssetBankKind::Map)
+            .keys()
+            .copied()
+            .collect();
+        for id in map_ids {
+            if collision_ids_from_cart.contains(&id) {
+                continue;
+            }
+            let map_data = self.asset_banks.banks(AssetBankKind::Map)[&id].clone();
+            // Bank 0's SpriteFlags never lands in `asset_banks` (it self-heals
+            // there only on first select/sync) — its real bytes live in RAM.
+            let flags_data = if id != 0 {
+                self.asset_banks
+                    .banks(AssetBankKind::SpriteFlags)
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_else(|| vec![0; SPRITE_FLAGS_LEN])
+            } else {
+                (0..SPRITE_FLAGS_LEN)
+                    .map(|offset| {
+                        self.memory
+                            .read(SPRITE_FLAGS_RAM_BASE + offset)
+                            .unwrap_or(0)
+                    })
+                    .collect()
+            };
+            let collision: Vec<u8> = map_data
+                .iter()
+                .map(|&tile| flags_data.get(tile as usize).copied().unwrap_or(0) & 3)
+                .collect();
+            self.asset_banks
+                .banks_mut(AssetBankKind::Collision)
+                .insert(id, collision);
+        }
+        for kind in [
+            AssetBankKind::Sprites,
+            AssetBankKind::Map,
+            AssetBankKind::Collision,
+        ] {
             let Some(data) = self.asset_banks.banks(kind).get(&0).cloned() else {
                 continue;
             };
@@ -690,6 +759,91 @@ mod asset_bank_tests {
         // API) must carry the SpriteFlags companion along too.
         assert_eq!(vm.active_asset_bank(AssetBankKind::Sprites), 3);
         assert_eq!(vm.active_asset_bank(AssetBankKind::SpriteFlags), 3);
+        assert_eq!(
+            vm.lua_watch("switched")
+                .expect("Lua global should be readable"),
+            "true"
+        );
+    }
+
+    #[test]
+    fn collision_bank_follows_map_as_companion_and_preserves_edits() {
+        let mut vm = Vm::new(VmConfig::default());
+        // Creating a new Map bank creates and selects a fresh, zero-filled
+        // Collision bank at the same id — not a copy of bank 0.
+        assert!(vm.create_asset_bank(AssetBankKind::Map, 2));
+        assert_eq!(vm.active_asset_bank(AssetBankKind::Collision), 2);
+        assert_eq!(vm.peek_memory(COLLISION_RAM_BASE), 0);
+
+        // Switching Map banks carries Collision along in lockstep, and
+        // runtime edits to each bank's collision are preserved independently.
+        vm.poke_memory(COLLISION_RAM_BASE, 1);
+        assert!(vm.select_asset_bank(AssetBankKind::Map, 0));
+        assert_eq!(vm.active_asset_bank(AssetBankKind::Collision), 0);
+        assert_eq!(vm.peek_memory(COLLISION_RAM_BASE), 0);
+        assert!(vm.select_asset_bank(AssetBankKind::Map, 2));
+        assert_eq!(vm.active_asset_bank(AssetBankKind::Collision), 2);
+        assert_eq!(vm.peek_memory(COLLISION_RAM_BASE), 1);
+
+        // Removing the Map bank removes its companion collision bank too.
+        assert!(vm.remove_asset_bank(AssetBankKind::Map, 2));
+        assert_eq!(vm.active_asset_bank(AssetBankKind::Collision), 0);
+        assert!(!vm.asset_bank_ids(AssetBankKind::Collision).contains(&2));
+    }
+
+    #[test]
+    fn old_cart_without_collision_sections_synthesizes_from_sprite_flags() {
+        let mut vm = Vm::new(VmConfig::default());
+        // Tile 5 is flagged solid (bit 0); tile 9 is flagged hazard (bit 1).
+        let mut flags = vec![0u8; SPRITE_FLAGS_LEN];
+        flags[5] = 1;
+        flags[9] = 2;
+        // Map cell 0 uses tile 5 (solid), cell 1 uses tile 9 (hazard), the
+        // rest use tile 0 (walkable).
+        let mut map = vec![0u8; MAP_LEN];
+        map[0] = 5;
+        map[1] = 9;
+
+        vm.load_cart_sections(&[
+            CartSection {
+                kind: SectionKind::SpriteFlags,
+                data: flags,
+            },
+            CartSection {
+                kind: SectionKind::Map,
+                data: map,
+            },
+        ]);
+
+        assert_eq!(vm.peek_memory(COLLISION_RAM_BASE), 1);
+        assert_eq!(vm.peek_memory(COLLISION_RAM_BASE + 1), 2);
+        assert_eq!(vm.peek_memory(COLLISION_RAM_BASE + 2), 0);
+    }
+
+    #[test]
+    fn lua_load_map_bank_carries_collision_companion() {
+        let mut vm = Vm::new(VmConfig::default());
+        let mut collision = vec![0u8; COLLISION_LEN];
+        collision[0] = 1;
+        vm.load_cart_sections(&[
+            CartSection {
+                kind: SectionKind::MapBank,
+                data: encode_asset_bank(4, &vec![0; MAP_LEN]),
+            },
+            CartSection {
+                kind: SectionKind::CollisionBank,
+                data: encode_asset_bank(4, &collision),
+            },
+        ]);
+        vm.load_lua_source(
+            "function _init() switched = load_map_bank(4) end\nfunction _update() end",
+            &Input::new(),
+            &Font::empty(),
+        )
+        .expect("Lua banking fixture should load");
+
+        assert_eq!(vm.active_asset_bank(AssetBankKind::Collision), 4);
+        assert_eq!(vm.peek_memory(COLLISION_RAM_BASE), 1);
         assert_eq!(
             vm.lua_watch("switched")
                 .expect("Lua global should be readable"),

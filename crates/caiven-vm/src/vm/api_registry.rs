@@ -213,6 +213,22 @@ pub const BUILTINS: &[ApiEntry] = &[
         doc: "Write the per-sprite flag byte for sprite_id.",
     },
     ApiEntry {
+        name: "get_collision",
+        params: &[param!("tx": "number"), param!("ty": "number")],
+        returns: "u8",
+        doc: "Read the per-cell collision value at map cell (tx, ty): 0 walkable, 1 solid, 2 hazard; 0 if out of bounds.",
+    },
+    ApiEntry {
+        name: "set_collision",
+        params: &[
+            param!("tx": "number"),
+            param!("ty": "number"),
+            param!("value": "u8"),
+        ],
+        returns: "nil",
+        doc: "Write the per-cell collision value at map cell (tx, ty); no-op if out of bounds.",
+    },
+    ApiEntry {
         name: "load_sprite_bank",
         params: &[param!("id": "u8")],
         returns: "bool",
@@ -347,7 +363,7 @@ pub const PRELUDE: &[ApiEntry] = &[
         name: "tile_solid",
         params: &[param!("tx": "number"), param!("ty": "number")],
         returns: "bool",
-        doc: "True if the map tile at cell (tx, ty) has sprite flag bit 0 set.",
+        doc: "True if the per-cell collision value at (tx, ty) is 1 (solid).",
     },
     ApiEntry {
         name: "box_touches_solid",
