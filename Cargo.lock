@@ -976,6 +976,9 @@ dependencies = [
 [[package]]
 name = "caiven-core"
 version = "0.1.0"
+dependencies = [
+ "regex",
+]
 
 [[package]]
 name = "caiven-machine"

@@ -3,5 +3,8 @@ name = "caiven-core"
 version = "0.1.0"
 edition = "2024"
 
+[dev-dependencies]
+regex.workspace = true
+
 [lints]
 workspace = true
