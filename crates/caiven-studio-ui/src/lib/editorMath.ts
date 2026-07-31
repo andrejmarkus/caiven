@@ -13,24 +13,17 @@ export function dragPanScroll(startScroll: number, startPointer: number, current
 }
 
 export type CollisionBrush = 0 | 1 | 2;
-export interface SpriteFlagEdit { tile: number; flags: number; }
+export interface CollisionEdit { offset: number; value: number; }
 
-export function collisionFlags(flags: number, brush: CollisionBrush): number {
-  return (flags & ~0b11) | brush;
-}
-
-export function collisionFlagEdits(
-  map: readonly number[], spriteFlags: readonly number[], offsets: readonly number[], brush: CollisionBrush,
-): SpriteFlagEdit[] {
+export function collisionCellEdits(
+  collision: readonly number[], offsets: readonly number[], brush: CollisionBrush,
+): CollisionEdit[] {
   const edits = new Map<number, number>();
   for (const offset of offsets) {
-    const tile = map[offset] ?? 0;
-    if (tile <= 0 || tile >= spriteFlags.length) continue;
-    const before = spriteFlags[tile] ?? 0;
-    const after = collisionFlags(before, brush);
-    if (after !== before) edits.set(tile, after);
+    const before = collision[offset] ?? 0;
+    if (before !== brush) edits.set(offset, brush);
   }
-  return [...edits].map(([tile, flags]) => ({ tile, flags }));
+  return [...edits].map(([offset, value]) => ({ offset, value }));
 }
 
 export function sourceOffset(source: string, line: number, column = 1): number {

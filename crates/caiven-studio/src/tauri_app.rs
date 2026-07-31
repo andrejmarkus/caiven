@@ -10,9 +10,9 @@ use crate::studio::{SourceFile, asset_index, cart, recent, templates};
 use caiven_cart::{SectionKind, encode_asset_bank};
 use caiven_core::Color;
 use caiven_core::memory::{
-    MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE, PALETTE_RAM_BASE, PALETTE_SIZE,
-    RAM_SIZE, SFX_BANK_LEN, SFX_RAM_BASE, SPRITE_BYTES, SPRITE_FLAGS_LEN, SPRITE_FLAGS_RAM_BASE,
-    SPRITE_SHEET_LEN, SPRITE_SHEET_RAM_BASE,
+    COLLISION_LEN, COLLISION_RAM_BASE, MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE,
+    PALETTE_RAM_BASE, PALETTE_SIZE, RAM_SIZE, SFX_BANK_LEN, SFX_RAM_BASE, SPRITE_BYTES,
+    SPRITE_FLAGS_LEN, SPRITE_FLAGS_RAM_BASE, SPRITE_SHEET_LEN, SPRITE_SHEET_RAM_BASE,
 };
 use caiven_vm::input::Button;
 use caiven_vm::runtime::ConsoleCore;
@@ -169,6 +169,13 @@ struct MapCellPayload {
     tile: u8,
 }
 
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CollisionCellPayload {
+    offset: usize,
+    value: u8,
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BootstrapPayload {
@@ -189,6 +196,7 @@ struct BootstrapPayload {
     active_sprite_bank: u8,
     active_map_bank: u8,
     sprite_flags: Vec<u8>,
+    collision: Vec<u8>,
     sfx: Vec<u8>,
     music: Vec<u8>,
     palette_banks: Vec<u8>,
@@ -346,6 +354,10 @@ enum CoreCommand {
     },
     WriteMapCells {
         cells: Vec<MapCellPayload>,
+        reply: mpsc::Sender<Result<(), String>>,
+    },
+    WriteCollisionCells {
+        cells: Vec<CollisionCellPayload>,
         reply: mpsc::Sender<Result<(), String>>,
     },
     WriteMeta {
@@ -639,6 +651,7 @@ impl StudioCore {
         let sprite_sheet = read_region(&self.console, SPRITE_SHEET_RAM_BASE, SPRITE_SHEET_LEN);
         let map = read_region(&self.console, MAP_RAM_BASE, MAP_LEN);
         let sprite_flags = read_region(&self.console, SPRITE_FLAGS_RAM_BASE, SPRITE_FLAGS_LEN);
+        let collision = read_region(&self.console, COLLISION_RAM_BASE, COLLISION_LEN);
         let sfx = read_region(&self.console, SFX_RAM_BASE, SFX_BANK_LEN);
         let music = read_region(&self.console, MUSIC_RAM_BASE, MUSIC_BANK_LEN);
         BootstrapPayload {
@@ -669,6 +682,7 @@ impl StudioCore {
             active_sprite_bank: self.console.vm.active_asset_bank(AssetBankKind::Sprites),
             active_map_bank: self.console.vm.active_asset_bank(AssetBankKind::Map),
             sprite_flags,
+            collision,
             sfx: sfx.clone(),
             music: music.clone(),
             palette_banks: self.console.vm.asset_bank_ids(AssetBankKind::Palette),
@@ -1510,6 +1524,21 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
             };
             let _ = reply.send(result);
         }
+        CoreCommand::WriteCollisionCells { cells, reply } => {
+            let result = if let Some(cell) = cells.iter().find(|cell| cell.offset >= COLLISION_LEN)
+            {
+                Err(format!("Collision cell out of range: {}", cell.offset))
+            } else {
+                for cell in cells {
+                    studio
+                        .console
+                        .vm
+                        .poke_memory(COLLISION_RAM_BASE + cell.offset, cell.value);
+                }
+                Ok(())
+            };
+            let _ = reply.send(result);
+        }
         CoreCommand::WriteMeta {
             title,
             author,
@@ -1806,6 +1835,14 @@ fn studio_write_map_cells(
 }
 
 #[tauri::command]
+fn studio_write_collision_cells(
+    cells: Vec<CollisionCellPayload>,
+    state: State<'_, StudioBridge>,
+) -> Result<(), String> {
+    state.request(|reply| CoreCommand::WriteCollisionCells { cells, reply })
+}
+
+#[tauri::command]
 fn studio_write_meta(
     title: String,
     author: String,
@@ -2090,6 +2127,7 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
             studio_read_memory,
             studio_write_memory,
             studio_write_map_cells,
+            studio_write_collision_cells,
             studio_write_meta,
             studio_create_module,
             studio_close_project,

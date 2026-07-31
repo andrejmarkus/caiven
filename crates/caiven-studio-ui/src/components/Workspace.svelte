@@ -16,7 +16,7 @@
   } from '../types';
   import {
     dragPanScroll, MAP_ZOOM_LEVELS, nextMapZoom,
-    type CollisionBrush, type SpriteFlagEdit,
+    type CollisionBrush, type CollisionEdit,
   } from '../lib/editorMath';
   import LuaEditor from './LuaEditor.svelte';
   import MapCanvas from './MapCanvas.svelte';
@@ -25,7 +25,7 @@
   type MapTool = 'pencil' | 'fill' | 'rect' | 'pick' | 'erase' | 'line';
   type MapHistoryEntry =
     | { kind: 'tiles'; changes: { offset: number; before: number; after: number }[] }
-    | { kind: 'flags'; changes: { tile: number; before: number; after: number }[] };
+    | { kind: 'collision'; changes: { offset: number; before: number; after: number }[] };
 
   interface Props {
     screen: Screen;
@@ -39,6 +39,7 @@
     activeSpriteBank: number;
     activeMapBank: number;
     spriteFlags: number[];
+    collision: number[];
     sfx: number[];
     music: number[];
     paletteBanks: number[];
@@ -72,7 +73,7 @@
     onCode: (text: string) => void;
     onSprite: (sprite: number, pixels: number[]) => void;
     onFlags: (sprite: number, flags: number) => void;
-    onFlagsBatch: (edits: SpriteFlagEdit[]) => void;
+    onCollision: (edits: CollisionEdit[]) => void;
     onMap: (cells: { offset: number; tile: number }[]) => void;
     onAssetBank: (kind: 'sprites' | 'map' | 'palette' | 'sfx' | 'music', action: 'select' | 'create' | 'delete', id?: number) => void | Promise<boolean | void>;
     onSfx: (slot: number, bytes: number[]) => void;
@@ -106,11 +107,11 @@
   }
 
   let {
-    screen, sources, activeSource, palette, spriteSheet, map, spriteBanks, mapBanks, activeSpriteBank, activeMapBank, spriteFlags, sfx, music,
+    screen, sources, activeSource, palette, spriteSheet, map, spriteBanks, mapBanks, activeSpriteBank, activeMapBank, spriteFlags, collision, sfx, music,
     paletteBanks, sfxBanks, musicBanks, activePaletteBank, activeSfxBank, activeMusicBank, cartSize,
     audio, assetIndex, diagnostics, breakpoints, title, author, path, meta, dirty, tourDone, recent, api, frameData, insertRequest, revealRequest, onInsertHandled, onRevealHandled,
     soundSelection,
-    onNavigate, onSource, onCode, onSprite, onFlags, onFlagsBatch, onMap, onAssetBank, onSfx, onMusic, onAudio,
+    onNavigate, onSource, onCode, onSprite, onFlags, onCollision, onMap, onAssetBank, onSfx, onMusic, onAudio,
     onBreakpoint, onMeta, onCreateModule, onPalette, onTour, onOpen, onNew,
     localCarts, portCarts, portAccount, portBusy, portError, portLinkPending, portLinkExpiresAt, onScanLibrary,
     onSearchPort, onOpenLocal, onRemoveRecent, onDownloadPort, onOpenPortAccount, onPortLink, onPortLinkCancel, onPortLogout,
@@ -303,14 +304,15 @@
     onNavigate(assetScreen(entry.kind));
   }
 
-  // All eight bits the VM exposes. Naming and explaining them is the point of
-  // the redesign — a raw bitmask told nobody what a flag actually did.
+  // Eight free-form per-sprite-type bits. Collision lives in its own per-cell
+  // layer now (see the map screen's Collision brush) — these are just tags
+  // for whatever a game's own Lua code wants to key off `get_sprite_flags`.
   const spriteFlagNames = $derived([
-    { name: 'Solid', hint: 'Blocks movement', dot: palette[3] },
-    { name: 'Hazard', hint: 'Damages the player', dot: palette[8] },
-    { name: 'Pickup', hint: 'Collectible', dot: palette[10] },
-    { name: 'Water', hint: 'Slows movement', dot: palette[12] },
-    { name: 'Ladder', hint: 'Climbable', dot: palette[11] },
+    { name: 'Custom 0', hint: 'Yours to define', dot: palette[3] },
+    { name: 'Custom 1', hint: 'Yours to define', dot: palette[8] },
+    { name: 'Custom 2', hint: 'Yours to define', dot: palette[10] },
+    { name: 'Custom 3', hint: 'Yours to define', dot: palette[12] },
+    { name: 'Custom 4', hint: 'Yours to define', dot: palette[11] },
     { name: 'Custom 5', hint: 'Yours to define', dot: palette[13] },
     { name: 'Custom 6', hint: 'Yours to define', dot: palette[14] },
     { name: 'Custom 7', hint: 'Yours to define', dot: palette[15] },
@@ -322,7 +324,7 @@
     return { kind, used: entries.filter((entry) => entry.used || entry.nonzero).length, count: entries.length, bytes: entries.reduce((sum, entry) => sum + entry.bytes, 0), refs: entries.reduce((sum, entry) => sum + entry.refs.length, 0) };
   }));
   const codeBytes = $derived(sources.reduce((sum, source) => sum + new TextEncoder().encode(source.text).length, 0));
-  const artBytes = $derived(spriteSheet.length + map.length + spriteFlags.length);
+  const artBytes = $derived(spriteSheet.length + map.length + spriteFlags.length + collision.length);
   const soundBytes = $derived(sfx.length + music.length);
   const cartPercent = $derived(Math.min(100, Math.round(cartSize.packedBytes / cartSize.maxBytes * 100)));
 
@@ -379,23 +381,23 @@
     onMap(edit.map(({ offset, after }) => ({ offset, tile: after })));
   }
 
-  function commitCollision(edits: SpriteFlagEdit[]) {
+  function commitCollision(edits: CollisionEdit[]) {
     const latest = new globalThis.Map<number, number>();
-    for (const edit of edits) latest.set(edit.tile, edit.flags);
+    for (const edit of edits) latest.set(edit.offset, edit.value);
     const changes = [...latest]
-      .map(([tile, after]) => ({ tile, before: spriteFlags[tile] ?? 0, after }))
+      .map(([offset, after]) => ({ offset, before: collision[offset] ?? 0, after }))
       .filter((edit) => edit.before !== edit.after);
     if (!changes.length) return;
-    mapUndo = [...mapUndo.slice(-49), { kind: 'flags', changes }];
+    mapUndo = [...mapUndo.slice(-49), { kind: 'collision', changes }];
     mapRedo = [];
-    onFlagsBatch(changes.map(({ tile, after }) => ({ tile, flags: after })));
+    onCollision(changes.map(({ offset, after }) => ({ offset, value: after })));
   }
 
   function applyMapHistory(entry: MapHistoryEntry, side: 'before' | 'after') {
     if (entry.kind === 'tiles') {
       onMap(entry.changes.map((edit) => ({ offset: edit.offset, tile: edit[side] })));
     } else {
-      onFlagsBatch(entry.changes.map((edit) => ({ tile: edit.tile, flags: edit[side] })));
+      onCollision(entry.changes.map((edit) => ({ offset: edit.offset, value: edit[side] })));
     }
   }
 
@@ -916,9 +918,9 @@
           {map}
           {spriteSheet}
           {palette}
-          {spriteFlags}
+          {collision}
           {selectedTile}
-          collision={collisionOverlay || mapLayer === 'collision'}
+          showCollision={collisionOverlay || mapLayer === 'collision'}
           layer={mapLayer}
           {collisionBrush}
           tool={mapTool}
@@ -936,7 +938,7 @@
           <div class="collision-edit-note">
             <span class="eyebrow"><ShieldCheck size={13} />Collision painting</span>
             <strong>{mapTool === 'erase' || collisionBrush === 0 ? 'Walkable' : collisionBrush === 1 ? 'Solid' : 'Hazard'} brush</strong>
-            <p>Per tile type, not per cell — painting one cell recolors every cell using that tile everywhere on the map. Other flags (2–7) stay untouched.</p>
+            <p>Per cell — painting only changes the cells under the brush, independent of which sprite tile they show.</p>
           </div>
         {/if}
         <span class="eyebrow">Tile picker</span>
@@ -956,15 +958,15 @@
           {/each}
         </div>
         <div class="inspector-row"><span>Cell</span><code>{mapHover ? `${mapHover.x}, ${mapHover.y}` : '—'}</code></div>
-        <div class="inspector-row"><span>Hovered tile</span><code>{mapHover ? `${mapHover.tile.toString().padStart(3,'0')} · ${((spriteFlags[mapHover.tile] ?? 0) & 2) !== 0 ? 'hazard' : ((spriteFlags[mapHover.tile] ?? 0) & 1) !== 0 ? 'solid' : 'walkable'}` : '—'}</code></div>
+        <div class="inspector-row"><span>Hovered tile</span><code>{mapHover ? `${mapHover.tile.toString().padStart(3,'0')} · ${(collision[mapHover.y * 64 + mapHover.x] ?? 0) === 2 ? 'hazard' : (collision[mapHover.y * 64 + mapHover.x] ?? 0) === 1 ? 'solid' : 'walkable'}` : '—'}</code></div>
         <div class="inspector-row"><span>Selected</span><code>{selectedTile.toString().padStart(3,'0')} · 0x{selectedTile.toString(16).padStart(2,'0')}</code></div>
-        <div class="collision-key"><span class="eyebrow">Collision</span><p class="solid"><i></i>Solid · {spriteFlags.filter((flags) => (flags & 1) !== 0).length} tile types</p><p class="hazard"><i></i>Hazard · {spriteFlags.filter((flags) => (flags & 2) !== 0).length} tile types</p></div>
+        <div class="collision-key"><span class="eyebrow">Collision</span><p class="solid"><i></i>Solid · {collision.filter((value) => value === 1).length} cells</p><p class="hazard"><i></i>Hazard · {collision.filter((value) => value === 2).length} cells</p></div>
         {#if mapEmpty}
           <p class="map-note">
             This map is empty. Pick a tile and paint to start it.
           </p>
         {/if}
-        <p class="map-note subtle">Wheel zoom · right/middle drag pan · Pick tool samples. Tile 000 stays collision-free.</p>
+        <p class="map-note subtle">Wheel zoom · right/middle drag pan · Pick tool samples.</p>
       </aside>
     </section>
 

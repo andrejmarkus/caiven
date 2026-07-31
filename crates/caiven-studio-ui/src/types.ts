@@ -98,6 +98,7 @@ export interface StudioBootstrap {
   activeSpriteBank: number;
   activeMapBank: number;
   spriteFlags: number[];
+  collision: number[];
   sfx: number[];
   music: number[];
   paletteBanks: number[];

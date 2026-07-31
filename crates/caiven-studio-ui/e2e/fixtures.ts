@@ -53,6 +53,9 @@ function installBridge() {
     music: new Map([[0, make(lengths.music, 1)], [1, make(lengths.music, 8)]]),
   };
   const flags = new Map([[0, make(256, 1)], [1, make(256, 2)]]);
+  const COLLISION_OFFSET = 0x9703;
+  const COLLISION_LEN = 4096;
+  const collision = new Map([[0, make(COLLISION_LEN, 0)], [1, make(COLLISION_LEN, 0)]]);
   const active: Record<Kind, number> = { sprites: 0, map: 0, palette: 0, sfx: 0, music: 0 };
   const tickActive: Record<Kind, number> = { ...active };
   const ram = make(65536);
@@ -80,6 +83,7 @@ function installBridge() {
     const data = banks[kind].get(active[kind])!;
     ram.splice(offsets[kind], data.length, ...data);
     if (kind === 'sprites') ram.splice(0x9000, 256, ...(flags.get(active.sprites) ?? make(256)));
+    if (kind === 'map') ram.splice(COLLISION_OFFSET, COLLISION_LEN, ...(collision.get(active.map) ?? make(COLLISION_LEN)));
   }
   (Object.keys(active) as Kind[]).forEach(sync);
 
@@ -100,7 +104,8 @@ function installBridge() {
     cartSize: { packedBytes: 8192 + cartSizeReads, maxBytes: 131072 }, sources: structuredClone(sources), palette: paletteHex(),
     spriteSheet: [...banks.sprites.get(active.sprites)!], map: [...banks.map.get(active.map)!],
     spriteBanks: [...banks.sprites.keys()], mapBanks: [...banks.map.keys()], activeSpriteBank: active.sprites, activeMapBank: active.map,
-    spriteFlags: [...flags.get(active.sprites)!], sfx: [...banks.sfx.get(active.sfx)!], music: [...banks.music.get(active.music)!],
+    spriteFlags: [...flags.get(active.sprites)!], collision: [...(collision.get(active.map) ?? make(COLLISION_LEN))],
+    sfx: [...banks.sfx.get(active.sfx)!], music: [...banks.music.get(active.music)!],
     paletteBanks: [...banks.palette.keys()], activePaletteBank: active.palette,
     sfxBanks: [...banks.sfx.keys()], activeSfxBank: active.sfx, musicBanks: [...banks.music.keys()], activeMusicBank: active.music,
     ram: [...ram], globals: [{ name: 'score', value: '7' }], watches: structuredClone(watches), callStack: [], breakpoints: structuredClone(breakpoints),
@@ -178,6 +183,7 @@ function installBridge() {
         let id = 1; while (banks[kind].has(id)) id += 1;
         banks[kind].set(id, make(lengths[kind]));
         if (kind === 'sprites') flags.set(id, make(256));
+        if (kind === 'map') collision.set(id, make(COLLISION_LEN));
         active[kind] = id; tickActive[kind] = id; sync(kind);
       } else if (action === 'select') {
         const id = Number(args.id);
@@ -187,6 +193,7 @@ function installBridge() {
         const id = Number(args.id);
         if (id === 0) throw new Error('Bank 0 cannot be deleted');
         banks[kind].delete(id); if (kind === 'sprites') flags.delete(id);
+        if (kind === 'map') collision.delete(id);
         active[kind] = 0; tickActive[kind] = 0; sync(kind);
       } else if (action !== 'read') throw new Error(`Unknown bank action: ${action}`);
       const result = { kind, ids: [...banks[kind].keys()], active: active[kind], data: [...banks[kind].get(active[kind])!] };
@@ -200,10 +207,12 @@ function installBridge() {
     if (command === 'studio_write_sprite') { const at = Number(args.sprite) * 64; banks.sprites.get(active.sprites)!.splice(at, 64, ...args.pixels as number[]); sync('sprites'); return null; }
     if (command === 'studio_write_palette') { const slot = Number(args.slot); const hex = String(args.hex); const bytes = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16)); banks.palette.get(active.palette)!.splice(slot * 3, 3, ...bytes); sync('palette'); return null; }
     if (command === 'studio_write_map_cells') { for (const cell of args.cells as { offset: number; tile: number }[]) banks.map.get(active.map)![cell.offset] = cell.tile; sync('map'); return null; }
+    if (command === 'studio_write_collision_cells') { for (const cell of args.cells as { offset: number; value: number }[]) collision.get(active.map)![cell.offset] = cell.value; sync('map'); return null; }
     if (command === 'studio_write_memory') {
       const address = Number(args.address); const bytes = args.bytes as number[];
       ram.splice(address, bytes.length, ...bytes);
       if (address >= 0x9000 && address < 0x9100) flags.get(active.sprites)!.splice(address - 0x9000, bytes.length, ...bytes);
+      if (address >= COLLISION_OFFSET && address < COLLISION_OFFSET + COLLISION_LEN) collision.get(active.map)!.splice(address - COLLISION_OFFSET, bytes.length, ...bytes);
       for (const kind of ['sfx', 'music'] as Kind[]) if (address >= offsets[kind] && address < offsets[kind] + lengths[kind]) banks[kind].get(active[kind])!.splice(address - offsets[kind], bytes.length, ...bytes);
       return null;
     }
@@ -251,7 +260,7 @@ function installBridge() {
       }
     },
     async setBankData(kind, id, data) { banks[kind].set(id, [...data]); if (active[kind] === id) sync(kind); },
-    async snapshot() { return { active: { ...active }, tickActive: { ...tickActive }, banks: Object.fromEntries((Object.keys(banks) as Kind[]).map((kind) => [kind, Object.fromEntries(banks[kind])])), flags: Object.fromEntries(flags), ram: [...ram], sources: structuredClone(sources), recent: [...recent], breakpoints: structuredClone(breakpoints), watches: structuredClone(watches), port: { ...port }, assetIndexReads, cartSizeReads }; },
+    async snapshot() { return { active: { ...active }, tickActive: { ...tickActive }, banks: Object.fromEntries((Object.keys(banks) as Kind[]).map((kind) => [kind, Object.fromEntries(banks[kind])])), flags: Object.fromEntries(flags), collision: Object.fromEntries(collision), ram: [...ram], sources: structuredClone(sources), recent: [...recent], breakpoints: structuredClone(breakpoints), watches: structuredClone(watches), port: { ...port }, assetIndexReads, cartSizeReads }; },
   };
 }
 

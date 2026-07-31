@@ -40,7 +40,7 @@ export const defaultPalette = [
 export const fallbackTemplates: CartTemplateSummary[] = [
   { id: 'top-down-mover', name: 'Top-down mover', description: 'Move a sprite around with arrow keys' },
   { id: 'tap-to-score', name: 'Tap to score', description: 'Bouncing ball with score and high-score HUD' },
-  { id: 'tile-world', name: 'Tile world', description: 'Map drawing and per-tile collision with sprite flags' },
+  { id: 'tile-world', name: 'Tile world', description: 'Map drawing and per-cell collision' },
   { id: 'blank', name: 'Blank', description: 'Empty _init and _update starting point' },
 ];
 
@@ -57,8 +57,10 @@ export const defaultSprite = [
 
 export const MEMORY = {
   sprites: 0x4000, map: 0x8000, flags: 0x9000,
-  palette: 0x9100, sfx: 0x9200, music: 0x9600,
+  palette: 0x9100, sfx: 0x9200, music: 0x9600, collision: 0x9703,
 } as const;
+
+export const COLLISION_LEN = 64 * 64;
 
 /** Flattens `#RRGGBB` palette slots into the raw RGB byte layout a palette bank stores. */
 function paletteToBytes(colors: string[]): number[] {
@@ -92,6 +94,7 @@ const fallback: StudioBootstrap = {
   activeSpriteBank: 0,
   activeMapBank: 0,
   spriteFlags: Array(256).fill(0),
+  collision: Array(COLLISION_LEN).fill(0),
   sfx: Array(1024).fill(0),
   music: Array(256).fill(0),
   paletteBanks: [0],
@@ -255,6 +258,10 @@ export async function writeMemory(address: number, bytes: number[]): Promise<voi
 
 export async function writeMapCells(cells: { offset: number; tile: number }[]): Promise<void> {
   if (isTauri()) await invoke('studio_write_map_cells', { cells });
+}
+
+export async function writeCollisionCells(cells: { offset: number; value: number }[]): Promise<void> {
+  if (isTauri()) await invoke('studio_write_collision_cells', { cells });
 }
 
 export async function assetBank(

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import {
-    collisionFlagEdits, strokeCells, type CollisionBrush, type SpriteFlagEdit, type StrokeTool,
+    collisionCellEdits, strokeCells, type CollisionBrush, type CollisionEdit, type StrokeTool,
   } from '../lib/editorMath';
 
   type MapLayer = 'tiles' | 'collision';
@@ -12,22 +12,22 @@
     map: number[];
     spriteSheet: number[];
     palette: string[];
-    spriteFlags: number[];
+    collision: number[];
     selectedTile: number;
-    collision: boolean;
+    showCollision: boolean;
     layer: MapLayer;
     collisionBrush: CollisionBrush;
     tool: MapTool;
     zoom: number;
     onStroke: (cells: Cell[]) => void;
-    onCollisionStroke: (edits: SpriteFlagEdit[]) => void;
+    onCollisionStroke: (edits: CollisionEdit[]) => void;
     onPick: (tile: number) => void;
     onCollisionPick: (brush: CollisionBrush) => void;
     onHover?: (cell: { x: number; y: number; tile: number } | null) => void;
   }
 
   let {
-    map, spriteSheet, palette, spriteFlags, selectedTile, collision, layer, collisionBrush,
+    map, spriteSheet, palette, collision, selectedTile, showCollision, layer, collisionBrush,
     tool, zoom, onStroke, onCollisionStroke, onPick, onCollisionPick, onHover,
   }: Props = $props();
   let canvas: HTMLCanvasElement;
@@ -35,7 +35,7 @@
   let anchor: number | null = null;
   let previousCell: number | null = null;
   let tileDraft = new Map<number, number>();
-  let flagDraft = new Map<number, number>();
+  let collisionDraft = new Map<number, number>();
   let renderFrame: number | undefined;
 
   function color(hex: string): [number, number, number, number] {
@@ -61,9 +61,9 @@
           image.data.set(rgba, at);
         }
       }
-      const flags = flagDraft.get(tile) ?? spriteFlags[tile] ?? 0;
-      if (collision && (flags & 3) !== 0) {
-        const hazard = (flags & 2) !== 0;
+      const value = collisionDraft.get(offset) ?? collision[offset] ?? 0;
+      if (showCollision && value !== 0) {
+        const hazard = value === 2;
         const tint: [number, number, number] = hazard ? [229, 85, 95] : [254, 176, 93];
         for (let pixelY = 0; pixelY < 8; pixelY += 1) for (let pixelX = 0; pixelX < 8; pixelX += 1) {
           const border = pixelX <= 1 || pixelX >= 6 || pixelY <= 1 || pixelY >= 6;
@@ -94,7 +94,7 @@
   }
 
   $effect(() => {
-    map; spriteSheet; palette; spriteFlags; collision; tileDraft; flagDraft; canvas;
+    map; spriteSheet; palette; collision; showCollision; tileDraft; collisionDraft; canvas;
     scheduleRender();
   });
 
@@ -122,6 +122,12 @@
     return tool === 'erase' ? 0 : collisionBrush;
   }
 
+  function collisionValues(): number[] {
+    const values = [...collision];
+    for (const [offset, value] of collisionDraft) values[offset] = value;
+    return values;
+  }
+
   function applyOffsets(offsets: readonly number[]) {
     if (layer === 'tiles') {
       const next = new Map(tileDraft);
@@ -129,44 +135,35 @@
       tileDraft = next;
       return;
     }
-    const effectiveFlags = [...spriteFlags];
-    for (const [tile, flags] of flagDraft) effectiveFlags[tile] = flags;
-    const next = new Map(flagDraft);
-    for (const edit of collisionFlagEdits(map, effectiveFlags, offsets, activeCollisionBrush())) {
-      next.set(edit.tile, edit.flags);
+    const next = new Map(collisionDraft);
+    for (const edit of collisionCellEdits(collisionValues(), offsets, activeCollisionBrush())) {
+      next.set(edit.offset, edit.value);
     }
-    flagDraft = next;
-  }
-
-  function collisionStates(): number[] {
-    const effectiveFlags = [...spriteFlags];
-    for (const [tile, flags] of flagDraft) effectiveFlags[tile] = flags;
-    return map.map((tile) => (effectiveFlags[tile] ?? 0) & 3);
+    collisionDraft = next;
   }
 
   function drawStroke(at: number) {
     // Never called with tool === 'pick' — begin() branches to pick() first.
     const drawTool: StrokeTool = tool as Exclude<MapTool, 'pick'>;
-    const values = layer === 'tiles' ? map : collisionStates();
+    const values = layer === 'tiles' ? map : collisionValues();
     const replacement = layer === 'tiles' ? activeTile() : activeCollisionBrush();
     const offsets = strokeCells(drawTool, anchor ?? at, at, previousCell, values, replacement, 64, 64);
     // line/rect recompute the whole shape from anchor each move (live preview), so the
     // draft is replaced rather than accumulated; paint/erase/fill accumulate across a drag.
     if (tool === 'line' || tool === 'rect') {
       tileDraft = new Map();
-      flagDraft = new Map();
+      collisionDraft = new Map();
     }
     applyOffsets(offsets);
   }
 
   function pick(at: number) {
-    const tile = map[at] ?? 0;
     if (layer === 'tiles') {
-      onPick(tile);
+      onPick(map[at] ?? 0);
       return;
     }
-    const flags = spriteFlags[tile] ?? 0;
-    onCollisionPick((flags & 2) !== 0 ? 2 : (flags & 1) !== 0 ? 1 : 0);
+    const value = collision[at] ?? 0;
+    onCollisionPick(value === 2 ? 2 : value === 1 ? 1 : 0);
   }
 
   function begin(event: PointerEvent) {
@@ -179,7 +176,7 @@
       return;
     }
     tileDraft = new Map();
-    flagDraft = new Map();
+    collisionDraft = new Map();
     anchor = at;
     previousCell = at;
     drawing = true;
@@ -216,11 +213,11 @@
     if (!drawing) return;
     drawing = false;
     const cells = [...tileDraft].map(([offset, tile]) => ({ offset, tile }));
-    const flags = [...flagDraft].map(([tile, value]) => ({ tile, flags: value }));
+    const edits = [...collisionDraft].map(([offset, value]) => ({ offset, value }));
     if (cells.length) onStroke(cells);
-    if (flags.length) onCollisionStroke(flags);
+    if (edits.length) onCollisionStroke(edits);
     tileDraft = new Map();
-    flagDraft = new Map();
+    collisionDraft = new Map();
     anchor = null;
     previousCell = null;
     if (event && canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);

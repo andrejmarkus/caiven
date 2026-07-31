@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  collisionFlagEdits, dragPanScroll, filledRectangle, floodCells, nextMapZoom, rasterLine,
+  collisionCellEdits, dragPanScroll, filledRectangle, floodCells, nextMapZoom, rasterLine,
   sourceOffset, strokeCells,
 } from '../src/lib/editorMath.ts';
 
@@ -45,17 +45,14 @@ test('source navigation resolves exact one-based line and column', () => {
   assert.equal(sourceOffset(source, 0, 0), 0);
 });
 
-test('collision brush edits unique nonzero tile flags and preserves unrelated bits', () => {
-  const flags = Array(256).fill(0);
-  flags[3] = 0b1000;
-  flags[4] = 0b0001;
-  assert.deepEqual(collisionFlagEdits([0, 3, 3, 4], flags, [0, 1, 2, 3], 2), [
-    { tile: 3, flags: 0b1010 },
-    { tile: 4, flags: 0b0010 },
+test('collision cell edits only report cells whose brush value actually changes', () => {
+  const collision = [0, 0, 1, 2];
+  assert.deepEqual(collisionCellEdits(collision, [0, 1, 2, 3], 1), [
+    { offset: 0, value: 1 },
+    { offset: 1, value: 1 },
+    { offset: 3, value: 1 },
   ]);
-  flags[3] = 0b1010;
-  assert.deepEqual(collisionFlagEdits([3], flags, [0], 2), []);
-  assert.deepEqual(collisionFlagEdits([3], flags, [0], 0), [{ tile: 3, flags: 0b1000 }]);
+  assert.deepEqual(collisionCellEdits(collision, [2], 1), []);
 });
 
 test('strokeCells: pencil/erase bridges from previous point, or is a dot with no previous', () => {

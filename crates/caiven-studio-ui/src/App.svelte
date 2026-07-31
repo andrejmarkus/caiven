@@ -18,15 +18,15 @@
   import {
     bootstrap, chooseExportPath, chooseProject, exportCartridge, fallbackTemplates, isTauri, listTemplates, newProject,
     openProject, readAssetIndex, readCartSize, readFrame, readMemory, readTick, saveProject, setInput, transport,
-    addWatch, assetBank, audioTransport, clearOutput, closeProject, createModule, MEMORY, portDownload, portLinkCancel, portLinkPoll, portLinkStart, portListCarts,
+    addWatch, assetBank, audioTransport, clearOutput, closeProject, COLLISION_LEN, createModule, MEMORY, portDownload, portLinkCancel, portLinkPoll, portLinkStart, portListCarts,
     portLogout, portPublish, portSession, scanLibrary, toggleBreakpoint, writeBuffer,
-    removeRecent, removeWatch, writeMapCells, writeMemory, writeMeta, writePalette, writeSprite,
+    removeRecent, removeWatch, writeCollisionCells, writeMapCells, writeMemory, writeMeta, writePalette, writeSprite,
   } from './lib/ipc';
   import { plural, tidyPath } from './lib/format';
 
   let studio = $state<StudioBootstrap>({
     connected: false, title: '', path: '', author: '', runState: 'stopped',
-    frame: 0, fps: 0, cartSize: { packedBytes: 0, maxBytes: 128 * 1024 }, sources: [], palette: [], spriteSheet: [], map: [], spriteBanks: [0], mapBanks: [0], activeSpriteBank: 0, activeMapBank: 0, spriteFlags: [],
+    frame: 0, fps: 0, cartSize: { packedBytes: 0, maxBytes: 128 * 1024 }, sources: [], palette: [], spriteSheet: [], map: [], spriteBanks: [0], mapBanks: [0], activeSpriteBank: 0, activeMapBank: 0, spriteFlags: [], collision: [],
     sfx: [], music: [], paletteBanks: [0], activePaletteBank: 0, sfxBanks: [0], activeSfxBank: 0, musicBanks: [0], activeMusicBank: 0, ram: [], globals: [], watches: [], callStack: [], breakpoints: [], pauseReason: null, diagnostics: [], output: [],
     meta: { description: '', tags: [] }, assetIndex: { entries: [], computedRefs: 0 },
     audio: { sfxActive: false, sfxId: 0, sfxStep: 0, musicActive: false, musicPattern: 0, musicRow: 0, musicLoop: true },
@@ -352,23 +352,16 @@
     });
   }
 
-  function updateFlagsBatch(edits: { tile: number; flags: number }[]) {
-    const latest = new Map<number, number>();
-    for (const edit of edits) latest.set(edit.tile, edit.flags);
-    const changes = [...latest]
-      .map(([tile, flags]) => ({ tile, before: studio.spriteFlags[tile] ?? 0, flags }))
-      .filter((edit) => edit.before !== edit.flags);
-    if (!changes.length) return;
-    for (const edit of changes) {
-      studio.spriteFlags[edit.tile] = edit.flags;
-      studio.ram[MEMORY.flags + edit.tile] = edit.flags;
+  function updateCollision(edits: { offset: number; value: number }[]) {
+    const previous = edits.map((edit) => ({ offset: edit.offset, value: studio.collision[edit.offset] ?? 0 }));
+    for (const edit of edits) {
+      studio.collision[edit.offset] = edit.value;
+      studio.ram[MEMORY.collision + edit.offset] = edit.value;
     }
-    const snapshot = Array.from({ length: 256 }, (_, tile) => studio.spriteFlags[tile] ?? 0);
-    void commitMutation('Collision edit', () => writeMemory(MEMORY.flags, snapshot), () => {
-      for (const edit of changes) {
-        if (studio.spriteFlags[edit.tile] !== edit.flags) continue;
-        studio.spriteFlags[edit.tile] = edit.before;
-        studio.ram[MEMORY.flags + edit.tile] = edit.before;
+    void commitMutation('Collision edit', () => writeCollisionCells(edits), () => {
+      for (const edit of previous) {
+        studio.collision[edit.offset] = edit.value;
+        studio.ram[MEMORY.collision + edit.offset] = edit.value;
       }
     });
   }
@@ -837,6 +830,7 @@
           studio.spriteSheet = ram.slice(MEMORY.sprites, MEMORY.map);
           studio.map = ram.slice(MEMORY.map, MEMORY.flags);
           studio.spriteFlags = ram.slice(MEMORY.flags, MEMORY.palette);
+          studio.collision = ram.slice(MEMORY.collision, MEMORY.collision + COLLISION_LEN);
           studio.sfx = ram.slice(MEMORY.sfx, MEMORY.music);
           studio.music = ram.slice(MEMORY.music, MEMORY.music + 256);
           studio.assetIndex = index;
@@ -910,6 +904,7 @@
           activeSpriteBank={studio.activeSpriteBank}
           activeMapBank={studio.activeMapBank}
           spriteFlags={studio.spriteFlags}
+          collision={studio.collision}
           sfx={studio.sfx}
           music={studio.music}
           paletteBanks={studio.paletteBanks}
@@ -941,7 +936,7 @@
           onCode={updateCode}
           onSprite={updateSprite}
           onFlags={updateFlags}
-          onFlagsBatch={updateFlagsBatch}
+          onCollision={updateCollision}
           onMap={updateMap}
           onAssetBank={changeAssetBank}
           onSfx={updateSfx}
