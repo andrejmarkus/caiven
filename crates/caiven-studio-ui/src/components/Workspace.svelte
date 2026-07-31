@@ -10,8 +10,9 @@
   import { Button } from '@caiven/ui/button';
   import { Input } from '@caiven/ui/input';
   import { Textarea } from '@caiven/ui/textarea';
+  import * as Dialog from '@caiven/ui/dialog';
   import type {
-    ApiEntry, AssetIndex, AssetRef, AudioState, Breakpoint, CartMeta, CartSize, Diagnostic, EditorInsertRequest,
+    ApiEntry, AssetIndex, AssetRef, AudioState, Breakpoint, CartMeta, CartSize, CollisionType, Diagnostic, EditorInsertRequest,
     EditorRevealRequest, LocalCart, PortCart, PortSession, Screen, SourceBuffer,
   } from '../types';
   import {
@@ -39,6 +40,7 @@
     activeSpriteBank: number;
     activeMapBank: number;
     collision: number[];
+    collisionTypes: CollisionType[];
     sfx: number[];
     music: number[];
     paletteBanks: number[];
@@ -72,6 +74,7 @@
     onCode: (text: string) => void;
     onSprite: (sprite: number, pixels: number[]) => void;
     onCollision: (edits: CollisionEdit[]) => void;
+    onCollisionTypes: (types: CollisionType[]) => void;
     onMap: (cells: { offset: number; tile: number }[]) => void;
     onAssetBank: (kind: 'sprites' | 'map' | 'palette' | 'sfx' | 'music', action: 'select' | 'create' | 'delete', id?: number) => void | Promise<boolean | void>;
     onSfx: (slot: number, bytes: number[]) => void;
@@ -105,11 +108,11 @@
   }
 
   let {
-    screen, sources, activeSource, palette, spriteSheet, map, spriteBanks, mapBanks, activeSpriteBank, activeMapBank, collision, sfx, music,
+    screen, sources, activeSource, palette, spriteSheet, map, spriteBanks, mapBanks, activeSpriteBank, activeMapBank, collision, collisionTypes, sfx, music,
     paletteBanks, sfxBanks, musicBanks, activePaletteBank, activeSfxBank, activeMusicBank, cartSize,
     audio, assetIndex, diagnostics, breakpoints, title, author, path, meta, dirty, tourDone, recent, api, frameData, insertRequest, revealRequest, onInsertHandled, onRevealHandled,
     soundSelection,
-    onNavigate, onSource, onCode, onSprite, onCollision, onMap, onAssetBank, onSfx, onMusic, onAudio,
+    onNavigate, onSource, onCode, onSprite, onCollision, onCollisionTypes, onMap, onAssetBank, onSfx, onMusic, onAudio,
     onBreakpoint, onMeta, onCreateModule, onPalette, onTour, onOpen, onNew,
     localCarts, portCarts, portAccount, portBusy, portError, portLinkPending, portLinkExpiresAt, onScanLibrary,
     onSearchPort, onOpenLocal, onRemoveRecent, onDownloadPort, onOpenPortAccount, onPortLink, onPortLinkCancel, onPortLogout,
@@ -126,6 +129,7 @@
   let mapTool = $state<MapTool>('pencil');
   let mapLayer = $state<'tiles' | 'collision'>('tiles');
   let collisionBrush = $state<CollisionBrush>(1);
+  let collisionTypesPanel = $state(false);
   let mapZoom = $state(1);
   let mapPanning = $state(false);
   let mapPan: {
@@ -375,6 +379,39 @@
     mapUndo = [...mapUndo.slice(-49), { kind: 'collision', changes }];
     mapRedo = [];
     onCollision(changes.map(({ offset, after }) => ({ offset, value: after })));
+  }
+
+  const collisionTypeById = $derived(new globalThis.Map(collisionTypes.map((t) => [t.id, t])));
+  const isBuiltinCollisionType = (id: number) => id === 0 || id === 1 || id === 2;
+
+  function nextCollisionTypeId(): number {
+    const used = new Set(collisionTypes.map((t) => t.id));
+    for (let id = 3; id <= 255; id += 1) if (!used.has(id)) return id;
+    return 255;
+  }
+
+  function rgbToHex([r, g, b]: [number, number, number]): string {
+    return `#${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+  }
+
+  function hexToRgb(hex: string): [number, number, number] {
+    const n = parseInt(hex.slice(1), 16) || 0;
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+
+  function addCollisionType() {
+    const id = nextCollisionTypeId();
+    onCollisionTypes([...collisionTypes, { id, name: `type_${id}`, color: [128, 128, 128], solid: false }]);
+  }
+
+  function updateCollisionType(id: number, patch: Partial<CollisionType>) {
+    onCollisionTypes(collisionTypes.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  }
+
+  function removeCollisionType(id: number) {
+    if (isBuiltinCollisionType(id)) return;
+    onCollisionTypes(collisionTypes.filter((t) => t.id !== id));
+    if (collisionBrush === id) collisionBrush = 0;
   }
 
   function applyMapHistory(entry: MapHistoryEntry, side: 'before' | 'after') {
@@ -835,73 +872,86 @@
     </section>
 
   {:else if screen === 'map'}
-    <section class="map-screen">
-      <div class="map-toolbar">
-        <div class="map-layer-switch" aria-label="Map edit layer">
-          <button class:active={mapLayer === 'tiles'} onclick={() => mapLayer = 'tiles'}><Layers size={15} />Tiles</button>
-          <button class:active={mapLayer === 'collision'} onclick={() => { mapLayer = 'collision'; collisionOverlay = true; if (mapTool === 'pick') mapTool = 'pencil'; }}><ShieldCheck size={15} />Collision</button>
-        </div>
-        <i class="map-toolbar-divider"></i>
+    <section class="asset-editor map-editor">
+      <aside class="tool-rail">
         {#each editorTools as item}
           {@const Icon = item.icon}
-          <button class:active={mapTool === item.id} title={`${item.label} (${item.shortcut})`} onclick={() => mapTool = item.id as MapTool}><Icon size={16} />{item.label}</button>
+          <button class:active={mapTool === item.id} title={`${item.label} (${item.shortcut})`} onclick={() => mapTool = item.id as MapTool}><Icon size={18} /></button>
         {/each}
-        <button title="Undo map edit" disabled={!mapUndo.length} onclick={undoMap}><Undo2 size={16} /></button>
-        <button title="Redo map edit" disabled={!mapRedo.length} onclick={redoMapEdit}><Redo2 size={16} /></button>
-        <span class="map-toolbar-spacer"></span>
-        {#if mapLayer === 'collision'}
-          <div class="collision-brush" aria-label="Collision brush">
-            <button class:active={collisionBrush === 0 && mapTool !== 'erase'} onclick={() => { collisionBrush = 0; if (mapTool === 'erase') mapTool = 'pencil'; }}><i class="brush-dot walkable"></i>Walkable</button>
-            <button class:active={collisionBrush === 1 && mapTool !== 'erase'} onclick={() => { collisionBrush = 1; if (mapTool === 'erase') mapTool = 'pencil'; }}><i class="brush-dot solid"></i>Solid</button>
-            <button class:active={collisionBrush === 2 && mapTool !== 'erase'} onclick={() => { collisionBrush = 2; if (mapTool === 'erase') mapTool = 'pencil'; }}><i class="brush-dot hazard"></i>Hazard</button>
+        <span></span>
+        <button title="Undo map edit" disabled={!mapUndo.length} onclick={undoMap}><Undo2 size={18} /></button>
+        <button title="Redo map edit" disabled={!mapRedo.length} onclick={redoMapEdit}><Redo2 size={18} /></button>
+      </aside>
+      <div class="map-canvas-col">
+        <div class="map-toolbar">
+          <div class="map-layer-switch" aria-label="Map edit layer">
+            <button class:active={mapLayer === 'tiles'} onclick={() => mapLayer = 'tiles'}><Layers size={15} />Tiles</button>
+            <button class:active={mapLayer === 'collision'} onclick={() => { mapLayer = 'collision'; collisionOverlay = true; if (mapTool === 'pick') mapTool = 'pencil'; }}><ShieldCheck size={15} />Collision</button>
           </div>
-        {/if}
-        {#if mapLayer === 'tiles'}
-          <label><input type="checkbox" bind:checked={collisionOverlay} />Collision overlay</label>
-        {/if}
-        <div class="map-zoom" aria-label="Map zoom">{#each MAP_ZOOM_LEVELS as value}<button class:active={Math.abs(mapZoom - value) < 0.02} onclick={() => mapZoom = value}>{value * 100}%</button>{/each}</div>
-        <code class="map-zoom-readout">{Math.round(mapZoom * 100)}%</code>
-      </div>
-      <div
-        class="map-work"
-        class:panning={mapPanning}
-        role="region"
-        aria-label="Map canvas"
-        title="Mouse wheel zoom · right or middle drag pan"
-        onwheel={handleMapWheel}
-        onpointerdowncapture={beginMapPan}
-        onpointermove={moveMapPan}
-        onpointerup={finishMapPan}
-        onpointercancel={finishMapPan}
-        onlostpointercapture={loseMapPan}
-        oncontextmenu={(event) => event.preventDefault()}
-        onauxclick={(event) => event.preventDefault()}
-      >
-        {#key activeMapBank}
-        <MapCanvas
-          {map}
-          {spriteSheet}
-          {palette}
-          {collision}
-          {selectedTile}
-          showCollision={collisionOverlay || mapLayer === 'collision'}
-          layer={mapLayer}
-          {collisionBrush}
-          tool={mapTool}
-          zoom={mapZoom}
-          onStroke={commitMap}
-          onCollisionStroke={commitCollision}
-          onPick={(tile) => selectedTile = tile}
-          onCollisionPick={(brush) => { collisionBrush = brush; mapTool = 'pencil'; }}
-          onHover={(cell) => mapHover = cell}
-        />
-        {/key}
+          <i class="map-toolbar-divider"></i>
+          {#if mapLayer === 'collision'}
+            <div class="bank-picker collision-type-picker" aria-label="Collision brush">
+              <i class="brush-dot" style={`background:${rgbToHex(collisionTypeById.get(collisionBrush)?.color ?? [0, 0, 0])}`}></i>
+              <select
+                value={collisionBrush}
+                onchange={(event) => { collisionBrush = Number((event.target as HTMLSelectElement).value); if (mapTool === 'erase') mapTool = 'pencil'; }}
+              >
+                {#each collisionTypes as ctype (ctype.id)}
+                  <option value={ctype.id}>{ctype.name}</option>
+                {/each}
+              </select>
+              <button title="Manage collision types" onclick={() => collisionTypesPanel = true}><Pencil size={13} /></button>
+            </div>
+          {/if}
+          {#if mapLayer === 'tiles'}
+            <label><input type="checkbox" bind:checked={collisionOverlay} />Collision overlay</label>
+          {/if}
+          <span class="map-toolbar-spacer"></span>
+          <div class="map-zoom" aria-label="Map zoom">{#each MAP_ZOOM_LEVELS as value}<button class:active={Math.abs(mapZoom - value) < 0.02} onclick={() => mapZoom = value}>{value * 100}%</button>{/each}</div>
+          <code class="map-zoom-readout">{Math.round(mapZoom * 100)}%</code>
+        </div>
+        <div
+          class="map-work"
+          class:panning={mapPanning}
+          role="region"
+          aria-label="Map canvas"
+          title="Mouse wheel zoom · right or middle drag pan"
+          onwheel={handleMapWheel}
+          onpointerdowncapture={beginMapPan}
+          onpointermove={moveMapPan}
+          onpointerup={finishMapPan}
+          onpointercancel={finishMapPan}
+          onlostpointercapture={loseMapPan}
+          oncontextmenu={(event) => event.preventDefault()}
+          onauxclick={(event) => event.preventDefault()}
+        >
+          {#key activeMapBank}
+          <MapCanvas
+            {map}
+            {spriteSheet}
+            {palette}
+            {collision}
+            {collisionTypes}
+            {selectedTile}
+            showCollision={collisionOverlay || mapLayer === 'collision'}
+            layer={mapLayer}
+            {collisionBrush}
+            tool={mapTool}
+            zoom={mapZoom}
+            onStroke={commitMap}
+            onCollisionStroke={commitCollision}
+            onPick={(tile) => selectedTile = tile}
+            onCollisionPick={(brush) => { collisionBrush = brush; mapTool = 'pencil'; }}
+            onHover={(cell) => mapHover = cell}
+          />
+          {/key}
+        </div>
       </div>
       <aside class="map-inspector">
         {#if mapLayer === 'collision'}
           <div class="collision-edit-note">
             <span class="eyebrow"><ShieldCheck size={13} />Collision painting</span>
-            <strong>{mapTool === 'erase' || collisionBrush === 0 ? 'Walkable' : collisionBrush === 1 ? 'Solid' : 'Hazard'} brush</strong>
+            <strong>{collisionTypeById.get(mapTool === 'erase' ? 0 : collisionBrush)?.name ?? 'walkable'} brush</strong>
             <p>Per cell — painting only changes the cells under the brush, independent of which sprite tile they show.</p>
           </div>
         {/if}
@@ -922,9 +972,8 @@
           {/each}
         </div>
         <div class="inspector-row"><span>Cell</span><code>{mapHover ? `${mapHover.x}, ${mapHover.y}` : '—'}</code></div>
-        <div class="inspector-row"><span>Hovered tile</span><code>{mapHover ? `${mapHover.tile.toString().padStart(3,'0')} · ${(collision[mapHover.y * 64 + mapHover.x] ?? 0) === 2 ? 'hazard' : (collision[mapHover.y * 64 + mapHover.x] ?? 0) === 1 ? 'solid' : 'walkable'}` : '—'}</code></div>
+        <div class="inspector-row"><span>Hovered tile</span><code>{mapHover ? `${mapHover.tile.toString().padStart(3,'0')} · ${collisionTypeById.get(collision[mapHover.y * 64 + mapHover.x] ?? 0)?.name ?? 'unknown'}` : '—'}</code></div>
         <div class="inspector-row"><span>Selected</span><code>{selectedTile.toString().padStart(3,'0')} · 0x{selectedTile.toString(16).padStart(2,'0')}</code></div>
-        <div class="collision-key"><span class="eyebrow">Collision</span><p class="solid"><i></i>Solid · {collision.filter((value) => value === 1).length} cells</p><p class="hazard"><i></i>Hazard · {collision.filter((value) => value === 2).length} cells</p></div>
         {#if mapEmpty}
           <p class="map-note">
             This map is empty. Pick a tile and paint to start it.
@@ -933,6 +982,51 @@
         <p class="map-note subtle">Wheel zoom · right/middle drag pan · Pick tool samples.</p>
       </aside>
     </section>
+    <Dialog.Root open={collisionTypesPanel} onOpenChange={(open) => collisionTypesPanel = open}>
+      <Dialog.Content showCloseButton={false} class="dialog-frame">
+        <div class="collision-types-dialog">
+          <Button variant="ghost" size="icon-sm" class="dialog-close" aria-label="Close" onclick={() => collisionTypesPanel = false}><X size={17} /></Button>
+          <span class="eyebrow">Map · Collision layer</span>
+          <h2>Collision types</h2>
+          <p>Custom types are cart-wide and readable from Lua via <code>get_collision</code>. Built-ins can't be renamed or removed.</p>
+          <div class="collision-types-list">
+            {#each collisionTypes as ctype (ctype.id)}
+              <div class="collision-types-row">
+                <span class="collision-types-swatch"><i style={`background:${rgbToHex(ctype.color)}`}></i><input
+                  type="color"
+                  aria-label={`${ctype.name} color`}
+                  value={rgbToHex(ctype.color)}
+                  oninput={(event) => updateCollisionType(ctype.id, { color: hexToRgb((event.target as HTMLInputElement).value) })}
+                /></span>
+                <input
+                  class="collision-types-name"
+                  value={ctype.name}
+                  disabled={isBuiltinCollisionType(ctype.id)}
+                  oninput={(event) => updateCollisionType(ctype.id, { name: (event.target as HTMLInputElement).value })}
+                />
+                <label class="collision-types-solid">
+                  <input
+                    type="checkbox"
+                    checked={ctype.solid}
+                    disabled={isBuiltinCollisionType(ctype.id)}
+                    onchange={(event) => updateCollisionType(ctype.id, { solid: (event.target as HTMLInputElement).checked })}
+                  />Solid
+                </label>
+                <code>{ctype.id.toString().padStart(2,'0')}</code>
+                <button
+                  class="danger"
+                  title={isBuiltinCollisionType(ctype.id) ? 'Built-in types cannot be removed' : 'Remove collision type'}
+                  disabled={isBuiltinCollisionType(ctype.id)}
+                  onclick={() => removeCollisionType(ctype.id)}
+                ><Trash2 size={13} /></button>
+              </div>
+            {/each}
+          </div>
+          <button class="collision-types-add" onclick={addCollisionType}><Plus size={14} />Add collision type</button>
+          <footer><Button variant="outline" onclick={() => collisionTypesPanel = false}>Done</Button></footer>
+        </div>
+      </Dialog.Content>
+    </Dialog.Root>
 
   {:else if screen === 'palette'}
     <section class="palette-screen">

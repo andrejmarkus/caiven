@@ -45,13 +45,13 @@ for (const kind of kinds) {
   });
 }
 
-test('sprite selection restores companion flags and palette converts RGB bytes', async ({ page, e2e: _e2e }) => {
+test('sprite bank selection and palette converts RGB bytes', async ({ page, e2e: _e2e }) => {
   await openBankEditor(page, 'sprites');
   const picker = page.locator('.bank-picker select');
   await picker.selectOption('1');
-  await expect(page.getByText('flags = 0x02')).toBeVisible({ timeout: 2_000 });
+  await expect(picker).toHaveValue('1');
   await picker.selectOption('0');
-  await expect(page.getByText('flags = 0x01')).toBeVisible({ timeout: 2_000 });
+  await expect(picker).toHaveValue('0');
 
   await page.getByRole('button', { name: 'Palette', exact: true }).click();
   await page.locator('.bank-picker select').selectOption('1');

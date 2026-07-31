@@ -54,6 +54,9 @@ const BUILTIN_NAMES: &[&str] = &[
     "set_tile",
     "get_collision",
     "set_collision",
+    "collision_type_id",
+    "collision_type_name",
+    "collision_is_solid",
     "load_sprite_bank",
     "load_map_bank",
     "load_palette_bank",
@@ -386,6 +389,7 @@ fn register_builtins<'scope, 'env>(
     sfx_player: &'env RefCell<&'env mut SfxPlayer>,
     music_player: &'env RefCell<&'env mut MusicPlayer>,
     asset_banks: &'env RefCell<&'env mut AssetBanks>,
+    collision_types: &'env [caiven_core::CollisionType],
     input: &'env Input,
     font: &'env Font,
     sprite_size: u32,
@@ -717,6 +721,30 @@ fn register_builtins<'scope, 'env>(
     )?;
 
     globals.set(
+        "collision_type_id",
+        scope.create_function(move |_, name: String| {
+            Ok(caiven_core::collision_type_by_name(collision_types, &name)
+                .map(|t| t.id)
+                .unwrap_or(0))
+        })?,
+    )?;
+
+    globals.set(
+        "collision_type_name",
+        scope.create_function(move |_, id: u8| {
+            Ok(caiven_core::collision_type_by_id(collision_types, id)
+                .map(|t| t.name.clone())
+                .unwrap_or_default())
+        })?,
+    )?;
+
+    globals.set(
+        "collision_is_solid",
+        scope
+            .create_function(move |_, id: u8| Ok(caiven_core::is_solid_id(collision_types, id)))?,
+    )?;
+
+    globals.set(
         "load_sprite_bank",
         scope.create_function_mut(|_, id: u8| {
             Ok(asset_banks.borrow_mut().select_with_companion(
@@ -871,6 +899,7 @@ impl Vm {
                 &sfx_player,
                 &music_player,
                 &asset_banks,
+                &self.collision_types,
                 input,
                 font,
                 sprite_size,
@@ -947,6 +976,7 @@ impl Vm {
                 &sfx_player,
                 &music_player,
                 &asset_banks,
+                &self.collision_types,
                 input,
                 font,
                 sprite_size,
@@ -1060,6 +1090,7 @@ impl Vm {
                 &sfx_player,
                 &music_player,
                 &asset_banks,
+                &self.collision_types,
                 input,
                 font,
                 sprite_size,

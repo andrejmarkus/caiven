@@ -176,6 +176,42 @@ struct CollisionCellPayload {
     value: u8,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CollisionTypePayload {
+    id: u8,
+    name: String,
+    color: [u8; 3],
+    solid: bool,
+}
+
+impl From<&caiven_core::CollisionType> for CollisionTypePayload {
+    fn from(t: &caiven_core::CollisionType) -> Self {
+        Self {
+            id: t.id,
+            name: t.name.clone(),
+            color: t.color,
+            solid: t.flags.is_solid(),
+        }
+    }
+}
+
+impl From<CollisionTypePayload> for caiven_core::CollisionType {
+    fn from(p: CollisionTypePayload) -> Self {
+        let bits = if p.solid {
+            caiven_core::CollisionTypeFlags::SOLID
+        } else {
+            0
+        };
+        Self {
+            id: p.id,
+            name: p.name,
+            color: p.color,
+            flags: caiven_core::CollisionTypeFlags::from_bits(bits),
+        }
+    }
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BootstrapPayload {
@@ -196,6 +232,7 @@ struct BootstrapPayload {
     active_sprite_bank: u8,
     active_map_bank: u8,
     collision: Vec<u8>,
+    collision_types: Vec<CollisionTypePayload>,
     sfx: Vec<u8>,
     music: Vec<u8>,
     palette_banks: Vec<u8>,
@@ -357,6 +394,16 @@ enum CoreCommand {
     },
     WriteCollisionCells {
         cells: Vec<CollisionCellPayload>,
+        reply: mpsc::Sender<Result<(), String>>,
+    },
+    ReadCollisionTypes {
+        reply: mpsc::Sender<Result<Vec<CollisionTypePayload>, String>>,
+    },
+    /// Replaces the whole collision-type table — the editor's "manage
+    /// types" UI always sends the full set it computed, rather than deltas,
+    /// so there's no ordering/race concern between concurrent edits.
+    WriteCollisionTypes {
+        types: Vec<CollisionTypePayload>,
         reply: mpsc::Sender<Result<(), String>>,
     },
     WriteMeta {
@@ -680,6 +727,13 @@ impl StudioCore {
             active_sprite_bank: self.console.vm.active_asset_bank(AssetBankKind::Sprites),
             active_map_bank: self.console.vm.active_asset_bank(AssetBankKind::Map),
             collision,
+            collision_types: self
+                .console
+                .vm
+                .collision_types()
+                .iter()
+                .map(CollisionTypePayload::from)
+                .collect(),
             sfx: sfx.clone(),
             music: music.clone(),
             palette_banks: self.console.vm.asset_bank_ids(AssetBankKind::Palette),
@@ -1535,6 +1589,23 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
             };
             let _ = reply.send(result);
         }
+        CoreCommand::ReadCollisionTypes { reply } => {
+            let types = studio
+                .console
+                .vm
+                .collision_types()
+                .iter()
+                .map(CollisionTypePayload::from)
+                .collect();
+            let _ = reply.send(Ok(types));
+        }
+        CoreCommand::WriteCollisionTypes { types, reply } => {
+            studio
+                .console
+                .vm
+                .set_collision_types(types.into_iter().map(Into::into).collect());
+            let _ = reply.send(Ok(()));
+        }
         CoreCommand::WriteMeta {
             title,
             author,
@@ -1839,6 +1910,21 @@ fn studio_write_collision_cells(
 }
 
 #[tauri::command]
+fn studio_read_collision_types(
+    state: State<'_, StudioBridge>,
+) -> Result<Vec<CollisionTypePayload>, String> {
+    state.request(|reply| CoreCommand::ReadCollisionTypes { reply })
+}
+
+#[tauri::command]
+fn studio_write_collision_types(
+    types: Vec<CollisionTypePayload>,
+    state: State<'_, StudioBridge>,
+) -> Result<(), String> {
+    state.request(|reply| CoreCommand::WriteCollisionTypes { types, reply })
+}
+
+#[tauri::command]
 fn studio_write_meta(
     title: String,
     author: String,
@@ -2124,6 +2210,8 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
             studio_write_memory,
             studio_write_map_cells,
             studio_write_collision_cells,
+            studio_read_collision_types,
+            studio_write_collision_types,
             studio_write_meta,
             studio_create_module,
             studio_close_project,

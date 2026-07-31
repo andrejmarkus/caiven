@@ -84,14 +84,13 @@ test('art, sound, asset reference, and navigation flow', async ({ page, e2e }) =
   await page.getByLabel('8 by 8 sprite grid').click({ position: { x: 10, y: 10 } });
   await page.getByTitle('Flip horizontally').click();
   await page.getByTitle('Undo sprite edit').click();
-  await page.locator('.flags input[type=checkbox]').first().check();
 
   await page.getByRole('button', { name: 'Map', exact: true }).click();
   await page.getByLabel('Tile 001 — empty').click();
   await page.getByLabel('64 by 64 tile map').click({ position: { x: 10, y: 10 } });
-  await page.getByRole('button', { name: 'Fill', exact: true }).click();
+  await page.getByTitle('Fill (f)').click();
   await page.getByRole('button', { name: 'Collision', exact: true }).click();
-  await page.getByRole('button', { name: 'Solid', exact: true }).click();
+  await page.locator('.collision-type-picker select').selectOption({ label: 'solid' });
   await page.getByRole('button', { name: '100%', exact: true }).click();
 
   await page.getByRole('button', { name: 'Palette', exact: true }).click();

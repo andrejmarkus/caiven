@@ -28,4 +28,7 @@ pub enum CartError {
 
     #[error("bad PNG data in {file}: {message}")]
     BadPng { file: String, message: String },
+
+    #[error("bad JSON data in {file}: {message}")]
+    BadJson { file: String, message: String },
 }

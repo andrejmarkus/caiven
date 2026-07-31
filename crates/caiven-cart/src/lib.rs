@@ -15,7 +15,10 @@ pub use format::{Cart, content_hash, load, packed_len, parse, write};
 pub use header::CartHeader;
 pub use minify::{minify_cart_lua, minify_lua};
 pub use project::{is_project, load_project, project_lua_files, save_project};
-pub use section::{CartSection, SectionKind, decode_asset_bank, encode_asset_bank};
+pub use section::{
+    CartSection, SectionKind, decode_asset_bank, decode_collision_types, encode_asset_bank,
+    encode_collision_types,
+};
 
 use std::path::Path;
 

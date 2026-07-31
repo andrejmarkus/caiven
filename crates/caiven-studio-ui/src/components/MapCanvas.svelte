@@ -3,6 +3,7 @@
   import {
     collisionCellEdits, strokeCells, type CollisionBrush, type CollisionEdit, type StrokeTool,
   } from '../lib/editorMath';
+  import type { CollisionType } from '../types';
 
   type MapLayer = 'tiles' | 'collision';
   type MapTool = 'pencil' | 'fill' | 'rect' | 'pick' | 'erase' | 'line';
@@ -13,6 +14,7 @@
     spriteSheet: number[];
     palette: string[];
     collision: number[];
+    collisionTypes: CollisionType[];
     selectedTile: number;
     showCollision: boolean;
     layer: MapLayer;
@@ -27,7 +29,7 @@
   }
 
   let {
-    map, spriteSheet, palette, collision, selectedTile, showCollision, layer, collisionBrush,
+    map, spriteSheet, palette, collision, collisionTypes, selectedTile, showCollision, layer, collisionBrush,
     tool, zoom, onStroke, onCollisionStroke, onPick, onCollisionPick, onHover,
   }: Props = $props();
   let canvas: HTMLCanvasElement;
@@ -62,14 +64,15 @@
         }
       }
       const value = collisionDraft.get(offset) ?? collision[offset] ?? 0;
-      if (showCollision && value !== 0) {
-        const hazard = value === 2;
-        const tint: [number, number, number] = hazard ? [229, 85, 95] : [254, 176, 93];
+      const ctype = value !== 0 ? collisionTypes.find((t) => t.id === value) : undefined;
+      if (showCollision && ctype) {
+        const tint = ctype.color;
+        const hatch = !ctype.solid;
         for (let pixelY = 0; pixelY < 8; pixelY += 1) for (let pixelX = 0; pixelX < 8; pixelX += 1) {
           const border = pixelX <= 1 || pixelX >= 6 || pixelY <= 1 || pixelY >= 6;
-          const hatch = hazard && (pixelX + pixelY) % 4 === 0;
+          const dot = hatch && (pixelX + pixelY) % 4 === 0;
           const at = ((tileY * 8 + pixelY) * 512 + tileX * 8 + pixelX) * 4;
-          const alpha = border || hatch ? 0.85 : 0.3;
+          const alpha = border || dot ? 0.85 : 0.3;
           image.data[at] = image.data[at] * (1 - alpha) + tint[0] * alpha;
           image.data[at + 1] = image.data[at + 1] * (1 - alpha) + tint[1] * alpha;
           image.data[at + 2] = image.data[at + 2] * (1 - alpha) + tint[2] * alpha;
@@ -94,7 +97,7 @@
   }
 
   $effect(() => {
-    map; spriteSheet; palette; collision; showCollision; tileDraft; collisionDraft; canvas;
+    map; spriteSheet; palette; collision; collisionTypes; showCollision; tileDraft; collisionDraft; canvas;
     scheduleRender();
   });
 
@@ -163,7 +166,7 @@
       return;
     }
     const value = collision[at] ?? 0;
-    onCollisionPick(value === 2 ? 2 : value === 1 ? 1 : 0);
+    onCollisionPick(collisionTypes.some((t) => t.id === value) ? value : 0);
   }
 
   function begin(event: PointerEvent) {

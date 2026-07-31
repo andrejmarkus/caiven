@@ -80,6 +80,13 @@ export interface ApiEntry {
   category: string;
 }
 
+export interface CollisionType {
+  id: number;
+  name: string;
+  color: [number, number, number];
+  solid: boolean;
+}
+
 export interface StudioBootstrap {
   connected: boolean;
   title: string;
@@ -98,6 +105,7 @@ export interface StudioBootstrap {
   activeSpriteBank: number;
   activeMapBank: number;
   collision: number[];
+  collisionTypes: CollisionType[];
   sfx: number[];
   music: number[];
   paletteBanks: number[];

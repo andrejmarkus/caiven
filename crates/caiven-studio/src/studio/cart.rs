@@ -50,7 +50,10 @@ pub fn load_cart(vm: &mut Vm, path: &Path, input: &Input, font: &Font) -> Result
                 len: section.data.len(),
                 preserved_data: None,
             });
-        } else if !matches!(section.kind, SectionKind::Program | SectionKind::LuaSource) {
+        } else if !matches!(
+            section.kind,
+            SectionKind::Program | SectionKind::LuaSource | SectionKind::CollisionTypes
+        ) {
             // Manifest, metadata and custom sections are not RAM-backed, but
             // must survive Ctrl+S and binary export unchanged.
             sections.push(SectionLayout {
@@ -105,6 +108,19 @@ pub fn load_cart(vm: &mut Vm, path: &Path, input: &Input, font: &Font) -> Result
             });
         }
     }
+    // Cart-global metadata, not a RAM window (ram_base/len unused) —
+    // `gather_sections` reads it live from `vm.collision_types()` at save
+    // time instead of `preserved_data`, so edits made via the "manage
+    // types" UI are captured even though the table was excluded above.
+    // `vm.load_cart_sections` already populated `vm.collision_types` from
+    // the cart's own section (or built-ins, if it had none), so this entry
+    // just marks the kind for inclusion — it carries no data of its own.
+    sections.push(SectionLayout {
+        kind: SectionKind::CollisionTypes,
+        ram_base: 0,
+        len: 0,
+        preserved_data: None,
+    });
 
     Ok(CartMeta {
         path: stored_path,
@@ -312,6 +328,13 @@ pub fn default_section_layout() -> Vec<SectionLayout> {
         len,
         preserved_data: None,
     })
+    .chain(std::iter::once(SectionLayout {
+        // Not a RAM window — see the matching comment in `load_cart`.
+        kind: SectionKind::CollisionTypes,
+        ram_base: 0,
+        len: 0,
+        preserved_data: None,
+    }))
     .collect()
 }
 
@@ -371,6 +394,46 @@ mod tests {
         let mut vm2 = Vm::new(VmConfig::default());
         load_cart(&mut vm2, &project, &Input::new(), &Font::empty()).unwrap();
         assert_eq!(vm2.peek_memory(COLLISION_RAM_BASE), 1);
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cart_collision_types_survive_save_reload_round_trip() {
+        let root = temp_dir("collision-types-round-trip");
+        let cart = root.join("game.cav");
+        caiven_cart::write(
+            &cart,
+            &CartHeader::new("Test", ""),
+            &[],
+            &[(
+                SectionKind::LuaSource,
+                b"function _init() end\nfunction _update() end\n".to_vec(),
+            )],
+        )
+        .unwrap();
+
+        let mut vm = Vm::new(VmConfig::default());
+        let meta = load_cart(&mut vm, &cart, &Input::new(), &Font::empty()).unwrap();
+        let mut types = caiven_core::builtin_collision_types();
+        types.push(caiven_core::CollisionType {
+            id: 3,
+            name: "water".to_string(),
+            color: [0, 128, 255],
+            flags: caiven_core::CollisionTypeFlags::from_bits(0),
+        });
+        vm.set_collision_types(types.clone());
+
+        let project = root.join("project");
+        std::fs::create_dir(&project).unwrap();
+        let mut meta = meta;
+        meta.path = project.clone();
+        save(&vm, &meta, &[]).unwrap();
+        assert!(project.join("collision_types.json").is_file());
+
+        let mut vm2 = Vm::new(VmConfig::default());
+        load_cart(&mut vm2, &project, &Input::new(), &Font::empty()).unwrap();
+        assert_eq!(vm2.collision_types(), types.as_slice());
 
         std::fs::remove_dir_all(root).unwrap();
     }

@@ -542,6 +542,52 @@ fn prelude_tile_solid_and_box_touches_solid() {
 }
 
 #[test]
+fn custom_solid_collision_type_is_respected_by_tile_solid() {
+    let mut vm = make_vm();
+    let mut types = caiven_core::builtin_collision_types();
+    types.push(caiven_core::CollisionType {
+        id: 3,
+        name: "water".to_string(),
+        color: [0, 128, 255],
+        flags: caiven_core::CollisionTypeFlags::from_bits(caiven_core::CollisionTypeFlags::SOLID),
+    });
+    vm.set_collision_types(types);
+
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          set_collision(0, 0, 3)
+          solid = tile_solid(0, 0)
+          is_solid = collision_is_solid(3)
+          name = collision_type_name(3)
+          id = collision_type_id("water")
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&input, &font);
+    assert_eq!(vm.get_fault(), None);
+
+    let globals = vm.lua_globals();
+    let get = |name: &str| {
+        globals
+            .iter()
+            .find(|(k, _)| k == name)
+            .unwrap_or_else(|| panic!("missing global {name}"))
+            .1
+            .clone()
+    };
+    assert_eq!(get("solid"), "true");
+    assert_eq!(get("is_solid"), "true");
+    assert_eq!(get("name"), "\"water\"");
+    assert_eq!(get("id"), "3");
+}
+
+#[test]
 fn prelude_tween_reaches_target_and_marks_done() {
     let got = run_and_get(
         r#"

@@ -12,7 +12,8 @@ export function dragPanScroll(startScroll: number, startPointer: number, current
   return startScroll + startPointer - currentPointer;
 }
 
-export type CollisionBrush = 0 | 1 | 2;
+/** A collision-type id (u8) — the domain is whatever the cart's collision-type table defines, not a fixed enum. */
+export type CollisionBrush = number;
 export interface CollisionEdit { offset: number; value: number; }
 
 export function collisionCellEdits(

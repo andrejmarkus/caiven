@@ -3,7 +3,10 @@
 //! treated as a project directory (the git-friendly authoring format).
 
 use anyhow::{Context, Result};
-use caiven_cart::{CartHeader, CartSection, SectionKind, decode_asset_bank, encode_asset_bank};
+use caiven_cart::{
+    CartHeader, CartSection, SectionKind, decode_asset_bank, encode_asset_bank,
+    encode_collision_types,
+};
 use caiven_vm::{AssetBankKind, Vm};
 use std::path::{Path, PathBuf};
 
@@ -30,6 +33,13 @@ fn gather_sections(vm: &Vm, meta: &CartMeta) -> Vec<(SectionKind, Vec<u8>)> {
     meta.sections
         .iter()
         .map(|s| {
+            if s.kind == SectionKind::CollisionTypes {
+                // Cart-global metadata, not RAM-backed — always read live
+                // from the VM so edits made via the type-management UI are
+                // captured, unlike `preserved_data` sections which are
+                // copied verbatim from what was loaded.
+                return (s.kind, encode_collision_types(vm.collision_types()));
+            }
             let bank = match s.kind {
                 SectionKind::SpriteSheet => Some((AssetBankKind::Sprites, 0)),
                 SectionKind::Map => Some((AssetBankKind::Map, 0)),

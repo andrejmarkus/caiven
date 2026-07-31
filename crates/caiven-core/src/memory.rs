@@ -119,6 +119,7 @@ impl MemRegion {
 
     /// Payload size actually read/written — may be smaller than [`span`](Self::span)
     /// when a region pads to a round boundary. `Work`/`Heap` have no fixed payload.
+    #[allow(clippy::len_without_is_empty)] // not a collection; `len() == 0` is a valid region, not "empty"
     pub const fn len(self) -> usize {
         match self {
             MemRegion::Work => 0,
@@ -163,6 +164,11 @@ pub const MUSIC_RAM_BASE: usize = MemRegion::Music.base();
 /// RAM base address of the RTC peripheral's mapped registers.
 pub const RTC_RAM_BASE: usize = MemRegion::Rtc.base();
 /// RAM base address of the per-cell collision layer (companion of Map).
+///
+/// Note: the collision-*type* table (names/colors/solid flags, see
+/// `caiven_core::collision`) is small cart-global metadata carried
+/// out-of-band in a cart section — it is deliberately not a `MemRegion`
+/// and has no RAM window.
 pub const COLLISION_RAM_BASE: usize = MemRegion::Collision.base();
 /// RAM base address of general-purpose/heap space.
 pub const HEAP_RAM_BASE: usize = MemRegion::Heap.base();
@@ -194,7 +200,10 @@ mod tests {
 
         for (region, want) in expected {
             let got = region.base();
-            assert_eq!(got, want, "{region:?} base is 0x{got:04X}, expected 0x{want:04X}");
+            assert_eq!(
+                got, want,
+                "{region:?} base is 0x{got:04X}, expected 0x{want:04X}"
+            );
         }
     }
 

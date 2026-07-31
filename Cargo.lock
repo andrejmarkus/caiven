@@ -967,6 +967,7 @@ dependencies = [
  "crc32fast",
  "png 0.18.0",
  "serde",
+ "serde_json",
  "sha2",
  "tempfile",
  "thiserror 2.0.18",

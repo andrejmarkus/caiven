@@ -1,5 +1,5 @@
 import type {
-  AssetBankState, AssetIndex, AudioState, Breakpoint, CartMeta, CartSize, CartTemplateSummary, GlobalValue, LocalCart, PortCartList, PortSession,
+  AssetBankState, AssetIndex, AudioState, Breakpoint, CartMeta, CartSize, CartTemplateSummary, CollisionType, GlobalValue, LocalCart, PortCartList, PortSession,
   PublishResult, SourceBuffer, StudioBootstrap, TickSnapshot,
 } from '../types';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
@@ -62,6 +62,13 @@ export const MEMORY = {
 
 export const COLLISION_LEN = 64 * 64;
 
+/** Mirrors `caiven_core::builtin_collision_types()` for the browser fallback. */
+export const defaultCollisionTypes: CollisionType[] = [
+  { id: 0, name: 'walkable', color: [0, 0, 0], solid: false },
+  { id: 1, name: 'solid', color: [255, 176, 0], solid: true },
+  { id: 2, name: 'hazard', color: [224, 32, 32], solid: false },
+];
+
 /** Flattens `#RRGGBB` palette slots into the raw RGB byte layout a palette bank stores. */
 function paletteToBytes(colors: string[]): number[] {
   return colors.flatMap((hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) || 0));
@@ -94,6 +101,7 @@ const fallback: StudioBootstrap = {
   activeSpriteBank: 0,
   activeMapBank: 0,
   collision: Array(COLLISION_LEN).fill(0),
+  collisionTypes: structuredClone(defaultCollisionTypes),
   sfx: Array(1024).fill(0),
   music: Array(256).fill(0),
   paletteBanks: [0],
@@ -261,6 +269,16 @@ export async function writeMapCells(cells: { offset: number; tile: number }[]): 
 
 export async function writeCollisionCells(cells: { offset: number; value: number }[]): Promise<void> {
   if (isTauri()) await invoke('studio_write_collision_cells', { cells });
+}
+
+export async function readCollisionTypes(): Promise<CollisionType[]> {
+  if (isTauri()) return invoke<CollisionType[]>('studio_read_collision_types');
+  return structuredClone(fallback.collisionTypes);
+}
+
+export async function writeCollisionTypes(types: CollisionType[]): Promise<void> {
+  if (isTauri()) await invoke('studio_write_collision_types', { types });
+  else fallback.collisionTypes = structuredClone(types);
 }
 
 export async function assetBank(

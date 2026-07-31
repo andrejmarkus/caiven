@@ -20,13 +20,13 @@
     openProject, readAssetIndex, readCartSize, readFrame, readMemory, readTick, saveProject, setInput, transport,
     addWatch, assetBank, audioTransport, clearOutput, closeProject, COLLISION_LEN, createModule, MEMORY, portDownload, portLinkCancel, portLinkPoll, portLinkStart, portListCarts,
     portLogout, portPublish, portSession, scanLibrary, toggleBreakpoint, writeBuffer,
-    removeRecent, removeWatch, writeCollisionCells, writeMapCells, writeMemory, writeMeta, writePalette, writeSprite,
+    removeRecent, removeWatch, writeCollisionCells, writeCollisionTypes, writeMapCells, writeMemory, writeMeta, writePalette, writeSprite,
   } from './lib/ipc';
   import { plural, tidyPath } from './lib/format';
 
   let studio = $state<StudioBootstrap>({
     connected: false, title: '', path: '', author: '', runState: 'stopped',
-    frame: 0, fps: 0, cartSize: { packedBytes: 0, maxBytes: 128 * 1024 }, sources: [], palette: [], spriteSheet: [], map: [], spriteBanks: [0], mapBanks: [0], activeSpriteBank: 0, activeMapBank: 0, collision: [],
+    frame: 0, fps: 0, cartSize: { packedBytes: 0, maxBytes: 128 * 1024 }, sources: [], palette: [], spriteSheet: [], map: [], spriteBanks: [0], mapBanks: [0], activeSpriteBank: 0, activeMapBank: 0, collision: [], collisionTypes: [],
     sfx: [], music: [], paletteBanks: [0], activePaletteBank: 0, sfxBanks: [0], activeSfxBank: 0, musicBanks: [0], activeMusicBank: 0, ram: [], globals: [], watches: [], callStack: [], breakpoints: [], pauseReason: null, diagnostics: [], output: [],
     meta: { description: '', tags: [] }, assetIndex: { entries: [], computedRefs: 0 },
     audio: { sfxActive: false, sfxId: 0, sfxStep: 0, musicActive: false, musicPattern: 0, musicRow: 0, musicLoop: true },
@@ -353,6 +353,14 @@
         studio.collision[edit.offset] = edit.value;
         studio.ram[MEMORY.collision + edit.offset] = edit.value;
       }
+    });
+  }
+
+  function updateCollisionTypes(types: StudioBootstrap['collisionTypes']) {
+    const previous = studio.collisionTypes;
+    studio.collisionTypes = types;
+    void commitMutation('Collision types edit', () => writeCollisionTypes(types), () => {
+      studio.collisionTypes = previous;
     });
   }
 
@@ -893,6 +901,7 @@
           activeSpriteBank={studio.activeSpriteBank}
           activeMapBank={studio.activeMapBank}
           collision={studio.collision}
+          collisionTypes={studio.collisionTypes}
           sfx={studio.sfx}
           music={studio.music}
           paletteBanks={studio.paletteBanks}
@@ -924,6 +933,7 @@
           onCode={updateCode}
           onSprite={updateSprite}
           onCollision={updateCollision}
+          onCollisionTypes={updateCollisionTypes}
           onMap={updateMap}
           onAssetBank={changeAssetBank}
           onSfx={updateSfx}

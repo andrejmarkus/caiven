@@ -40,11 +40,12 @@ pub enum AssetBankKind {
     Palette,
     Sfx,
     Music,
-    /// Per-cell collision layer (`0` walkable / `1` solid / `2` hazard) that
-    /// shadows the active Map bank — a "companion" bank: created, selected,
-    /// and removed in lockstep with its primary (see
-    /// `AssetBankKind::companion`), no independent Lua selector, always
-    /// follows `load_map_bank`.
+    /// Per-cell collision layer that shadows the active Map bank — a
+    /// "companion" bank: created, selected, and removed in lockstep with
+    /// its primary (see `AssetBankKind::companion`), no independent Lua
+    /// selector, always follows `load_map_bank`. Cell bytes index the
+    /// cart's collision-type table (`Vm::collision_types`, ids `0`/`1`/`2`
+    /// built-in as walkable/solid/hazard, `3..=255` free for custom types).
     Collision,
 }
 
@@ -191,6 +192,12 @@ pub struct Vm {
     capture_lua_output: bool,
     call_stack: Vec<(String, String)>,
     asset_banks: AssetBanks,
+    /// Cart-global collision-type table (names/colors/solid flags). Small
+    /// metadata, not RAM-backed — see `caiven_core::collision` and
+    /// `COLLISION_RAM_BASE`'s doc comment. Seeded with the built-in types
+    /// and overwritten wholesale by a `SectionKind::CollisionTypes` section
+    /// on cart load, so old carts without one still get valid defaults.
+    collision_types: Vec<caiven_core::CollisionType>,
 }
 
 impl Vm {
@@ -231,7 +238,20 @@ impl Vm {
             capture_lua_output: false,
             call_stack: Vec::new(),
             asset_banks: AssetBanks::new(),
+            collision_types: caiven_core::builtin_collision_types(),
         }
+    }
+
+    /// The cart's current collision-type table (built-ins plus any custom
+    /// types), in id order as loaded/set.
+    pub fn collision_types(&self) -> &[caiven_core::CollisionType] {
+        &self.collision_types
+    }
+
+    /// Replaces the collision-type table wholesale (editor "manage types"
+    /// commits a full table rather than deltas — see `caiven-studio`).
+    pub fn set_collision_types(&mut self, types: Vec<caiven_core::CollisionType>) {
+        self.collision_types = types;
     }
 
     /// Enables VM-owned `print()` capture for subsequently loaded Lua code.
@@ -296,6 +316,10 @@ impl Vm {
     /// once each grew a second, independently-written call site.
     pub fn load_cart_sections(&mut self, sections: &[CartSection]) -> Option<String> {
         self.asset_banks = AssetBanks::new();
+        // Reset to built-ins; a `CollisionTypes` section below overwrites
+        // this wholesale. Carts saved before this feature existed carry no
+        // such section and simply keep the built-in three.
+        self.collision_types = caiven_core::builtin_collision_types();
         for section in sections {
             let ram_base = match section.kind {
                 SectionKind::SpriteSheet => {
@@ -338,6 +362,10 @@ impl Vm {
                             .banks_mut(AssetBankKind::Collision)
                             .insert(id, AssetBanks::normalized(data, COLLISION_LEN));
                     }
+                    continue;
+                }
+                SectionKind::CollisionTypes => {
+                    self.collision_types = caiven_cart::decode_collision_types(&section.data);
                     continue;
                 }
                 // Additional (id != 0) banks for the kinds whose bank-0 data

@@ -56,6 +56,11 @@ function installBridge() {
   const COLLISION_OFFSET = 0x9703;
   const COLLISION_LEN = 4096;
   const collision = new Map([[0, make(COLLISION_LEN, 0)], [1, make(COLLISION_LEN, 0)]]);
+  let collisionTypes: { id: number; name: string; color: [number, number, number]; solid: boolean }[] = [
+    { id: 0, name: 'walkable', color: [0, 0, 0], solid: false },
+    { id: 1, name: 'solid', color: [255, 176, 0], solid: true },
+    { id: 2, name: 'hazard', color: [224, 32, 32], solid: false },
+  ];
   const active: Record<Kind, number> = { sprites: 0, map: 0, palette: 0, sfx: 0, music: 0 };
   const tickActive: Record<Kind, number> = { ...active };
   const ram = make(65536);
@@ -105,6 +110,7 @@ function installBridge() {
     spriteSheet: [...banks.sprites.get(active.sprites)!], map: [...banks.map.get(active.map)!],
     spriteBanks: [...banks.sprites.keys()], mapBanks: [...banks.map.keys()], activeSpriteBank: active.sprites, activeMapBank: active.map,
     spriteFlags: [...flags.get(active.sprites)!], collision: [...(collision.get(active.map) ?? make(COLLISION_LEN))],
+    collisionTypes: structuredClone(collisionTypes),
     sfx: [...banks.sfx.get(active.sfx)!], music: [...banks.music.get(active.music)!],
     paletteBanks: [...banks.palette.keys()], activePaletteBank: active.palette,
     sfxBanks: [...banks.sfx.keys()], activeSfxBank: active.sfx, musicBanks: [...banks.music.keys()], activeMusicBank: active.music,
@@ -208,6 +214,8 @@ function installBridge() {
     if (command === 'studio_write_palette') { const slot = Number(args.slot); const hex = String(args.hex); const bytes = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16)); banks.palette.get(active.palette)!.splice(slot * 3, 3, ...bytes); sync('palette'); return null; }
     if (command === 'studio_write_map_cells') { for (const cell of args.cells as { offset: number; tile: number }[]) banks.map.get(active.map)![cell.offset] = cell.tile; sync('map'); return null; }
     if (command === 'studio_write_collision_cells') { for (const cell of args.cells as { offset: number; value: number }[]) collision.get(active.map)![cell.offset] = cell.value; sync('map'); return null; }
+    if (command === 'studio_read_collision_types') return structuredClone(collisionTypes);
+    if (command === 'studio_write_collision_types') { collisionTypes = args.types as typeof collisionTypes; return null; }
     if (command === 'studio_write_memory') {
       const address = Number(args.address); const bytes = args.bytes as number[];
       ram.splice(address, bytes.length, ...bytes);

@@ -21,7 +21,7 @@ fn parse_hex(s: &str) -> usize {
 
 #[test]
 fn ipc_ts_memory_object_matches_layout() {
-    let re = Regex::new(r"(\w+):\s*0x([0-9A-Fa-f]+)").unwrap();
+    let re = Regex::new(r"(\w+):\s*0x([0-9A-Fa-f]+)").expect("valid regex");
     let cases: [(&str, MemRegion); 6] = [
         ("sprites", MemRegion::SpriteSheet),
         ("map", MemRegion::Map),
@@ -32,8 +32,13 @@ fn ipc_ts_memory_object_matches_layout() {
     ];
 
     // Scope to the `MEMORY` object literal so we don't match unrelated `key: 0x…` pairs.
-    let start = IPC_TS.find("export const MEMORY").expect("ipc.ts: MEMORY object not found");
-    let end = IPC_TS[start..].find("as const").expect("ipc.ts: MEMORY object not closed") + start;
+    let start = IPC_TS
+        .find("export const MEMORY")
+        .expect("ipc.ts: MEMORY object not found");
+    let end = IPC_TS[start..]
+        .find("as const")
+        .expect("ipc.ts: MEMORY object not closed")
+        + start;
     let block = &IPC_TS[start..end];
 
     for (key, region) in cases {
@@ -52,7 +57,7 @@ fn ipc_ts_memory_object_matches_layout() {
 
 #[test]
 fn drawer_math_ts_regions_match_layout() {
-    let re = Regex::new(r"label:\s*'(\w+)',\s*address:\s*0x([0-9A-Fa-f]+)").unwrap();
+    let re = Regex::new(r"label:\s*'(\w+)',\s*address:\s*0x([0-9A-Fa-f]+)").expect("valid regex");
     let cases: [(&str, MemRegion); 6] = [
         ("WORK", MemRegion::Work),
         ("SPRITES", MemRegion::SpriteSheet),
@@ -78,7 +83,8 @@ fn drawer_math_ts_regions_match_layout() {
 
 #[test]
 fn readme_memory_map_table_matches_layout() {
-    let re = Regex::new(r"`0x([0-9A-Fa-f]+).0x([0-9A-Fa-f]+)`\s*\|\s*([^|]+)\|").unwrap();
+    let re =
+        Regex::new(r"`0x([0-9A-Fa-f]+).0x([0-9A-Fa-f]+)`\s*\|\s*([^|]+)\|").expect("valid regex");
     // (keyword to find in the row's description, region it names)
     let cases: [(&str, MemRegion); 8] = [
         ("Sprite sheet", MemRegion::SpriteSheet),

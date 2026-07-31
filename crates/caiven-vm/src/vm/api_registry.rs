@@ -204,7 +204,7 @@ pub const BUILTINS: &[ApiEntry] = &[
         name: "get_collision",
         params: &[param!("tx": "number"), param!("ty": "number")],
         returns: "u8",
-        doc: "Read the per-cell collision value at map cell (tx, ty): 0 walkable, 1 solid, 2 hazard; 0 if out of bounds.",
+        doc: "Read the collision-type id at map cell (tx, ty); 0 if out of bounds. The id indexes the cart's collision-type table (0/1/2 built-in as walkable/solid/hazard, 3-255 free for custom types) — see collision_type_name/collision_is_solid.",
     },
     ApiEntry {
         name: "set_collision",
@@ -214,7 +214,25 @@ pub const BUILTINS: &[ApiEntry] = &[
             param!("value": "u8"),
         ],
         returns: "nil",
-        doc: "Write the per-cell collision value at map cell (tx, ty); no-op if out of bounds.",
+        doc: "Write the collision-type id at map cell (tx, ty); no-op if out of bounds.",
+    },
+    ApiEntry {
+        name: "collision_type_id",
+        params: &[param!("name": "string")],
+        returns: "u8",
+        doc: "Look up a collision type's id by name; 0 (walkable) if no type has that name.",
+    },
+    ApiEntry {
+        name: "collision_type_name",
+        params: &[param!("id": "u8")],
+        returns: "string",
+        doc: "Look up a collision type's name by id; \"\" if the id is undefined.",
+    },
+    ApiEntry {
+        name: "collision_is_solid",
+        params: &[param!("id": "u8")],
+        returns: "bool",
+        doc: "True if the collision type with this id is flagged solid. Used by tile_solid/box_touches_solid; undefined ids are never solid.",
     },
     ApiEntry {
         name: "load_sprite_bank",
@@ -351,7 +369,7 @@ pub const PRELUDE: &[ApiEntry] = &[
         name: "tile_solid",
         params: &[param!("tx": "number"), param!("ty": "number")],
         returns: "bool",
-        doc: "True if the per-cell collision value at (tx, ty) is 1 (solid).",
+        doc: "True if the collision type at (tx, ty) is flagged solid (see collision_is_solid) — any type with the SOLID flag, not just the built-in id 1.",
     },
     ApiEntry {
         name: "box_touches_solid",

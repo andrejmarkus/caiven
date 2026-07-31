@@ -22,13 +22,18 @@
 //!   music_1.hex       (additional music bank 1)
 //!   collision.hex     (per-cell collision, companion of map)
 //!   collision_1.hex   (additional collision bank 1, companion of map bank 1)
+//!   collision_types.json  (cart-global collision-type table, if customized)
 //! ```
 //!
 //! Sprites, map, and palette each support both `.png` (visual, editable in
 //! any image tool) and `.hex` (per-line text diffs) — whichever file is
 //! already on disk is preserved on save; a brand-new asset is written as
 //! `.png`. SFX, music, and collision are index/audio data rather than
-//! images, so they're `.hex` only.
+//! images, so they're `.hex` only. The collision-*type* table (names,
+//! colors, solid flags) is cart-global metadata, not per-cell data, so it
+//! gets its own `collision_types.json` — human-readable and git-friendly.
+//! It's omitted when the table is exactly the three built-in types, so an
+//! unmodified cart has no extra file.
 
 use std::path::{Path, PathBuf};
 
@@ -41,10 +46,49 @@ use crate::format::Cart;
 use crate::header::CartHeader;
 use crate::section::{CartSection, SectionKind};
 use crate::text::{decode_hex_block, encode_hex_block, trim_trailing_zeros};
-use crate::{decode_asset_bank, encode_asset_bank};
+use crate::{decode_asset_bank, decode_collision_types, encode_asset_bank, encode_collision_types};
 
 const MANIFEST_FILE: &str = "caiven.toml";
 const DEFAULT_ENTRY: &str = "main.lua";
+const COLLISION_TYPES_FILE: &str = "collision_types.json";
+
+/// On-disk DTO for `collision_types.json` — a readable/diffable stand-in
+/// for `caiven_core::CollisionType`, whose `flags` bitset is exposed here
+/// as a plain `solid` bool (the only engine-affecting flag today).
+#[derive(Serialize, Deserialize)]
+struct CollisionTypeDto {
+    id: u8,
+    name: String,
+    color: [u8; 3],
+    solid: bool,
+}
+
+impl From<&caiven_core::CollisionType> for CollisionTypeDto {
+    fn from(t: &caiven_core::CollisionType) -> Self {
+        Self {
+            id: t.id,
+            name: t.name.clone(),
+            color: t.color,
+            solid: t.flags.is_solid(),
+        }
+    }
+}
+
+impl From<CollisionTypeDto> for caiven_core::CollisionType {
+    fn from(dto: CollisionTypeDto) -> Self {
+        let bits = if dto.solid {
+            caiven_core::CollisionTypeFlags::SOLID
+        } else {
+            0
+        };
+        Self {
+            id: dto.id,
+            name: dto.name,
+            color: dto.color,
+            flags: caiven_core::CollisionTypeFlags::from_bits(bits),
+        }
+    }
+}
 
 /// Asset section kinds and their file stem, in load order — `Palette` comes
 /// first so its bytes are available for `SpriteSheet`'s PNG decode/encode
@@ -246,6 +290,21 @@ pub fn load_project(path: &Path) -> Result<Cart, CartError> {
         }
     }
 
+    let types_path = dir.join(COLLISION_TYPES_FILE);
+    if types_path.is_file() {
+        let text = std::fs::read_to_string(&types_path)?;
+        let dtos: Vec<CollisionTypeDto> =
+            serde_json::from_str(&text).map_err(|e| CartError::BadJson {
+                file: COLLISION_TYPES_FILE.to_string(),
+                message: e.to_string(),
+            })?;
+        let types: Vec<caiven_core::CollisionType> = dtos.into_iter().map(Into::into).collect();
+        sections.push(CartSection {
+            kind: SectionKind::CollisionTypes,
+            data: encode_collision_types(&types),
+        });
+    }
+
     if !manifest.mods.require.is_empty() {
         sections.push(CartSection {
             kind: SectionKind::ModManifest,
@@ -264,7 +323,9 @@ pub fn load_project(path: &Path) -> Result<Cart, CartError> {
 /// path -> source, e.g. `ui/panel.lua`), and asset `sections` out as a
 /// project directory at `dir`, creating it if needed. Sections with no asset
 /// file mapping (`Program`, `Meta`, `LuaSource`) are ignored; `ModManifest`
-/// is folded into `caiven.toml`'s `[mods].require` instead of a `.hex` file.
+/// is folded into `caiven.toml`'s `[mods].require` instead of a `.hex` file,
+/// and `CollisionTypes` is written to `collision_types.json` (omitted when
+/// the table is exactly the built-in types).
 /// Asset sections that trim to empty have their `.hex`/`.png` file removed
 /// if present, so deleting all sprites in the editor cleans up the file
 /// instead of leaving zeros.
@@ -337,6 +398,21 @@ pub fn save_project(
     }
 
     for (kind, data) in sections {
+        if *kind == SectionKind::CollisionTypes {
+            let types = decode_collision_types(data);
+            let types_path = dir.join(COLLISION_TYPES_FILE);
+            if types == caiven_core::builtin_collision_types() {
+                let _ = std::fs::remove_file(&types_path);
+            } else {
+                let dtos: Vec<CollisionTypeDto> = types.iter().map(Into::into).collect();
+                let json = serde_json::to_string_pretty(&dtos).map_err(|e| CartError::BadJson {
+                    file: COLLISION_TYPES_FILE.to_string(),
+                    message: e.to_string(),
+                })?;
+                std::fs::write(&types_path, json)?;
+            }
+            continue;
+        }
         if let Some((_, base_kind, stem)) = BANK_KINDS.iter().find(|(k, _, _)| k == kind) {
             let Some((id, payload)) = decode_asset_bank(data) else {
                 continue;
@@ -495,6 +571,59 @@ mod tests {
                 .iter()
                 .all(|s| s.kind == SectionKind::LuaSource)
         );
+    }
+
+    #[test]
+    fn collision_types_json_written_only_when_customized() {
+        let dir = tempfile::tempdir().unwrap();
+        let header = CartHeader::new("Blank", "");
+
+        // Built-ins only: no file.
+        save_project(
+            dir.path(),
+            &header,
+            "-- empty\n",
+            &[],
+            &[(
+                SectionKind::CollisionTypes,
+                encode_collision_types(&caiven_core::builtin_collision_types()),
+            )],
+        )
+        .unwrap();
+        assert!(!dir.path().join(COLLISION_TYPES_FILE).is_file());
+        assert!(
+            load_project(dir.path())
+                .unwrap()
+                .sections
+                .iter()
+                .all(|s| s.kind != SectionKind::CollisionTypes)
+        );
+
+        // Custom type added: file present and roundtrips.
+        let mut types = caiven_core::builtin_collision_types();
+        types.push(caiven_core::CollisionType {
+            id: 3,
+            name: "water".to_string(),
+            color: [0, 128, 255],
+            flags: caiven_core::CollisionTypeFlags::from_bits(0),
+        });
+        save_project(
+            dir.path(),
+            &header,
+            "-- empty\n",
+            &[],
+            &[(SectionKind::CollisionTypes, encode_collision_types(&types))],
+        )
+        .unwrap();
+        assert!(dir.path().join(COLLISION_TYPES_FILE).is_file());
+
+        let cart = load_project(dir.path()).unwrap();
+        let section = cart
+            .sections
+            .iter()
+            .find(|s| s.kind == SectionKind::CollisionTypes)
+            .unwrap();
+        assert_eq!(decode_collision_types(&section.data), types);
     }
 
     #[test]

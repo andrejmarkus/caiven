@@ -21,7 +21,7 @@ function aabb_overlap(x1, y1, w1, h1, x2, y2, w2, h2)
 end
 
 function tile_solid(tx, ty)
-  return get_collision(tx, ty) == 1
+  return collision_is_solid(get_collision(tx, ty))
 end
 
 function box_touches_solid(x, y, w, h)
