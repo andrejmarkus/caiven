@@ -201,18 +201,6 @@ pub const BUILTINS: &[ApiEntry] = &[
         doc: "Write a tile id at map cell (x, y); no-op if out of bounds.",
     },
     ApiEntry {
-        name: "get_sprite_flags",
-        params: &[param!("sprite_id": "u8")],
-        returns: "u8",
-        doc: "Read the per-sprite flag byte for sprite_id.",
-    },
-    ApiEntry {
-        name: "set_sprite_flags",
-        params: &[param!("sprite_id": "u8"), param!("flags": "u8")],
-        returns: "nil",
-        doc: "Write the per-sprite flag byte for sprite_id.",
-    },
-    ApiEntry {
         name: "get_collision",
         params: &[param!("tx": "number"), param!("ty": "number")],
         returns: "u8",

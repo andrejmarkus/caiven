@@ -225,7 +225,6 @@ Math (`sin`/`cos`/`abs`/`floor`/`sqrt`/`max`/`min`/`random`), strings (`..`, `su
 | `sprite(id, x, y)` | Draw 8×8 sprite (camera-aware) |
 | `draw_map(cell_x, cell_y, sx, sy, w, h)` | Draw a block of the tilemap |
 | `get_tile(x, y)` / `set_tile(x, y, tile)` | Read / write a map cell |
-| `get_sprite_flags(id)` / `set_sprite_flags(id, flags)` | Read / write per-sprite flag byte |
 | `load_sprite_bank(id)` | Copy sprite bank into sprite RAM; returns `false` when missing |
 | `load_map_bank(id)` | Copy map bank into map RAM; returns `false` when missing |
 
@@ -377,12 +376,12 @@ fixed sprite/map RAM windows. Changes made through RAM survive later switches.
 | `0x0000–0x3FFF` | Unused / reserved |
 | `0x4000–0x7FFF` | Sprite sheet — 256 sprites × 64 bytes (1 byte/pixel) |
 | `0x8000–0x8FFF` | Tilemap 64×64 (1 byte/cell) |
-| `0x9000–0x90FF` | Sprite flags (1 byte/sprite) |
-| `0x9100–0x91FF` | Palette (16 × 3 bytes RGB, rest padding) |
-| `0x9200–0x95FF` | SFX bank (16 × 64 bytes) |
-| `0x9600–0x96FF` | Music bank (8 × 32 bytes) |
-| `0x9703–0xA702` | Collision — 64×64 (1 byte/cell: 0 walkable, 1 solid, 2 hazard) |
-| `0xA703–0xFFFF` | Reserved |
+| `0x9000–0x90FF` | Palette (16 × 3 bytes RGB, rest padding) |
+| `0x9100–0x94FF` | SFX bank (16 × 64 bytes) |
+| `0x9500–0x95FF` | Music bank (8 × 32 bytes) |
+| `0x9600–0x9602` | RTC (hour, minute, second) |
+| `0x9603–0xA602` | Collision — 64×64 (1 byte/cell: 0 walkable, 1 solid, 2 hazard) |
+| `0xA603–0xFFFF` | Reserved |
 
 ---
 

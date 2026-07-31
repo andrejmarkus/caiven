@@ -38,7 +38,6 @@
     mapBanks: number[];
     activeSpriteBank: number;
     activeMapBank: number;
-    spriteFlags: number[];
     collision: number[];
     sfx: number[];
     music: number[];
@@ -72,7 +71,6 @@
     onSource: (index: number) => void;
     onCode: (text: string) => void;
     onSprite: (sprite: number, pixels: number[]) => void;
-    onFlags: (sprite: number, flags: number) => void;
     onCollision: (edits: CollisionEdit[]) => void;
     onMap: (cells: { offset: number; tile: number }[]) => void;
     onAssetBank: (kind: 'sprites' | 'map' | 'palette' | 'sfx' | 'music', action: 'select' | 'create' | 'delete', id?: number) => void | Promise<boolean | void>;
@@ -107,11 +105,11 @@
   }
 
   let {
-    screen, sources, activeSource, palette, spriteSheet, map, spriteBanks, mapBanks, activeSpriteBank, activeMapBank, spriteFlags, collision, sfx, music,
+    screen, sources, activeSource, palette, spriteSheet, map, spriteBanks, mapBanks, activeSpriteBank, activeMapBank, collision, sfx, music,
     paletteBanks, sfxBanks, musicBanks, activePaletteBank, activeSfxBank, activeMusicBank, cartSize,
     audio, assetIndex, diagnostics, breakpoints, title, author, path, meta, dirty, tourDone, recent, api, frameData, insertRequest, revealRequest, onInsertHandled, onRevealHandled,
     soundSelection,
-    onNavigate, onSource, onCode, onSprite, onFlags, onCollision, onMap, onAssetBank, onSfx, onMusic, onAudio,
+    onNavigate, onSource, onCode, onSprite, onCollision, onMap, onAssetBank, onSfx, onMusic, onAudio,
     onBreakpoint, onMeta, onCreateModule, onPalette, onTour, onOpen, onNew,
     localCarts, portCarts, portAccount, portBusy, portError, portLinkPending, portLinkExpiresAt, onScanLibrary,
     onSearchPort, onOpenLocal, onRemoveRecent, onDownloadPort, onOpenPortAccount, onPortLink, onPortLinkCancel, onPortLogout,
@@ -304,27 +302,13 @@
     onNavigate(assetScreen(entry.kind));
   }
 
-  // Eight free-form per-sprite-type bits. Collision lives in its own per-cell
-  // layer now (see the map screen's Collision brush) — these are just tags
-  // for whatever a game's own Lua code wants to key off `get_sprite_flags`.
-  const spriteFlagNames = $derived([
-    { name: 'Custom 0', hint: 'Yours to define', dot: palette[3] },
-    { name: 'Custom 1', hint: 'Yours to define', dot: palette[8] },
-    { name: 'Custom 2', hint: 'Yours to define', dot: palette[10] },
-    { name: 'Custom 3', hint: 'Yours to define', dot: palette[12] },
-    { name: 'Custom 4', hint: 'Yours to define', dot: palette[11] },
-    { name: 'Custom 5', hint: 'Yours to define', dot: palette[13] },
-    { name: 'Custom 6', hint: 'Yours to define', dot: palette[14] },
-    { name: 'Custom 7', hint: 'Yours to define', dot: palette[15] },
-  ]);
-
   const noteNames = ['---', ...Array.from({ length: 96 }, (_, i) => `${['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'][i % 12]}${Math.floor(i / 12)}`)];
   const assetStats = $derived(['sprite','sfx','music','color'].map((kind) => {
     const entries = assetIndex.entries.filter((entry) => entry.kind === kind);
     return { kind, used: entries.filter((entry) => entry.used || entry.nonzero).length, count: entries.length, bytes: entries.reduce((sum, entry) => sum + entry.bytes, 0), refs: entries.reduce((sum, entry) => sum + entry.refs.length, 0) };
   }));
   const codeBytes = $derived(sources.reduce((sum, source) => sum + new TextEncoder().encode(source.text).length, 0));
-  const artBytes = $derived(spriteSheet.length + map.length + spriteFlags.length + collision.length);
+  const artBytes = $derived(spriteSheet.length + map.length + collision.length);
   const soundBytes = $derived(sfx.length + music.length);
   const cartPercent = $derived(Math.min(100, Math.round(cartSize.packedBytes / cartSize.maxBytes * 100)));
 
@@ -847,26 +831,6 @@
             </button>
           {/each}
         </div>
-        <section class="flags">
-          <span class="eyebrow">Behaviour flags</span>
-          {#each spriteFlagNames as flag, i}
-            <label title={`bit ${i}`}>
-              <span>
-                <i style={`background:${flag.dot}`}></i>
-                <b class="flag-name">{flag.name}</b>
-                <small>{flag.hint}</small>
-              </span>
-              <code>bit {i}</code>
-              <input
-                type="checkbox"
-                checked={Boolean((spriteFlags[selectedSprite] ?? 0) & (1 << i))}
-                onchange={(event) => onFlags(selectedSprite, event.currentTarget.checked ? (spriteFlags[selectedSprite] ?? 0) | (1 << i) : (spriteFlags[selectedSprite] ?? 0) & ~(1 << i))}
-              />
-              <b class="flag-switch"></b>
-            </label>
-          {/each}
-          <p class="flag-raw">flags = 0x{(spriteFlags[selectedSprite] ?? 0).toString(16).padStart(2, '0').toUpperCase()}</p>
-        </section>
       </aside>
     </section>
 

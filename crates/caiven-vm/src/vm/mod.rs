@@ -25,8 +25,8 @@ use crate::vm::audio::{NoiseChannel, Sound, SquareChannel};
 use caiven_cart::{CartSection, SectionKind, decode_asset_bank};
 use caiven_core::memory::{
     COLLISION_LEN, COLLISION_RAM_BASE, MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE,
-    PALETTE_RAM_BASE, PALETTE_SIZE, SFX_BANK_LEN, SFX_RAM_BASE, SPRITE_FLAGS_LEN,
-    SPRITE_FLAGS_RAM_BASE, SPRITE_SHEET_LEN, SPRITE_SHEET_RAM_BASE,
+    PALETTE_RAM_BASE, PALETTE_SIZE, SFX_BANK_LEN, SFX_RAM_BASE, SPRITE_SHEET_LEN,
+    SPRITE_SHEET_RAM_BASE,
 };
 use caiven_core::{Color, Vec2};
 use log::error;
@@ -37,17 +37,14 @@ use std::sync::{Arc, Mutex};
 pub enum AssetBankKind {
     Sprites,
     Map,
-    /// Behavior-flag table that shadows the active Sprites bank. A
-    /// "companion" bank: created, selected, and removed in lockstep with
-    /// its primary (see `AssetBankKind::companion`) and has no independent
-    /// Lua selector — it always follows `load_sprite_bank`.
-    SpriteFlags,
     Palette,
     Sfx,
     Music,
     /// Per-cell collision layer (`0` walkable / `1` solid / `2` hazard) that
-    /// shadows the active Map bank — a companion bank like `SpriteFlags`,
-    /// no independent Lua selector, always follows `load_map_bank`.
+    /// shadows the active Map bank — a "companion" bank: created, selected,
+    /// and removed in lockstep with its primary (see
+    /// `AssetBankKind::companion`), no independent Lua selector, always
+    /// follows `load_map_bank`.
     Collision,
 }
 
@@ -57,7 +54,6 @@ impl AssetBankKind {
     /// companion at the same bank id — see `Vm::{select,create,remove}_asset_bank`.
     pub fn companion(self) -> Option<AssetBankKind> {
         match self {
-            AssetBankKind::Sprites => Some(AssetBankKind::SpriteFlags),
             AssetBankKind::Map => Some(AssetBankKind::Collision),
             _ => None,
         }
@@ -70,10 +66,9 @@ struct AssetBanks {
 }
 
 impl AssetBanks {
-    const KINDS: [AssetBankKind; 7] = [
+    const KINDS: [AssetBankKind; 6] = [
         AssetBankKind::Sprites,
         AssetBankKind::Map,
-        AssetBankKind::SpriteFlags,
         AssetBankKind::Palette,
         AssetBankKind::Sfx,
         AssetBankKind::Music,
@@ -95,7 +90,6 @@ impl AssetBanks {
         match kind {
             AssetBankKind::Sprites => (SPRITE_SHEET_RAM_BASE, SPRITE_SHEET_LEN),
             AssetBankKind::Map => (MAP_RAM_BASE, MAP_LEN),
-            AssetBankKind::SpriteFlags => (SPRITE_FLAGS_RAM_BASE, SPRITE_FLAGS_LEN),
             AssetBankKind::Palette => (PALETTE_RAM_BASE, PALETTE_SIZE * 3),
             AssetBankKind::Sfx => (SFX_RAM_BASE, SFX_BANK_LEN),
             AssetBankKind::Music => (MUSIC_RAM_BASE, MUSIC_BANK_LEN),
@@ -162,8 +156,8 @@ impl AssetBanks {
     /// the same id — creating a fresh zero-filled companion bank first if
     /// one doesn't exist yet, so a companion can never lag behind on stale
     /// data from whatever bank was previously active (e.g. switching to a
-    /// Sprites bank that has no matching SpriteFlags bank must not leave
-    /// the old bank's flags governing the new sprites). Shared by
+    /// Map bank that has no matching Collision bank must not leave the old
+    /// bank's collision governing the new map). Shared by
     /// `Vm::{select,create}_asset_bank` and the Lua `load_*_bank` builtins
     /// (`lua_exec.rs`) so the three call paths can't drift on this.
     fn select_with_companion(&mut self, kind: AssetBankKind, id: u8, memory: &mut Memory) -> bool {
@@ -293,7 +287,7 @@ impl Vm {
     }
 
     /// Copies every RAM-backed asset section a cart may carry (SpriteSheet,
-    /// Map, SpriteFlags, Palette, SfxBank, MusicBank) to its fixed RAM base,
+    /// Map, Palette, SfxBank, MusicBank) to its fixed RAM base,
     /// and returns the cart's Lua source text if present. Single source of
     /// truth for "which section kind goes where" — every cart-loading call
     /// site (Studio, `caiven-machine`, the port screenshot capturer) must go
@@ -349,14 +343,6 @@ impl Vm {
                 // Additional (id != 0) banks for the kinds whose bank-0 data
                 // still loads straight to RAM below. Bank 0 self-heals into
                 // `asset_banks` on first `select`/`sync`; see `AssetBanks::sync`.
-                SectionKind::SpriteFlagsBank => {
-                    if let Some((id, data)) = decode_asset_bank(&section.data) {
-                        self.asset_banks
-                            .banks_mut(AssetBankKind::SpriteFlags)
-                            .insert(id, AssetBanks::normalized(data, SPRITE_FLAGS_LEN));
-                    }
-                    continue;
-                }
                 SectionKind::PaletteBank => {
                     if let Some((id, data)) = decode_asset_bank(&section.data) {
                         self.asset_banks
@@ -381,7 +367,6 @@ impl Vm {
                     }
                     continue;
                 }
-                SectionKind::SpriteFlags => SPRITE_FLAGS_RAM_BASE,
                 SectionKind::Palette => PALETTE_RAM_BASE,
                 SectionKind::SfxBank => SFX_RAM_BASE,
                 SectionKind::MusicBank => MUSIC_RAM_BASE,
@@ -426,7 +411,7 @@ impl Vm {
 
     /// Selects bank `id` for `kind`. If `kind` has a companion (see
     /// `AssetBankKind::companion`), the companion follows to the same id —
-    /// e.g. selecting a Sprites bank also selects its SpriteFlags bank.
+    /// e.g. selecting a Map bank also selects its Collision bank.
     pub fn select_asset_bank(&mut self, kind: AssetBankKind, id: u8) -> bool {
         let selected = self
             .asset_banks
@@ -645,34 +630,6 @@ mod asset_bank_tests {
     }
 
     #[test]
-    fn sprite_flags_bank_follows_sprites_as_companion() {
-        let mut vm = Vm::new(VmConfig::default());
-        // Bank 0's flags start out with some data written.
-        vm.poke_memory(SPRITE_FLAGS_RAM_BASE, 5);
-
-        // Creating a new Sprites bank creates and selects a fresh,
-        // zero-filled SpriteFlags bank at the same id — not a copy of bank 0.
-        assert!(vm.create_asset_bank(AssetBankKind::Sprites, 2));
-        assert_eq!(vm.active_asset_bank(AssetBankKind::SpriteFlags), 2);
-        assert_eq!(vm.peek_memory(SPRITE_FLAGS_RAM_BASE), 0);
-
-        // Switching Sprites banks carries SpriteFlags along in lockstep,
-        // and runtime edits to each bank's flags are preserved independently.
-        vm.poke_memory(SPRITE_FLAGS_RAM_BASE, 9);
-        assert!(vm.select_asset_bank(AssetBankKind::Sprites, 0));
-        assert_eq!(vm.active_asset_bank(AssetBankKind::SpriteFlags), 0);
-        assert_eq!(vm.peek_memory(SPRITE_FLAGS_RAM_BASE), 5);
-        assert!(vm.select_asset_bank(AssetBankKind::Sprites, 2));
-        assert_eq!(vm.active_asset_bank(AssetBankKind::SpriteFlags), 2);
-        assert_eq!(vm.peek_memory(SPRITE_FLAGS_RAM_BASE), 9);
-
-        // Removing the Sprites bank removes its companion flags bank too.
-        assert!(vm.remove_asset_bank(AssetBankKind::Sprites, 2));
-        assert_eq!(vm.active_asset_bank(AssetBankKind::SpriteFlags), 0);
-        assert!(!vm.asset_bank_ids(AssetBankKind::SpriteFlags).contains(&2));
-    }
-
-    #[test]
     fn lua_can_switch_asset_banks() {
         let mut vm = Vm::new(VmConfig::default());
         vm.load_cart_sections(&[CartSection {
@@ -688,31 +645,6 @@ mod asset_bank_tests {
 
         assert_eq!(vm.active_asset_bank(AssetBankKind::Map), 4);
         assert_eq!(vm.peek_memory(MAP_RAM_BASE), 6);
-        assert_eq!(
-            vm.lua_watch("switched")
-                .expect("Lua global should be readable"),
-            "true"
-        );
-    }
-
-    #[test]
-    fn lua_load_sprite_bank_carries_flags_companion() {
-        let mut vm = Vm::new(VmConfig::default());
-        vm.load_cart_sections(&[CartSection {
-            kind: SectionKind::SpriteBank,
-            data: encode_asset_bank(3, &vec![7; SPRITE_SHEET_LEN]),
-        }]);
-        vm.load_lua_source(
-            "function _init() switched = load_sprite_bank(3) end\nfunction _update() end",
-            &Input::new(),
-            &Font::empty(),
-        )
-        .expect("Lua banking fixture should load");
-
-        // The Lua-driven switch (not just the Rust-side select_asset_bank
-        // API) must carry the SpriteFlags companion along too.
-        assert_eq!(vm.active_asset_bank(AssetBankKind::Sprites), 3);
-        assert_eq!(vm.active_asset_bank(AssetBankKind::SpriteFlags), 3);
         assert_eq!(
             vm.lua_watch("switched")
                 .expect("Lua global should be readable"),

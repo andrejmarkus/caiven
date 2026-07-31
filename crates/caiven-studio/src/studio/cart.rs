@@ -7,8 +7,7 @@ use anyhow::{Context, Result};
 use caiven_cart::SectionKind;
 use caiven_core::memory::{
     COLLISION_LEN, COLLISION_RAM_BASE, MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE,
-    PALETTE_RAM_BASE, SFX_BANK_LEN, SFX_RAM_BASE, SPRITE_FLAGS_LEN, SPRITE_FLAGS_RAM_BASE,
-    SPRITE_SHEET_LEN, SPRITE_SHEET_RAM_BASE,
+    PALETTE_RAM_BASE, SFX_BANK_LEN, SFX_RAM_BASE, SPRITE_SHEET_LEN, SPRITE_SHEET_RAM_BASE,
 };
 use caiven_vm::input::Input;
 use caiven_vm::rendering::font::Font;
@@ -93,11 +92,6 @@ pub fn load_cart(vm: &mut Vm, path: &Path, input: &Input, font: &Font) -> Result
             SPRITE_SHEET_LEN,
         ),
         (SectionKind::Map, MAP_RAM_BASE, MAP_LEN),
-        (
-            SectionKind::SpriteFlags,
-            SPRITE_FLAGS_RAM_BASE,
-            SPRITE_FLAGS_LEN,
-        ),
         (SectionKind::Collision, COLLISION_RAM_BASE, COLLISION_LEN),
         (SectionKind::SfxBank, SFX_RAM_BASE, SFX_BANK_LEN),
         (SectionKind::MusicBank, MUSIC_RAM_BASE, MUSIC_BANK_LEN),
@@ -264,7 +258,6 @@ pub fn section_ram_base(kind: SectionKind) -> Option<usize> {
     Some(match kind {
         SectionKind::SpriteSheet => SPRITE_SHEET_RAM_BASE,
         SectionKind::Map => MAP_RAM_BASE,
-        SectionKind::SpriteFlags => SPRITE_FLAGS_RAM_BASE,
         SectionKind::Collision => COLLISION_RAM_BASE,
         SectionKind::Palette => PALETTE_RAM_BASE,
         SectionKind::SfxBank => SFX_RAM_BASE,
@@ -307,11 +300,6 @@ pub fn default_section_layout() -> Vec<SectionLayout> {
             SPRITE_SHEET_LEN,
         ),
         (SectionKind::Map, MAP_RAM_BASE, MAP_LEN),
-        (
-            SectionKind::SpriteFlags,
-            SPRITE_FLAGS_RAM_BASE,
-            SPRITE_FLAGS_LEN,
-        ),
         (SectionKind::Collision, COLLISION_RAM_BASE, COLLISION_LEN),
         (SectionKind::Palette, PALETTE_RAM_BASE, 16 * 3),
         (SectionKind::SfxBank, SFX_RAM_BASE, SFX_BANK_LEN),

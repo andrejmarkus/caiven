@@ -23,7 +23,7 @@ use crate::rendering::screen::ScreenLayer;
 use crate::rendering::text::draw_text;
 use caiven_core::memory::{
     COLLISION_RAM_BASE, MAP_H, MAP_RAM_BASE, MAP_W, PALETTE_RAM_BASE, RTC_RAM_BASE, SPRITE_BYTES,
-    SPRITE_FLAGS_RAM_BASE, SPRITE_SHEET_RAM_BASE,
+    SPRITE_SHEET_RAM_BASE,
 };
 use caiven_core::{Color, Vec2};
 use mlua::{HookTriggers, Lua, MultiValue, Scope, Table, VmState};
@@ -52,8 +52,6 @@ const BUILTIN_NAMES: &[&str] = &[
     "draw_map",
     "get_tile",
     "set_tile",
-    "get_sprite_flags",
-    "set_sprite_flags",
     "get_collision",
     "set_collision",
     "load_sprite_bank",
@@ -688,26 +686,6 @@ fn register_builtins<'scope, 'env>(
                     .borrow_mut()
                     .write(MAP_RAM_BASE + y as usize * MAP_W + x as usize, tile);
             }
-            Ok(())
-        })?,
-    )?;
-
-    globals.set(
-        "get_sprite_flags",
-        scope.create_function(|_, sprite_id: u8| {
-            Ok(memory
-                .borrow()
-                .read(SPRITE_FLAGS_RAM_BASE + sprite_id as usize)
-                .unwrap_or(0))
-        })?,
-    )?;
-
-    globals.set(
-        "set_sprite_flags",
-        scope.create_function_mut(|_, (sprite_id, flags): (u8, u8)| {
-            let _ = memory
-                .borrow_mut()
-                .write(SPRITE_FLAGS_RAM_BASE + sprite_id as usize, flags);
             Ok(())
         })?,
     )?;

@@ -24,7 +24,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
   },
   {
     id: 'draw', eyebrow: 'Draw', title: 'Every pixel stays yours.',
-    copy: 'Paint 8×8 sprites, maps, collision flags, palette, SFX, and music directly into cart RAM.',
+    copy: 'Paint 8×8 sprites, maps, collision, palette, SFX, and music directly into cart RAM.',
     screen: 'sprites', visual: 'sprite',
   },
   {

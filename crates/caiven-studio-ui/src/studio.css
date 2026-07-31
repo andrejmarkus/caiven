@@ -531,20 +531,6 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .sprite-sheet button.active { z-index: 1; outline: 2px solid var(--color-ember); }
 .sprite-sheet button.empty { background: #111010; box-shadow: inset 0 0 0 1px rgba(96,94,94,.22); }
 .sprite-sheet i { display: block; }
-.flags { margin: 2px 12px; padding-top: 12px; border-top: 1px solid var(--border-subtle); overflow: auto; }
-.flags > .eyebrow { display: block; margin-bottom: 8px; }
-.flags label { min-height: 32px; display: flex; align-items: center; gap: 8px; }
-.flags label > span { min-width: 0; flex: 1; display: grid; grid-template-columns: 7px 1fr; align-items: center; gap: 2px 7px; }
-.flags label > span i { grid-row: span 2; width: 7px; height: 7px; border-radius: 50%; }
-.flags .flag-name { color: var(--color-ink); font-size: 11.5px; font-weight: 500; }
-.flags label > span small { color: var(--color-ink-faint); font-size: 9.5px; }
-.flags label > code { color: var(--color-ink-faint); font-family: var(--font-mono); font-size: 9px; }
-.flags input { display: none; }
-.flags .flag-switch { width: 30px; height: 17px; flex: none; position: relative; border-radius: 999px; background: var(--color-void-700); }
-.flags .flag-switch::after { content: ""; position: absolute; width: 13px; height: 13px; top: 2px; left: 2px; border-radius: 50%; background: var(--color-ink-dim); transition: left var(--studio-fast) var(--studio-ease); }
-.flags input:checked + .flag-switch { background: rgba(254,176,93,.28); }
-.flags input:checked + .flag-switch::after { left: 15px; background: var(--color-ember); }
-.flags .flag-raw { margin: 10px 0 12px; color: var(--color-ink-faint); font-family: var(--font-mono); font-size: 9.5px; }
 
 .map-screen { height: calc(100% - 44px); position: relative; display: flex; padding-top: 44px; }
 .map-toolbar { height: 44px; position: absolute; top: 0; left: 0; right: 0; padding: 0 12px; display: flex; align-items: center; gap: 5px; overflow-x: auto; border-bottom: 1px solid var(--border-subtle); background: var(--color-void-800); }

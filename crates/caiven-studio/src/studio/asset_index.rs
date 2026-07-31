@@ -36,7 +36,7 @@ struct CallKind {
 
 const CALL_KINDS: &[CallKind] = &[
     CallKind {
-        names: &["sprite", "get_sprite_flags", "set_sprite_flags"],
+        names: &["sprite"],
         kind: "sprite",
         max: 256,
     },

@@ -12,7 +12,7 @@ use caiven_core::Color;
 use caiven_core::memory::{
     COLLISION_LEN, COLLISION_RAM_BASE, MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE,
     PALETTE_RAM_BASE, PALETTE_SIZE, RAM_SIZE, SFX_BANK_LEN, SFX_RAM_BASE, SPRITE_BYTES,
-    SPRITE_FLAGS_LEN, SPRITE_FLAGS_RAM_BASE, SPRITE_SHEET_LEN, SPRITE_SHEET_RAM_BASE,
+    SPRITE_SHEET_LEN, SPRITE_SHEET_RAM_BASE,
 };
 use caiven_vm::input::Button;
 use caiven_vm::runtime::ConsoleCore;
@@ -195,7 +195,6 @@ struct BootstrapPayload {
     map_banks: Vec<u8>,
     active_sprite_bank: u8,
     active_map_bank: u8,
-    sprite_flags: Vec<u8>,
     collision: Vec<u8>,
     sfx: Vec<u8>,
     music: Vec<u8>,
@@ -650,7 +649,6 @@ impl StudioCore {
             .unwrap_or_else(|| ("No cart open".into(), String::new(), String::new()));
         let sprite_sheet = read_region(&self.console, SPRITE_SHEET_RAM_BASE, SPRITE_SHEET_LEN);
         let map = read_region(&self.console, MAP_RAM_BASE, MAP_LEN);
-        let sprite_flags = read_region(&self.console, SPRITE_FLAGS_RAM_BASE, SPRITE_FLAGS_LEN);
         let collision = read_region(&self.console, COLLISION_RAM_BASE, COLLISION_LEN);
         let sfx = read_region(&self.console, SFX_RAM_BASE, SFX_BANK_LEN);
         let music = read_region(&self.console, MUSIC_RAM_BASE, MUSIC_BANK_LEN);
@@ -681,7 +679,6 @@ impl StudioCore {
             map_banks: self.console.vm.asset_bank_ids(AssetBankKind::Map),
             active_sprite_bank: self.console.vm.active_asset_bank(AssetBankKind::Sprites),
             active_map_bank: self.console.vm.active_asset_bank(AssetBankKind::Map),
-            sprite_flags,
             collision,
             sfx: sfx.clone(),
             music: music.clone(),
@@ -822,10 +819,10 @@ impl StudioCore {
         id: Option<u8>,
     ) -> Result<AssetBankPayload, String> {
         // Only kinds a user can pick from Studio's UI are dispatchable here.
-        // SpriteFlags has no entry — it's a *companion* bank (see
-        // `AssetBankKind::companion`) that always follows Sprites in
-        // lockstep, so it's created/selected/deleted below as a side effect
-        // of the Sprites bank operation rather than through its own kind.
+        // Collision has no entry — it's a *companion* bank (see
+        // `AssetBankKind::companion`) that always follows Map in lockstep,
+        // so it's created/selected/deleted below as a side effect of the
+        // Map bank operation rather than through its own kind.
         let bank_kind = match kind {
             "sprites" => AssetBankKind::Sprites,
             "map" => AssetBankKind::Map,
@@ -1235,7 +1232,6 @@ fn section_kind_for_bank(kind: AssetBankKind) -> SectionKind {
     match kind {
         AssetBankKind::Sprites => SectionKind::SpriteBank,
         AssetBankKind::Map => SectionKind::MapBank,
-        AssetBankKind::SpriteFlags => SectionKind::SpriteFlagsBank,
         AssetBankKind::Palette => SectionKind::PaletteBank,
         AssetBankKind::Sfx => SectionKind::SfxBanks,
         AssetBankKind::Music => SectionKind::MusicBanks,

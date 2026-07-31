@@ -26,7 +26,7 @@
 
   let studio = $state<StudioBootstrap>({
     connected: false, title: '', path: '', author: '', runState: 'stopped',
-    frame: 0, fps: 0, cartSize: { packedBytes: 0, maxBytes: 128 * 1024 }, sources: [], palette: [], spriteSheet: [], map: [], spriteBanks: [0], mapBanks: [0], activeSpriteBank: 0, activeMapBank: 0, spriteFlags: [], collision: [],
+    frame: 0, fps: 0, cartSize: { packedBytes: 0, maxBytes: 128 * 1024 }, sources: [], palette: [], spriteSheet: [], map: [], spriteBanks: [0], mapBanks: [0], activeSpriteBank: 0, activeMapBank: 0, collision: [],
     sfx: [], music: [], paletteBanks: [0], activePaletteBank: 0, sfxBanks: [0], activeSfxBank: 0, musicBanks: [0], activeMusicBank: 0, ram: [], globals: [], watches: [], callStack: [], breakpoints: [], pauseReason: null, diagnostics: [], output: [],
     meta: { description: '', tags: [] }, assetIndex: { entries: [], computedRefs: 0 },
     audio: { sfxActive: false, sfxId: 0, sfxStep: 0, musicActive: false, musicPattern: 0, musicRow: 0, musicLoop: true },
@@ -339,16 +339,6 @@
     void commitMutation(`Sprite ${sprite.toString().padStart(3, '0')}`, () => writeSprite(sprite, pixels), () => {
       studio.spriteSheet.splice(sprite * 64, 64, ...previous);
       studio.ram.splice(MEMORY.sprites + sprite * 64, 64, ...previous);
-    });
-  }
-
-  function updateFlags(sprite: number, flags: number) {
-    const previous = studio.spriteFlags[sprite] ?? 0;
-    studio.spriteFlags[sprite] = flags;
-    studio.ram[MEMORY.flags + sprite] = flags;
-    void commitMutation(`Flags for sprite ${sprite}`, () => writeMemory(MEMORY.flags + sprite, [flags]), () => {
-      studio.spriteFlags[sprite] = previous;
-      studio.ram[MEMORY.flags + sprite] = previous;
     });
   }
 
@@ -828,8 +818,7 @@
           if (!alive) return;
           studio.ram = ram;
           studio.spriteSheet = ram.slice(MEMORY.sprites, MEMORY.map);
-          studio.map = ram.slice(MEMORY.map, MEMORY.flags);
-          studio.spriteFlags = ram.slice(MEMORY.flags, MEMORY.palette);
+          studio.map = ram.slice(MEMORY.map, MEMORY.palette);
           studio.collision = ram.slice(MEMORY.collision, MEMORY.collision + COLLISION_LEN);
           studio.sfx = ram.slice(MEMORY.sfx, MEMORY.music);
           studio.music = ram.slice(MEMORY.music, MEMORY.music + 256);
@@ -903,7 +892,6 @@
           mapBanks={studio.mapBanks}
           activeSpriteBank={studio.activeSpriteBank}
           activeMapBank={studio.activeMapBank}
-          spriteFlags={studio.spriteFlags}
           collision={studio.collision}
           sfx={studio.sfx}
           music={studio.music}
@@ -935,7 +923,6 @@
           onSource={(index) => activeSource = index}
           onCode={updateCode}
           onSprite={updateSprite}
-          onFlags={updateFlags}
           onCollision={updateCollision}
           onMap={updateMap}
           onAssetBank={changeAssetBank}

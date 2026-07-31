@@ -56,8 +56,8 @@ export const defaultSprite = [
 ];
 
 export const MEMORY = {
-  sprites: 0x4000, map: 0x8000, flags: 0x9000,
-  palette: 0x9100, sfx: 0x9200, music: 0x9600, collision: 0x9703,
+  sprites: 0x4000, map: 0x8000,
+  palette: 0x9000, sfx: 0x9100, music: 0x9500, collision: 0x9603,
 } as const;
 
 export const COLLISION_LEN = 64 * 64;
@@ -93,7 +93,6 @@ const fallback: StudioBootstrap = {
   mapBanks: [0],
   activeSpriteBank: 0,
   activeMapBank: 0,
-  spriteFlags: Array(256).fill(0),
   collision: Array(COLLISION_LEN).fill(0),
   sfx: Array(1024).fill(0),
   music: Array(256).fill(0),

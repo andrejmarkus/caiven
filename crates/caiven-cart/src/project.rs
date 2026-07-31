@@ -3,7 +3,7 @@
 //! `bundle.rs`), and one asset file per non-empty section. This is the
 //! git-friendly authoring counterpart to the binary `.cav` distribution
 //! format — code diffs line-by-line, sprites/palette/map are real PNGs,
-//! flags/sfx/music are per-line hex — no merge conflicts across unrelated
+//! sfx/music are per-line hex — no merge conflicts across unrelated
 //! edits.
 //!
 //! ```text
@@ -16,8 +16,6 @@
 //!   map_1.png         (additional map bank 1)
 //!   palette.png       (__pal__,   or palette.hex)
 //!   palette_1.png     (additional palette bank 1)
-//!   sprite_flags.hex  (__flags__)
-//!   sprite_flags_1.hex (additional flags bank 1, companion of sprite bank 1)
 //!   sfx.hex           (__sfx__)
 //!   sfx_1.hex         (additional SFX bank 1)
 //!   music.hex         (__music__)
@@ -29,8 +27,8 @@
 //! Sprites, map, and palette each support both `.png` (visual, editable in
 //! any image tool) and `.hex` (per-line text diffs) — whichever file is
 //! already on disk is preserved on save; a brand-new asset is written as
-//! `.png`. Sprite flags, SFX, music, and collision are index/audio data
-//! rather than images, so they're `.hex` only.
+//! `.png`. SFX, music, and collision are index/audio data rather than
+//! images, so they're `.hex` only.
 
 use std::path::{Path, PathBuf};
 
@@ -52,11 +50,10 @@ const DEFAULT_ENTRY: &str = "main.lua";
 /// first so its bytes are available for `SpriteSheet`'s PNG decode/encode
 /// (an indexed PNG's own PLTE is used when present; the loaded palette is
 /// only a fallback for nearest-color matching a plain RGB PNG).
-const SECTION_STEMS: [(SectionKind, &str); 7] = [
+const SECTION_STEMS: [(SectionKind, &str); 6] = [
     (SectionKind::Palette, "palette"),
     (SectionKind::SpriteSheet, "sprites"),
     (SectionKind::Map, "map"),
-    (SectionKind::SpriteFlags, "sprite_flags"),
     (SectionKind::SfxBank, "sfx"),
     (SectionKind::MusicBank, "music"),
     (SectionKind::Collision, "collision"),
@@ -65,17 +62,9 @@ const SECTION_STEMS: [(SectionKind, &str); 7] = [
 /// Additional-bank section kinds (id != 0): the wrapper `SectionKind` that
 /// carries `encode_asset_bank`-wrapped payload, the base kind used to pick
 /// a PNG/hex codec, and the shared file stem (`{stem}_{id}.png`/`.hex`).
-/// `SpriteFlagsBank` has no independent Lua selector — it's a companion of
-/// `SpriteBank` (see `AssetBankKind::companion` in caiven-vm) but still
-/// round-trips as its own sibling file per bank id.
-const BANK_KINDS: [(SectionKind, SectionKind, &str); 7] = [
+const BANK_KINDS: [(SectionKind, SectionKind, &str); 6] = [
     (SectionKind::SpriteBank, SectionKind::SpriteSheet, "sprites"),
     (SectionKind::MapBank, SectionKind::Map, "map"),
-    (
-        SectionKind::SpriteFlagsBank,
-        SectionKind::SpriteFlags,
-        "sprite_flags",
-    ),
     (SectionKind::PaletteBank, SectionKind::Palette, "palette"),
     (SectionKind::SfxBanks, SectionKind::SfxBank, "sfx"),
     (SectionKind::MusicBanks, SectionKind::MusicBank, "music"),
@@ -93,8 +82,8 @@ fn stem_for(kind: SectionKind) -> Option<&'static str> {
         .map(|(_, s)| *s)
 }
 
-/// Sprites, palette, and map are images; sprite flags/SFX/music are
-/// index/audio data with no meaningful visual form.
+/// Sprites, palette, and map are images; SFX/music are index/audio data
+/// with no meaningful visual form.
 fn supports_png(kind: SectionKind) -> bool {
     matches!(
         kind,
@@ -454,11 +443,11 @@ mod tests {
         header.entry_point = 5;
         header.flags = 2;
         let lua = "function _update() end\n";
-        // SpriteFlags is hex-only (no PNG codec) so this test exercises the
+        // Collision is hex-only (no PNG codec) so this test exercises the
         // generic save/load plumbing independent of asset format choice —
         // PNG-vs-hex behavior gets its own tests below.
         let sections = vec![
-            (SectionKind::SpriteFlags, vec![1u8, 2, 3, 0]),
+            (SectionKind::Collision, vec![1u8, 2, 3, 0]),
             (SectionKind::ModManifest, b"rtc\ninput".to_vec()),
         ];
 
@@ -479,12 +468,12 @@ mod tests {
         // line-number shift for the common single-file case).
         assert_eq!(String::from_utf8_lossy(&lua_section.data), lua);
 
-        let flags = cart
+        let collision = cart
             .sections
             .iter()
-            .find(|s| s.kind == SectionKind::SpriteFlags)
+            .find(|s| s.kind == SectionKind::Collision)
             .unwrap();
-        assert_eq!(flags.data, vec![1, 2, 3]);
+        assert_eq!(collision.data, vec![1, 2, 3]);
 
         let manifest = cart
             .sections
@@ -541,20 +530,20 @@ mod tests {
             &header,
             "-- code\n",
             &[],
-            &[(SectionKind::SpriteFlags, vec![1, 2, 3])],
+            &[(SectionKind::Collision, vec![1, 2, 3])],
         )
         .unwrap();
-        assert!(dir.path().join("sprite_flags.hex").is_file());
+        assert!(dir.path().join("collision.hex").is_file());
 
         save_project(
             dir.path(),
             &header,
             "-- code\n",
             &[],
-            &[(SectionKind::SpriteFlags, vec![0, 0, 0])],
+            &[(SectionKind::Collision, vec![0, 0, 0])],
         )
         .unwrap();
-        assert!(!dir.path().join("sprite_flags.hex").is_file());
+        assert!(!dir.path().join("collision.hex").is_file());
     }
 
     #[test]

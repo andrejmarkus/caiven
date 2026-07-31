@@ -12,17 +12,15 @@
 //! 0a0a1e...
 //! ```
 //!
-//! Markers: `__gfx__` (sprite sheet), `__map__`, `__flags__` (sprite
-//! flags), `__pal__` (palette), `__sfx__`, `__music__`. Everything before
-//! the first marker is code; each block is raw hex, two chars per byte,
-//! whitespace between lines ignored.
+//! Markers: `__gfx__` (sprite sheet), `__map__`, `__pal__` (palette),
+//! `__sfx__`, `__music__`. Everything before the first marker is code; each
+//! block is raw hex, two chars per byte, whitespace between lines ignored.
 
 use crate::SectionKind;
 
-const MARKERS: [(&str, SectionKind); 6] = [
+const MARKERS: [(&str, SectionKind); 5] = [
     ("__gfx__", SectionKind::SpriteSheet),
     ("__map__", SectionKind::Map),
-    ("__flags__", SectionKind::SpriteFlags),
     ("__pal__", SectionKind::Palette),
     ("__sfx__", SectionKind::SfxBank),
     ("__music__", SectionKind::MusicBank),

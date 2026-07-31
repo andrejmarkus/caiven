@@ -8,15 +8,11 @@ pub enum SectionKind {
     Palette,
     Meta,
     ModManifest,
-    SpriteFlags,
     LuaSource,
     /// Additional sprite sheet. Data starts with bank id, followed by pixels.
     SpriteBank,
     /// Additional tile map. Data starts with bank id, followed by tile ids.
     MapBank,
-    /// Additional sprite flags table, companion of a `SpriteBank`. Data
-    /// starts with bank id, followed by one flag byte per sprite.
-    SpriteFlagsBank,
     /// Additional palette. Data starts with bank id, followed by RGB triples.
     PaletteBank,
     /// Additional SFX bank. Data starts with bank id, followed by SFX bytes.
@@ -42,11 +38,9 @@ impl SectionKind {
             Self::Palette => 0x0006,
             Self::Meta => 0x0007,
             Self::ModManifest => 0x0008,
-            Self::SpriteFlags => 0x0009,
             Self::LuaSource => 0x000A,
             Self::SpriteBank => 0x000B,
             Self::MapBank => 0x000C,
-            Self::SpriteFlagsBank => 0x000D,
             Self::PaletteBank => 0x000E,
             Self::SfxBanks => 0x000F,
             Self::MusicBanks => 0x0010,
@@ -66,11 +60,9 @@ impl SectionKind {
             0x0006 => Self::Palette,
             0x0007 => Self::Meta,
             0x0008 => Self::ModManifest,
-            0x0009 => Self::SpriteFlags,
             0x000A => Self::LuaSource,
             0x000B => Self::SpriteBank,
             0x000C => Self::MapBank,
-            0x000D => Self::SpriteFlagsBank,
             0x000E => Self::PaletteBank,
             0x000F => Self::SfxBanks,
             0x0010 => Self::MusicBanks,
@@ -90,11 +82,9 @@ impl SectionKind {
             Self::Palette => "Palette",
             Self::Meta => "Meta",
             Self::ModManifest => "ModManifest",
-            Self::SpriteFlags => "SpriteFlags",
             Self::LuaSource => "LuaSource",
             Self::SpriteBank => "SpriteBank",
             Self::MapBank => "MapBank",
-            Self::SpriteFlagsBank => "SpriteFlagsBank",
             Self::PaletteBank => "PaletteBank",
             Self::SfxBanks => "SfxBanks",
             Self::MusicBanks => "MusicBanks",

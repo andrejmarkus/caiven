@@ -9,13 +9,12 @@
 //! 0x0000 ─ 0x3FFF   general purpose / program data / compiler scratch
 //! 0x4000 ─ 0x7FFF   sprite sheet (256 sprites × 8×8 px, 1 byte per px index)
 //! 0x8000 ─ 0x8FFF   tile map (64 × 64 tiles, 1 byte per tile)
-//! 0x9000 ─ 0x90FF   sprite flags (256 sprites × 1 byte)
-//! 0x9100 ─ 0x91FF   palette (16 slots × 3 bytes RGB)
-//! 0x9200 ─ 0x95FF   SFX bank (16 sfx × 64 bytes)
-//! 0x9600 ─ 0x96FF   music bank (8 patterns × 32 bytes)
-//! 0x9700 ─ 0x9702   RTC peripheral (hour, minute, second)
-//! 0x9703 ─ 0xA702   per-cell collision (64 × 64 tiles, 1 byte per cell)
-//! 0xA703 ─ 0xFFFF   general purpose / heap
+//! 0x9000 ─ 0x90FF   palette (16 slots × 3 bytes RGB)
+//! 0x9100 ─ 0x94FF   SFX bank (16 sfx × 64 bytes)
+//! 0x9500 ─ 0x95FF   music bank (8 patterns × 32 bytes)
+//! 0x9600 ─ 0x9602   RTC peripheral (hour, minute, second)
+//! 0x9603 ─ 0xA602   per-cell collision (64 × 64 tiles, 1 byte per cell)
+//! 0xA603 ─ 0xFFFF   general purpose / heap
 //! ```
 
 /// Screen width in pixels.
@@ -50,32 +49,28 @@ pub const SPRITE_SHEET_LEN: usize = SPRITE_COUNT * SPRITE_BYTES;
 pub const MAP_RAM_BASE: usize = 0x8000;
 /// Tile map length in bytes (64 × 64 tiles).
 pub const MAP_LEN: usize = MAP_W * MAP_H;
-/// RAM base address of the sprite flags table (1 byte per sprite).
-pub const SPRITE_FLAGS_RAM_BASE: usize = 0x9000;
-/// Sprite flags table length in bytes.
-pub const SPRITE_FLAGS_LEN: usize = SPRITE_COUNT;
 /// RAM base address where the Palette cart section is auto-loaded.
-pub const PALETTE_RAM_BASE: usize = 0x9100;
+pub const PALETTE_RAM_BASE: usize = 0x9000;
 /// RAM base address of the SFX bank.
-pub const SFX_RAM_BASE: usize = 0x9200;
+pub const SFX_RAM_BASE: usize = 0x9100;
 /// SFX bank length in bytes (16 sfx × 64 bytes).
 pub const SFX_BANK_LEN: usize = 16 * 64;
 /// RAM base address of the music bank.
-pub const MUSIC_RAM_BASE: usize = 0x9600;
+pub const MUSIC_RAM_BASE: usize = 0x9500;
 /// Music bank length in bytes (8 patterns × 32 bytes).
 pub const MUSIC_BANK_LEN: usize = 8 * 32;
 /// RAM base address of the RTC peripheral's mapped registers.
-pub const RTC_RAM_BASE: usize = 0x9700;
+pub const RTC_RAM_BASE: usize = 0x9600;
 /// RTC register block length in bytes (hour, minute, second).
 pub const RTC_LEN: usize = 3;
 
 /// RAM base address of the per-cell collision layer (companion of Map).
-pub const COLLISION_RAM_BASE: usize = 0x9703;
+pub const COLLISION_RAM_BASE: usize = 0x9603;
 /// Collision layer length in bytes (64 × 64 cells, 1 byte per cell).
 pub const COLLISION_LEN: usize = MAP_W * MAP_H;
 
 /// RAM base address of general-purpose/heap space.
-pub const HEAP_RAM_BASE: usize = 0xA703;
+pub const HEAP_RAM_BASE: usize = 0xA603;
 
 #[cfg(test)]
 mod tests {
@@ -87,10 +82,9 @@ mod tests {
     /// runs past the next region's start.
     #[test]
     fn ram_regions_do_not_overlap_and_fit_in_ram() {
-        let regions: [(&str, usize, usize); 8] = [
+        let regions: [(&str, usize, usize); 7] = [
             ("sprite_sheet", SPRITE_SHEET_RAM_BASE, SPRITE_SHEET_LEN),
             ("map", MAP_RAM_BASE, MAP_LEN),
-            ("sprite_flags", SPRITE_FLAGS_RAM_BASE, SPRITE_FLAGS_LEN),
             ("palette", PALETTE_RAM_BASE, PALETTE_SIZE * 3),
             ("sfx", SFX_RAM_BASE, SFX_BANK_LEN),
             ("music", MUSIC_RAM_BASE, MUSIC_BANK_LEN),

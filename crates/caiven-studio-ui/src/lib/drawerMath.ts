@@ -6,10 +6,9 @@ export const MEMORY_REGIONS = [
   { label: 'WORK', address: 0x0000 },
   { label: 'SPRITES', address: 0x4000 },
   { label: 'MAP', address: 0x8000 },
-  { label: 'FLAGS', address: 0x9000 },
-  { label: 'PALETTE', address: 0x9100 },
-  { label: 'SFX', address: 0x9200 },
-  { label: 'MUSIC', address: 0x9600 },
+  { label: 'PALETTE', address: 0x9000 },
+  { label: 'SFX', address: 0x9100 },
+  { label: 'MUSIC', address: 0x9500 },
 ] as const;
 
 export interface MemoryRow {
