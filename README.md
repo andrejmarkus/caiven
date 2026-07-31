@@ -1,7 +1,7 @@
 # 🎮 Caiven
 
 ![Rust](https://img.shields.io/badge/rust-%23E32F26.svg?style=for-the-badge&logo=rust&logoColor=white)
-![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)
+![License](https://img.shields.io/badge/license-MPL--2.0-blue.svg?style=for-the-badge)
 [![CI and Release](https://github.com/andrejmarkus/caiven/actions/workflows/rust.yml/badge.svg)](https://github.com/andrejmarkus/caiven/actions/workflows/rust.yml)
 [![Latest Release](https://img.shields.io/github/v/release/andrejmarkus/caiven?style=for-the-badge)](https://github.com/andrejmarkus/caiven/releases/latest)
 
@@ -9,6 +9,9 @@
 
 > [!TIP]
 > Write real Lua — every tutorial and stdlib function (`math`, `string`, `table`, `pcall`, ...) just works. No custom bytecode language, no arity caps, no silent gaps.
+
+> [!NOTE]
+> Caiven is creator-friendly: you own the games and assets you create, may sell them without royalties or a commercial-use fee, and do not have to publish your game source. See [Creator rights](CREATOR_RIGHTS.md).
 
 ---
 
@@ -515,9 +518,13 @@ Any `winit` physical key name is valid (e.g. `KeyZ`, `Digit1`, `Space`, `Enter`)
 
 ---
 
-## 📜 License
+## 📜 License and creator policy
 
-This project is licensed under the MIT License.
+Caiven's source code is licensed under the [Mozilla Public License 2.0](LICENSE). Modifications to MPL-covered source files that are distributed must remain available under MPL-2.0, while separate files and larger works may use other terms as permitted by the licence.
+
+Games and cartridges made with Caiven remain the creator's property. They may be sold without royalties, revenue share, a separate commercial-use licence, or a requirement to publish game source. See [Creator rights](CREATOR_RIGHTS.md).
+
+The software licence does not grant rights to present unofficial forks as official Caiven releases. Normal descriptive use, community projects, and clearly identified forks are welcome under the [trademark policy](TRADEMARKS.md).
 
 ---
 
