@@ -302,11 +302,6 @@ impl Vm {
     /// once each grew a second, independently-written call site.
     pub fn load_cart_sections(&mut self, sections: &[CartSection]) -> Option<String> {
         self.asset_banks = AssetBanks::new();
-        // Bank ids the cart genuinely carried Collision data for — distinct
-        // from `asset_banks`' always-present zero-filled bank-0 default, so
-        // the synthesis pass below can tell "no collision authored" from
-        // "collision authored, and it happens to be all zero".
-        let mut collision_ids_from_cart = std::collections::BTreeSet::new();
         for section in sections {
             let ram_base = match section.kind {
                 SectionKind::SpriteSheet => {
@@ -341,7 +336,6 @@ impl Vm {
                     self.asset_banks
                         .banks_mut(AssetBankKind::Collision)
                         .insert(0, AssetBanks::normalized(&section.data, COLLISION_LEN));
-                    collision_ids_from_cart.insert(0);
                     continue;
                 }
                 SectionKind::CollisionBank => {
@@ -349,7 +343,6 @@ impl Vm {
                         self.asset_banks
                             .banks_mut(AssetBankKind::Collision)
                             .insert(id, AssetBanks::normalized(data, COLLISION_LEN));
-                        collision_ids_from_cart.insert(id);
                     }
                     continue;
                 }
@@ -402,45 +395,6 @@ impl Vm {
             if section.kind == SectionKind::Palette {
                 self.set_palette_from_bytes(&section.data);
             }
-        }
-        // Carts with no Collision/CollisionBank sections synthesize one per
-        // map bank from legacy per-tile-type sprite flags, using the
-        // SpriteFlags bank at the same id if one exists, else bank 0.
-        let map_ids: Vec<u8> = self
-            .asset_banks
-            .banks(AssetBankKind::Map)
-            .keys()
-            .copied()
-            .collect();
-        for id in map_ids {
-            if collision_ids_from_cart.contains(&id) {
-                continue;
-            }
-            let map_data = self.asset_banks.banks(AssetBankKind::Map)[&id].clone();
-            // Bank 0's SpriteFlags never lands in `asset_banks` (it self-heals
-            // there only on first select/sync) — its real bytes live in RAM.
-            let flags_data = if id != 0 {
-                self.asset_banks
-                    .banks(AssetBankKind::SpriteFlags)
-                    .get(&id)
-                    .cloned()
-                    .unwrap_or_else(|| vec![0; SPRITE_FLAGS_LEN])
-            } else {
-                (0..SPRITE_FLAGS_LEN)
-                    .map(|offset| {
-                        self.memory
-                            .read(SPRITE_FLAGS_RAM_BASE + offset)
-                            .unwrap_or(0)
-                    })
-                    .collect()
-            };
-            let collision: Vec<u8> = map_data
-                .iter()
-                .map(|&tile| flags_data.get(tile as usize).copied().unwrap_or(0) & 3)
-                .collect();
-            self.asset_banks
-                .banks_mut(AssetBankKind::Collision)
-                .insert(id, collision);
         }
         for kind in [
             AssetBankKind::Sprites,
@@ -789,35 +743,6 @@ mod asset_bank_tests {
         assert!(vm.remove_asset_bank(AssetBankKind::Map, 2));
         assert_eq!(vm.active_asset_bank(AssetBankKind::Collision), 0);
         assert!(!vm.asset_bank_ids(AssetBankKind::Collision).contains(&2));
-    }
-
-    #[test]
-    fn old_cart_without_collision_sections_synthesizes_from_sprite_flags() {
-        let mut vm = Vm::new(VmConfig::default());
-        // Tile 5 is flagged solid (bit 0); tile 9 is flagged hazard (bit 1).
-        let mut flags = vec![0u8; SPRITE_FLAGS_LEN];
-        flags[5] = 1;
-        flags[9] = 2;
-        // Map cell 0 uses tile 5 (solid), cell 1 uses tile 9 (hazard), the
-        // rest use tile 0 (walkable).
-        let mut map = vec![0u8; MAP_LEN];
-        map[0] = 5;
-        map[1] = 9;
-
-        vm.load_cart_sections(&[
-            CartSection {
-                kind: SectionKind::SpriteFlags,
-                data: flags,
-            },
-            CartSection {
-                kind: SectionKind::Map,
-                data: map,
-            },
-        ]);
-
-        assert_eq!(vm.peek_memory(COLLISION_RAM_BASE), 1);
-        assert_eq!(vm.peek_memory(COLLISION_RAM_BASE + 1), 2);
-        assert_eq!(vm.peek_memory(COLLISION_RAM_BASE + 2), 0);
     }
 
     #[test]

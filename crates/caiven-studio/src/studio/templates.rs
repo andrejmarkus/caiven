@@ -76,10 +76,9 @@ function _update()
 end
 "#;
 
-const TILES: &str = r#"-- Tile world: a map with per-tile collision via sprite flags
--- Sprite 1 = floor (flag 0), sprite 2 = wall (flag FLAG_SOLID)
+const TILES: &str = r#"-- Tile world: a map with per-cell collision
+-- Sprite 1 = floor, sprite 2 = wall
 local MAZE_W, MAZE_H = 16, 16
-local FLAG_SOLID = 1
 
 local maze = {
   "2222222222222222",
@@ -105,7 +104,7 @@ local player_x, player_y = 8, 8
 local function solid_at(px, py)
   local cx = math.floor(px / 8)
   local cy = math.floor(py / 8)
-  return get_sprite_flags(get_tile(cx, cy)) == FLAG_SOLID
+  return tile_solid(cx, cy)
 end
 
 function _init()
@@ -114,10 +113,11 @@ function _init()
   set_palette_color(2, 120, 120, 120)
   set_palette_color(3, 255, 100, 100)
 
-  set_sprite_flags(2, FLAG_SOLID)
   for y = 0, MAZE_H - 1 do
     for x = 0, MAZE_W - 1 do
-      set_tile(x, y, tonumber(maze[y + 1]:sub(x + 1, x + 1)))
+      local tile = tonumber(maze[y + 1]:sub(x + 1, x + 1))
+      set_tile(x, y, tile)
+      set_collision(x, y, tile == 2 and 1 or 0)
     end
   end
 end
@@ -158,7 +158,7 @@ pub const TEMPLATES: [CartTemplate; 4] = [
     CartTemplate {
         id: "tile-world",
         name: "Tile world",
-        description: "Map drawing and per-tile collision with sprite flags",
+        description: "Map drawing and per-cell collision",
         source: TILES,
     },
     CartTemplate {

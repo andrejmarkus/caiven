@@ -332,7 +332,7 @@ mod tests {
     use super::{load_cart, stored_cart_path, unpack_cart};
     use crate::app::cart_io::save;
     use caiven_cart::{CartHeader, SectionKind};
-    use caiven_core::memory::{COLLISION_RAM_BASE, MAP_LEN, SPRITE_FLAGS_LEN};
+    use caiven_core::memory::{COLLISION_LEN, COLLISION_RAM_BASE};
     use caiven_vm::input::Input;
     use caiven_vm::rendering::font::Font;
     use caiven_vm::{Vm, VmConfig};
@@ -351,13 +351,11 @@ mod tests {
     }
 
     #[test]
-    fn old_cart_collision_survives_save_reload_round_trip() {
+    fn cart_collision_survives_save_reload_round_trip() {
         let root = temp_dir("collision-round-trip");
         let cart = root.join("game.cav");
-        let mut flags = vec![0u8; SPRITE_FLAGS_LEN];
-        flags[7] = 1;
-        let mut map = vec![0u8; MAP_LEN];
-        map[0] = 7;
+        let mut collision = vec![0u8; COLLISION_LEN];
+        collision[0] = 1;
         caiven_cart::write(
             &cart,
             &CartHeader::new("Test", ""),
@@ -367,8 +365,7 @@ mod tests {
                     SectionKind::LuaSource,
                     b"function _init() end\nfunction _update() end\n".to_vec(),
                 ),
-                (SectionKind::SpriteFlags, flags),
-                (SectionKind::Map, map),
+                (SectionKind::Collision, collision),
             ],
         )
         .unwrap();

@@ -261,7 +261,7 @@ Pure Lua, loaded into every cart's globals automatically (no `require`) — read
 | `lerp(a, b, t)` / `clamp(v, lo, hi)` | Linear interpolate / clamp to range |
 | `ease_linear/in_quad/out_quad/in_out_quad(t)` | Easing curves, `t` in `0..1` |
 | `aabb_overlap(x1, y1, w1, h1, x2, y2, w2, h2)` | Axis-aligned box overlap test |
-| `tile_solid(tx, ty)` | Whether the map tile at `(tx, ty)` has sprite flag bit 0 set |
+| `tile_solid(tx, ty)` | Whether the per-cell collision value at `(tx, ty)` is `1` (solid) |
 | `box_touches_solid(x, y, w, h)` | Whether a pixel-space box overlaps any solid tile |
 | `new_tween(from, to, frames, ease)` / `tween_update(tw)` | Frame-driven value tween; `tw.done` flips true on arrival |
 | `new_anim(frames, frame_len)` / `anim_update(anim)` / `anim_sprite(anim)` | Frame-based sprite animation cycling through a sprite-id list |
@@ -381,7 +381,8 @@ fixed sprite/map RAM windows. Changes made through RAM survive later switches.
 | `0x9100–0x91FF` | Palette (16 × 3 bytes RGB, rest padding) |
 | `0x9200–0x95FF` | SFX bank (16 × 64 bytes) |
 | `0x9600–0x96FF` | Music bank (8 × 32 bytes) |
-| `0x9700–0xFFFF` | Reserved |
+| `0x9703–0xA702` | Collision — 64×64 (1 byte/cell: 0 walkable, 1 solid, 2 hazard) |
+| `0xA703–0xFFFF` | Reserved |
 
 ---
 
