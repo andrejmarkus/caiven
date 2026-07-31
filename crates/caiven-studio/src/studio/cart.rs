@@ -6,8 +6,9 @@ use crate::app::cart_io::{CartMeta, SectionLayout};
 use anyhow::{Context, Result};
 use caiven_cart::SectionKind;
 use caiven_core::memory::{
-    MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE, PALETTE_RAM_BASE, SFX_BANK_LEN,
-    SFX_RAM_BASE, SPRITE_FLAGS_LEN, SPRITE_FLAGS_RAM_BASE, SPRITE_SHEET_LEN, SPRITE_SHEET_RAM_BASE,
+    COLLISION_LEN, COLLISION_RAM_BASE, MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE,
+    PALETTE_RAM_BASE, SFX_BANK_LEN, SFX_RAM_BASE, SPRITE_FLAGS_LEN, SPRITE_FLAGS_RAM_BASE,
+    SPRITE_SHEET_LEN, SPRITE_SHEET_RAM_BASE,
 };
 use caiven_vm::input::Input;
 use caiven_vm::rendering::font::Font;
@@ -97,6 +98,7 @@ pub fn load_cart(vm: &mut Vm, path: &Path, input: &Input, font: &Font) -> Result
             SPRITE_FLAGS_RAM_BASE,
             SPRITE_FLAGS_LEN,
         ),
+        (SectionKind::Collision, COLLISION_RAM_BASE, COLLISION_LEN),
         (SectionKind::SfxBank, SFX_RAM_BASE, SFX_BANK_LEN),
         (SectionKind::MusicBank, MUSIC_RAM_BASE, MUSIC_BANK_LEN),
     ] {
@@ -263,6 +265,7 @@ pub fn section_ram_base(kind: SectionKind) -> Option<usize> {
         SectionKind::SpriteSheet => SPRITE_SHEET_RAM_BASE,
         SectionKind::Map => MAP_RAM_BASE,
         SectionKind::SpriteFlags => SPRITE_FLAGS_RAM_BASE,
+        SectionKind::Collision => COLLISION_RAM_BASE,
         SectionKind::Palette => PALETTE_RAM_BASE,
         SectionKind::SfxBank => SFX_RAM_BASE,
         SectionKind::MusicBank => MUSIC_RAM_BASE,
@@ -309,6 +312,7 @@ pub fn default_section_layout() -> Vec<SectionLayout> {
             SPRITE_FLAGS_RAM_BASE,
             SPRITE_FLAGS_LEN,
         ),
+        (SectionKind::Collision, COLLISION_RAM_BASE, COLLISION_LEN),
         (SectionKind::Palette, PALETTE_RAM_BASE, 16 * 3),
         (SectionKind::SfxBank, SFX_RAM_BASE, SFX_BANK_LEN),
         (SectionKind::MusicBank, MUSIC_RAM_BASE, MUSIC_BANK_LEN),
@@ -325,8 +329,66 @@ pub fn default_section_layout() -> Vec<SectionLayout> {
 
 #[cfg(test)]
 mod tests {
-    use super::{stored_cart_path, unpack_cart};
+    use super::{load_cart, stored_cart_path, unpack_cart};
+    use crate::app::cart_io::save;
     use caiven_cart::{CartHeader, SectionKind};
+    use caiven_core::memory::{COLLISION_RAM_BASE, MAP_LEN, SPRITE_FLAGS_LEN};
+    use caiven_vm::input::Input;
+    use caiven_vm::rendering::font::Font;
+    use caiven_vm::{Vm, VmConfig};
+
+    fn temp_dir(label: &str) -> std::path::PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "caiven-{label}-test-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn old_cart_collision_survives_save_reload_round_trip() {
+        let root = temp_dir("collision-round-trip");
+        let cart = root.join("game.cav");
+        let mut flags = vec![0u8; SPRITE_FLAGS_LEN];
+        flags[7] = 1;
+        let mut map = vec![0u8; MAP_LEN];
+        map[0] = 7;
+        caiven_cart::write(
+            &cart,
+            &CartHeader::new("Test", ""),
+            &[],
+            &[
+                (
+                    SectionKind::LuaSource,
+                    b"function _init() end\nfunction _update() end\n".to_vec(),
+                ),
+                (SectionKind::SpriteFlags, flags),
+                (SectionKind::Map, map),
+            ],
+        )
+        .unwrap();
+
+        let mut vm = Vm::new(VmConfig::default());
+        let meta = load_cart(&mut vm, &cart, &Input::new(), &Font::empty()).unwrap();
+        assert_eq!(vm.peek_memory(COLLISION_RAM_BASE), 1);
+
+        let project = root.join("project");
+        std::fs::create_dir(&project).unwrap();
+        let mut meta = meta;
+        meta.path = project.clone();
+        save(&vm, &meta, &[]).unwrap();
+
+        let mut vm2 = Vm::new(VmConfig::default());
+        load_cart(&mut vm2, &project, &Input::new(), &Font::empty()).unwrap();
+        assert_eq!(vm2.peek_memory(COLLISION_RAM_BASE), 1);
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn manifest_path_is_stored_as_project_directory() {

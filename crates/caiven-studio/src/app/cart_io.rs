@@ -33,6 +33,12 @@ fn gather_sections(vm: &Vm, meta: &CartMeta) -> Vec<(SectionKind, Vec<u8>)> {
             let bank = match s.kind {
                 SectionKind::SpriteSheet => Some((AssetBankKind::Sprites, 0)),
                 SectionKind::Map => Some((AssetBankKind::Map, 0)),
+                SectionKind::Collision => Some((AssetBankKind::Collision, 0)),
+                SectionKind::CollisionBank => s
+                    .preserved_data
+                    .as_deref()
+                    .and_then(decode_asset_bank)
+                    .map(|(id, _)| (AssetBankKind::Collision, id)),
                 SectionKind::SpriteBank => s
                     .preserved_data
                     .as_deref()
