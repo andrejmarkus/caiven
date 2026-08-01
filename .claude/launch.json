@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "studio-ui",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "crates/caiven-studio-ui", "run", "dev"],
+      "port": 1420
+    }
+  ]
+}
