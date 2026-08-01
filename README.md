@@ -1,7 +1,7 @@
 # 🎮 Caiven
 
 ![Rust](https://img.shields.io/badge/rust-%23E32F26.svg?style=for-the-badge&logo=rust&logoColor=white)
-![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)
+![License](https://img.shields.io/badge/license-MPL--2.0-blue.svg?style=for-the-badge)
 [![CI and Release](https://github.com/andrejmarkus/caiven/actions/workflows/rust.yml/badge.svg)](https://github.com/andrejmarkus/caiven/actions/workflows/rust.yml)
 [![Latest Release](https://img.shields.io/github/v/release/andrejmarkus/caiven?style=for-the-badge)](https://github.com/andrejmarkus/caiven/releases/latest)
 
@@ -9,6 +9,9 @@
 
 > [!TIP]
 > Write real Lua — every tutorial and stdlib function (`math`, `string`, `table`, `pcall`, ...) just works. No custom bytecode language, no arity caps, no silent gaps.
+
+> [!NOTE]
+> Caiven is creator-friendly: you own the games and assets you create, may sell them without royalties or a commercial-use fee, and do not have to publish your game source. See [Creator rights](CREATOR_RIGHTS.md).
 
 ---
 
@@ -31,8 +34,8 @@
 
 There are two separate downloads — grab whichever matches what you want to do:
 
-- **Caiven Studio** — the editor. Use this to *make* a game (code, sprites, sound, map).
-- **Caiven Machine** — the standalone player. Use this to just *run* a `.cav` cart someone shared with you, no editor.
+- **Caiven Studio** — the editor. Use this to _make_ a game (code, sprites, sound, map).
+- **Caiven Machine** — the standalone player. Use this to just _run_ a `.cav` cart someone shared with you, no editor.
 
 All links point at the [latest GitHub release](https://github.com/andrejmarkus/caiven/releases/latest).
 
@@ -99,14 +102,14 @@ Studio CLI commands run from repository root:
 cargo run -p caiven-studio -- [command]
 ```
 
-| Command | Description |
-| :------ | :---------- |
-| _(no command)_ | Launch Caiven Studio on its start screen |
-| `edit [file]` | Launch Caiven Studio, optionally opening a project dir or `.cav` file |
-| `inspect <path>` | Print cart section table (project dir or `.cav`) |
-| `build <project> -o <out.cav>` | Build a project dir into a distribution `.cav` cartridge |
-| `unpack <file.cav> -o <out>` | Unpack a binary `.cav` into an editable project dir |
-| `publish <cart>` | Upload a cart (`.cav` or project dir) to a caiven-port instance |
+| Command                        | Description                                                           |
+| :----------------------------- | :-------------------------------------------------------------------- |
+| _(no command)_                 | Launch Caiven Studio on its start screen                              |
+| `edit [file]`                  | Launch Caiven Studio, optionally opening a project dir or `.cav` file |
+| `inspect <path>`               | Print cart section table (project dir or `.cav`)                      |
+| `build <project> -o <out.cav>` | Build a project dir into a distribution `.cav` cartridge              |
+| `unpack <file.cav> -o <out>`   | Unpack a binary `.cav` into an editable project dir                   |
+| `publish <cart>`               | Upload a cart (`.cav` or project dir) to a caiven-port instance       |
 
 To just run a cart (no editor), use `caiven-machine`:
 
@@ -117,16 +120,16 @@ cargo run -p caiven-machine -- game.cav    # distribution cartridge
 
 **Publish flags:**
 
-| Flag | Default | Description |
-| :--- | :------ | :---------- |
-| `--url` | `http://localhost:8080` | Port base URL (env: `CAIVEN_PORT_URL`) |
-| `--api-key` | _(empty, required)_ | Per-user port API token (env: `CAIVEN_PORT_API_KEY`) — mint one via the port web UI Profile page or by logging into Caiven Studio's PORT tab |
-| `--title` | cart header | Override cart title |
-| `--author` | cart header | Override author |
-| `--description` | _(empty)_ | Short description |
-| `--tags` | _(empty)_ | Comma-separated tags |
-| `--frames` | `30` | Frames to run before screenshot |
-| `--no-screenshot` | — | Skip screenshot capture |
+| Flag              | Default                 | Description                                                                                                                                  |
+| :---------------- | :---------------------- | :------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--url`           | `http://localhost:8080` | Port base URL (env: `CAIVEN_PORT_URL`)                                                                                                       |
+| `--api-key`       | _(empty, required)_     | Per-user port API token (env: `CAIVEN_PORT_API_KEY`) — mint one via the port web UI Profile page or by logging into Caiven Studio's PORT tab |
+| `--title`         | cart header             | Override cart title                                                                                                                          |
+| `--author`        | cart header             | Override author                                                                                                                              |
+| `--description`   | _(empty)_               | Short description                                                                                                                            |
+| `--tags`          | _(empty)_               | Comma-separated tags                                                                                                                         |
+| `--frames`        | `30`                    | Frames to run before screenshot                                                                                                              |
+| `--no-screenshot` | —                       | Skip screenshot capture                                                                                                                      |
 
 ---
 
@@ -191,11 +194,11 @@ end
 
 ### Cart lifecycle functions
 
-| Function | Purpose |
-| :------- | :------ |
-| `_init()` | Runs once when the cart loads |
-| `_update()` | Runs once per frame (called for you — no `wait()`/vsync call needed) |
-| `_draw()` | Optional — runs once per frame, right after `_update()`. Split game logic from rendering if you like; carts with only `_update()` work exactly as before |
+| Function    | Purpose                                                                                                                                                  |
+| :---------- | :------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `_init()`   | Runs once when the cart loads                                                                                                                            |
+| `_update()` | Runs once per frame (called for you — no `wait()`/vsync call needed)                                                                                     |
+| `_draw()`   | Optional — runs once per frame, right after `_update()`. Split game logic from rendering if you like; carts with only `_update()` work exactly as before |
 
 ---
 
@@ -205,66 +208,66 @@ Math (`sin`/`cos`/`abs`/`floor`/`sqrt`/`max`/`min`/`random`), strings (`..`, `su
 
 ### Graphics
 
-| Function | Description |
-| :------- | :---------- |
-| `clear_screen()` | Clear screen and UI layer |
-| `fill_screen(color)` | Fill screen with a palette color |
-| `set_pixel(x, y, color)` | Set pixel (signed coords) |
-| `draw_line(x0, y0, x1, y1, color)` | Line (camera-aware) |
-| `draw_rect(x, y, w, h, color)` / `fill_rect(x, y, w, h, color)` | Rectangle outline / filled |
-| `draw_circle(cx, cy, r, color)` / `fill_circle(cx, cy, r, color)` | Circle outline / filled |
-| `set_palette_color(index, r, g, b)` | Set palette entry |
-| `set_camera(x, y)` | Set camera offset |
-| `draw_text(text, x, y, color)` | Draw a string (does **not** shadow Lua's real `print()` — Machine writes it to terminal; Studio writes it to Output) |
-| `draw_number(value, x, y, color)` | Draw an integer |
+| Function                                                          | Description                                                                                                          |
+| :---------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------- |
+| `clear_screen()`                                                  | Clear screen and UI layer                                                                                            |
+| `fill_screen(color)`                                              | Fill screen with a palette color                                                                                     |
+| `set_pixel(x, y, color)`                                          | Set pixel (signed coords)                                                                                            |
+| `draw_line(x0, y0, x1, y1, color)`                                | Line (camera-aware)                                                                                                  |
+| `draw_rect(x, y, w, h, color)` / `fill_rect(x, y, w, h, color)`   | Rectangle outline / filled                                                                                           |
+| `draw_circle(cx, cy, r, color)` / `fill_circle(cx, cy, r, color)` | Circle outline / filled                                                                                              |
+| `set_palette_color(index, r, g, b)`                               | Set palette entry                                                                                                    |
+| `set_camera(x, y)`                                                | Set camera offset                                                                                                    |
+| `draw_text(text, x, y, color)`                                    | Draw a string (does **not** shadow Lua's real `print()` — Machine writes it to terminal; Studio writes it to Output) |
+| `draw_number(value, x, y, color)`                                 | Draw an integer                                                                                                      |
 
 ### Sprites & Map
 
-| Function | Description |
-| :------- | :---------- |
-| `sprite(id, x, y)` | Draw 8×8 sprite (camera-aware) |
-| `draw_map(cell_x, cell_y, sx, sy, w, h)` | Draw a block of the tilemap |
-| `get_tile(x, y)` / `set_tile(x, y, tile)` | Read / write a map cell |
-| `load_sprite_bank(id)` | Copy sprite bank into sprite RAM; returns `false` when missing |
-| `load_map_bank(id)` | Copy map bank into map RAM; returns `false` when missing |
+| Function                                  | Description                                                    |
+| :---------------------------------------- | :------------------------------------------------------------- |
+| `sprite(id, x, y)`                        | Draw 8×8 sprite (camera-aware)                                 |
+| `draw_map(cell_x, cell_y, sx, sy, w, h)`  | Draw a block of the tilemap                                    |
+| `get_tile(x, y)` / `set_tile(x, y, tile)` | Read / write a map cell                                        |
+| `load_sprite_bank(id)`                    | Copy sprite bank into sprite RAM; returns `false` when missing |
+| `load_map_bank(id)`                       | Copy map bank into map RAM; returns `false` when missing       |
 
 ### Input
 
-| Function | Description |
-| :------- | :---------- |
-| `button_down(id)` | Button held (0=Up 1=Down 2=Left 3=Right 4=A 5=B) |
-| `button_pressed(id)` | Button pressed this frame |
+| Function             | Description                                      |
+| :------------------- | :----------------------------------------------- |
+| `button_down(id)`    | Button held (0=Up 1=Down 2=Left 3=Right 4=A 5=B) |
+| `button_pressed(id)` | Button pressed this frame                        |
 
 ### Audio
 
-| Function | Description |
-| :------- | :---------- |
-| `play_sfx(id)` | Play a sound effect from the SFX bank |
-| `play_music(id)` | Play a music track |
-| `stop_music()` | Stop music |
+| Function         | Description                           |
+| :--------------- | :------------------------------------ |
+| `play_sfx(id)`   | Play a sound effect from the SFX bank |
+| `play_music(id)` | Play a music track                    |
+| `stop_music()`   | Stop music                            |
 
 ### System
 
-| Function | Description |
-| :------- | :---------- |
-| `real_time()` | Returns `(hour, minute, second)` from the host's real-time clock |
-| `frame_count()` | Number of frames run since the cart loaded |
-| `time()` | Seconds since the cart loaded, assuming 60 frames per second |
+| Function        | Description                                                      |
+| :-------------- | :--------------------------------------------------------------- |
+| `real_time()`   | Returns `(hour, minute, second)` from the host's real-time clock |
+| `frame_count()` | Number of frames run since the cart loaded                       |
+| `time()`        | Seconds since the cart loaded, assuming 60 frames per second     |
 
 ### Gameplay stdlib
 
 Pure Lua, loaded into every cart's globals automatically (no `require`) — read `crates/caiven-vm/src/vm/prelude.lua` for the source. See it all in action in `games/carts/stdlib_demo.cav` (`cargo run -p caiven-machine -- games/carts/stdlib_demo.cav`): a tiny platformer with tile collision, a coin pickup that bursts particles, a walk-cycle sprite animation, and four side-by-side tweened dots comparing each easing curve.
 
-| Function | Description |
-| :------- | :---------- |
-| `lerp(a, b, t)` / `clamp(v, lo, hi)` | Linear interpolate / clamp to range |
-| `ease_linear/in_quad/out_quad/in_out_quad(t)` | Easing curves, `t` in `0..1` |
-| `aabb_overlap(x1, y1, w1, h1, x2, y2, w2, h2)` | Axis-aligned box overlap test |
-| `tile_solid(tx, ty)` | Whether the per-cell collision value at `(tx, ty)` is `1` (solid) |
-| `box_touches_solid(x, y, w, h)` | Whether a pixel-space box overlaps any solid tile |
-| `new_tween(from, to, frames, ease)` / `tween_update(tw)` | Frame-driven value tween; `tw.done` flips true on arrival |
-| `new_anim(frames, frame_len)` / `anim_update(anim)` / `anim_sprite(anim)` | Frame-based sprite animation cycling through a sprite-id list |
-| `Particles.spawn(x, y, vx, vy, color, life)` / `.update()` / `.draw()` / `.clear()` / `.count()` | Simple velocity + lifetime particle system |
+| Function                                                                                         | Description                                                       |
+| :----------------------------------------------------------------------------------------------- | :---------------------------------------------------------------- |
+| `lerp(a, b, t)` / `clamp(v, lo, hi)`                                                             | Linear interpolate / clamp to range                               |
+| `ease_linear/in_quad/out_quad/in_out_quad(t)`                                                    | Easing curves, `t` in `0..1`                                      |
+| `aabb_overlap(x1, y1, w1, h1, x2, y2, w2, h2)`                                                   | Axis-aligned box overlap test                                     |
+| `tile_solid(tx, ty)`                                                                             | Whether the per-cell collision value at `(tx, ty)` is `1` (solid) |
+| `box_touches_solid(x, y, w, h)`                                                                  | Whether a pixel-space box overlaps any solid tile                 |
+| `new_tween(from, to, frames, ease)` / `tween_update(tw)`                                         | Frame-driven value tween; `tw.done` flips true on arrival         |
+| `new_anim(frames, frame_len)` / `anim_update(anim)` / `anim_sprite(anim)`                        | Frame-based sprite animation cycling through a sprite-id list     |
+| `Particles.spawn(x, y, vx, vy, color, life)` / `.update()` / `.draw()` / `.clear()` / `.count()` | Simple velocity + lifetime particle system                        |
 
 ---
 
@@ -276,17 +279,17 @@ transport, sprite, and palette commands.
 
 Press function keys to switch workspaces:
 
-| Key | Workspace |
-| :-- | :-------- |
-| `F1` | Code |
-| `F2` | Art → Sprites |
-| `F3` | Art → Map |
+| Key  | Workspace             |
+| :--- | :-------------------- |
+| `F1` | Code                  |
+| `F2` | Art → Sprites         |
+| `F3` | Art → Map             |
 | `F4` | Sound → Sound effects |
-| `F5` | Sound → Music |
-| `F6` | Art → Palette |
-| `F7` | Cart details |
-| `F8` | Library |
-| `F9` | API docs |
+| `F5` | Sound → Music         |
+| `F6` | Art → Palette         |
+| `F7` | Cart details          |
+| `F8` | Library               |
+| `F9` | API docs              |
 
 `Cmd/Ctrl+S` saves, `Cmd/Ctrl+R` runs or pauses, and `Cmd/Ctrl+K`
 opens command palette. Console stays visible at 4× integer scale on wide
@@ -355,15 +358,15 @@ are unsigned. Public trusted releases need
 
 ## 📟 System Specifications
 
-| Component | Specification |
-| :-------- | :------------ |
-| **Script engine** | Lua 5.4 via `mlua` (vendored) |
-| **Resolution** | 128×128 (upscaled 4×) |
-| **RAM** | 64 KiB (asset/RAM regions below; script state lives in the Lua VM, not guest RAM) |
-| **Cartridge** | 128 KiB maximum packed `.cav` size |
-| **Palette** | 16 colors |
-| **Sprites** | 256 × 8×8 pixels per bank; bank 0 always available |
-| **Map** | 64×64 tiles per bank; bank 0 always available |
+| Component         | Specification                                                                     |
+| :---------------- | :-------------------------------------------------------------------------------- |
+| **Script engine** | Lua 5.4 via `mlua` (vendored)                                                     |
+| **Resolution**    | 128×128 (upscaled 4×)                                                             |
+| **RAM**           | 64 KiB (asset/RAM regions below; script state lives in the Lua VM, not guest RAM) |
+| **Cartridge**     | 128 KiB maximum packed `.cav` size                                                |
+| **Palette**       | 16 colors                                                                         |
+| **Sprites**       | 256 × 8×8 pixels per bank; bank 0 always available                                |
+| **Map**           | 64×64 tiles per bank; bank 0 always available                                     |
 
 Additional banks live in cartridge storage, not guest RAM. Studio writes them
 as `sprites_<id>.png` and `map_<id>.png`; runtime calls copy selected bank into
@@ -371,17 +374,17 @@ fixed sprite/map RAM windows. Changes made through RAM survive later switches.
 
 ### Memory Map
 
-| Range | Region |
-| :---- | :----- |
-| `0x0000–0x3FFF` | Unused / reserved |
-| `0x4000–0x7FFF` | Sprite sheet — 256 sprites × 64 bytes (1 byte/pixel) |
-| `0x8000–0x8FFF` | Tilemap 64×64 (1 byte/cell) |
-| `0x9000–0x90FF` | Palette (16 × 3 bytes RGB, rest padding) |
-| `0x9100–0x94FF` | SFX bank (16 × 64 bytes) |
-| `0x9500–0x95FF` | Music bank (8 × 32 bytes) |
-| `0x9600–0x9602` | RTC (hour, minute, second) |
+| Range           | Region                                                         |
+| :-------------- | :------------------------------------------------------------- |
+| `0x0000–0x3FFF` | Unused / reserved                                              |
+| `0x4000–0x7FFF` | Sprite sheet — 256 sprites × 64 bytes (1 byte/pixel)           |
+| `0x8000–0x8FFF` | Tilemap 64×64 (1 byte/cell)                                    |
+| `0x9000–0x90FF` | Palette (16 × 3 bytes RGB, rest padding)                       |
+| `0x9100–0x94FF` | SFX bank (16 × 64 bytes)                                       |
+| `0x9500–0x95FF` | Music bank (8 × 32 bytes)                                      |
+| `0x9600–0x9602` | RTC (hour, minute, second)                                     |
 | `0x9603–0xA602` | Collision — 64×64 (1 byte/cell: 0 walkable, 1 solid, 2 hazard) |
-| `0xA603–0xFFFF` | Reserved |
+| `0xA603–0xFFFF` | Reserved                                                       |
 
 ---
 
@@ -404,13 +407,13 @@ on-disk SQLite database under `--data-dir` — zero-setup for local dev.
 `docker compose up` runs the real deploy path: a `postgres` service plus the
 server, wired together via `DATABASE_URL`.
 
-| Flag | Default | Description |
-| :--- | :------ | :---------- |
-| `--address` | `0.0.0.0` | Listen address |
-| `--port` | `8080` | Listen port |
-| `--database-url` (env `DATABASE_URL`) | unset | PostgreSQL connection string. When set, carts/screenshots/all data live in Postgres |
-| `--data-dir` | `data` | Fallback SQLite database directory, used only when `--database-url` is unset |
-| `--web-dir` | `crates/caiven-port/web/dist` | Built SPA directory (`npm run build` output in `crates/caiven-port/web/`) |
+| Flag                                  | Default                       | Description                                                                         |
+| :------------------------------------ | :---------------------------- | :---------------------------------------------------------------------------------- |
+| `--address`                           | `0.0.0.0`                     | Listen address                                                                      |
+| `--port`                              | `8080`                        | Listen port                                                                         |
+| `--database-url` (env `DATABASE_URL`) | unset                         | PostgreSQL connection string. When set, carts/screenshots/all data live in Postgres |
+| `--data-dir`                          | `data`                        | Fallback SQLite database directory, used only when `--database-url` is unset        |
+| `--web-dir`                           | `crates/caiven-port/web/dist` | Built SPA directory (`npm run build` output in `crates/caiven-port/web/`)           |
 
 Open the base URL in a browser to register an account, browse/search/filter
 carts by tag, author or sort (new/popular/top), upload new carts or versions,
@@ -418,19 +421,19 @@ rate and comment, and view author profile pages. The web UI uses a session
 cookie; the same account can also mint per-user API tokens (Profile page) for
 `caiven-studio publish` or direct API calls — sent as an `X-Api-Key` header.
 
-| Method | Path | Description |
-| :----- | :--- | :---------- |
-| `POST` | `/api/v2/auth/register` / `/login` / `/logout` | Account auth (session cookie) |
-| `GET` | `/api/v2/auth/me` | Current user |
-| `GET`/`POST`/`DELETE` | `/api/v2/auth/tokens` | Manage per-user API tokens |
-| `GET` | `/api/v2/carts` | List/search carts (`page`, `per_page`, `q`, `tag`, `author`, `sort`) |
-| `POST` | `/api/v2/carts` | Upload new cart (multipart: `cart` + JSON `meta`) |
-| `GET`/`DELETE` | `/api/v2/carts/:id` | Cart detail / delete (owner or admin) |
-| `POST` | `/api/v2/carts/:id/versions` | Upload a new version of an owned cart |
-| `GET` | `/api/v2/carts/:id/cart` \| `/screenshot` | Download cart/screenshot (`?version=n`, defaults to latest) |
-| `PUT`/`DELETE` | `/api/v2/carts/:id/rating` | Rate a cart (1-5) |
-| `GET`/`POST`/`DELETE` | `/api/v2/carts/:id/comments[/:cid]` | Comments |
-| `GET` | `/api/v2/tags` \| `/api/v2/users/:username` | Discovery |
+| Method                | Path                                           | Description                                                          |
+| :-------------------- | :--------------------------------------------- | :------------------------------------------------------------------- |
+| `POST`                | `/api/v2/auth/register` / `/login` / `/logout` | Account auth (session cookie)                                        |
+| `GET`                 | `/api/v2/auth/me`                              | Current user                                                         |
+| `GET`/`POST`/`DELETE` | `/api/v2/auth/tokens`                          | Manage per-user API tokens                                           |
+| `GET`                 | `/api/v2/carts`                                | List/search carts (`page`, `per_page`, `q`, `tag`, `author`, `sort`) |
+| `POST`                | `/api/v2/carts`                                | Upload new cart (multipart: `cart` + JSON `meta`)                    |
+| `GET`/`DELETE`        | `/api/v2/carts/:id`                            | Cart detail / delete (owner or admin)                                |
+| `POST`                | `/api/v2/carts/:id/versions`                   | Upload a new version of an owned cart                                |
+| `GET`                 | `/api/v2/carts/:id/cart` \| `/screenshot`      | Download cart/screenshot (`?version=n`, defaults to latest)          |
+| `PUT`/`DELETE`        | `/api/v2/carts/:id/rating`                     | Rate a cart (1-5)                                                    |
+| `GET`/`POST`/`DELETE` | `/api/v2/carts/:id/comments[/:cid]`            | Comments                                                             |
+| `GET`                 | `/api/v2/tags` \| `/api/v2/users/:username`    | Discovery                                                            |
 
 Legacy `/api/carts*` routes (v1 shape, single cart file per cart) remain for
 backward compatibility — `caiven-studio publish` still targets them internally.
@@ -472,17 +475,17 @@ there's no CI wasm pipeline yet.
 
 Cargo workspace with nine crates:
 
-| Crate | Description |
-| :---- | :---------- |
-| `crates/caiven-core` | Shared types and memory map — `Color`, `Vec2`, RAM layout constants |
-| `crates/caiven-cart` | Cart formats: binary `.cav` (header, section layout, load/write) and the project-dir authoring format (`caiven.toml` + `.lua` + `.hex`/`.png`) |
-| `crates/caiven-vm` | VM core: embedded Lua (`mlua`) execution, builtin API, renderer, audio, input, debugger hooks |
-| `crates/caiven-studio` | Tauri shell, VM actor, Studio IPC, and CLI (`build`/`unpack`/`inspect`/`publish`) |
-| `crates/caiven-studio-ui` | Svelte 5 + Vite Studio frontend shared with Port brand tokens |
-| `crates/caiven-machine` | Standalone cart runner (run mode: project dir or `.cav`, no editor/port; `Ctrl+R` hot-reloads) |
-| `crates/caiven-port` | Cart sharing server |
-| `crates/caiven-web` | WASM cart player (`wasm32-unknown-emscripten`) served by caiven-port's `/play/:id` |
-| `crates/migration` | `sea-orm` database migrations for caiven-port |
+| Crate                     | Description                                                                                                                                    |
+| :------------------------ | :--------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crates/caiven-core`      | Shared types and memory map — `Color`, `Vec2`, RAM layout constants                                                                            |
+| `crates/caiven-cart`      | Cart formats: binary `.cav` (header, section layout, load/write) and the project-dir authoring format (`caiven.toml` + `.lua` + `.hex`/`.png`) |
+| `crates/caiven-vm`        | VM core: embedded Lua (`mlua`) execution, builtin API, renderer, audio, input, debugger hooks                                                  |
+| `crates/caiven-studio`    | Tauri shell, VM actor, Studio IPC, and CLI (`build`/`unpack`/`inspect`/`publish`)                                                              |
+| `crates/caiven-studio-ui` | Svelte 5 + Vite Studio frontend shared with Port brand tokens                                                                                  |
+| `crates/caiven-machine`   | Standalone cart runner (run mode: project dir or `.cav`, no editor/port; `Ctrl+R` hot-reloads)                                                 |
+| `crates/caiven-port`      | Cart sharing server                                                                                                                            |
+| `crates/caiven-web`       | WASM cart player (`wasm32-unknown-emscripten`) served by caiven-port's `/play/:id`                                                             |
+| `crates/migration`        | `sea-orm` database migrations for caiven-port                                                                                                  |
 
 `games/carts/` — example carts, ready to run: `cargo run -p caiven-machine -- games/carts/catch.cav`, or open in Caiven Studio via `caiven-studio edit`.
 
@@ -490,14 +493,14 @@ Cargo workspace with nine crates:
 
 ## ⌨️ Key Bindings (Game)
 
-| Button | Keys |
-| :----- | :--- |
-| Up | `ArrowUp`, `W` |
-| Down | `ArrowDown`, `S` |
-| Left | `ArrowLeft`, `A` |
-| Right | `ArrowRight`, `D` |
-| A | `J` |
-| B | `K` |
+| Button | Keys              |
+| :----- | :---------------- |
+| Up     | `ArrowUp`, `W`    |
+| Down   | `ArrowDown`, `S`  |
+| Left   | `ArrowLeft`, `A`  |
+| Right  | `ArrowRight`, `D` |
+| A      | `J`               |
+| B      | `K`               |
 
 Override by creating `controls.toml` next to the binary:
 
@@ -515,9 +518,13 @@ Any `winit` physical key name is valid (e.g. `KeyZ`, `Digit1`, `Space`, `Enter`)
 
 ---
 
-## 📜 License
+## 📜 License and creator policy
 
-This project is licensed under the MIT License.
+Caiven's source code is licensed under the [Mozilla Public License 2.0](LICENSE). Modifications to MPL-covered source files that are distributed must remain available under MPL-2.0, while separate files and larger works may use other terms as permitted by the licence.
+
+Games and cartridges made with Caiven remain the creator's property. They may be sold without royalties, revenue share, a separate commercial-use licence, or a requirement to publish game source. See [Creator rights](CREATOR_RIGHTS.md).
+
+The software licence does not grant rights to present unofficial forks as official Caiven releases. Normal descriptive use, community projects, and clearly identified forks are welcome under the [trademark policy](TRADEMARKS.md).
 
 ---
 
