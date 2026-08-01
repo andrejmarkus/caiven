@@ -72,7 +72,10 @@ mod tests {
 
     #[test]
     fn example_ids_are_stable_and_unique() {
-        let ids = EXAMPLES.iter().map(|example| example.id).collect::<Vec<_>>();
+        let ids = EXAMPLES
+            .iter()
+            .map(|example| example.id)
+            .collect::<Vec<_>>();
         assert_eq!(ids, ["movement", "catch", "tiles", "stdlib-demo"]);
         assert_eq!(ids.iter().copied().collect::<HashSet<_>>().len(), ids.len());
     }

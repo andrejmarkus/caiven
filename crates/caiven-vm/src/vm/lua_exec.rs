@@ -277,7 +277,9 @@ pub fn describe_lua_error_location(err: &mlua::Error) -> (Option<LuaBreakpoint>,
 /// used by [`Vm::lua_globals`] (debugger inspector), which deliberately
 /// excludes `_init`/`_update`/`_draw` since they're entry points, not state.
 fn is_script_defined_name(name: &str) -> bool {
-    !BUILTIN_NAMES.contains(&name) && !PRELUDE_NAMES.contains(&name) && !STDLIB_NAMES.contains(&name)
+    !BUILTIN_NAMES.contains(&name)
+        && !PRELUDE_NAMES.contains(&name)
+        && !STDLIB_NAMES.contains(&name)
 }
 
 /// Whether a global name is eligible for [`Vm::hot_reload_lua_source`]'s
@@ -302,7 +304,11 @@ fn is_reload_join_candidate(name: &str) -> bool {
 /// available to call from Lua either), so this drops to the raw C API mlua
 /// re-exports as `mlua::ffi`, scoped via `Lua::exec_raw` so the stack is
 /// restored regardless of outcome.
-fn join_matching_upvalues(lua: &Lua, old_fn: &mlua::Function, new_fn: &mlua::Function) -> mlua::Result<()> {
+fn join_matching_upvalues(
+    lua: &Lua,
+    old_fn: &mlua::Function,
+    new_fn: &mlua::Function,
+) -> mlua::Result<()> {
     use std::ffi::CStr;
     use std::os::raw::c_int;
 
@@ -1253,14 +1259,23 @@ impl Vm {
     /// convention keeps top-level code to pure declarations, so this is not
     /// expected to be reachable in practice; Reset remains the recovery path
     /// if it is.
-    pub fn hot_reload_lua_source(&mut self, src: &str, input: &Input, font: &Font) -> mlua::Result<()> {
+    pub fn hot_reload_lua_source(
+        &mut self,
+        src: &str,
+        input: &Input,
+        font: &Font,
+    ) -> mlua::Result<()> {
         let Some(script) = self.script.as_ref() else {
             return self.load_lua_source(src, input, font);
         };
 
         // Syntax-check first: compiling without executing means a bad chunk
         // never touches the live instance at all.
-        script.lua.load(src).set_name(CHUNK_SOURCE_NAME).into_function()?;
+        script
+            .lua
+            .load(src)
+            .set_name(CHUNK_SOURCE_NAME)
+            .into_function()?;
 
         // Snapshot old script-defined top-level functions by name, to join
         // upvalues against once the new chunk has executed.
@@ -1504,10 +1519,18 @@ function get_score() return score end
         )
         .expect("hot reload with matching names should succeed");
 
-        assert_eq!(get_score(&vm), 3, "state should survive a matching-name reload");
+        assert_eq!(
+            get_score(&vm),
+            3,
+            "state should survive a matching-name reload"
+        );
 
         vm.run_frame_lua(&input, &font);
-        assert_eq!(get_score(&vm), 5, "reloaded _update body should apply to preserved state");
+        assert_eq!(
+            get_score(&vm),
+            5,
+            "reloaded _update body should apply to preserved state"
+        );
     }
 
     #[test]
@@ -1544,7 +1567,11 @@ function get_score() return points end
         )
         .expect("hot reload with a renamed local should still succeed");
 
-        assert_eq!(get_score(&vm), 0, "renamed local has no match, resets to its initializer");
+        assert_eq!(
+            get_score(&vm),
+            0,
+            "renamed local has no match, resets to its initializer"
+        );
     }
 
     #[test]
@@ -1577,6 +1604,10 @@ function get_score() return score end
 
         assert_eq!(get_score(&vm), 3, "old state must survive a failed reload");
         vm.run_frame_lua(&input, &font);
-        assert_eq!(get_score(&vm), 4, "old _update must still be callable after a failed reload");
+        assert_eq!(
+            get_score(&vm),
+            4,
+            "old _update must still be callable after a failed reload"
+        );
     }
 }

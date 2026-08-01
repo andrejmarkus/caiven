@@ -612,7 +612,8 @@ impl StudioCore {
         let temp_cav = cart::temp_cav_path();
         std::fs::write(&temp_cav, example.bytes)
             .map_err(|error| format!("{}: {error}", temp_cav.display()))?;
-        let unpack_result = cart::unpack_cart(&temp_cav, path).map_err(|error| format!("{error:#}"));
+        let unpack_result =
+            cart::unpack_cart(&temp_cav, path).map_err(|error| format!("{error:#}"));
         let _ = std::fs::remove_file(&temp_cav);
         unpack_result?;
         self.open(path).map_err(|error| format!("{error:#}"))
