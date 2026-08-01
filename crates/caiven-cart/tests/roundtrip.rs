@@ -126,6 +126,38 @@ fn truncated_section_data_is_error_not_panic() {
 }
 
 #[test]
+fn future_version_is_rejected_not_misparsed() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_sample(&dir);
+
+    // Bump the version field (bytes 6..8, little-endian) past anything this
+    // build knows how to read.
+    let mut bytes = std::fs::read(&path).unwrap();
+    bytes[6..8].copy_from_slice(&9999u16.to_le_bytes());
+    std::fs::write(&path, &bytes).unwrap();
+
+    assert!(matches!(
+        load(&path),
+        Err(CartError::UnsupportedCartVersion { found: 9999, .. })
+    ));
+}
+
+#[test]
+fn zero_version_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_sample(&dir);
+
+    let mut bytes = std::fs::read(&path).unwrap();
+    bytes[6..8].copy_from_slice(&0u16.to_le_bytes());
+    std::fs::write(&path, &bytes).unwrap();
+
+    assert!(matches!(
+        load(&path),
+        Err(CartError::UnsupportedCartVersion { found: 0, .. })
+    ));
+}
+
+#[test]
 fn corrupted_section_data_fails_crc_check() {
     let dir = tempfile::tempdir().unwrap();
     let path = write_sample(&dir);
