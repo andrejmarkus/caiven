@@ -2357,8 +2357,35 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{StudioCore, parse_hex, valid_watch_expression};
+    use super::{
+        CoreCommand, StudioCore, debug_path, handle_command, normalized_module_path, parse_hex,
+        trim_output, valid_watch_expression,
+    };
     use caiven_vm::AssetBankKind;
+    use std::path::{Path, PathBuf};
+    use std::sync::mpsc;
+
+    fn temp_dir(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "caiven-tauri-app-test-{label}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
+    /// Drives `handle_command` exactly as the actor thread does, without a
+    /// real Tauri runtime: builds a `CoreCommand` around a fresh reply
+    /// channel and returns what the handler sent back.
+    fn dispatch<T>(
+        studio: &mut StudioCore,
+        build: impl FnOnce(mpsc::Sender<Result<T, String>>) -> CoreCommand,
+    ) -> Result<T, String> {
+        let (tx, rx) = mpsc::channel();
+        handle_command(studio, build(tx));
+        rx.try_recv().expect("handler always replies")
+    }
 
     #[test]
     fn parses_palette_hex() {
@@ -2427,5 +2454,385 @@ mod tests {
         let mut studio = StudioCore::new(None).expect("studio core");
         let dir = std::env::temp_dir().join("caiven-remix-unknown-test");
         assert!(studio.remix_example(&dir, "not-an-example").is_err());
+    }
+
+    // -- normalized_module_path -------------------------------------------
+
+    #[test]
+    fn normalized_module_path_adds_lua_extension() {
+        let path = normalized_module_path("entities/player").expect("valid module path");
+        assert_eq!(path, Path::new("entities/player.lua"));
+    }
+
+    #[test]
+    fn normalized_module_path_strips_leading_slash() {
+        let path = normalized_module_path("/util").expect("valid module path");
+        assert_eq!(path, Path::new("util.lua"));
+    }
+
+    #[test]
+    fn normalized_module_path_rejects_empty() {
+        assert!(normalized_module_path("").is_err());
+        assert!(normalized_module_path("   ").is_err());
+    }
+
+    #[test]
+    fn normalized_module_path_rejects_parent_dir_traversal() {
+        assert!(normalized_module_path("../../etc/passwd").is_err());
+        assert!(normalized_module_path("nested/../../escape").is_err());
+    }
+
+    #[test]
+    fn normalized_module_path_rejects_non_lua_extension() {
+        assert!(normalized_module_path("main.txt").is_err());
+    }
+
+    // -- debug_path ---------------------------------------------------------
+
+    #[test]
+    fn debug_path_for_cav_file_replaces_extension() {
+        let path = debug_path(Path::new("/carts/game.cav"));
+        assert_eq!(path, Path::new("/carts/game.cav.dbg"));
+    }
+
+    #[test]
+    fn debug_path_for_project_dir_appends_dbg_file() {
+        let path = debug_path(Path::new("/carts/game"));
+        assert_eq!(path, Path::new("/carts/game/.caiven.dbg"));
+    }
+
+    // -- trim_output ----------------------------------------------------------
+
+    #[test]
+    fn trim_output_keeps_last_200_lines() {
+        let mut output: Vec<String> = (0..250).map(|i| i.to_string()).collect();
+        trim_output(&mut output);
+        assert_eq!(output.len(), 200);
+        assert_eq!(output.first(), Some(&"50".to_string()));
+        assert_eq!(output.last(), Some(&"249".to_string()));
+    }
+
+    #[test]
+    fn trim_output_leaves_short_output_untouched() {
+        let mut output: Vec<String> = (0..10).map(|i| i.to_string()).collect();
+        trim_output(&mut output);
+        assert_eq!(output.len(), 10);
+    }
+
+    // -- handle_command: memory bounds --------------------------------------
+
+    #[test]
+    fn write_memory_rejects_out_of_range_address() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        let result = dispatch(&mut studio, |reply| CoreCommand::WriteMemory {
+            address: usize::MAX,
+            bytes: vec![1, 2, 3],
+            reply,
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn write_memory_accepts_in_range_address() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        let result = dispatch(&mut studio, |reply| CoreCommand::WriteMemory {
+            address: 0,
+            bytes: vec![1, 2, 3],
+            reply,
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn read_memory_rejects_out_of_range_length() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        let result = dispatch(&mut studio, |reply| CoreCommand::ReadMemory {
+            address: caiven_core::memory::RAM_SIZE - 1,
+            len: 10,
+            reply,
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn read_memory_accepts_in_range_length() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        let result = dispatch(&mut studio, |reply| CoreCommand::ReadMemory {
+            address: 0,
+            len: 4,
+            reply,
+        });
+        assert_eq!(result.map(|bytes| bytes.len()), Ok(4));
+    }
+
+    // -- handle_command: sprite/palette validation ---------------------------
+
+    #[test]
+    fn write_sprite_rejects_out_of_range_sprite_id() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        let result = dispatch(&mut studio, |reply| CoreCommand::WriteSprite {
+            sprite: 256,
+            pixels: vec![0; caiven_core::memory::SPRITE_BYTES],
+            reply,
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn write_sprite_rejects_wrong_pixel_count() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        let result = dispatch(&mut studio, |reply| CoreCommand::WriteSprite {
+            sprite: 0,
+            pixels: vec![0; 4],
+            reply,
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn write_palette_rejects_invalid_hex() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        let result = dispatch(&mut studio, |reply| CoreCommand::WritePalette {
+            slot: 0,
+            hex: "not-a-color".to_string(),
+            reply,
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn write_palette_rejects_out_of_range_slot() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        let result = dispatch(&mut studio, |reply| CoreCommand::WritePalette {
+            slot: 16,
+            hex: "#FFFFFF".to_string(),
+            reply,
+        });
+        assert!(result.is_err());
+    }
+
+    // -- handle_command: breakpoints / input ---------------------------------
+
+    #[test]
+    fn toggle_breakpoint_rejects_line_zero() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        let result = dispatch(&mut studio, |reply| CoreCommand::ToggleBreakpoint {
+            source: "main.lua".to_string(),
+            line: 0,
+            reply,
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn toggle_breakpoint_rejects_unknown_source() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        let result = dispatch(&mut studio, |reply| CoreCommand::ToggleBreakpoint {
+            source: "does-not-exist.lua".to_string(),
+            line: 1,
+            reply,
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn set_input_rejects_unknown_button() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        let result = dispatch(&mut studio, |reply| CoreCommand::SetInput {
+            button: 255,
+            pressed: true,
+            reply,
+        });
+        assert!(result.is_err());
+    }
+
+    // -- handle_command: map/collision cell bounds ---------------------------
+
+    #[test]
+    fn write_map_cells_rejects_out_of_range_offset() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        let result = dispatch(&mut studio, |reply| CoreCommand::WriteMapCells {
+            cells: vec![super::MapCellPayload {
+                offset: caiven_core::memory::MAP_LEN,
+                tile: 1,
+            }],
+            reply,
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn write_collision_cells_rejects_out_of_range_offset() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        let result = dispatch(&mut studio, |reply| CoreCommand::WriteCollisionCells {
+            cells: vec![super::CollisionCellPayload {
+                offset: caiven_core::memory::COLLISION_LEN,
+                value: 1,
+            }],
+            reply,
+        });
+        assert!(result.is_err());
+    }
+
+    // -- handle_command: audio transport -------------------------------------
+
+    #[test]
+    fn audio_transport_rejects_out_of_range_sfx_id() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        let result = dispatch(&mut studio, |reply| CoreCommand::AudioTransport {
+            kind: "sfx".to_string(),
+            id: 16,
+            action: "play".to_string(),
+            loop_on: None,
+            reply,
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn audio_transport_rejects_out_of_range_music_id() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        let result = dispatch(&mut studio, |reply| CoreCommand::AudioTransport {
+            kind: "music".to_string(),
+            id: 8,
+            action: "play".to_string(),
+            loop_on: None,
+            reply,
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn audio_transport_rejects_unknown_action() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        let result = dispatch(&mut studio, |reply| CoreCommand::AudioTransport {
+            kind: "sfx".to_string(),
+            id: 0,
+            action: "dance".to_string(),
+            loop_on: None,
+            reply,
+        });
+        assert!(result.is_err());
+    }
+
+    // -- handle_command: asset banks ------------------------------------------
+
+    #[test]
+    fn asset_bank_rejects_unknown_kind() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        let result = dispatch(&mut studio, |reply| CoreCommand::AssetBank {
+            kind: "not-a-kind".to_string(),
+            action: "read".to_string(),
+            id: None,
+            reply,
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn asset_bank_rejects_unknown_action() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        let result = dispatch(&mut studio, |reply| CoreCommand::AssetBank {
+            kind: "sprites".to_string(),
+            action: "not-an-action".to_string(),
+            id: None,
+            reply,
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn asset_bank_select_rejects_missing_id() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        let result = dispatch(&mut studio, |reply| CoreCommand::AssetBank {
+            kind: "sprites".to_string(),
+            action: "select".to_string(),
+            id: None,
+            reply,
+        });
+        assert!(result.is_err());
+    }
+
+    /// Documents a real inconsistency in `StudioCore::asset_bank`'s "create"
+    /// path: it creates the bank in the live VM *before* checking that a
+    /// cart is open to track the new section against. With no cart open,
+    /// the handler returns `Err("No cart open")` yet the VM is left holding
+    /// a bank id 1 that the cart's section list will never know about — a
+    /// silent VM/cart-metadata desync (see tauri_app.rs `asset_bank`,
+    /// "create" arm). This test pins today's (buggy) behavior so a fix is
+    /// visible as a test change, not a silent behavior drift.
+    #[test]
+    fn asset_bank_create_without_cart_leaves_vm_bank_orphaned() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        let result = dispatch(&mut studio, |reply| CoreCommand::AssetBank {
+            kind: "sprites".to_string(),
+            action: "create".to_string(),
+            id: None,
+            reply,
+        });
+        assert!(result.is_err(), "no cart open, so create should fail");
+        assert!(
+            studio
+                .console
+                .vm
+                .asset_bank_ids(AssetBankKind::Sprites)
+                .contains(&1),
+            "known bug: the VM bank is created before the cart-open check"
+        );
+    }
+
+    // -- StudioCore::new_project ----------------------------------------------
+
+    #[test]
+    fn new_project_rejects_nonempty_destination() {
+        let dir = temp_dir("new-project-nonempty");
+        std::fs::create_dir_all(&dir).expect("create dir");
+        std::fs::write(dir.join("existing.txt"), b"hi").expect("write file");
+
+        let mut studio = StudioCore::new(None).expect("studio core");
+        assert!(studio.new_project(&dir, "blank").is_err());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn new_project_rejects_unknown_template() {
+        let dir = temp_dir("new-project-unknown-template");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        assert!(studio.new_project(&dir, "not-a-template").is_err());
+    }
+
+    // -- StudioCore::create_module ---------------------------------------------
+
+    #[test]
+    fn create_module_requires_project_folder() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        assert!(studio.create_module("extra").is_err());
+    }
+
+    #[test]
+    fn create_module_rejects_duplicate_name() {
+        let dir = temp_dir("create-module-duplicate");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+
+        studio
+            .create_module("extra")
+            .expect("first create succeeds");
+        let result = studio.create_module("extra");
+        assert!(result.is_err());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn create_module_rejects_path_traversal_name() {
+        let dir = temp_dir("create-module-traversal");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+
+        assert!(studio.create_module("../escape").is_err());
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
