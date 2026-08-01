@@ -17,6 +17,24 @@ pub enum CartError {
     #[error("CRC32 mismatch: expected {expected:#010x}, got {actual:#010x}")]
     ChecksumMismatch { expected: u32, actual: u32 },
 
+    #[error(
+        "unsupported cart format version {found} (this build supports {min_supported}..={max_supported}); rebuild the cartridge with a compatible Caiven version"
+    )]
+    UnsupportedCartVersion {
+        found: u16,
+        min_supported: u16,
+        max_supported: u16,
+    },
+
+    #[error(
+        "unsupported caiven.toml format version {found} (this build supports {min_supported}..={max_supported}); update Caiven to open this project"
+    )]
+    UnsupportedManifestVersion {
+        found: u16,
+        min_supported: u16,
+        max_supported: u16,
+    },
+
     #[error("invalid caiven.toml: {0}")]
     BadToml(#[from] toml::de::Error),
 

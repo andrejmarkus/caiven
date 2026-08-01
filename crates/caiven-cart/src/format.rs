@@ -1,6 +1,7 @@
 /// Cart layout:
 ///   magic:       b"CAIVEN" (6 bytes)
-///   version:     u16 LE   (= 3, unchecked by any reader — bump is informational)
+///   version:     u16 LE   (= CART_FORMAT_VERSION; reader rejects anything
+///                           outside MIN_SUPPORTED_CART_VERSION..=CART_FORMAT_VERSION)
 ///   n_sections:  u16 LE
 ///   header body: 72 bytes  (title[32] author[32] entry[4] flags[4])
 ///   section table: n_sections × 14 bytes each:
@@ -19,6 +20,20 @@ use crate::header::CartHeader;
 use crate::section::{CartSection, SectionKind};
 
 const MAGIC: &[u8; 6] = b"CAIVEN";
+
+/// Current on-disk cart format version, written by [`write`]. Bump this
+/// (and update `MIN_SUPPORTED_CART_VERSION` if old bytes become unparsable)
+/// whenever the header/section-table shape changes.
+pub(crate) const CART_FORMAT_VERSION: u16 = 3;
+
+/// Oldest version this build still loads. The section table is additive
+/// and self-describing (an unrecognized `SectionKind` just becomes
+/// `Custom(id)` and is carried through, ignored by consumers that don't
+/// know it), so every version since the format's first release has stayed
+/// byte-compatible with this reader — raise this only when a change makes
+/// old bytes genuinely unparsable, and pair it with a migration or an
+/// explicit rejection test.
+const MIN_SUPPORTED_CART_VERSION: u16 = 1;
 
 const HEADER_BODY_LEN: usize = 72;
 // 6 (magic) + 2 (version) + 2 (n_sections) + 72 (header body)
@@ -55,7 +70,14 @@ fn load_bytes(data: &[u8]) -> Result<Cart, CartError> {
     if data.len() < FIXED_HDR {
         return Err(CartError::Truncated);
     }
-    // data[6..8] = version u16 (ignored for now)
+    let version = u16::from_le_bytes([data[6], data[7]]);
+    if !(MIN_SUPPORTED_CART_VERSION..=CART_FORMAT_VERSION).contains(&version) {
+        return Err(CartError::UnsupportedCartVersion {
+            found: version,
+            min_supported: MIN_SUPPORTED_CART_VERSION,
+            max_supported: CART_FORMAT_VERSION,
+        });
+    }
     let n_sections = u16::from_le_bytes([data[8], data[9]]) as usize;
     let header_buf: &[u8; HEADER_BODY_LEN] = data[10..10 + HEADER_BODY_LEN]
         .try_into()
@@ -140,7 +162,7 @@ pub fn write(
     let mut out = Vec::with_capacity(packed_len);
 
     out.extend_from_slice(MAGIC);
-    out.extend_from_slice(&3u16.to_le_bytes()); // version
+    out.extend_from_slice(&CART_FORMAT_VERSION.to_le_bytes());
     out.extend_from_slice(&(n as u16).to_le_bytes());
     out.extend_from_slice(&header_body);
 

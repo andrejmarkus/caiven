@@ -52,6 +52,15 @@ const MANIFEST_FILE: &str = "caiven.toml";
 const DEFAULT_ENTRY: &str = "main.lua";
 const COLLISION_TYPES_FILE: &str = "collision_types.json";
 
+/// Current `[cart].version` written to new/re-saved `caiven.toml` manifests.
+const CURRENT_MANIFEST_VERSION: u16 = 1;
+
+/// Oldest manifest version this build still loads. Existing carts predate
+/// the `version` field entirely; those default to `CURRENT_MANIFEST_VERSION`
+/// via `default_manifest_version` below, so this only guards against a
+/// synthetic/future version this build genuinely doesn't understand.
+const MIN_SUPPORTED_MANIFEST_VERSION: u16 = 1;
+
 /// On-disk DTO for `collision_types.json` — a readable/diffable stand-in
 /// for `caiven_core::CollisionType`, whose `flags` bitset is exposed here
 /// as a plain `solid` bool (the only engine-affecting flag today).
@@ -153,10 +162,19 @@ struct CartTable {
     entry_point: u32,
     #[serde(default)]
     flags: u32,
+    /// Manifest format version. Absent on any `caiven.toml` written before
+    /// this field existed — those default to `CURRENT_MANIFEST_VERSION`
+    /// (the only version that has ever existed), not left unvalidated.
+    #[serde(default = "default_manifest_version")]
+    version: u16,
 }
 
 fn default_entry() -> String {
     DEFAULT_ENTRY.to_string()
+}
+
+fn default_manifest_version() -> u16 {
+    CURRENT_MANIFEST_VERSION
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -186,7 +204,16 @@ fn resolve_dir(path: &Path) -> PathBuf {
 fn parse_manifest(dir: &Path) -> Result<CaivenToml, CartError> {
     let manifest_path = dir.join(MANIFEST_FILE);
     let manifest_text = std::fs::read_to_string(&manifest_path)?;
-    Ok(toml::from_str(&manifest_text)?)
+    let manifest: CaivenToml = toml::from_str(&manifest_text)?;
+    let version = manifest.cart.version;
+    if !(MIN_SUPPORTED_MANIFEST_VERSION..=CURRENT_MANIFEST_VERSION).contains(&version) {
+        return Err(CartError::UnsupportedManifestVersion {
+            found: version,
+            min_supported: MIN_SUPPORTED_MANIFEST_VERSION,
+            max_supported: CURRENT_MANIFEST_VERSION,
+        });
+    }
+    Ok(manifest)
 }
 
 /// Resolves a project's entry file and its sibling `.lua` module paths
@@ -358,6 +385,7 @@ pub fn save_project(
             entry: DEFAULT_ENTRY.to_string(),
             entry_point: header.entry_point,
             flags: header.flags,
+            version: CURRENT_MANIFEST_VERSION,
         },
         mods: ModsTable { require },
     };
@@ -624,6 +652,49 @@ mod tests {
             .find(|s| s.kind == SectionKind::CollisionTypes)
             .unwrap();
         assert_eq!(decode_collision_types(&section.data), types);
+    }
+
+    #[test]
+    fn manifest_without_version_field_still_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(MANIFEST_FILE),
+            "[cart]\ntitle = \"X\"\nentry = \"main.lua\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join(DEFAULT_ENTRY), "-- empty\n").unwrap();
+
+        let cart = load_project(dir.path()).unwrap();
+        assert_eq!(cart.header.title, "X");
+    }
+
+    #[test]
+    fn manifest_with_future_version_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(MANIFEST_FILE),
+            "[cart]\ntitle = \"X\"\nentry = \"main.lua\"\nversion = 9999\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join(DEFAULT_ENTRY), "-- empty\n").unwrap();
+
+        assert!(matches!(
+            load_project(dir.path()),
+            Err(CartError::UnsupportedManifestVersion { found: 9999, .. })
+        ));
+    }
+
+    #[test]
+    fn saved_manifest_roundtrips_current_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let header = CartHeader::new("Game", "");
+        save_project(dir.path(), &header, "-- code\n", &[], &[]).unwrap();
+
+        let manifest_text = std::fs::read_to_string(dir.path().join(MANIFEST_FILE)).unwrap();
+        assert!(manifest_text.contains(&format!("version = {CURRENT_MANIFEST_VERSION}")));
+
+        // And it loads cleanly through the normal path.
+        load_project(dir.path()).unwrap();
     }
 
     #[test]

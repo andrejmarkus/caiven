@@ -68,12 +68,16 @@ See root `CLAUDE.md` "Canonical commands" — verified directly against
 - `caiven-studio/src/tauri_app.rs` — 2431 lines, ~35+ IPC commands, **no
   direct Rust unit tests**; all coverage is indirect via Studio's Playwright
   e2e suite. High blast radius, low direct test coverage.
-- Cart binary format (`caiven-cart/src/format.rs`) writes a version byte
-  (currently `3`) but **the reader ignores it** (`// data[6..8] = version
-  u16 (ignored for now)`) — a version bump today would silently do nothing
-  on load. The project manifest (`caiven.toml` → `CaivenToml`/`CartTable`)
-  has **no version field at all**. This is the single biggest latent
-  compatibility risk found in this audit — see `.claude/rules/cart-format.md`.
+- ~~Cart binary format (`caiven-cart/src/format.rs`) writes a version byte
+  but the reader ignores it~~ **Resolved.** `format.rs::load_bytes` now
+  reads the `.cav` version and rejects anything outside
+  `MIN_SUPPORTED_CART_VERSION..=CART_FORMAT_VERSION` with
+  `CartError::UnsupportedCartVersion`; `caiven.toml`'s `[cart]` table now
+  has a `version` field (`CURRENT_MANIFEST_VERSION`, default `1` for
+  manifests written before the field existed), validated the same way with
+  `CartError::UnsupportedManifestVersion`. See `.claude/rules/cart-format.md`
+  for the accept-older/reject-newer policy and why it's safe for the
+  section-table shape.
 - No architecture docs existed before this one (only `docs/brand-colors.md`
   and the dev-workflow-focused `crates/caiven-studio/CLAUDE.md`).
 - No benchmark harness exists anywhere (no `criterion`, no `benches/`, no
@@ -90,7 +94,9 @@ See root `CLAUDE.md` "Canonical commands" — verified directly against
 ## High-risk subsystem boundaries
 
 1. **Cart format version handling** (`caiven-cart/src/format.rs`,
-   `project.rs`) — silently ignored version field, no manifest version field.
+   `project.rs`) — now gated on read (see above); still worth extra
+   scrutiny on any future version bump since it's the compatibility
+   boundary for every published cart.
 2. **Port auth** (`caiven-port/src/auth.rs`, `handlers/auth.rs`) — largest,
    most security-sensitive file in the workspace.
 3. **Tauri IPC surface** (`caiven-studio/src/tauri_app.rs`) — large,
@@ -104,14 +110,15 @@ See root `CLAUDE.md` "Canonical commands" — verified directly against
 
 ## Recommended Claude Code extension points
 
-- `.claude/rules/cart-format.md` and `.claude/rules/lua-api.md` explicitly
-  call out the version-handling gap and the manual-sync risk between
-  `api_registry.rs`'s doc comment and `lua_exec.rs::register_builtins`.
+- `.claude/rules/lua-api.md` explicitly calls out the manual-sync risk
+  between `api_registry.rs`'s doc comment and
+  `lua_exec.rs::register_builtins`.
 - `caiven-benchmark` skill should establish a minimal `criterion` or
   hand-rolled timing harness on first real use, since none exists.
-- `caiven-cart-compat` skill is the right place to eventually push for
-  actual version-gating logic in `format.rs`/`project.rs`, not just
-  documentation of the gap.
+- `caiven-cart-compat` skill now has real version-gating logic to check
+  against in `format.rs`/`project.rs` (see above) — use it to review any
+  future version bump for a correct backward-compat decision, not just to
+  flag that gating is missing.
 - Consider (future, not part of this setup) adding `[lints] workspace =
   true` to `caiven-machine`, `caiven-studio`, and `migration` for
   consistency — flagged here, not changed, since it's outside this setup's
