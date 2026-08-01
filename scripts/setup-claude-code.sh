@@ -22,7 +22,6 @@ plugins=(
   lua-lsp
   playwright
   chrome-devtools-mcp
-  pr-review-toolkit
 )
 
 for p in "${plugins[@]}"; do

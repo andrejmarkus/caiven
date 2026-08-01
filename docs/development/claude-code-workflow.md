@@ -10,8 +10,9 @@ Classify the task first, then use the smallest matching set below. Never
 invoke every plugin/skill for every task.
 
 **Product idea**
-- Product Management plugin (unavailable in this repo's marketplace — see
-  `.claude/PLUGIN_STACK.md` — use `caiven-idea` instead)
+- Product Management plugin (available externally via
+  `anthropics/knowledge-work-plugins`, deferred — see
+  `.claude/PLUGIN_STACK.md` — use `caiven-idea` instead for now)
 - `caiven-idea`
 - Playground for interactive exploration (deferred, install on demand)
 - CaveKit only after an idea is approved for implementation
