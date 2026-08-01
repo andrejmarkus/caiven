@@ -555,6 +555,7 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .map-toolbar label input:checked { background: rgba(254,176,93,.28); }
 .map-toolbar label input:checked::after { left: 15px; background: var(--color-ember); }
 .map-work { flex: 1; min-width: 0; min-height: 0; padding: 24px; display: grid; align-items: start; justify-items: safe center; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; scroll-behavior: auto; touch-action: none; cursor: grab; background-image: radial-gradient(circle,rgba(154,152,152,.16) 1px,transparent 1px); background-size: 16px 16px; }
+.map-work.space-pan .map-canvas { cursor: grab; }
 .map-work.panning, .map-work.panning .map-canvas { cursor: grabbing; user-select: none; }
 .map-grid { width: min(720px,100%); aspect-ratio: 4/3; display: grid; grid-template-columns: repeat(16,1fr); overflow: hidden; border: 1px solid var(--color-void-600); box-shadow: var(--shadow-lg); }
 .map-grid button { position: relative; border: 0; }
@@ -562,18 +563,34 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .map-grid button.guide-y { border-top: 1px solid rgba(254,176,93,.45); }
 .map-grid button i { position: absolute; inset: 20%; border: 1px solid rgba(229,85,95,.8); background: rgba(229,85,95,.25); }
 .map-inspector { width: 270px; padding: 14px; flex: none; overflow: auto; border-left: 1px solid var(--color-void-600); background: var(--color-void-800); }
+.minimap { position: relative; width: 100%; aspect-ratio: 1; margin: 8px 0 14px; overflow: hidden; border: 1px solid var(--border-subtle); background: #000; cursor: pointer; image-rendering: pixelated; }
+.minimap canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+.minimap-viewport { position: absolute; border: 1px solid var(--color-ember); box-shadow: 0 0 0 1px rgba(0,0,0,.6); pointer-events: none; }
 .collision-edit-note { margin-bottom: 14px; padding: 11px; border: 1px solid rgba(254,176,93,.34); border-radius: 8px; background: rgba(254,176,93,.07); }
 .collision-edit-note .eyebrow { display: flex; align-items: center; gap: 5px; color: var(--color-ember); }
 .collision-edit-note strong { margin-top: 6px; display: block; color: var(--color-ink); font-size: 12px; }
 .collision-edit-note p { margin: 5px 0 0; color: var(--color-ink-dim); font-size: 10px; line-height: 1.45; }
-.tile-picker { max-height: 340px; margin: 10px 0 16px; display: grid; grid-template-columns: repeat(8,1fr); overflow: auto; border: 1px solid var(--border-subtle); background: #000; image-rendering: pixelated; }
-.tile-picker button { aspect-ratio: 1; padding: 0; display: grid; grid-template-columns: repeat(8,1fr); border: 0; background: #000; }
+/* 16-wide — same layout as .sprite-sheet, so picking a tile from here is the
+   same spatial muscle memory as picking one on the Sprites screen. Pointer
+   events are handled on the container (see Workspace) so a drag can span a
+   rectangular multi-tile stamp; touch-action:none stops the browser treating
+   the drag as a scroll gesture. */
+.tile-picker { max-height: 340px; margin: 10px 0 16px; display: grid; grid-template-columns: repeat(16,1fr); overflow: auto; border: 1px solid var(--border-subtle); background: #000; image-rendering: pixelated; touch-action: none; }
+.tile-picker button { aspect-ratio: 1; padding: 0; display: grid; grid-template-columns: repeat(8,1fr); border: 0; background: #000; pointer-events: none; }
 .tile-picker button.active { outline: 2px solid var(--color-ember); z-index: 1; }
+.tile-picker button.previewed { outline: 2px dashed var(--color-ink-dim); z-index: 1; }
 .tile-picker button.empty { background: #111010; box-shadow: inset 0 0 0 1px rgba(96,94,94,.22); }
 .tile-picker i { display: block; }
 .inspector-row { height: 32px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); color: var(--color-ink-dim); }
 .inspector-row code { color: var(--color-ink); font-size: 10.5px; }
 .map-note { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border-subtle); color: var(--color-ink-faint); font-size: 10.5px; line-height: 1.5; }
+
+/* Shared undo/redo pair for editors whose toolbar isn't a .tool-rail (palette,
+   sfx, music screens). Same visual language as .tool-rail button, inline. */
+.history-controls { display: flex; align-items: center; gap: 4px; }
+.history-controls button { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 7px; color: var(--color-ink-dim); background: transparent; }
+.history-controls button:hover:not(:disabled) { color: var(--color-ink); background: var(--color-void-700); }
+.history-controls button:disabled { opacity: .3; cursor: default; }
 
 .palette-screen { height: calc(100% - 44px); padding: 28px 34px; overflow: auto; }
 .palette-screen > header { max-width: 980px; margin: 0 auto 22px; display: flex; align-items: end; justify-content: space-between; }
@@ -621,7 +638,7 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .slot-wave.filled i { background: rgba(254,176,93,.55); }
 .slot-list > button.active .slot-wave.filled i { background: var(--color-ember); }
 .tracker, .music-grid-wrap { flex: 1; min-width: 0; padding: 20px 24px; overflow: auto; }
-.tracker > header, .music-grid-wrap > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.tracker > header, .music-grid-wrap > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .tracker h2, .music-grid-wrap h2 { margin: 2px 0 0; font-size: 18px; }
 .music-grid { min-width: 670px; border: 1px solid var(--color-void-600); border-radius: 8px; overflow: hidden; background: var(--color-void-800); box-shadow: var(--shadow-sm); }
 .music-grid > div.playhead { background: rgba(254,176,93,.10); box-shadow: inset 3px 0 var(--color-ember); }
@@ -629,6 +646,7 @@ button:active:not(:disabled) { transform: translateY(1px); }
 /* SFX tracker: a label gutter plus 16 step columns shared by every row, so
    pitch, volume, wave and fx all line up under the same step. */
 .tracker > header { gap: 12px; justify-content: flex-start; }
+.tracker > header .history-controls, .music-grid-wrap > header .history-controls { margin-left: auto; }
 .tracker > header > span { display: flex; flex-direction: column; }
 .tracker > header code { color: var(--color-ink-faint); font-family: var(--font-mono); font-size: 10.5px; }
 .sfx-tracker { max-width: 1040px; display: grid; grid-template-columns: 66px minmax(0, 1fr); gap: 10px; }
@@ -941,7 +959,17 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .module-dialog input[aria-invalid="true"] { color: var(--destructive); }
 .module-dialog .form-error { margin-top: 8px; color: var(--destructive); font-size: 10.5px; }
 .module-dialog footer { margin-top: 18px; display: flex; justify-content: flex-end; gap: 8px; }
-.dialog-frame .new-cart-dialog, .dialog-frame .publish-dialog, .dialog-frame .module-dialog { margin-top: 0; }
+.dialog-frame .new-cart-dialog, .dialog-frame .publish-dialog, .dialog-frame .module-dialog, .dialog-frame .controls-dialog { margin-top: 0; }
+
+.controls-dialog { width: min(400px, calc(100% - 40px)); padding: 24px; position: relative; border: 1px solid var(--color-void-600); border-radius: 12px; background: var(--color-void-800); box-shadow: var(--shadow-lg); }
+.controls-dialog h2 { margin: 3px 0; font-size: 18px; }
+.controls-dialog > p { margin: 0 0 16px; color: var(--color-ink-dim); font-size: 11px; }
+.controls-list { display: flex; flex-direction: column; gap: 6px; }
+.controls-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.controls-row span { color: var(--color-ink-dim); font-size: 11px; }
+.controls-row button { min-width: 120px; font-family: var(--font-mono); }
+.controls-row button.listening { border-color: var(--color-ember); color: var(--color-ember); }
+.controls-dialog footer { margin-top: 18px; display: flex; justify-content: space-between; gap: 8px; }
 
 .collision-types-dialog { width: min(460px, calc(100% - 40px)); margin-top: 14vh; padding: 24px; position: relative; border: 1px solid var(--color-void-600); border-radius: 12px; background: var(--color-void-800); box-shadow: var(--shadow-lg); }
 .collision-types-dialog h2 { margin: 3px 0; font-size: 18px; }

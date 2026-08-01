@@ -23,6 +23,7 @@
     removeRecent, removeWatch, writeCollisionCells, writeCollisionTypes, writeMapCells, writeMemory, writeMeta, writePalette, writeSprite,
   } from './lib/ipc';
   import { plural, tidyPath } from './lib/format';
+  import { createGamepadInput } from './lib/gamepad';
 
   let studio = $state<StudioBootstrap>({
     connected: false, title: '', path: '', author: '', runState: 'stopped',
@@ -39,7 +40,7 @@
   let consoleOpen = $state(true);
   let consoleWidth = $state(604);
   let resizing = $state(false);
-  let overlay = $state<'palette' | 'publish' | 'tour' | 'focus' | 'module' | 'new-cart' | null>(null);
+  let overlay = $state<'palette' | 'publish' | 'tour' | 'focus' | 'module' | 'new-cart' | 'controls' | null>(null);
   let status = $state('Starting Studio…');
   let frameData = $state<Uint8Array | null>(null);
   let frameTime = $state(5.2);
@@ -66,11 +67,57 @@
   let templates = $state<CartTemplateSummary[]>(fallbackTemplates);
   let examples = $state<ExampleSummary[]>(fallbackExamples);
 
-  const GAME_KEYS: Record<string, number> = {
-    ArrowUp: 0, w: 0, ArrowDown: 1, s: 1, ArrowLeft: 2, a: 2,
-    ArrowRight: 3, d: 3, j: 4, k: 5,
+  // Button indices match the VM's Button enum (0 Up, 1 Down, 2 Left, 3 Right, 4 A, 5 B).
+  const BUTTON_LABELS = ['Up', 'Down', 'Left', 'Right', 'A', 'B'];
+  const DEFAULT_KEYMAP: Record<number, string[]> = {
+    0: ['ArrowUp', 'w'], 1: ['ArrowDown', 's'], 2: ['ArrowLeft', 'a'],
+    3: ['ArrowRight', 'd'], 4: ['j'], 5: ['k'],
   };
-  const gameButton = (key: string) => GAME_KEYS[key] ?? GAME_KEYS[key.toLowerCase()];
+  const INPUT_STORAGE_KEY = 'caiven-studio-input';
+
+  function loadKeymap(): Record<number, string[]> {
+    try {
+      const raw = localStorage.getItem(INPUT_STORAGE_KEY);
+      if (!raw) return structuredClone(DEFAULT_KEYMAP);
+      const parsed = JSON.parse(raw) as Record<string, string[]>;
+      const keymap = structuredClone(DEFAULT_KEYMAP);
+      for (const button of Object.keys(DEFAULT_KEYMAP)) {
+        const keys = parsed[button];
+        if (Array.isArray(keys) && keys.every((key) => typeof key === 'string') && keys.length) {
+          keymap[Number(button)] = keys;
+        }
+      }
+      return keymap;
+    } catch {
+      return structuredClone(DEFAULT_KEYMAP);
+    }
+  }
+
+  let keymap = $state<Record<number, string[]>>(loadKeymap());
+
+  $effect(() => {
+    localStorage.setItem(INPUT_STORAGE_KEY, JSON.stringify(keymap));
+  });
+
+  function gameButton(key: string): number | undefined {
+    const lower = key.length === 1 ? key.toLowerCase() : key;
+    for (const button of Object.keys(keymap)) {
+      const keys = keymap[Number(button)];
+      if (keys.includes(key) || keys.includes(lower)) return Number(button);
+    }
+    return undefined;
+  }
+
+  // Rebinding a button replaces its whole alias list with just the new key —
+  // once customized, a button is exactly what the player set it to; only the
+  // untouched defaults keep their arrows+WASD dual binding.
+  function rebindButton(button: number, key: string) {
+    keymap = { ...keymap, [button]: [key] };
+  }
+
+  function resetKeymap() {
+    keymap = structuredClone(DEFAULT_KEYMAP);
+  }
   // Which sound slot the editors have selected, shared with Workspace so the
   // space-to-preview shortcut acts on the same thing the user is looking at.
   let soundSelection = $state({ sfx: 0, pattern: 0 });
@@ -78,6 +125,12 @@
   // Mirrors what the VM believes is held, so the on-screen input map lights up
   // for keyboard play and not only for clicks on the chips themselves.
   let heldButtons = $state<number[]>([]);
+
+  // Imperative handle onto Workspace so the ⌘K command palette can trigger
+  // undo/redo for whichever asset editor is on screen; historyStatus mirrors its
+  // availability so the palette can show it (and no-op harmlessly when empty).
+  let workspaceRef: Workspace | undefined;
+  let historyStatus = $state({ canUndo: false, canRedo: false });
 
   function pressButton(button: number, pressed: boolean) {
     if (pressed) {
@@ -87,6 +140,12 @@
     }
     void setInput(button, pressed);
   }
+
+  const gamepad = createGamepadInput({
+    onButton: pressButton,
+    onConnect: (label) => showToast(`Gamepad connected: ${label}`),
+    onDisconnect: () => showToast('Gamepad disconnected'),
+  });
 
   const consoleScreens: Screen[] = ['code', 'sprites', 'map', 'palette', 'sfx', 'music'];
   const consoleRelevant = $derived(consoleScreens.includes(screen));
@@ -791,6 +850,7 @@
     window.addEventListener('keydown', handleKeys);
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('blur', releaseInputs);
+    gamepad.attach();
     if (isTauri()) {
       void listen<PublishProgress>('publish:progress', (event) => { publishProgress = event.payload; }).then((fn) => { unlistenPublish = fn; });
       void listen<string>('menu-action', (event) => {
@@ -869,6 +929,9 @@
             if (next) frameData = next;
           } catch { /* transient IPC hiccup — keep polling */ }
         }
+        // Same gate as the keyboard handler: only steer the cart while it's actually
+        // running and no blocking overlay (other than focus mode) is up.
+        if (running && (overlay === null || overlay === 'focus')) gamepad.poll();
         animation = requestAnimationFrame(pullFrame);
       };
       animation = requestAnimationFrame(pullFrame);
@@ -886,6 +949,7 @@
       window.removeEventListener('keydown', handleKeys);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', releaseInputs);
+      gamepad.detach();
       unlistenPublish?.();
       unlistenMenu?.();
     };
@@ -912,6 +976,7 @@
     <div class="studio-right">
       <div class="studio-main" style={consoleOpen && consoleRelevant ? `--studio-console:${consoleWidth}px` : undefined}>
         <Workspace
+          bind:this={workspaceRef}
           {screen}
           sources={studio.sources}
           {activeSource}
@@ -989,6 +1054,7 @@
           onPortLogout={() => void logoutPort()}
           onInsertBuiltin={insertBuiltin}
           onOpenSource={jumpToSource}
+          onHistoryStatus={(status) => historyStatus = status}
         />
         {#if consoleRelevant && consoleOpen}
           <div
@@ -1069,6 +1135,15 @@
     api={studio.api}
     onInsertBuiltin={insertBuiltin}
     onCreateModule={doCreateModule}
+    canUndo={historyStatus.canUndo}
+    canRedo={historyStatus.canRedo}
+    onUndo={() => workspaceRef?.undoActive()}
+    onRedo={() => workspaceRef?.redoActive()}
+    {keymap}
+    buttonLabels={BUTTON_LABELS}
+    onRebindButton={rebindButton}
+    onResetKeymap={resetKeymap}
+    onOpenControls={() => overlay = 'controls'}
   />
 
   <Toaster position="bottom-right" richColors />

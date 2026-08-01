@@ -4,7 +4,7 @@
   import {
     Play, Upload, Package, Image, Layers, ChevronsLeftRight,
     Check, LoaderCircle, X, Pause, Minimize2, Sparkles, FilePlus2,
-    FileCode2, FolderPlus, Gamepad2, Grid3X3, Trophy,
+    FileCode2, FolderPlus, Gamepad2, Grid3X3, Trophy, Undo2, Redo2,
   } from '@lucide/svelte';
   import { Button } from '@caiven/ui/button';
   import { Input } from '@caiven/ui/input';
@@ -15,7 +15,7 @@
   import { TOUR_STEPS, moveTourStep } from '../lib/tour';
 
   interface Props {
-    overlay: 'palette' | 'publish' | 'tour' | 'focus' | 'module' | 'new-cart' | null;
+    overlay: 'palette' | 'publish' | 'tour' | 'focus' | 'module' | 'new-cart' | 'controls' | null;
     running: boolean;
     palette: string[];
     onClose: () => void;
@@ -42,12 +42,26 @@
     api: ApiEntry[];
     onInsertBuiltin: (name: string) => void;
     onCreateModule: (name: string) => Promise<string | null>;
+    /** Undo/redo for whichever asset editor is active in Workspace; harmless no-op when empty. */
+    canUndo: boolean;
+    canRedo: boolean;
+    onUndo: () => void;
+    onRedo: () => void;
+    /** button index -> key names bound to it; rebinding replaces the whole list with just the new key. */
+    keymap: Record<number, string[]>;
+    buttonLabels: string[];
+    onRebindButton: (button: number, key: string) => void;
+    onResetKeymap: () => void;
+    onOpenControls: () => void;
   }
 
   let { overlay, running, palette, onClose, onNavigate, onRun, onExport, onPublish,
     title, author, meta, portAccount, publishProgress, publishError, publishDone,
     onStartPublish, onLinkPort, onTourDone, onOpenProject, onNewProject, onCloseProject,
-    templates, onCreateProject, frameData, api, onInsertBuiltin, onCreateModule }: Props = $props();
+    templates, onCreateProject, frameData, api, onInsertBuiltin, onCreateModule,
+    canUndo, canRedo, onUndo, onRedo,
+    keymap, buttonLabels, onRebindButton, onResetKeymap, onOpenControls }: Props = $props();
+  let listeningForButton = $state<number | null>(null);
   let query = $state('');
   let changelog = $state('');
   let tourStep = $state(0);
@@ -80,7 +94,10 @@
 
   const commands = $derived([
     { group: 'Suggested', name: running ? 'Pause cart' : 'Run cart', detail: 'compile and start', keys: '⌘R', icon: Play, action: onRun },
+    ...(canUndo ? [{ group: 'Suggested', name: 'Undo', detail: 'active editor', keys: '⌘Z', icon: Undo2, action: onUndo }] : []),
+    ...(canRedo ? [{ group: 'Suggested', name: 'Redo', detail: 'active editor', keys: '⇧⌘Z', icon: Redo2, action: onRedo }] : []),
     { group: 'Suggested', name: 'Publish to port', detail: 'new version', keys: '⇧⌘P', icon: Upload, action: onPublish },
+    { group: 'Suggested', name: 'Controls', detail: 'rebind keys', keys: '', icon: Gamepad2, action: onOpenControls },
     { group: 'Suggested', name: 'Pack cartridge (.cav)', detail: 'distribution build', keys: '', icon: Package, action: onExport },
     { group: 'Suggested', name: 'Open project', detail: 'folder or cart', keys: '', icon: Package, action: onOpenProject },
     { group: 'Suggested', name: 'New cart', detail: 'choose a starting template', keys: '', icon: Sparkles, action: onNewProject },
@@ -99,6 +116,22 @@
 
   function handleOpenChange(open: boolean) {
     if (!open) queueMicrotask(onClose);
+  }
+
+  function beginListening(button: number) {
+    listeningForButton = button;
+  }
+
+  function captureKeymapKey(event: KeyboardEvent) {
+    if (listeningForButton === null) return;
+    event.preventDefault();
+    if (event.key === 'Escape') { listeningForButton = null; return; }
+    onRebindButton(listeningForButton, event.key);
+    listeningForButton = null;
+  }
+
+  function keyLabel(key: string): string {
+    return key === ' ' ? 'Space' : key.length === 1 ? key.toUpperCase() : key.replace('Arrow', '');
   }
 
   async function submitModule() {
@@ -200,6 +233,10 @@
   });
 
   $effect(() => {
+    if (overlay !== 'controls') listeningForButton = null;
+  });
+
+  $effect(() => {
     if (overlay === 'module' && !moduleWasOpen) {
       moduleName = 'module.lua';
       moduleError = '';
@@ -231,11 +268,14 @@
   <div
     class="overlay-backdrop"
     class:tour-overlay={overlay === 'tour'}
-    class:primitive-overlay={overlay === 'palette' || overlay === 'new-cart' || overlay === 'module' || overlay === 'publish'}
+    class:primitive-overlay={overlay === 'palette' || overlay === 'new-cart' || overlay === 'module' || overlay === 'publish' || overlay === 'controls'}
     role="presentation"
     transition:fade={{ duration: 120 }}
     onclick={(event) => { if (event.currentTarget === event.target) onClose(); }}
-    onkeydown={(event) => { if (event.key === 'Escape') onClose(); }}
+    onkeydown={(event) => {
+      if (listeningForButton !== null) { captureKeymapKey(event); return; }
+      if (event.key === 'Escape') onClose();
+    }}
   >
     {#if overlay === 'palette'}
       <Command.Dialog open title="Command palette" description="Search or run a Studio command" class="command-palette" onOpenChange={handleOpenChange}>
@@ -375,14 +415,44 @@
           <footer><Button variant="ghost" onclick={() => { onTourDone(); onClose(); }}>Skip tour</Button><span>{#if tourStep > 0}<Button variant="outline" onclick={() => changeTourStep(-1)}>Back</Button>{/if}<Button onclick={() => { if (tourStep === TOUR_STEPS.length - 1) { onTourDone(); onClose(); } else changeTourStep(1); }}>{tourStep === TOUR_STEPS.length - 1 ? 'Start building' : `Next: ${TOUR_STEPS[tourStep + 1].eyebrow.toLowerCase()}`}</Button></span></footer>
         </div>
       </div>
-    {:else}
+    {:else if overlay === 'controls'}
+      <Dialog.Root open onOpenChange={handleOpenChange}>
+      <Dialog.Content showCloseButton={false} class="dialog-frame">
+      <section class="controls-dialog" transition:fly={{ y: 8, duration: 180 }}>
+        <Button variant="ghost" size="icon-sm" class="dialog-close" onclick={onClose}><X size={17} /></Button>
+        <span class="eyebrow">Input</span>
+        <h2>Controls</h2>
+        <p>Click a binding, then press a key. Escape cancels.</p>
+        <div class="controls-list">
+          {#each buttonLabels as label, button}
+            <div class="controls-row">
+              <span>{label}</span>
+              <Button
+                variant="outline"
+                class={listeningForButton === button ? 'listening' : undefined}
+                onclick={() => beginListening(button)}
+              >
+                {#if listeningForButton === button}Press a key…{:else}{keymap[button]?.map(keyLabel).join(' / ') || '—'}{/if}
+              </Button>
+            </div>
+          {/each}
+        </div>
+        <footer><Button variant="outline" onclick={onResetKeymap}>Reset to defaults</Button><Button onclick={onClose}>Done</Button></footer>
+      </section>
+      </Dialog.Content>
+      </Dialog.Root>
+    {:else if overlay === 'focus'}
       <section class="focus-mode" transition:fade={{ duration: 180 }}>
         <Button class="focus-exit" onclick={onClose}><Minimize2 size={16} />Exit focus <kbd>esc</kbd></Button>
         <div class="focus-screen">
           <canvas class="focus-pixels" bind:this={focusCanvas} width="128" height="128" aria-label="Cart framebuffer"></canvas>
           <div class="scanline-overlay"></div><div class="crt-vignette"></div>
         </div>
-        <div class="focus-controls"><Button onclick={onRun}>{#if running}<Pause size={15} />Pause{:else}<Play size={15} />Run{/if}</Button><span>WASD move · J/K buttons</span></div>
+        <div class="focus-controls">
+          <Button onclick={onRun}>{#if running}<Pause size={15} />Pause{:else}<Play size={15} />Run{/if}</Button>
+          <span>WASD move · J/K buttons</span>
+          <Button variant="ghost" size="icon-sm" title="Controls" onclick={onOpenControls}><Gamepad2 size={15} /></Button>
+        </div>
       </section>
     {/if}
   </div>

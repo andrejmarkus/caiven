@@ -5,7 +5,7 @@
     Plus, Pencil, PaintBucket, Minus, Square, Undo2, Redo2, Eraser, ShieldCheck,
     FlipHorizontal, RotateCw, Trash2, Search, FolderOpen, Play,
     ExternalLink, Sparkles, ArrowRight, CircleCheck, ChevronRight, X,
-    UserRound, Globe, Gamepad2, Grid3X3,
+    UserRound, Globe, Gamepad2, Grid3X3, BoxSelect,
   } from '@lucide/svelte';
   import { Button } from '@caiven/ui/button';
   import { Input } from '@caiven/ui/input';
@@ -19,14 +19,13 @@
     dragPanScroll, MAP_ZOOM_LEVELS, nextMapZoom,
     type CollisionBrush, type CollisionEdit,
   } from '../lib/editorMath';
+  import { emptyHistory, pushEntry, undoEntry, redoEntry, type HistoryState } from '../lib/history';
   import LuaEditor from './LuaEditor.svelte';
   import MapCanvas from './MapCanvas.svelte';
   import SpriteCanvas, { type Pixel, type SpriteTool } from './SpriteCanvas.svelte';
 
-  type MapTool = 'pencil' | 'fill' | 'rect' | 'pick' | 'erase' | 'line';
-  type MapHistoryEntry =
-    | { kind: 'tiles'; changes: { offset: number; before: number; after: number }[] }
-    | { kind: 'collision'; changes: { offset: number; before: number; after: number }[] };
+  type MapTool = 'pencil' | 'fill' | 'rect' | 'pick' | 'erase' | 'line' | 'select';
+  type MapRegion = { x0: number; y0: number; w: number; h: number };
 
   interface Props {
     screen: Screen;
@@ -107,6 +106,8 @@
     onPortLogout: () => void;
     onInsertBuiltin: (name: string) => void;
     onOpenSource: (path: string, line: number | null, column?: number | null) => void;
+    /** Lets App mirror the active editor's undo/redo availability into the ⌘K command palette. */
+    onHistoryStatus?: (status: { canUndo: boolean; canRedo: boolean }) => void;
   }
 
   let {
@@ -118,7 +119,7 @@
     onBreakpoint, onMeta, onCreateModule, onPalette, onTour, onOpen, onNew, onRemix,
     localCarts, portCarts, portAccount, portBusy, portError, portLinkPending, portLinkExpiresAt, onScanLibrary,
     onSearchPort, onOpenLocal, onRemoveRecent, onDownloadPort, onOpenPortAccount, onPortLink, onPortLinkCancel, onPortLogout,
-    onInsertBuiltin, onOpenSource,
+    onInsertBuiltin, onOpenSource, onHistoryStatus,
   }: Props = $props();
 
   let selectedColor = $state(8);
@@ -128,6 +129,17 @@
   const selectedSfx = $derived(soundSelection.sfx);
   const selectedPattern = $derived(soundSelection.pattern);
   let selectedTile = $state(0);
+  // A multi-tile brush picked by marquee-dragging across the tile picker below.
+  // null means "just paint selectedTile" — the default, unchanged 1x1 behavior.
+  let mapStamp = $state<{ w: number; h: number; tiles: number[] } | null>(null);
+  const effectiveStamp = $derived(mapStamp ?? { w: 1, h: 1, tiles: [selectedTile] });
+  let pickerEl: HTMLDivElement | undefined = $state();
+  let pickerDrag = $state<{ anchor: number; current: number } | null>(null);
+  // The 'select' tool's current marquee (from MapCanvas) and the last thing
+  // copied/cut from it — Ctrl+V turns the clipboard into a mapStamp and drops
+  // into the pencil tool, reusing the same stamp-painting path as 3a.
+  let mapSelection = $state<MapRegion | null>(null);
+  let mapClipboard = $state<{ w: number; h: number; tiles: number[] } | null>(null);
   let mapTool = $state<MapTool>('pencil');
   let mapLayer = $state<'tiles' | 'collision'>('tiles');
   let collisionBrush = $state<CollisionBrush>(1);
@@ -143,14 +155,22 @@
     pendingY: number;
   } | null = null;
   let mapPanFrame: number | undefined;
-  let mapUndo = $state<MapHistoryEntry[]>([]);
-  let mapRedo = $state<MapHistoryEntry[]>([]);
+  let mapHistory = $state<HistoryState>(emptyHistory());
+  let spriteHistory = $state<HistoryState>(emptyHistory());
+  let paletteHistory = $state<HistoryState>(emptyHistory());
+  let sfxHistory = $state<HistoryState>(emptyHistory());
+  let musicHistory = $state<HistoryState>(emptyHistory());
   let tileSelectionReady = $state(false);
   let collisionOverlay = $state(true);
   let mapHover = $state<{ x: number; y: number; tile: number } | null>(null);
-  let spriteUndo = $state<number[][]>([]);
-  let spriteRedo = $state<number[][]>([]);
   let tool = $state<SpriteTool>('pencil');
+  // Hold Space to pan the map with a plain left-drag, so navigating never risks
+  // an accidental paint — the universal pan convention outside this app too.
+  let spacePan = $state(false);
+  let mapWorkEl: HTMLDivElement | undefined = $state();
+  let minimapCanvas: HTMLCanvasElement | undefined = $state();
+  // Fraction (0..1) of the 64x64 tile map currently visible in .map-work's scroll viewport.
+  let mapViewport = $state({ x: 0, y: 0, w: 1, h: 1 });
   let docQuery = $state('');
   let docCategory = $state<string | null>(null);
   let libraryTab = $state<'local' | 'port'>('local');
@@ -213,13 +233,17 @@
     selectedSprite = 0;
     selectedTile = 0;
     tileSelectionReady = false;
-    spriteUndo = [];
-    spriteRedo = [];
-    mapUndo = [];
-    mapRedo = [];
+    spriteHistory = emptyHistory();
+    mapHistory = emptyHistory();
+    paletteHistory = emptyHistory();
+    sfxHistory = emptyHistory();
+    musicHistory = emptyHistory();
     mapLayer = 'tiles';
     mapTool = 'pencil';
     collisionBrush = 1;
+    mapStamp = null;
+    mapSelection = null;
+    mapClipboard = null;
     sourceCursor = {};
   });
   $effect(() => {
@@ -230,14 +254,24 @@
   });
   $effect(() => {
     activeSpriteBank;
-    spriteUndo = [];
-    spriteRedo = [];
+    spriteHistory = emptyHistory();
   });
   $effect(() => {
     activeMapBank;
-    mapUndo = [];
-    mapRedo = [];
+    mapHistory = emptyHistory();
     mapHover = null;
+  });
+  $effect(() => {
+    activePaletteBank;
+    paletteHistory = emptyHistory();
+  });
+  $effect(() => {
+    activeSfxBank;
+    sfxHistory = emptyHistory();
+  });
+  $effect(() => {
+    activeMusicBank;
+    musicHistory = emptyHistory();
   });
   const docCategories = $derived.by(() => {
     const counts = new Map<string, number>();
@@ -337,9 +371,15 @@
 
   function commitSprite(next: number[]) {
     if (next.every((value, index) => value === sprite[index])) return;
-    spriteUndo = [...spriteUndo.slice(-49), [...sprite]];
-    spriteRedo = [];
-    onSprite(selectedSprite, next);
+    const spriteId = selectedSprite;
+    const before = [...sprite];
+    const after = [...next];
+    spriteHistory = pushEntry(spriteHistory, {
+      label: `Sprite ${spriteId.toString().padStart(3, '0')}`,
+      undo: () => onSprite(spriteId, before),
+      redo: () => onSprite(spriteId, after),
+    });
+    onSprite(spriteId, next);
   }
 
   function strokeSprite(pixels: Pixel[]) {
@@ -348,17 +388,8 @@
     commitSprite(next);
   }
 
-  function undoSprite() {
-    const previous = spriteUndo.at(-1); if (!previous) return;
-    spriteUndo = spriteUndo.slice(0, -1); spriteRedo = [...spriteRedo, [...sprite]];
-    onSprite(selectedSprite, previous);
-  }
-
-  function redoSpriteEdit() {
-    const next = spriteRedo.at(-1); if (!next) return;
-    spriteRedo = spriteRedo.slice(0, -1); spriteUndo = [...spriteUndo, [...sprite]];
-    onSprite(selectedSprite, next);
-  }
+  function undoSprite() { spriteHistory = undoEntry(spriteHistory); }
+  function redoSpriteEdit() { spriteHistory = redoEntry(spriteHistory); }
 
   function commitMap(cells: { offset: number; tile: number }[]) {
     const latest = new globalThis.Map<number, number>();
@@ -366,8 +397,11 @@
     const edit = [...latest].map(([offset, after]) => ({ offset, before: map[offset] ?? 0, after }))
       .filter((cell) => cell.before !== cell.after);
     if (!edit.length) return;
-    mapUndo = [...mapUndo.slice(-49), { kind: 'tiles', changes: edit }];
-    mapRedo = [];
+    mapHistory = pushEntry(mapHistory, {
+      label: 'Map edit',
+      undo: () => onMap(edit.map(({ offset, before }) => ({ offset, tile: before }))),
+      redo: () => onMap(edit.map(({ offset, after }) => ({ offset, tile: after }))),
+    });
     onMap(edit.map(({ offset, after }) => ({ offset, tile: after })));
   }
 
@@ -378,9 +412,71 @@
       .map(([offset, after]) => ({ offset, before: collision[offset] ?? 0, after }))
       .filter((edit) => edit.before !== edit.after);
     if (!changes.length) return;
-    mapUndo = [...mapUndo.slice(-49), { kind: 'collision', changes }];
-    mapRedo = [];
+    mapHistory = pushEntry(mapHistory, {
+      label: 'Collision edit',
+      undo: () => onCollision(changes.map(({ offset, before }) => ({ offset, value: before }))),
+      redo: () => onCollision(changes.map(({ offset, after }) => ({ offset, value: after }))),
+    });
     onCollision(changes.map(({ offset, after }) => ({ offset, value: after })));
+  }
+
+  // Tile picker: 16-wide, same layout as the sprite sheet, so picking a tile is
+  // the same spatial muscle memory as picking a sprite. Marquee-dragging across
+  // it (instead of a plain click) selects a rectangular multi-tile stamp.
+  const PICKER_COLS = 16;
+  const PICKER_ROWS = 16;
+
+  function pickerRect(anchor: number, current: number) {
+    const ax = anchor % PICKER_COLS, ay = Math.floor(anchor / PICKER_COLS);
+    const cx = current % PICKER_COLS, cy = Math.floor(current / PICKER_COLS);
+    const x0 = Math.min(ax, cx), x1 = Math.max(ax, cx);
+    const y0 = Math.min(ay, cy), y1 = Math.max(ay, cy);
+    return { x0, y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+  }
+
+  function pickerIndexFromEvent(event: PointerEvent): number {
+    const rect = pickerEl!.getBoundingClientRect();
+    const col = Math.max(0, Math.min(PICKER_COLS - 1, Math.floor(((event.clientX - rect.left) / rect.width) * PICKER_COLS)));
+    const row = Math.max(0, Math.min(PICKER_ROWS - 1, Math.floor(((event.clientY - rect.top) / rect.height) * PICKER_ROWS)));
+    return row * PICKER_COLS + col;
+  }
+
+  function beginPickerDrag(event: PointerEvent) {
+    if (event.button !== 0) return;
+    const index = pickerIndexFromEvent(event);
+    pickerDrag = { anchor: index, current: index };
+    pickerEl!.setPointerCapture(event.pointerId);
+  }
+
+  function movePickerDrag(event: PointerEvent) {
+    if (!pickerDrag) return;
+    pickerDrag = { ...pickerDrag, current: pickerIndexFromEvent(event) };
+  }
+
+  function finishPickerDrag() {
+    if (!pickerDrag) return;
+    const { x0, y0, w, h } = pickerRect(pickerDrag.anchor, pickerDrag.current);
+    if (w === 1 && h === 1) {
+      selectedTile = y0 * PICKER_COLS + x0;
+      mapStamp = null;
+    } else {
+      const tiles: number[] = [];
+      for (let dy = 0; dy < h; dy += 1) for (let dx = 0; dx < w; dx += 1) tiles.push((y0 + dy) * PICKER_COLS + (x0 + dx));
+      mapStamp = { w, h, tiles };
+      selectedTile = tiles[0];
+    }
+    pickerDrag = null;
+  }
+
+  function inStamp(index: number): boolean {
+    return mapStamp ? mapStamp.tiles.includes(index) : index === selectedTile;
+  }
+
+  function inPickerPreview(index: number): boolean {
+    if (!pickerDrag) return false;
+    const { x0, y0, w, h } = pickerRect(pickerDrag.anchor, pickerDrag.current);
+    const x = index % PICKER_COLS, y = Math.floor(index / PICKER_COLS);
+    return x >= x0 && x < x0 + w && y >= y0 && y < y0 + h;
   }
 
   const collisionTypeById = $derived(new globalThis.Map(collisionTypes.map((t) => [t.id, t])));
@@ -416,28 +512,39 @@
     if (collisionBrush === id) collisionBrush = 0;
   }
 
-  function applyMapHistory(entry: MapHistoryEntry, side: 'before' | 'after') {
-    if (entry.kind === 'tiles') {
-      onMap(entry.changes.map((edit) => ({ offset: edit.offset, tile: edit[side] })));
-    } else {
-      onCollision(entry.changes.map((edit) => ({ offset: edit.offset, value: edit[side] })));
+  function undoMap() { mapHistory = undoEntry(mapHistory); }
+  function redoMapEdit() { mapHistory = redoEntry(mapHistory); }
+
+  function regionTiles(region: MapRegion): number[] {
+    const tiles: number[] = [];
+    for (let dy = 0; dy < region.h; dy += 1) for (let dx = 0; dx < region.w; dx += 1) {
+      tiles.push(map[(region.y0 + dy) * 64 + (region.x0 + dx)] ?? 0);
     }
+    return tiles;
   }
 
-  function undoMap() {
-    const entry = mapUndo.at(-1);
-    if (!entry) return;
-    mapUndo = mapUndo.slice(0, -1);
-    mapRedo = [...mapRedo.slice(-49), entry];
-    applyMapHistory(entry, 'before');
+  function copySelection() {
+    if (!mapSelection) return;
+    mapClipboard = { w: mapSelection.w, h: mapSelection.h, tiles: regionTiles(mapSelection) };
   }
 
-  function redoMapEdit() {
-    const entry = mapRedo.at(-1);
-    if (!entry) return;
-    mapRedo = mapRedo.slice(0, -1);
-    mapUndo = [...mapUndo.slice(-49), entry];
-    applyMapHistory(entry, 'after');
+  function cutSelection() {
+    if (!mapSelection) return;
+    copySelection();
+    const cells: { offset: number; tile: number }[] = [];
+    for (let dy = 0; dy < mapSelection.h; dy += 1) for (let dx = 0; dx < mapSelection.w; dx += 1) {
+      cells.push({ offset: (mapSelection.y0 + dy) * 64 + (mapSelection.x0 + dx), tile: 0 });
+    }
+    // One commitMap call is one history entry, so undo restores the whole cut region.
+    commitMap(cells);
+  }
+
+  function pasteClipboard() {
+    if (!mapClipboard) return;
+    // Reuses the stamp-painting path from the tile picker (3a): dropping into
+    // pencil with a multi-tile mapStamp means the next click/drag places it.
+    mapStamp = mapClipboard;
+    mapTool = 'pencil';
   }
 
   function handleMapWheel(event: WheelEvent) {
@@ -471,10 +578,80 @@
     mapPan.viewport.scrollTop = dragPanScroll(mapPan.viewport.scrollTop, 0, mapPan.pendingY);
     mapPan.pendingX = 0;
     mapPan.pendingY = 0;
+    updateMapViewport();
+  }
+
+  // Mirrors .map-work's scroll position into the minimap's viewport rectangle.
+  // Called on every scroll and whenever zoom/bank/screen change the content size
+  // without necessarily moving scrollLeft/scrollTop (so no native 'scroll' fires).
+  function updateMapViewport() {
+    if (!mapWorkEl) return;
+    const total = 512 * mapZoom;
+    mapViewport = {
+      x: mapWorkEl.scrollLeft / total,
+      y: mapWorkEl.scrollTop / total,
+      w: Math.min(1, mapWorkEl.clientWidth / total),
+      h: Math.min(1, mapWorkEl.clientHeight / total),
+    };
+  }
+
+  $effect(() => {
+    mapZoom; activeMapBank; screen;
+    queueMicrotask(updateMapViewport);
+  });
+
+  function renderMinimap() {
+    if (!minimapCanvas) return;
+    const context = minimapCanvas.getContext('2d');
+    if (!context) return;
+    const image = context.createImageData(64, 64);
+    const colors = palette.map((hex) => {
+      const value = hex || '#000000';
+      return [parseInt(value.slice(1, 3), 16), parseInt(value.slice(3, 5), 16), parseInt(value.slice(5, 7), 16), 255];
+    });
+    for (let y = 0; y < 64; y += 1) for (let x = 0; x < 64; x += 1) {
+      const tile = map[y * 64 + x] ?? 0;
+      if (tile === 0) continue;
+      // Top-left pixel stands in for the whole tile — enough to read shapes at
+      // this scale, and far cheaper than averaging all 64 pixels per tile.
+      const paletteIndex = spriteSheet[tile * 64] ?? 0;
+      if (paletteIndex === 0) continue;
+      const rgba = colors[paletteIndex] ?? colors[0] ?? [0, 0, 0, 255];
+      image.data.set(rgba, (y * 64 + x) * 4);
+    }
+    context.putImageData(image, 0, 0);
+  }
+
+  $effect(() => {
+    map; spriteSheet; palette; minimapCanvas;
+    renderMinimap();
+  });
+
+  function recenterMapAt(fx: number, fy: number) {
+    if (!mapWorkEl) return;
+    const total = 512 * mapZoom;
+    mapWorkEl.scrollLeft = Math.max(0, fx * total - mapWorkEl.clientWidth / 2);
+    mapWorkEl.scrollTop = Math.max(0, fy * total - mapWorkEl.clientHeight / 2);
+    updateMapViewport();
+  }
+
+  function recenterFromMinimap(event: MouseEvent) {
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    recenterMapAt(
+      Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
+      Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
+    );
+  }
+
+  function recenterFromMinimapKey(event: KeyboardEvent) {
+    // No pointer position to derive a target cell from a keypress — jump to the
+    // map's center, which is at least a useful, predictable destination.
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); recenterMapAt(0.5, 0.5); }
   }
 
   function beginMapPan(event: PointerEvent) {
-    const panGesture = event.button === 2 || event.button === 1 || (event.button === 0 && event.ctrlKey);
+    const panGesture = event.button === 2 || event.button === 1
+      || (event.button === 0 && (event.ctrlKey || spacePan));
     if (!panGesture) return;
     event.preventDefault();
     event.stopPropagation();
@@ -533,7 +710,9 @@
   }
 
   function selectSprite(index: number) {
-    selectedSprite = index; spriteUndo = []; spriteRedo = [];
+    // No history reset: entries capture their own sprite id, so undo/redo stay
+    // valid even after switching which sprite is on screen.
+    selectedSprite = index;
   }
 
   // Each sfx slot is 16 steps x 4 bytes: note, volume, wave (0 square / 1 noise),
@@ -581,10 +760,29 @@
       // A note with no volume is silent, which reads as "drawing did nothing".
       if (field === 0 && value > 0 && (bytes[step * 4 + 1] ?? 0) === 0) bytes[step * 4 + 1] = SFX_VOLUME_MAX;
     }
-    if (changed) onSfx(selectedSfx, bytes);
+    if (!changed) return;
+    // Discrete edits (wave/fx button clicks) aren't part of a drag stroke, so they
+    // record their own history entry immediately. Drag strokes record one entry
+    // for the whole gesture in endSfxDraw instead — see sfxStrokeBefore below.
+    if (!sfxDrawing) {
+      const slot = selectedSfx;
+      const before = sfx.slice(slot * 64, slot * 64 + 64);
+      const after = [...bytes];
+      sfxHistory = pushEntry(sfxHistory, {
+        label: `SFX ${slot.toString().padStart(2, '0')}`,
+        undo: () => onSfx(slot, before),
+        redo: () => onSfx(slot, after),
+      });
+    }
+    onSfx(selectedSfx, bytes);
   }
 
+  function undoSfx() { sfxHistory = undoEntry(sfxHistory); }
+  function redoSfx() { sfxHistory = redoEntry(sfxHistory); }
+
   let sfxDrawing = $state<{ field: number; erase: boolean } | null>(null);
+  let sfxStrokeBefore: number[] | null = null;
+  let sfxStrokeSlot = 0;
 
   function sfxCellFromEvent(event: PointerEvent, field: number) {
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
@@ -599,6 +797,8 @@
   function beginSfxDraw(event: PointerEvent, field: number) {
     // Secondary button (or ctrl-click on macOS) erases.
     const erase = event.button === 2 || event.ctrlKey;
+    sfxStrokeSlot = selectedSfx;
+    sfxStrokeBefore = sfx.slice(sfxStrokeSlot * 64, sfxStrokeSlot * 64 + 64);
     sfxDrawing = { field, erase };
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     applySfxDraw(event, field);
@@ -621,19 +821,65 @@
   }
 
   function endSfxDraw() {
+    if (sfxStrokeBefore) {
+      const before = sfxStrokeBefore;
+      const slot = sfxStrokeSlot;
+      const after = sfx.slice(slot * 64, slot * 64 + 64);
+      if (!after.every((value, index) => value === before[index])) {
+        sfxHistory = pushEntry(sfxHistory, {
+          label: `SFX ${slot.toString().padStart(2, '0')}`,
+          undo: () => onSfx(slot, before),
+          redo: () => onSfx(slot, after),
+        });
+      }
+    }
     sfxDrawing = null;
+    sfxStrokeBefore = null;
   }
 
   function changeMusic(row: number, channel: number) {
-    const bytes = music.slice(selectedPattern * 32, selectedPattern * 32 + 32);
+    const pattern = selectedPattern;
+    const before = music.slice(pattern * 32, pattern * 32 + 32);
+    const after = [...before];
     const at = row * 2 + channel;
-    bytes[at] = ((bytes[at] ?? 0) + 1) % 17;
-    onMusic(selectedPattern, bytes);
+    after[at] = ((after[at] ?? 0) + 1) % 17;
+    musicHistory = pushEntry(musicHistory, {
+      label: `Pattern ${pattern.toString().padStart(2, '0')}`,
+      undo: () => onMusic(pattern, before),
+      redo: () => onMusic(pattern, after),
+    });
+    onMusic(pattern, after);
   }
+
+  function undoMusic() { musicHistory = undoEntry(musicHistory); }
+  function redoMusic() { musicHistory = redoEntry(musicHistory); }
 
   function jumpToRef(reference: { path: string; line?: number; col?: number }) {
     onOpenSource(reference.path, reference.line ?? null, reference.col ?? null);
   }
+
+  let paletteStrokeBefore: string | null = null;
+
+  function beginPaletteEdit() {
+    paletteStrokeBefore = palette[selectedSlot];
+  }
+
+  function commitPaletteEdit() {
+    const before = paletteStrokeBefore;
+    paletteStrokeBefore = null;
+    if (before === null) return;
+    const slot = selectedSlot;
+    const after = palette[slot];
+    if (before === after) return;
+    paletteHistory = pushEntry(paletteHistory, {
+      label: `Palette ${slot.toString().padStart(2, '0')}`,
+      undo: () => onPalette(slot, before),
+      redo: () => onPalette(slot, after),
+    });
+  }
+
+  function undoPalette() { paletteHistory = undoEntry(paletteHistory); }
+  function redoPalette() { paletteHistory = redoEntry(paletteHistory); }
 
   function updatePalette(hex: string) {
     if (/^#[0-9a-f]{6}$/i.test(hex)) onPalette(selectedSlot, hex.toUpperCase());
@@ -654,15 +900,57 @@
     return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
   }
 
+  // The code screen owns its own undo via CodeMirror's historyKeymap — it has no
+  // case here, so Mod-Z falls through untouched for it.
+  const activeHistory = $derived.by((): HistoryState | null => {
+    switch (screen) {
+      case 'sprites': return spriteHistory;
+      case 'map': return mapHistory;
+      case 'palette': return paletteHistory;
+      case 'sfx': return sfxHistory;
+      case 'music': return musicHistory;
+      default: return null;
+    }
+  });
+
+  /** Undo/redo for whichever of the five asset editors is currently on screen.
+   *  Exported so App can wire it into the ⌘K command palette, in addition to the
+   *  per-editor toolbar buttons and the Ctrl+Z/Ctrl+Shift+Z shortcut below. */
+  export function undoActive() {
+    if (screen === 'sprites') undoSprite();
+    else if (screen === 'map') undoMap();
+    else if (screen === 'palette') undoPalette();
+    else if (screen === 'sfx') undoSfx();
+    else if (screen === 'music') undoMusic();
+  }
+
+  export function redoActive() {
+    if (screen === 'sprites') redoSpriteEdit();
+    else if (screen === 'map') redoMapEdit();
+    else if (screen === 'palette') redoPalette();
+    else if (screen === 'sfx') redoSfx();
+    else if (screen === 'music') redoMusic();
+  }
+
+  $effect(() => {
+    onHistoryStatus?.({ canUndo: !!activeHistory?.undo.length, canRedo: !!activeHistory?.redo.length });
+  });
+
   function handleWorkspaceKeys(event: KeyboardEvent) {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
-      if (screen === 'sprites') {
-        event.preventDefault();
-        if (event.shiftKey) redoSpriteEdit(); else undoSprite();
-      } else if (screen === 'map') {
-        event.preventDefault();
-        if (event.shiftKey) redoMapEdit(); else undoMap();
-      }
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z' && activeHistory) {
+      event.preventDefault();
+      if (event.shiftKey) redoActive(); else undoActive();
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && screen === 'map' && !isTypingTarget(event.target)) {
+      const key = event.key.toLowerCase();
+      if (key === 'c' && mapSelection) { event.preventDefault(); copySelection(); return; }
+      if (key === 'x' && mapSelection) { event.preventDefault(); cutSelection(); return; }
+      if (key === 'v' && mapClipboard) { event.preventDefault(); pasteClipboard(); return; }
+    }
+    if (event.key === ' ' && screen === 'map' && !isTypingTarget(event.target)) {
+      event.preventDefault();
+      spacePan = true;
       return;
     }
     if (event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) return;
@@ -673,9 +961,17 @@
     if (screen === 'sprites') tool = match.id as SpriteTool;
     else mapTool = match.id as MapTool;
   }
+
+  function handleWorkspaceKeyUp(event: KeyboardEvent) {
+    if (event.key === ' ') spacePan = false;
+  }
+
+  $effect(() => {
+    if (screen !== 'map') spacePan = false;
+  });
 </script>
 
-<svelte:window onkeydown={handleWorkspaceKeys} />
+<svelte:window onkeydown={handleWorkspaceKeys} onkeyup={handleWorkspaceKeyUp} onblur={() => spacePan = false} />
 
 <main class="workspace">
   {#if ['sprites', 'map', 'palette'].includes(screen)}
@@ -849,7 +1145,7 @@
           <button class:active={tool === item.id} title={`${item.label} (${item.shortcut})`} onclick={() => tool = item.id as SpriteTool}><Icon size={18} /></button>
         {/each}
         <span></span>
-        <button title="Undo sprite edit" disabled={!spriteUndo.length} onclick={undoSprite}><Undo2 size={18} /></button><button title="Redo sprite edit" disabled={!spriteRedo.length} onclick={redoSpriteEdit}><Redo2 size={18} /></button>
+        <button title="Undo sprite edit" disabled={!spriteHistory.undo.length} onclick={undoSprite}><Undo2 size={18} /></button><button title="Redo sprite edit" disabled={!spriteHistory.redo.length} onclick={redoSpriteEdit}><Redo2 size={18} /></button>
         <button title="Flip horizontally" onclick={() => transformSprite('flip')}><FlipHorizontal size={18} /></button><button title="Rotate clockwise" onclick={() => transformSprite('rotate')}><RotateCw size={18} /></button>
         <button class="danger" title="Clear sprite" onclick={() => transformSprite('clear')}><Trash2 size={18} /></button>
       </aside>
@@ -894,9 +1190,14 @@
           {@const Icon = item.icon}
           <button class:active={mapTool === item.id} title={`${item.label} (${item.shortcut})`} onclick={() => mapTool = item.id as MapTool}><Icon size={18} /></button>
         {/each}
+        <button
+          class:active={mapTool === 'select'}
+          title="Select — marquee a region, then Ctrl+C/X to copy/cut, Ctrl+V to place"
+          onclick={() => mapTool = 'select'}
+        ><BoxSelect size={18} /></button>
         <span></span>
-        <button title="Undo map edit" disabled={!mapUndo.length} onclick={undoMap}><Undo2 size={18} /></button>
-        <button title="Redo map edit" disabled={!mapRedo.length} onclick={redoMapEdit}><Redo2 size={18} /></button>
+        <button title="Undo map edit" disabled={!mapHistory.undo.length} onclick={undoMap}><Undo2 size={18} /></button>
+        <button title="Redo map edit" disabled={!mapHistory.redo.length} onclick={redoMapEdit}><Redo2 size={18} /></button>
       </aside>
       <div class="map-canvas-col">
         <div class="map-toolbar">
@@ -929,10 +1230,13 @@
         <div
           class="map-work"
           class:panning={mapPanning}
+          class:space-pan={spacePan}
           role="region"
           aria-label="Map canvas"
-          title="Mouse wheel zoom · right or middle drag pan"
+          title="Mouse wheel zoom · right or middle drag pan · hold Space to drag-pan"
+          bind:this={mapWorkEl}
           onwheel={handleMapWheel}
+          onscroll={updateMapViewport}
           onpointerdowncapture={beginMapPan}
           onpointermove={moveMapPan}
           onpointerup={finishMapPan}
@@ -948,7 +1252,7 @@
             {palette}
             {collision}
             {collisionTypes}
-            {selectedTile}
+            stamp={effectiveStamp}
             showCollision={collisionOverlay || mapLayer === 'collision'}
             layer={mapLayer}
             {collisionBrush}
@@ -956,14 +1260,23 @@
             zoom={mapZoom}
             onStroke={commitMap}
             onCollisionStroke={commitCollision}
-            onPick={(tile) => selectedTile = tile}
+            onPick={(tile) => { selectedTile = tile; mapStamp = null; }}
             onCollisionPick={(brush) => { collisionBrush = brush; mapTool = 'pencil'; }}
             onHover={(cell) => mapHover = cell}
+            onSelectionChange={(region) => mapSelection = region}
           />
           {/key}
         </div>
       </div>
       <aside class="map-inspector">
+        <span class="eyebrow">Minimap</span>
+        <div class="minimap" onclick={recenterFromMinimap} onkeydown={recenterFromMinimapKey} role="button" tabindex="0" aria-label="Minimap — click to jump to a location">
+          <canvas bind:this={minimapCanvas} width="64" height="64"></canvas>
+          <div
+            class="minimap-viewport"
+            style={`left:${mapViewport.x * 100}%; top:${mapViewport.y * 100}%; width:${mapViewport.w * 100}%; height:${mapViewport.h * 100}%`}
+          ></div>
+        </div>
         {#if mapLayer === 'collision'}
           <div class="collision-edit-note">
             <span class="eyebrow"><ShieldCheck size={13} />Collision painting</span>
@@ -971,14 +1284,32 @@
             <p>Per cell — painting only changes the cells under the brush, independent of which sprite tile they show.</p>
           </div>
         {/if}
+        {#if mapTool === 'select'}
+          <div class="collision-edit-note">
+            <span class="eyebrow"><BoxSelect size={13} />Region select</span>
+            <strong>{mapSelection ? `${mapSelection.w} × ${mapSelection.h} selected` : 'Drag to select a region'}</strong>
+            <p>Ctrl+C copy · Ctrl+X cut · Ctrl+V places the clipboard as a stamp — click or drag to drop it.</p>
+          </div>
+        {/if}
         <span class="eyebrow">Tile picker</span>
-        <div class="tile-picker">
+        <p class="map-note subtle">Drag across the sheet to pick a multi-tile stamp.</p>
+        <div
+          class="tile-picker"
+          bind:this={pickerEl}
+          role="application"
+          aria-label="Tile picker — same layout as the sprite sheet. Drag to select a multi-tile stamp."
+          onpointerdown={beginPickerDrag}
+          onpointermove={movePickerDrag}
+          onpointerup={finishPickerDrag}
+          onpointercancel={finishPickerDrag}
+        >
           {#each Array(256) as _, i}
             <button
               aria-label={`Tile ${i.toString().padStart(3, '0')}${spriteUsed[i] ? '' : ' — empty'}`}
               title={`Tile ${i.toString().padStart(3, '0')}${spriteUsed[i] ? '' : ' — empty'}`}
-              onclick={() => selectedTile = i}
-              class:active={i === selectedTile}
+              tabindex="-1"
+              class:active={inStamp(i)}
+              class:previewed={inPickerPreview(i)}
               class:empty={!spriteUsed[i]}
             >
               {#if spriteUsed[i]}
@@ -989,7 +1320,10 @@
         </div>
         <div class="inspector-row"><span>Cell</span><code>{mapHover ? `${mapHover.x}, ${mapHover.y}` : '—'}</code></div>
         <div class="inspector-row"><span>Hovered tile</span><code>{mapHover ? `${mapHover.tile.toString().padStart(3,'0')} · ${collisionTypeById.get(collision[mapHover.y * 64 + mapHover.x] ?? 0)?.name ?? 'unknown'}` : '—'}</code></div>
-        <div class="inspector-row"><span>Selected</span><code>{selectedTile.toString().padStart(3,'0')} · 0x{selectedTile.toString(16).padStart(2,'0')}</code></div>
+        <div class="inspector-row">
+          <span>Selected</span>
+          <code>{mapStamp ? `${mapStamp.w} × ${mapStamp.h} stamp` : `${selectedTile.toString().padStart(3,'0')} · 0x${selectedTile.toString(16).padStart(2,'0')}`}</code>
+        </div>
         {#if mapEmpty}
           <p class="map-note">
             This map is empty. Pick a tile and paint to start it.
@@ -1046,7 +1380,14 @@
 
   {:else if screen === 'palette'}
     <section class="palette-screen">
-      <header><span><span class="eyebrow">Cart palette</span><h1>Palette</h1></span><p>Sixteen colors shared by every sprite, tile, and draw call.</p></header>
+      <header>
+        <span><span class="eyebrow">Cart palette</span><h1>Palette</h1></span>
+        <p>Sixteen colors shared by every sprite, tile, and draw call.</p>
+        <div class="history-controls">
+          <button title="Undo palette edit" disabled={!paletteHistory.undo.length} onclick={undoPalette}><Undo2 size={16} /></button>
+          <button title="Redo palette edit" disabled={!paletteHistory.redo.length} onclick={redoPalette}><Redo2 size={16} /></button>
+        </div>
+      </header>
       <div class="palette-layout">
         <div class="palette-grid">
           {#each palette as color, index}
@@ -1059,9 +1400,9 @@
         <aside class="color-inspector">
           <div class="color-preview" style={`background:${palette[selectedSlot]}`}></div>
           <div><span class="eyebrow">Slot {selectedSlot.toString().padStart(2,'0')}</span><h2>{palette[selectedSlot]}</h2></div>
-          <label>Hex<input value={palette[selectedSlot]} onblur={(e) => updatePalette(e.currentTarget.value)} /></label>
+          <label>Hex<input value={palette[selectedSlot]} onfocus={beginPaletteEdit} onblur={(e) => { updatePalette(e.currentTarget.value); commitPaletteEdit(); }} /></label>
           {#each ['Red','Green','Blue'] as channel, i}
-            <label>{channel}<input type="range" min="0" max="255" value={parseInt(palette[selectedSlot].slice(1 + i * 2, 3 + i * 2), 16)} oninput={(event) => updateChannel(i, Number(event.currentTarget.value))} /><code>{parseInt(palette[selectedSlot].slice(1 + i * 2, 3 + i * 2),16)}</code></label>
+            <label>{channel}<input type="range" min="0" max="255" value={parseInt(palette[selectedSlot].slice(1 + i * 2, 3 + i * 2), 16)} onpointerdown={beginPaletteEdit} oninput={(event) => updateChannel(i, Number(event.currentTarget.value))} onchange={commitPaletteEdit} /><code>{parseInt(palette[selectedSlot].slice(1 + i * 2, 3 + i * 2),16)}</code></label>
           {/each}
           <section><span class="eyebrow">Usage</span><p><strong>{spriteSheet.filter((color) => color === selectedSlot).length}</strong> sprite pixels</p><p><strong>{assetIndex.entries.find((entry) => entry.kind === 'color' && entry.id === selectedSlot)?.refs.length ?? 0}</strong> references in code</p><p><strong>{map.filter((tile) => spriteSheet[tile * 64] === selectedSlot).length}</strong> map tiles</p></section>
         </aside>
@@ -1094,6 +1435,10 @@
             <h2>{sfxSlotFilled[selectedSfx] ? `SFX ${selectedSfx.toString().padStart(2,'0')}` : 'Empty slot'}</h2>
             <code>sfx {selectedSfx} · 16 steps{sfxPlaying ? ` · step ${audio.sfxStep.toString().padStart(2,'0')}` : ''}</code>
           </span>
+          <div class="history-controls">
+            <button title="Undo SFX edit" disabled={!sfxHistory.undo.length} onclick={undoSfx}><Undo2 size={16} /></button>
+            <button title="Redo SFX edit" disabled={!sfxHistory.redo.length} onclick={redoSfx}><Redo2 size={16} /></button>
+          </div>
         </header>
 
         <div class="sfx-tracker">
@@ -1209,7 +1554,14 @@
         <div class="song-order"><span class="eyebrow">Playback</span><button class:active={audio.musicActive} onclick={() => onAudio('music', audio.musicPattern, audio.musicActive ? 'stop' : 'play')}><code>{audio.musicPattern.toString().padStart(2,'0')}</code>{audio.musicActive ? `Row ${audio.musicRow.toString(16).toUpperCase()}` : 'Stopped'}<small>{audio.musicLoop ? 'loop' : 'once'}</small></button></div>
       </aside>
       <div class="music-grid-wrap">
-        <header><span><span class="eyebrow">Pattern {selectedPattern.toString().padStart(2,'0')}</span><h2>Pattern {selectedPattern.toString().padStart(2,'0')}</h2></span><button class="btn secondary" onclick={() => onAudio('music', selectedPattern, musicPlaying ? 'stop' : 'play')}>{#if musicPlaying}<Square size={14} />Stop{:else}<Play size={14} />Play pattern{/if}</button></header>
+        <header>
+          <span><span class="eyebrow">Pattern {selectedPattern.toString().padStart(2,'0')}</span><h2>Pattern {selectedPattern.toString().padStart(2,'0')}</h2></span>
+          <button class="btn secondary" onclick={() => onAudio('music', selectedPattern, musicPlaying ? 'stop' : 'play')}>{#if musicPlaying}<Square size={14} />Stop{:else}<Play size={14} />Play pattern{/if}</button>
+          <div class="history-controls">
+            <button title="Undo pattern edit" disabled={!musicHistory.undo.length} onclick={undoMusic}><Undo2 size={16} /></button>
+            <button title="Redo pattern edit" disabled={!musicHistory.redo.length} onclick={redoMusic}><Redo2 size={16} /></button>
+          </div>
+        </header>
         <div class="music-grid">
           <div class="music-head"><span>Row</span><span>Channel 1</span><span>Channel 2</span></div>
           {#each Array(16) as _, row}

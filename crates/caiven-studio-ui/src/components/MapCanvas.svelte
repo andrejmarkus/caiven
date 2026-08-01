@@ -6,8 +6,11 @@
   import type { CollisionType } from '../types';
 
   type MapLayer = 'tiles' | 'collision';
-  type MapTool = 'pencil' | 'fill' | 'rect' | 'pick' | 'erase' | 'line';
+  type MapTool = 'pencil' | 'fill' | 'rect' | 'pick' | 'erase' | 'line' | 'select';
   type Cell = { offset: number; tile: number };
+
+  interface Stamp { w: number; h: number; tiles: number[]; }
+  export interface MapRegion { x0: number; y0: number; w: number; h: number; }
 
   interface Props {
     map: number[];
@@ -15,7 +18,9 @@
     palette: string[];
     collision: number[];
     collisionTypes: CollisionType[];
-    selectedTile: number;
+    /** Multi-tile brush picked from the tile-sheet picker; {w:1,h:1} is a plain
+     *  single-tile brush, same as before this existed. */
+    stamp: Stamp;
     showCollision: boolean;
     layer: MapLayer;
     collisionBrush: CollisionBrush;
@@ -26,11 +31,15 @@
     onPick: (tile: number) => void;
     onCollisionPick: (brush: CollisionBrush) => void;
     onHover?: (cell: { x: number; y: number; tile: number } | null) => void;
+    /** The 'select' tool's marquee, in tile coordinates; null once cleared or
+     *  when a different tool is active. Workspace uses this to build the
+     *  clipboard on Ctrl+C/Ctrl+X. */
+    onSelectionChange?: (region: MapRegion | null) => void;
   }
 
   let {
-    map, spriteSheet, palette, collision, collisionTypes, selectedTile, showCollision, layer, collisionBrush,
-    tool, zoom, onStroke, onCollisionStroke, onPick, onCollisionPick, onHover,
+    map, spriteSheet, palette, collision, collisionTypes, stamp, showCollision, layer, collisionBrush,
+    tool, zoom, onStroke, onCollisionStroke, onPick, onCollisionPick, onHover, onSelectionChange,
   }: Props = $props();
   let canvas: HTMLCanvasElement;
   let drawing = false;
@@ -39,6 +48,24 @@
   let tileDraft = new Map<number, number>();
   let collisionDraft = new Map<number, number>();
   let renderFrame: number | undefined;
+  let selectAnchor = $state<number | null>(null);
+  let selectCurrent = $state<number | null>(null);
+  const selectRegion = $derived.by((): MapRegion | null => {
+    if (selectAnchor === null || selectCurrent === null) return null;
+    const ax = selectAnchor % 64, ay = Math.floor(selectAnchor / 64);
+    const cx = selectCurrent % 64, cy = Math.floor(selectCurrent / 64);
+    const x0 = Math.min(ax, cx), x1 = Math.max(ax, cx);
+    const y0 = Math.min(ay, cy), y1 = Math.max(ay, cy);
+    return { x0, y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+  });
+
+  $effect(() => {
+    if (tool !== 'select') { selectAnchor = null; selectCurrent = null; }
+  });
+
+  $effect(() => {
+    onSelectionChange?.(selectRegion);
+  });
 
   function color(hex: string): [number, number, number, number] {
     const value = hex || '#000000';
@@ -117,8 +144,11 @@
     onHover?.({ x: at % 64, y: Math.floor(at / 64), tile: tileDraft.get(at) ?? map[at] ?? 0 });
   }
 
+  // The single-tile value used by tools that don't paint a footprint (fill picks
+  // its flood-fill target from this; rect/line/erase paint one tile per cell too
+  // — a bigger stamp only "spreads" for the pencil/erase brush, see below).
   function activeTile() {
-    return tool === 'erase' ? 0 : selectedTile;
+    return tool === 'erase' ? 0 : stamp.tiles[0];
   }
 
   function activeCollisionBrush(): CollisionBrush {
@@ -131,10 +161,30 @@
     return values;
   }
 
+  // Expands one path cell into the whole w×h stamp footprint anchored there
+  // (top-left), clipped to the map bounds. Erasing clears every cell in the
+  // footprint to 0 regardless of what the stamp's tiles are.
+  function stampFootprint(base: number): Cell[] {
+    const baseX = base % 64, baseY = Math.floor(base / 64);
+    const cells: Cell[] = [];
+    for (let dy = 0; dy < stamp.h; dy += 1) for (let dx = 0; dx < stamp.w; dx += 1) {
+      const x = baseX + dx, y = baseY + dy;
+      if (x >= 64 || y >= 64) continue;
+      cells.push({ offset: y * 64 + x, tile: tool === 'erase' ? 0 : stamp.tiles[dy * stamp.w + dx] });
+    }
+    return cells;
+  }
+
   function applyOffsets(offsets: readonly number[]) {
     if (layer === 'tiles') {
       const next = new Map(tileDraft);
-      for (const offset of offsets) next.set(offset, activeTile());
+      const brushed = (tool === 'pencil' || tool === 'erase') && (stamp.w > 1 || stamp.h > 1);
+      if (brushed) {
+        for (const base of offsets) for (const cell of stampFootprint(base)) next.set(cell.offset, cell.tile);
+      } else {
+        const value = activeTile();
+        for (const offset of offsets) next.set(offset, value);
+      }
       tileDraft = next;
       return;
     }
@@ -146,8 +196,9 @@
   }
 
   function drawStroke(at: number) {
-    // Never called with tool === 'pick' — begin() branches to pick() first.
-    const drawTool: StrokeTool = tool as Exclude<MapTool, 'pick'>;
+    // Never called with tool === 'pick'/'select' — begin() branches to pick()
+    // or the select-marquee handling first for those.
+    const drawTool: StrokeTool = tool as Exclude<MapTool, 'pick' | 'select'>;
     const values = layer === 'tiles' ? map : collisionValues();
     const replacement = layer === 'tiles' ? activeTile() : activeCollisionBrush();
     const offsets = strokeCells(drawTool, anchor ?? at, at, previousCell, values, replacement, 64, 64);
@@ -178,6 +229,13 @@
       pick(at);
       return;
     }
+    if (tool === 'select') {
+      selectAnchor = at;
+      selectCurrent = at;
+      drawing = true;
+      canvas.setPointerCapture(event.pointerId);
+      return;
+    }
     tileDraft = new Map();
     collisionDraft = new Map();
     anchor = at;
@@ -197,6 +255,10 @@
     reportHover(event);
     if (!drawing) return;
     const at = pointerCell(event);
+    if (tool === 'select') {
+      selectCurrent = at;
+      return;
+    }
     // Paints happen synchronously, in the pointer handler itself, rather than deferring to
     // scheduleRender()'s timer: the timer callback still *runs* while the mouse button is
     // held, but WKWebView doesn't actually composite/flush the canvas to screen again until
@@ -246,7 +308,24 @@
     oncontextmenu={(event) => event.preventDefault()}
   ></canvas>
   <div class="map-grid-overlay" aria-hidden="true"></div>
+  <!-- The heavier lines in map-grid-overlay already mark every 16-tile screen
+       boundary; screen 0,0 gets the highlighted box because it's the camera a
+       cart boots into, the rest just get a quiet coordinate label. -->
   <div class="map-screen-region" aria-hidden="true"><span>screen 0,0</span></div>
+  {#each Array(16) as _, i}
+    {@const sx = i % 4}
+    {@const sy = Math.floor(i / 4)}
+    {#if sx !== 0 || sy !== 0}
+      <span class="screen-label" aria-hidden="true" style={`left:${sx * 25}%; top:${sy * 25}%`}>{sx},{sy}</span>
+    {/if}
+  {/each}
+  {#if selectRegion}
+    <div
+      class="map-selection"
+      aria-hidden="true"
+      style={`left:${(selectRegion.x0 / 64) * 100}%; top:${(selectRegion.y0 / 64) * 100}%; width:${(selectRegion.w / 64) * 100}%; height:${(selectRegion.h / 64) * 100}%`}
+    ></div>
+  {/if}
 </div>
 
 <style>
@@ -268,4 +347,6 @@
   }
   .map-screen-region { left: 0; top: 0; width: 25%; height: 25%; border: 2px solid var(--color-ember); box-shadow: var(--shadow-glow-ember); }
   .map-screen-region span { position: absolute; left: 3px; top: 3px; color: var(--color-ember); font-family: var(--font-mono); font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
+  .screen-label { position: absolute; padding: 2px 3px; color: rgba(245,242,242,.55); font-family: var(--font-mono); font-size: 8px; letter-spacing: .06em; text-transform: uppercase; pointer-events: none; }
+  .map-selection { position: absolute; border: 1px dashed var(--color-ember); background: rgba(254,176,93,.12); pointer-events: none; }
 </style>
