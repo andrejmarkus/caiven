@@ -273,6 +273,74 @@ pub fn describe_lua_error_location(err: &mlua::Error) -> (Option<LuaBreakpoint>,
     (location, raw)
 }
 
+/// Whether a global name is script-defined state rather than API surface —
+/// used by [`Vm::lua_globals`] (debugger inspector), which deliberately
+/// excludes `_init`/`_update`/`_draw` since they're entry points, not state.
+fn is_script_defined_name(name: &str) -> bool {
+    !BUILTIN_NAMES.contains(&name) && !PRELUDE_NAMES.contains(&name) && !STDLIB_NAMES.contains(&name)
+}
+
+/// Whether a global name is eligible for [`Vm::hot_reload_lua_source`]'s
+/// upvalue-join snapshot: same script-defined-vs-API-surface line as
+/// [`is_script_defined_name`], except `_init`/`_update`/`_draw` are kept in —
+/// they aren't "state" for the debugger's purposes, but they're exactly the
+/// closures whose captured locals need joining across a reload.
+fn is_reload_join_candidate(name: &str) -> bool {
+    if BUILTIN_NAMES.contains(&name) || PRELUDE_NAMES.contains(&name) {
+        return false;
+    }
+    matches!(name, "_init" | "_update" | "_draw") || !STDLIB_NAMES.contains(&name)
+}
+
+/// Rebinds `new_fn`'s upvalues onto `old_fn`'s upvalue cells wherever the
+/// names match, via raw `lua_upvaluejoin` — this is what makes a chunk-scope
+/// `local` variable survive [`Vm::hot_reload_lua_source`] instead of
+/// resetting to its initializer: after this call, `new_fn` reads and writes
+/// the exact same storage `old_fn` did, for every upvalue name they share.
+/// mlua doesn't expose upvalue introspection/joining at the safe API level
+/// (the `debug` stdlib isn't loaded — it's flagged unsafe — and isn't
+/// available to call from Lua either), so this drops to the raw C API mlua
+/// re-exports as `mlua::ffi`, scoped via `Lua::exec_raw` so the stack is
+/// restored regardless of outcome.
+fn join_matching_upvalues(lua: &Lua, old_fn: &mlua::Function, new_fn: &mlua::Function) -> mlua::Result<()> {
+    use std::ffi::CStr;
+    use std::os::raw::c_int;
+
+    unsafe {
+        lua.exec_raw::<()>((old_fn.clone(), new_fn.clone()), |state| {
+            // Args land at stack indices 1 (old_fn) and 2 (new_fn), per
+            // `exec_raw`'s contract.
+            let mut old_names = Vec::new();
+            let mut i: c_int = 1;
+            loop {
+                let name = mlua::ffi::lua_getupvalue(state, 1, i);
+                if name.is_null() {
+                    break;
+                }
+                mlua::ffi::lua_pop(state, 1);
+                old_names.push((i, CStr::from_ptr(name).to_string_lossy().into_owned()));
+                i += 1;
+            }
+
+            let mut j: c_int = 1;
+            loop {
+                let name = mlua::ffi::lua_getupvalue(state, 2, j);
+                if name.is_null() {
+                    break;
+                }
+                mlua::ffi::lua_pop(state, 1);
+                let new_name = CStr::from_ptr(name).to_string_lossy().into_owned();
+                if let Some((old_index, _)) =
+                    old_names.iter().find(|(_, old_name)| *old_name == new_name)
+                {
+                    mlua::ffi::lua_upvaluejoin(state, 2, j, 1, *old_index);
+                }
+                j += 1;
+            }
+        })
+    }
+}
+
 fn describe_lua_value(value: &mlua::Value) -> String {
     match value {
         mlua::Value::Nil => "nil".to_string(),
@@ -1147,15 +1215,124 @@ impl Vm {
         let mut out: Vec<(String, String)> = globals
             .pairs::<String, mlua::Value>()
             .filter_map(|pair| pair.ok())
-            .filter(|(k, _)| {
-                !BUILTIN_NAMES.contains(&k.as_str())
-                    && !PRELUDE_NAMES.contains(&k.as_str())
-                    && !STDLIB_NAMES.contains(&k.as_str())
-            })
+            .filter(|(k, _)| is_script_defined_name(k))
             .map(|(k, v)| (k, describe_lua_value(&v)))
             .collect();
         out.sort_by(|a, b| a.0.cmp(&b.0));
         out
+    }
+
+    /// Hot-reloads Lua source onto the *already running* script instance,
+    /// preserving state instead of rebuilding a fresh `Lua` VM and re-running
+    /// `_init()` the way [`Vm::load_lua_source`] does. Falls back to a full
+    /// [`Vm::load_lua_source`] if nothing is running yet — there is no state
+    /// to preserve on a first load.
+    ///
+    /// The project's tutorial idiom keeps state as top-level `local`
+    /// variables (chunk upvalues captured by `_init`/`_update`/`_draw`), not
+    /// Lua globals — Lua has no generic way to enumerate or snapshot those
+    /// upvalues, so a naive "just re-run the chunk" reload would reinitialize
+    /// exactly the state this is meant to preserve. Instead: the new chunk
+    /// executes on the *same* live `Lua` instance (upvalues cannot be joined
+    /// across two separate `Lua` states), and for every script-defined
+    /// function whose name exists both before and after the reload, the new
+    /// closure's upvalues are rebound (matched by name) onto the old
+    /// closure's upvalue cells via `lua_upvaluejoin`, so `_update`/`_draw` —
+    /// looked up fresh from globals every frame — pick up the preserved state
+    /// on the very next frame. Unmatched names (renamed/removed/new
+    /// variables) simply keep the fresh initializer from this reload — no
+    /// error, best-effort by design, matching how existing Lua hot-reload
+    /// tooling behaves.
+    ///
+    /// The new source is syntax-checked (compiled without executing) before
+    /// anything else runs, so a typo mid-edit leaves the live state fully
+    /// untouched. A runtime error during the new chunk's *top-level*
+    /// execution (not inside a function body) is a narrower, documented risk:
+    /// Lua has no transactional exec, so some globals may already be
+    /// reassigned by the time such an error surfaces. This project's
+    /// convention keeps top-level code to pure declarations, so this is not
+    /// expected to be reachable in practice; Reset remains the recovery path
+    /// if it is.
+    pub fn hot_reload_lua_source(&mut self, src: &str, input: &Input, font: &Font) -> mlua::Result<()> {
+        let Some(script) = self.script.as_ref() else {
+            return self.load_lua_source(src, input, font);
+        };
+
+        // Syntax-check first: compiling without executing means a bad chunk
+        // never touches the live instance at all.
+        script.lua.load(src).set_name(CHUNK_SOURCE_NAME).into_function()?;
+
+        // Snapshot old script-defined top-level functions by name, to join
+        // upvalues against once the new chunk has executed.
+        let old_functions: Vec<(String, mlua::Function)> = {
+            let globals = script.lua.globals();
+            globals
+                .pairs::<String, mlua::Value>()
+                .filter_map(|pair| pair.ok())
+                .filter(|(name, _)| is_reload_join_candidate(name))
+                .filter_map(|(name, value)| match value {
+                    mlua::Value::Function(f) => Some((name, f)),
+                    _ => None,
+                })
+                .collect()
+        };
+        let lua = &script.lua;
+
+        let world = RefCell::new(&mut self.world);
+        let ui = RefCell::new(&mut self.ui);
+        let memory = RefCell::new(&mut self.memory);
+        let palette = RefCell::new(&mut self.palette);
+        let camera = RefCell::new(&mut self.camera);
+        let sfx_player = RefCell::new(&mut self.sfx_player);
+        let music_player = RefCell::new(&mut self.music_player);
+        let asset_banks = RefCell::new(&mut self.asset_banks);
+        let sprite_size = self.config.sprite_size;
+        let width = self.config.width;
+        let height = self.config.height;
+        let frame_count = self.frame_count;
+        let collision_types = &self.collision_types;
+
+        let result: mlua::Result<()> = lua.scope(|scope| {
+            let globals = lua.globals();
+            register_builtins(
+                scope,
+                &globals,
+                &world,
+                &ui,
+                &memory,
+                &palette,
+                &camera,
+                &sfx_player,
+                &music_player,
+                &asset_banks,
+                collision_types,
+                input,
+                font,
+                sprite_size,
+                width,
+                height,
+                frame_count,
+            )?;
+
+            lua.load(PRELUDE_SOURCE).set_name("=prelude").exec()?;
+            lua.load(src).set_name(CHUNK_SOURCE_NAME).exec()?;
+            // Deliberately not calling `_init()` — that's what makes this a
+            // reload rather than a reset.
+            Ok(())
+        });
+        result?;
+
+        let globals = lua.globals();
+        for (name, old_fn) in &old_functions {
+            if let Ok(new_fn) = globals.get::<mlua::Function>(name.as_str()) {
+                join_matching_upvalues(lua, old_fn, &new_fn)?;
+            }
+        }
+
+        self.fault = None;
+        self.waiting = false;
+        self.call_stack.clear();
+        Ok(())
     }
 
     /// Reads a dotted global/table path without executing Lua. Studio uses
@@ -1272,5 +1449,134 @@ function _update() print("frame") end
         .expect("native print fixture should load");
 
         assert!(vm.take_lua_output().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod hot_reload_tests {
+    use crate::input::Input;
+    use crate::rendering::font::Font;
+    use crate::{Vm, VmConfig};
+
+    fn get_score(vm: &Vm) -> i64 {
+        vm.script
+            .as_ref()
+            .expect("script should be loaded")
+            .lua
+            .globals()
+            .get::<mlua::Function>("get_score")
+            .expect("get_score should be defined")
+            .call::<i64>(())
+            .expect("get_score should not error")
+    }
+
+    #[test]
+    fn hot_reload_preserves_top_level_locals_matched_by_name() {
+        let input = Input::new();
+        let font = Font::empty();
+        let mut vm = Vm::new(VmConfig::default());
+        vm.load_lua_source(
+            r#"
+local score = 0
+function _update() score = score + 1 end
+function get_score() return score end
+"#,
+            &input,
+            &font,
+        )
+        .expect("chunk A should load");
+
+        vm.run_frame_lua(&input, &font);
+        vm.run_frame_lua(&input, &font);
+        vm.run_frame_lua(&input, &font);
+        assert_eq!(get_score(&vm), 3);
+
+        // Same variable name, different `_update` body — should preserve the
+        // existing `score` upvalue instead of resetting it to 0.
+        vm.hot_reload_lua_source(
+            r#"
+local score = 0
+function _update() score = score + 2 end
+function get_score() return score end
+"#,
+            &input,
+            &font,
+        )
+        .expect("hot reload with matching names should succeed");
+
+        assert_eq!(get_score(&vm), 3, "state should survive a matching-name reload");
+
+        vm.run_frame_lua(&input, &font);
+        assert_eq!(get_score(&vm), 5, "reloaded _update body should apply to preserved state");
+    }
+
+    #[test]
+    fn hot_reload_resets_renamed_locals_to_their_fresh_initializer() {
+        let input = Input::new();
+        let font = Font::empty();
+        let mut vm = Vm::new(VmConfig::default());
+        vm.load_lua_source(
+            r#"
+local score = 0
+function _update() score = score + 1 end
+function get_score() return score end
+"#,
+            &input,
+            &font,
+        )
+        .expect("chunk A should load");
+
+        vm.run_frame_lua(&input, &font);
+        vm.run_frame_lua(&input, &font);
+        vm.run_frame_lua(&input, &font);
+        assert_eq!(get_score(&vm), 3);
+
+        // Renamed local — no upvalue name match, so it can't be preserved;
+        // this must not error, it just falls back to the fresh initializer.
+        vm.hot_reload_lua_source(
+            r#"
+local points = 0
+function _update() points = points + 1 end
+function get_score() return points end
+"#,
+            &input,
+            &font,
+        )
+        .expect("hot reload with a renamed local should still succeed");
+
+        assert_eq!(get_score(&vm), 0, "renamed local has no match, resets to its initializer");
+    }
+
+    #[test]
+    fn hot_reload_syntax_error_leaves_running_script_untouched() {
+        let input = Input::new();
+        let font = Font::empty();
+        let mut vm = Vm::new(VmConfig::default());
+        vm.load_lua_source(
+            r#"
+local score = 0
+function _update() score = score + 1 end
+function get_score() return score end
+"#,
+            &input,
+            &font,
+        )
+        .expect("chunk A should load");
+
+        vm.run_frame_lua(&input, &font);
+        vm.run_frame_lua(&input, &font);
+        vm.run_frame_lua(&input, &font);
+        assert_eq!(get_score(&vm), 3);
+
+        let result = vm.hot_reload_lua_source(
+            "function _update( score = score + 1 end", // missing closing paren
+            &input,
+            &font,
+        );
+        assert!(result.is_err());
+
+        assert_eq!(get_score(&vm), 3, "old state must survive a failed reload");
+        vm.run_frame_lua(&input, &font);
+        assert_eq!(get_score(&vm), 4, "old _update must still be callable after a failed reload");
     }
 }

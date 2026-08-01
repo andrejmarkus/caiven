@@ -1255,12 +1255,71 @@ impl StudioCore {
         }
         self.output.push("Saved project".to_string());
         trim_output(&mut self.output);
+
+        // Ctrl+S while the cart is already running hot-reloads it in place
+        // (state-preserving) instead of leaving the new code stranded until
+        // the next Run/Reset. Best-effort: a reload failure is surfaced via
+        // diagnostics/output but must not fail the save itself — the disk
+        // write already succeeded, and the previous script keeps running.
+        if self.needs_compile && self.run_state != RunState::Stopped {
+            let _ = self.hot_reload();
+        }
+
         Ok(self
             .sources
             .iter()
             .enumerate()
             .map(|(index, _)| self.source_name(index))
             .collect())
+    }
+
+    /// Hot-reloads the running script in place, preserving state — see
+    /// [`cart::hot_reload_sources_into_vm`]. Mirrors [`StudioCore::compile`]'s
+    /// diagnostics/output bookkeeping on success. On failure, unlike
+    /// `compile()`, `run_state`/audio are left untouched: the previous script
+    /// keeps running exactly as it was, only diagnostics and output change.
+    fn hot_reload(&mut self) -> Result<(), String> {
+        let project_dir = self.project_dir().map(Path::to_path_buf);
+        match cart::hot_reload_sources_into_vm(
+            &mut self.console.vm,
+            project_dir.as_deref(),
+            &self.sources,
+            &self.console.input,
+            &self.console.font,
+        ) {
+            Ok(()) => {
+                self.diagnostics.clear();
+                self.pause_reason = None;
+                self.needs_compile = false;
+                self.collect_vm_output();
+                self.output.push("Hot-reloaded".to_string());
+                trim_output(&mut self.output);
+                Ok(())
+            }
+            Err(error) => {
+                self.collect_vm_output();
+                let source = match error.source.as_deref() {
+                    Some("cart") | None => self.source_name(0),
+                    Some(source) => source.to_string(),
+                };
+                let detail = match error.line {
+                    Some(line) => format!("{source}:{line}: {}", error.message),
+                    None => error.message.clone(),
+                };
+                self.diagnostics = vec![DiagnosticPayload {
+                    severity: "error".to_string(),
+                    title: "Hot-reload failed".to_string(),
+                    detail: detail.clone(),
+                    path: source.clone(),
+                    line: error.line,
+                }];
+                self.output.push(format!(
+                    "Hot-reload error, previous version still running: {detail}"
+                ));
+                trim_output(&mut self.output);
+                Err(detail)
+            }
+        }
     }
 
     fn export(&mut self, path: &Path) -> Result<(), String> {

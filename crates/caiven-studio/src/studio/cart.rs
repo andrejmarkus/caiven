@@ -183,6 +183,50 @@ pub fn compile_sources_into_vm(
     input: &Input,
     font: &Font,
 ) -> std::result::Result<(), CompileError> {
+    let bundled = bundle_sources(vm, dir, sources)?;
+    vm.load_lua_source(&bundled, input, font)
+        .map_err(|error| caiven_vm::describe_lua_error_location(&error))
+        .map_err(compile_error_from_location)
+}
+
+/// Same as [`compile_sources_into_vm`], but preserves the running script's
+/// state instead of resetting it — see [`Vm::hot_reload_lua_source`] for the
+/// mechanism and its limits. Intended for the Ctrl+S-while-running path;
+/// callers still fall back to [`compile_sources_into_vm`] for the
+/// first-run/Reset case, where there is no state to preserve.
+pub fn hot_reload_sources_into_vm(
+    vm: &mut Vm,
+    dir: Option<&Path>,
+    sources: &[SourceFile],
+    input: &Input,
+    font: &Font,
+) -> std::result::Result<(), CompileError> {
+    let bundled = bundle_sources(vm, dir, sources)?;
+    vm.hot_reload_lua_source(&bundled, input, font)
+        .map_err(|error| caiven_vm::describe_lua_error_location(&error))
+        .map_err(compile_error_from_location)
+}
+
+fn compile_error_from_location(
+    (location, message): (Option<caiven_vm::LuaBreakpoint>, String),
+) -> CompileError {
+    CompileError {
+        source: location.as_ref().map(|location| location.source.clone()),
+        line: location.map(|location| location.line),
+        message,
+    }
+}
+
+/// Splits embedded asset blocks off the entry buffer, applies them to VM RAM,
+/// and bundles the entry buffer with any sibling module buffers exactly like
+/// the project loader does from disk (see `caiven_cart::bundle_lua`). Shared
+/// by [`compile_sources_into_vm`] and [`hot_reload_sources_into_vm`] so the
+/// two can't drift on how sources become one Lua string.
+fn bundle_sources(
+    vm: &mut Vm,
+    dir: Option<&Path>,
+    sources: &[SourceFile],
+) -> std::result::Result<String, CompileError> {
     let Some(entry) = sources.first() else {
         return Err(CompileError {
             source: None,
@@ -205,15 +249,7 @@ pub fn compile_sources_into_vm(
             .collect(),
         None => Vec::new(),
     };
-    let bundled = caiven_cart::bundle_lua(&code, &modules);
-
-    vm.load_lua_source(&bundled, input, font)
-        .map_err(|error| caiven_vm::describe_lua_error_location(&error))
-        .map_err(|(location, message)| CompileError {
-            source: location.as_ref().map(|location| location.source.clone()),
-            line: location.map(|location| location.line),
-            message,
-        })
+    Ok(caiven_cart::bundle_lua(&code, &modules))
 }
 
 /// Unpacks a binary `.cav` cart into an editable project directory at
