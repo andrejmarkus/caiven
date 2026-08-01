@@ -2,6 +2,7 @@
 
 pub(crate) mod asset_index;
 pub(crate) mod cart;
+pub(crate) mod examples;
 pub(crate) mod recent;
 pub(crate) mod templates;
 

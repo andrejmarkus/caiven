@@ -822,6 +822,16 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .recent-empty { min-height: 74px; grid-column: 1/-1; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1px dashed var(--color-void-600); border-radius: 8px; color: var(--color-ink-faint); }.recent-empty strong { color: var(--color-ink-dim); font-size: 10.5px; }.recent-empty span { font-size: 9.5px; }
 @media (hover:none) { .recent-remove { opacity: 1; } }
 
+.examples-section { margin-top: 56px; position: relative; }
+.examples-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 9px; }
+.example-card { width: 100%; height: 74px; padding: 8px 10px; position: relative; display: flex; align-items: center; gap: 10px; overflow: hidden; border: 1px solid var(--color-void-600); border-radius: 8px; color: inherit; background: var(--color-void-800); text-align: left; transition: border-color var(--studio-fast),background var(--studio-fast); }
+.example-card:hover, .example-card:focus-visible { background: var(--color-void-700); border-color: var(--color-ember); }
+.example-icon { width: 36px; height: 36px; flex: none; display: grid; place-items: center; border-radius: 7px; color: var(--color-ember); background: var(--color-void-900); }
+.example-copy { min-width: 0; display: flex; flex: 1; flex-direction: column; }.example-copy strong { font-family: var(--font-display); }.example-copy small { overflow: hidden; color: var(--color-ink-faint); font-size: 9.5px; text-overflow: ellipsis; white-space: nowrap; }
+.example-remix { flex: none; display: flex; align-items: center; gap: 3px; color: var(--color-ink-faint); font-size: 9.5px; font-style: normal; opacity: 0; transition: opacity var(--studio-fast),color var(--studio-fast); }
+.example-card:hover .example-remix, .example-card:focus-visible .example-remix { color: var(--color-ember); opacity: 1; }
+@media (hover:none) { .example-remix { opacity: 1; } }
+
 /* Drawer */
 /* An open drawer eats into the console column, so give the framebuffer that
    much less height to claim — otherwise it overflows and clips the debugger. */

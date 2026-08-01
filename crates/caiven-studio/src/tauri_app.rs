@@ -6,7 +6,7 @@
 
 use crate::app::cart_io::{self, CartMeta};
 use crate::debugger::{Breakpoint, Debugger};
-use crate::studio::{SourceFile, asset_index, cart, recent, templates};
+use crate::studio::{SourceFile, asset_index, cart, examples, recent, templates};
 use caiven_cart::{SectionKind, encode_asset_bank};
 use caiven_core::Color;
 use caiven_core::memory::{
@@ -329,6 +329,11 @@ enum CoreCommand {
         template_id: String,
         reply: mpsc::Sender<Result<BootstrapPayload, String>>,
     },
+    RemixExample {
+        path: PathBuf,
+        example_id: String,
+        reply: mpsc::Sender<Result<BootstrapPayload, String>>,
+    },
     WriteBuffer {
         path: String,
         text: String,
@@ -551,6 +556,16 @@ impl StudioCore {
             }
         }
         self.console.reset_vm();
+        // Seed the sprite sheet so the template's first Run shows something
+        // visible instead of an invisible `sprite(0, ...)` — the template's
+        // own _init() still sets the palette colors these pixels reference.
+        let sprite_seed = templates::sprite_sheet_bytes(template);
+        if !template.sprite_seed.is_empty() {
+            cart::apply_sections(
+                &mut self.console.vm,
+                &[(SectionKind::SpriteSheet, sprite_seed)],
+            );
+        }
         let title = path
             .file_name()
             .and_then(|name| name.to_str())
@@ -584,6 +599,23 @@ impl StudioCore {
         self.save()?;
         recent::push(&mut recent::load(), path);
         Ok(())
+    }
+
+    /// Unpacks a bundled example cart into an empty project folder the user
+    /// picked, then opens it — a fully editable "remix" of the example,
+    /// exactly like opening a `.cav` someone shared. Code, sprites, and
+    /// sound all round-trip because `cart::unpack_cart` writes a normal
+    /// project directory, not a read-only copy of the packed cartridge.
+    fn remix_example(&mut self, path: &Path, example_id: &str) -> Result<(), String> {
+        let example = examples::find(example_id)
+            .ok_or_else(|| format!("Unknown example cart: {example_id}"))?;
+        let temp_cav = cart::temp_cav_path();
+        std::fs::write(&temp_cav, example.bytes)
+            .map_err(|error| format!("{}: {error}", temp_cav.display()))?;
+        let unpack_result = cart::unpack_cart(&temp_cav, path).map_err(|error| format!("{error:#}"));
+        let _ = std::fs::remove_file(&temp_cav);
+        unpack_result?;
+        self.open(path).map_err(|error| format!("{error:#}"))
     }
 
     fn project_dir(&self) -> Option<&Path> {
@@ -1451,6 +1483,16 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
                 .map(|()| studio.bootstrap());
             let _ = reply.send(result);
         }
+        CoreCommand::RemixExample {
+            path,
+            example_id,
+            reply,
+        } => {
+            let result = studio
+                .remix_example(&path, &example_id)
+                .map(|()| studio.bootstrap());
+            let _ = reply.send(result);
+        }
         CoreCommand::WriteBuffer { path, text, reply } => {
             let result = if let Some(source) = studio
                 .sources
@@ -1823,6 +1865,24 @@ fn studio_new_project(
 #[tauri::command]
 fn studio_list_templates() -> Vec<templates::CartTemplateSummary> {
     templates::summaries()
+}
+
+#[tauri::command]
+fn studio_remix_example(
+    path: PathBuf,
+    example_id: String,
+    state: State<'_, StudioBridge>,
+) -> Result<BootstrapPayload, String> {
+    state.request(|reply| CoreCommand::RemixExample {
+        path,
+        example_id,
+        reply,
+    })
+}
+
+#[tauri::command]
+fn studio_list_examples() -> Vec<examples::ExampleSummary> {
+    examples::summaries()
 }
 
 #[tauri::command]
@@ -2253,6 +2313,8 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
             studio_open_project,
             studio_new_project,
             studio_list_templates,
+            studio_remix_example,
+            studio_list_examples,
             studio_write_buffer,
             studio_save,
             studio_export,
@@ -2295,7 +2357,8 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_hex, valid_watch_expression};
+    use super::{StudioCore, parse_hex, valid_watch_expression};
+    use caiven_vm::AssetBankKind;
 
     #[test]
     fn parses_palette_hex() {
@@ -2312,5 +2375,57 @@ mod tests {
         assert!(!valid_watch_expression("player.x + 1"));
         assert!(!valid_watch_expression("player..x"));
         assert!(!valid_watch_expression("2player.x"));
+    }
+
+    #[test]
+    fn remix_example_unpacks_into_empty_project_and_opens_it() {
+        let dir = std::env::temp_dir().join(format!(
+            "caiven-remix-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio
+            .remix_example(&dir, "movement")
+            .expect("remix example");
+
+        assert!(dir.join("main.lua").exists());
+        assert!(std::fs::read_to_string(dir.join("main.lua")).is_ok_and(|s| !s.is_empty()));
+        let sprite_bank = studio
+            .console
+            .vm
+            .asset_bank_bytes(AssetBankKind::Sprites, 0)
+            .expect("sprite bank 0");
+        assert!(sprite_bank.iter().any(|&pixel| pixel != 0));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn remix_example_rejects_nonempty_destination() {
+        let dir = std::env::temp_dir().join(format!(
+            "caiven-remix-nonempty-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("create dir");
+        std::fs::write(dir.join("existing.txt"), b"hi").expect("write file");
+
+        let mut studio = StudioCore::new(None).expect("studio core");
+        assert!(studio.remix_example(&dir, "movement").is_err());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn remix_example_rejects_unknown_id() {
+        let mut studio = StudioCore::new(None).expect("studio core");
+        let dir = std::env::temp_dir().join("caiven-remix-unknown-test");
+        assert!(studio.remix_example(&dir, "not-an-example").is_err());
     }
 }

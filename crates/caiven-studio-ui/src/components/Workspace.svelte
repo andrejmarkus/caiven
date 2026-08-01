@@ -5,7 +5,7 @@
     Plus, Pencil, PaintBucket, Minus, Square, Undo2, Redo2, Eraser, ShieldCheck,
     FlipHorizontal, RotateCw, Trash2, Search, FolderOpen, Play,
     ExternalLink, Sparkles, ArrowRight, CircleCheck, ChevronRight, X,
-    UserRound, Globe,
+    UserRound, Globe, Gamepad2, Grid3X3,
   } from '@lucide/svelte';
   import { Button } from '@caiven/ui/button';
   import { Input } from '@caiven/ui/input';
@@ -13,7 +13,7 @@
   import * as Dialog from '@caiven/ui/dialog';
   import type {
     ApiEntry, AssetIndex, AssetRef, AudioState, Breakpoint, CartMeta, CartSize, CollisionType, Diagnostic, EditorInsertRequest,
-    EditorRevealRequest, LocalCart, PortCart, PortSession, Screen, SourceBuffer,
+    EditorRevealRequest, ExampleSummary, LocalCart, PortCart, PortSession, Screen, SourceBuffer,
   } from '../types';
   import {
     dragPanScroll, MAP_ZOOM_LEVELS, nextMapZoom,
@@ -61,6 +61,7 @@
     dirty: boolean;
     tourDone: boolean;
     recent: string[];
+    examples: ExampleSummary[];
     api: ApiEntry[];
     frameData: Uint8Array | null;
     insertRequest: EditorInsertRequest | null;
@@ -87,6 +88,7 @@
     onTour: () => void;
     onOpen: () => void;
     onNew: () => void;
+    onRemix: (exampleId: string) => void;
     localCarts: LocalCart[];
     portCarts: PortCart[];
     portAccount: PortSession;
@@ -110,10 +112,10 @@
   let {
     screen, sources, activeSource, palette, spriteSheet, map, spriteBanks, mapBanks, activeSpriteBank, activeMapBank, collision, collisionTypes, sfx, music,
     paletteBanks, sfxBanks, musicBanks, activePaletteBank, activeSfxBank, activeMusicBank, cartSize,
-    audio, assetIndex, diagnostics, breakpoints, title, author, path, meta, dirty, tourDone, recent, api, frameData, insertRequest, revealRequest, onInsertHandled, onRevealHandled,
+    audio, assetIndex, diagnostics, breakpoints, title, author, path, meta, dirty, tourDone, recent, examples, api, frameData, insertRequest, revealRequest, onInsertHandled, onRevealHandled,
     soundSelection,
     onNavigate, onSource, onCode, onSprite, onCollision, onCollisionTypes, onMap, onAssetBank, onSfx, onMusic, onAudio,
-    onBreakpoint, onMeta, onCreateModule, onPalette, onTour, onOpen, onNew,
+    onBreakpoint, onMeta, onCreateModule, onPalette, onTour, onOpen, onNew, onRemix,
     localCarts, portCarts, portAccount, portBusy, portError, portLinkPending, portLinkExpiresAt, onScanLibrary,
     onSearchPort, onOpenLocal, onRemoveRecent, onDownloadPort, onOpenPortAccount, onPortLink, onPortLinkCancel, onPortLogout,
     onInsertBuiltin, onOpenSource,
@@ -739,6 +741,20 @@
           <Button variant="ghost" onclick={onTour}>Take 4-step tour<ArrowRight size={15} /></Button>
         </aside>
       {/if}
+      <div class="examples-section">
+        <div class="section-heading"><span><strong>Examples</strong><small>Real, playable carts. Click one to open an editable copy.</small></span></div>
+        <div class="examples-grid">
+          {#each examples as example (example.id)}
+            <button type="button" class="example-card" onclick={() => onRemix(example.id)}>
+              <span class="example-icon" aria-hidden="true">
+                {#if example.id === 'catch'}<Volume2 size={18} />{:else if example.id === 'tiles'}<Grid3X3 size={18} />{:else if example.id === 'stdlib-demo'}<Sparkles size={18} />{:else}<Gamepad2 size={18} />{/if}
+              </span>
+              <span class="example-copy"><strong>{example.name}</strong><small>{example.description}</small></span>
+              <i class="example-remix">Remix<ArrowRight size={13} /></i>
+            </button>
+          {/each}
+        </div>
+      </div>
       <div class="recent-section">
         <div class="section-heading"><span><strong>Recent carts</strong><small>Pick up where you left off.</small></span><Button variant="ghost" onclick={() => onNavigate('library')}>See library <ChevronRight size={14} /></Button></div>
         <div class="recent-grid">

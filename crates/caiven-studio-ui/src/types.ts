@@ -72,6 +72,12 @@ export interface CartTemplateSummary {
   description: string;
 }
 
+export interface ExampleSummary {
+  id: string;
+  name: string;
+  description: string;
+}
+
 export interface ApiEntry {
   name: string;
   params: { name: string; ty: string }[];

@@ -1,5 +1,5 @@
 import type {
-  AssetBankState, AssetIndex, AudioState, Breakpoint, CartMeta, CartSize, CartTemplateSummary, CollisionType, GlobalValue, LocalCart, PortCartList, PortSession,
+  AssetBankState, AssetIndex, AudioState, Breakpoint, CartMeta, CartSize, CartTemplateSummary, CollisionType, ExampleSummary, GlobalValue, LocalCart, PortCartList, PortSession,
   PublishResult, SourceBuffer, StudioBootstrap, TickSnapshot,
 } from '../types';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
@@ -42,6 +42,13 @@ export const fallbackTemplates: CartTemplateSummary[] = [
   { id: 'tap-to-score', name: 'Tap to score', description: 'Bouncing ball with score and high-score HUD' },
   { id: 'tile-world', name: 'Tile world', description: 'Map drawing and per-cell collision' },
   { id: 'blank', name: 'Blank', description: 'Empty _init and _update starting point' },
+];
+
+export const fallbackExamples: ExampleSummary[] = [
+  { id: 'movement', name: 'Movement', description: 'Smallest possible playable cart: one sprite, arrow keys' },
+  { id: 'catch', name: 'Catch', description: 'A minigame with sound effects and a music bank' },
+  { id: 'tiles', name: 'Tiles', description: 'A tilemap-driven scene built from the map editor' },
+  { id: 'stdlib-demo', name: 'Stdlib demo', description: 'Tour of tweens, particles, and animation from the gameplay stdlib' },
 ];
 
 export const defaultSprite = [
@@ -165,6 +172,15 @@ export async function openProject(path: string): Promise<StudioBootstrap> {
 
 export async function newProject(path: string, templateId: string): Promise<StudioBootstrap> {
   return invoke<StudioBootstrap>('studio_new_project', { path, templateId });
+}
+
+export async function listExamples(): Promise<ExampleSummary[]> {
+  if (!isTauri()) return structuredClone(fallbackExamples);
+  return invoke<ExampleSummary[]>('studio_list_examples');
+}
+
+export async function remixExample(path: string, exampleId: string): Promise<StudioBootstrap> {
+  return invoke<StudioBootstrap>('studio_remix_example', { path, exampleId });
 }
 
 export async function chooseExportPath(title: string): Promise<string | null> {

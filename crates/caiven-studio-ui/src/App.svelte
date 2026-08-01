@@ -12,12 +12,12 @@
   import Drawer from './components/Drawer.svelte';
   import Overlays from './components/Overlays.svelte';
   import type {
-    CartTemplateSummary, Diagnostic, EditorInsertRequest, EditorRevealRequest, LocalCart, PortCart, PortSession,
+    CartTemplateSummary, Diagnostic, EditorInsertRequest, EditorRevealRequest, ExampleSummary, LocalCart, PortCart, PortSession,
     PublishProgress, Screen, StudioBootstrap, TickSnapshot,
   } from './types';
   import {
-    bootstrap, chooseExportPath, chooseProject, exportCartridge, fallbackTemplates, isTauri, listTemplates, newProject,
-    openProject, readAssetIndex, readCartSize, readFrame, readMemory, readTick, saveProject, setInput, transport,
+    bootstrap, chooseExportPath, chooseProject, exportCartridge, fallbackExamples, fallbackTemplates, isTauri, listExamples, listTemplates, newProject,
+    openProject, readAssetIndex, readCartSize, readFrame, readMemory, readTick, remixExample, saveProject, setInput, transport,
     addWatch, assetBank, audioTransport, clearOutput, closeProject, COLLISION_LEN, createModule, MEMORY, portDownload, portLinkCancel, portLinkPoll, portLinkStart, portListCarts,
     portLogout, portPublish, portSession, scanLibrary, toggleBreakpoint, writeBuffer,
     removeRecent, removeWatch, writeCollisionCells, writeCollisionTypes, writeMapCells, writeMemory, writeMeta, writePalette, writeSprite,
@@ -64,6 +64,7 @@
   type BankKind = 'sprites' | 'map' | 'palette' | 'sfx' | 'music';
   const bankRefreshes = new Set<BankKind>();
   let templates = $state<CartTemplateSummary[]>(fallbackTemplates);
+  let examples = $state<ExampleSummary[]>(fallbackExamples);
 
   const GAME_KEYS: Record<string, number> = {
     ArrowUp: 0, w: 0, ArrowDown: 1, s: 1, ArrowLeft: 2, a: 2,
@@ -672,6 +673,25 @@
     return true;
   }
 
+  async function doRemix(exampleId: string) {
+    if (!confirmDiscard('Remix this example')) return;
+    const path = await chooseProject('Choose an empty folder for the remix');
+    if (!path) return;
+    clearTimeout(writeTimer);
+    try {
+      studio = await remixExample(path, exampleId);
+      metaDirty = false;
+      activeSource = 0;
+      handledPause = '';
+      handledDiagnostic = '';
+      screen = 'code';
+      status = `Created ${tidyPath(studio.path)}`;
+      showToast(`Remixed ${studio.title}`);
+    } catch (error) {
+      showToast(`Remix failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   async function doClose() {
     if (dirty && !window.confirm('Close cart with unsaved changes?')) return;
     clearTimeout(writeTimer);
@@ -787,6 +807,8 @@
     }
     void listTemplates().then((items) => { if (alive && items.length) templates = items; })
       .catch((error) => { if (alive) showToast(`Templates unavailable: ${errorText(error)}`); });
+    void listExamples().then((items) => { if (alive && items.length) examples = items; })
+      .catch((error) => { if (alive) showToast(`Examples unavailable: ${errorText(error)}`); });
     void portSession().then((session) => { portAccount = session; });
     const linkPoll = window.setInterval(() => void pollPortLink(), 2000);
     tourDone = localStorage.getItem('caiven-studio-tour-complete') === '1';
@@ -922,6 +944,7 @@
           {dirty}
           {tourDone}
           recent={studio.recent}
+          {examples}
           api={studio.api}
           {frameData}
           {insertRequest}
@@ -947,6 +970,7 @@
           onTour={() => overlay = 'tour'}
           onOpen={doOpen}
           onNew={showNew}
+          onRemix={(exampleId) => void doRemix(exampleId)}
           {localCarts}
           {portCarts}
           {portAccount}

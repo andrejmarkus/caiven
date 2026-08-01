@@ -7,6 +7,40 @@ pub struct CartTemplate {
     pub name: &'static str,
     pub description: &'static str,
     pub source: &'static str,
+    /// Sprite-sheet seeds as `(sprite_index, 8x8 palette-index pixels)`.
+    /// Written into the sprite bank when the template is instantiated, so
+    /// the first `Run` shows something visible instead of an invisible
+    /// sprite (pixel value `0` is the transparent key, matching the `sprite`
+    /// and `draw_map` builtins in `caiven-vm`). Empty for templates whose
+    /// script never draws a sprite.
+    pub sprite_seed: &'static [(u8, [u8; 64])],
+}
+
+/// A filled circle/blob, 8x8, drawn with palette index `fill`.
+const fn blob(fill: u8) -> [u8; 64] {
+    #[rustfmt::skip]
+    const MASK: [u8; 64] = [
+        0, 0, 1, 1, 1, 1, 0, 0,
+        0, 1, 1, 1, 1, 1, 1, 0,
+        1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1,
+        0, 1, 1, 1, 1, 1, 1, 0,
+        0, 0, 1, 1, 1, 1, 0, 0,
+    ];
+    let mut out = [0u8; 64];
+    let mut i = 0;
+    while i < 64 {
+        out[i] = if MASK[i] != 0 { fill } else { 0 };
+        i += 1;
+    }
+    out
+}
+
+/// A fully solid 8x8 tile, drawn with palette index `fill`.
+const fn solid(fill: u8) -> [u8; 64] {
+    [fill; 64]
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -148,29 +182,52 @@ pub const TEMPLATES: [CartTemplate; 4] = [
         name: "Top-down mover",
         description: "Move a sprite around with arrow keys",
         source: MOVER,
+        // MOVER's _init sets palette index 1 to the light color it draws with.
+        sprite_seed: &[(0, blob(1))],
     },
     CartTemplate {
         id: "tap-to-score",
         name: "Tap to score",
         description: "Bouncing ball with score and high-score HUD",
         source: SCORE,
+        // SCORE's _init sets palette index 1 to white for the ball.
+        sprite_seed: &[(0, blob(1))],
     },
     CartTemplate {
         id: "tile-world",
         name: "Tile world",
         description: "Map drawing and per-cell collision",
         source: TILES,
+        // TILES' _init sets index 1 = floor gray, index 2 = wall gray,
+        // index 3 = player red; tile ids 1/2 index sprites 1/2 directly.
+        sprite_seed: &[(0, blob(3)), (1, solid(1)), (2, solid(2))],
     },
     CartTemplate {
         id: "blank",
         name: "Blank",
         description: "Empty _init and _update starting point",
         source: BLANK,
+        sprite_seed: &[],
     },
 ];
 
 pub fn find(id: &str) -> Option<&'static CartTemplate> {
     TEMPLATES.iter().find(|template| template.id == id)
+}
+
+/// Builds a full sprite-sheet-length buffer (`SPRITE_SHEET_LEN` bytes,
+/// `SPRITE_BYTES` per sprite) from a template's `sprite_seed`, ready to hand
+/// to `cart::apply_sections` under `SectionKind::SpriteSheet`. Empty for
+/// templates with no seed, matching today's blank-sheet behavior.
+pub fn sprite_sheet_bytes(template: &CartTemplate) -> Vec<u8> {
+    use caiven_core::memory::{SPRITE_BYTES, SPRITE_SHEET_LEN};
+
+    let mut sheet = vec![0u8; SPRITE_SHEET_LEN];
+    for (index, pixels) in template.sprite_seed {
+        let offset = *index as usize * SPRITE_BYTES;
+        sheet[offset..offset + SPRITE_BYTES].copy_from_slice(pixels);
+    }
+    sheet
 }
 
 pub fn summaries() -> Vec<CartTemplateSummary> {
@@ -238,5 +295,82 @@ mod tests {
     #[test]
     fn unknown_template_is_rejected() {
         assert!(find("not-a-template").is_none());
+    }
+
+    #[test]
+    fn blank_template_has_no_sprite_seed() {
+        let blank = find("blank").expect("blank template");
+        assert!(blank.sprite_seed.is_empty());
+        assert!(sprite_sheet_bytes(blank).iter().all(|&byte| byte == 0));
+    }
+
+    #[test]
+    fn every_visual_template_seeds_a_visible_sprite_0() {
+        // Every template whose script draws with `sprite(0, ...)` (all but
+        // `blank`) must ship at least one non-transparent pixel in sprite 0,
+        // otherwise the template's first Run renders nothing.
+        for template in TEMPLATES.iter().filter(|t| t.id != "blank") {
+            let sheet = sprite_sheet_bytes(template);
+            let sprite_0 = &sheet[..caiven_core::memory::SPRITE_BYTES];
+            assert!(
+                sprite_0.iter().any(|&pixel| pixel != 0),
+                "{} seeds no visible pixels in sprite 0",
+                template.id
+            );
+        }
+    }
+
+    #[test]
+    fn seeded_sprites_round_trip_through_vm_and_disk() {
+        use crate::app::cart_io::{self, CartMeta};
+        use caiven_cart::{CartHeader, SectionKind};
+        use caiven_vm::AssetBankKind;
+
+        let dir = std::env::temp_dir().join(format!(
+            "caiven-template-seed-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp project dir");
+
+        let template = find("tile-world").expect("tile-world template");
+        let mut console = ConsoleCore::new().expect("console core");
+        console.reset_vm();
+        cart::apply_sections(
+            &mut console.vm,
+            &[(SectionKind::SpriteSheet, sprite_sheet_bytes(template))],
+        );
+
+        // Sprite bank in RAM reflects the seed immediately.
+        let live = console
+            .vm
+            .asset_bank_bytes(AssetBankKind::Sprites, 0)
+            .expect("sprite bank 0");
+        assert!(live.iter().any(|&pixel| pixel != 0));
+
+        // And it round-trips through a project save/load, exactly like a
+        // real `new_project` -> disk -> reopen cycle.
+        let meta = CartMeta {
+            path: dir.clone(),
+            header: CartHeader::default_for("seed-test"),
+            program: Vec::new(),
+            sections: cart::default_section_layout(),
+            lua_source: Some(template.source.to_string()),
+        };
+        cart_io::save(&console.vm, &meta, &[]).expect("save project");
+
+        let mut reloaded = ConsoleCore::new().expect("console core");
+        reloaded.reset_vm();
+        cart::load_cart(&mut reloaded.vm, &dir, &reloaded.input, &reloaded.font)
+            .expect("reload project");
+        let reloaded_bank = reloaded
+            .vm
+            .asset_bank_bytes(AssetBankKind::Sprites, 0)
+            .expect("reloaded sprite bank 0");
+        assert_eq!(reloaded_bank, live);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
