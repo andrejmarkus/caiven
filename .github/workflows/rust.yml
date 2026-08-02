@@ -372,7 +372,12 @@ jobs:
             patchelf \
             pkg-config
       - name: Build native installers
-        uses: tauri-apps/tauri-action@v1
+        # Pinned to the commit behind the v1 tag (2026-06-29), not the
+        # floating tag: this step now receives signing secrets, and a tag
+        # can be repointed by the upstream repo without our review. Verify
+        # https://github.com/tauri-apps/tauri-action/releases/tag/v1
+        # matches before bumping.
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f
         # Signing is secret-gated and off by default: unset APPLE_*/WINDOWS_*
         # secrets mean tauri-action falls back to the ad-hoc/unsigned build
         # already configured in tauri.conf.json (see README "Code signing
