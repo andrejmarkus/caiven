@@ -1035,7 +1035,7 @@
         <aside class="tour-card">
           <div class="tour-steps-mini">
             {#each [['1','Write'],['2','Run'],['3','Draw'],['4','Ship']] as step, i}
-              <div class:done={i < 2}><i>{i < 2 ? '✓' : step[0]}</i><span><strong>{step[1]}</strong><small>{['Real Lua, familiar tools.','See every change instantly.','Paint sprites and maps.','Pack or publish.'][i]}</small></span></div>
+              <div><i>{step[0]}</i><span><strong>{step[1]}</strong><small>{['Real Lua, familiar tools.','See every change instantly.','Paint sprites and maps.','Pack or publish.'][i]}</small></span></div>
             {/each}
           </div>
           <Button variant="ghost" onclick={onTour}>Take 4-step tour<ArrowRight size={15} /></Button>
