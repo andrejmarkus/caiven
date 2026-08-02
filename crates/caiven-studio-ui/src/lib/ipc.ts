@@ -196,6 +196,21 @@ export async function exportCartridge(path: string): Promise<void> {
   await invoke('studio_export', { path });
 }
 
+export async function chooseExportWebPath(title: string): Promise<string | null> {
+  if (!isTauri()) return null;
+  return saveDialog({
+    title: 'Export to web',
+    defaultPath: `${title || 'cart'}.html`,
+    filters: [{ name: 'Web page', extensions: ['html'] }],
+  });
+}
+
+/// Self-contained, offline-playable `.html` (SPEC §I `export-web`) — inlines
+/// the caiven-web WASM runtime, the packed cart, and the audio worklet.
+export async function exportCartridgeWeb(path: string): Promise<void> {
+  await invoke('studio_export_web', { path });
+}
+
 export async function transport(action: 'run' | 'pause' | 'reset' | 'step'): Promise<TickSnapshot> {
   if (!isTauri()) {
     fallback.runState = action === 'pause' || action === 'step' ? 'paused' : 'running';

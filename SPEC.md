@@ -43,6 +43,11 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
   community, social, discovery, legacy. DB via sea-orm, schema in `crates/migration`.
 - release: tag `v*` → `machine-artifacts` (Linux/Win/macOS x64+arm64) + `studio-bundles`
   (appimage/deb, nsis/msi, dmg). Version synced across Cargo.toml, `tauri.conf.json`, package.json.
+- export-web: `caiven export --web <project> -o game.html` + Studio export dialog "Web (HTML)"
+  → 1 self-contained `.html` (inlined: base64 packed `.cav` + base64 wasm + emscripten `caiven_web.js`
+  + audio-worklet + vanilla player js). Reuses `caiven-web` WASM, ⊥ rebuild. `Module.instantiateWasm`
+  hook (⊥ `wasmBinary` — this emscripten build ignores that override) skips wasm fetch; worklet via
+  `Blob` URL. ⊥ external network at runtime.
 
 ## §V INVARIANTS
 
@@ -64,11 +69,22 @@ V15: cargo audit (ignore RUSTSEC-2023-0071) + npm audit high pass before securit
 V16: tag push | workflow_dispatch release ⊥ without explicit user approval.
 V17: `handlers/legacy.rs` ⊥ delete without checking dependents.
 V18: Port HTTP layer = `rocket` (`caiven-port/Cargo.toml:25`) — ⊥ introduce 2nd web framework (axum/actix/warp).
+V19: exported `.html` self-contained — ⊥ external fetch/CDN/network at runtime; wasm+cart+worklet
+     inlined. Opening `file://` runs fully offline.
+V20: web player = same `caiven-vm` via `caiven-web` WASM — API parity with native (⊥ divergent subset);
+     sandbox V8 holds in browser (cart Lua ⊥ reach fs/net/process).
+V21: cart embedded verbatim (base64 of packed `.cav`); load path = same `caiven_cart::parse` (V4
+     bounds-check applies to the embedded bytes).
 
 ## §T TASKS
 
 id|status|task|cites
 T1|x|distill initial SPEC.md from repo|-
+T2|x|extract framework-agnostic vanilla player js from test.html + player.ts AudioEngine (configurable wasm/worklet source, instantiateWasm hook)|V20
+T3|x|web-export builder: template include_str! + inline base64 wasm/cart + worklet + player js|V19,V21,I.export-web
+T4|x|CLI \`export --web\` subcommand in cli.rs|I.export-web
+T5|x|Studio studio_export_web Tauri cmd + export dialog "Web (HTML)" option|V9,I.studio-cmd
+T6|x|verify exported html runs offline (file://, network-blocked)|V19,V20
 
 ## §B BUGS
 

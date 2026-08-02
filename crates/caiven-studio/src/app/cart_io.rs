@@ -127,6 +127,43 @@ pub(crate) fn export_binary(
     write_binary(&extra, meta, dest, modules)
 }
 
+/// Packs a cart to bytes via a throwaway temp `.cav` file, read back
+/// immediately after — `caiven_cart::write` has no in-memory variant, so
+/// this is the only way to get packed bytes without a permanent output
+/// file. Shared by `export_web` here and the CLI's `Export --web` handler
+/// (`crate::app::cli`) so this sequence exists in exactly one place.
+pub(crate) fn pack_to_bytes(
+    header: &CartHeader,
+    program: &[u8],
+    extra: &[(SectionKind, Vec<u8>)],
+) -> Result<Vec<u8>> {
+    let temp = crate::studio::cart::temp_cav_path();
+    caiven_cart::write(&temp, header, program, extra)
+        .with_context(|| format!("failed to pack cart to {}", temp.display()))?;
+    let packed = std::fs::read(&temp)
+        .with_context(|| format!("failed to read packed cart from {}", temp.display()));
+    let _ = std::fs::remove_file(&temp);
+    packed
+}
+
+/// Builds a self-contained web export (single offline-playable `.html`) from
+/// the VM's current RAM sections, reusing the same bundling/minify path as
+/// `export_binary`.
+pub(crate) fn export_web(
+    vm: &Vm,
+    meta: &CartMeta,
+    dest: &Path,
+    modules: &[(PathBuf, String)],
+) -> Result<()> {
+    let extra = gather_sections(vm, meta);
+    let (program, extra) = distribution_content(&extra, meta, meta.lua_source.as_deref(), modules);
+    let packed = pack_to_bytes(&meta.header, &program, &extra)?;
+
+    let html = crate::app::web_export::build_web_html(&packed, &meta.header.title);
+    std::fs::write(dest, html)
+        .with_context(|| format!("failed to write web export to {}", dest.display()))
+}
+
 fn write_binary(
     extra: &[(SectionKind, Vec<u8>)],
     meta: &CartMeta,

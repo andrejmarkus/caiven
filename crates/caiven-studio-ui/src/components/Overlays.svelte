@@ -4,7 +4,7 @@
   import {
     Play, Upload, Package, Image, Layers, ChevronsLeftRight,
     Check, LoaderCircle, X, Pause, Minimize2, Sparkles, FilePlus2,
-    FileCode2, FolderPlus, Gamepad2, Grid3X3, Trophy, Undo2, Redo2,
+    FileCode2, FolderPlus, Gamepad2, Grid3X3, Trophy, Undo2, Redo2, Globe,
   } from '@lucide/svelte';
   import { Button } from '@caiven/ui/button';
   import { Input } from '@caiven/ui/input';
@@ -22,6 +22,7 @@
     onNavigate: (screen: Screen) => void;
     onRun: () => void;
     onExport: () => void;
+    onExportWeb: () => void;
     onPublish: () => void;
     title: string;
     author: string;
@@ -55,7 +56,7 @@
     onOpenControls: () => void;
   }
 
-  let { overlay, running, palette, onClose, onNavigate, onRun, onExport, onPublish,
+  let { overlay, running, palette, onClose, onNavigate, onRun, onExport, onExportWeb, onPublish,
     title, author, meta, portAccount, publishProgress, publishError, publishDone,
     onStartPublish, onLinkPort, onTourDone, onOpenProject, onNewProject, onCloseProject,
     templates, onCreateProject, frameData, api, onInsertBuiltin, onCreateModule,
@@ -99,6 +100,7 @@
     { group: 'Suggested', name: 'Publish to port', detail: 'new version', keys: '⇧⌘P', icon: Upload, action: onPublish },
     { group: 'Suggested', name: 'Controls', detail: 'rebind keys', keys: '', icon: Gamepad2, action: onOpenControls },
     { group: 'Suggested', name: 'Pack cartridge (.cav)', detail: 'distribution build', keys: '', icon: Package, action: onExport },
+    { group: 'Suggested', name: 'Export to web (.html)', detail: 'plays offline, no server needed', keys: '', icon: Globe, action: onExportWeb },
     { group: 'Suggested', name: 'Open project', detail: 'folder or cart', keys: '', icon: Package, action: onOpenProject },
     { group: 'Suggested', name: 'New cart', detail: 'choose a starting template', keys: '', icon: Sparkles, action: onNewProject },
     { group: 'Suggested', name: 'Close cart', detail: title, keys: '', icon: X, action: onCloseProject },

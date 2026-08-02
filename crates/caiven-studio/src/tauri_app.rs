@@ -344,6 +344,10 @@ enum CoreCommand {
         path: PathBuf,
         reply: mpsc::Sender<Result<(), String>>,
     },
+    ExportWeb {
+        path: PathBuf,
+        reply: mpsc::Sender<Result<(), String>>,
+    },
     Transport {
         action: String,
         reply: mpsc::Sender<Result<TickPayload, String>>,
@@ -1367,6 +1371,19 @@ impl StudioCore {
         cart_io::export_binary(&self.console.vm, meta, path, &modules)
             .map_err(|error| format!("{error:#}"))
     }
+
+    fn export_web(&mut self, path: &Path) -> Result<(), String> {
+        let modules = self.modules();
+        let entry = self.sources.first().map(|source| source.text.clone());
+        let Some(meta) = self.cart.as_mut() else {
+            return Err("Nothing to export".to_string());
+        };
+        if let Some(entry) = entry {
+            meta.lua_source = Some(entry);
+        }
+        cart_io::export_web(&self.console.vm, meta, path, &modules)
+            .map_err(|error| format!("{error:#}"))
+    }
 }
 
 /// The additional-bank `SectionKind` (id != 0 wrapper) that round-trips a
@@ -1514,6 +1531,9 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
         }
         CoreCommand::Export { path, reply } => {
             let _ = reply.send(studio.export(&path));
+        }
+        CoreCommand::ExportWeb { path, reply } => {
+            let _ = reply.send(studio.export_web(&path));
         }
         CoreCommand::Transport { action, reply } => {
             let _ = reply.send(studio.transport(&action));
@@ -1903,6 +1923,18 @@ fn studio_save(state: State<'_, StudioBridge>) -> Result<Vec<String>, String> {
 #[tauri::command]
 fn studio_export(path: PathBuf, state: State<'_, StudioBridge>) -> Result<(), String> {
     state.request(|reply| CoreCommand::Export { path, reply })
+}
+
+/// Exports the current project as a single self-contained, offline-playable
+/// `.html` (SPEC §I `export-web`) — inlines the `caiven-web` WASM runtime,
+/// the packed cart, and the audio worklet; no rebuild, no network at
+/// runtime. `path` is a full destination file path chosen by the frontend
+/// via `tauri-plugin-dialog`'s save dialog, same trust boundary as
+/// `studio_export` (V9 — this is IPC input, not re-validated beyond what
+/// `std::fs::write` itself enforces).
+#[tauri::command]
+fn studio_export_web(path: PathBuf, state: State<'_, StudioBridge>) -> Result<(), String> {
+    state.request(|reply| CoreCommand::ExportWeb { path, reply })
 }
 
 #[tauri::command]
@@ -2319,6 +2351,7 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
             studio_write_buffer,
             studio_save,
             studio_export,
+            studio_export_web,
             studio_transport,
             studio_set_input,
             studio_write_sprite,

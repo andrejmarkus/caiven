@@ -16,6 +16,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 anyhow = { workspace = true }
+base64 = { workspace = true }
 clap = { workspace = true }
 env_logger = { workspace = true }
 caiven-core = { workspace = true }

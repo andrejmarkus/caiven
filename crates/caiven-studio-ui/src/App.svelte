@@ -16,7 +16,7 @@
     PublishProgress, Screen, StudioBootstrap, TickSnapshot,
   } from './types';
   import {
-    bootstrap, chooseExportPath, chooseProject, exportCartridge, fallbackExamples, fallbackTemplates, isTauri, listExamples, listTemplates, newProject,
+    bootstrap, chooseExportPath, chooseExportWebPath, chooseProject, exportCartridge, exportCartridgeWeb, fallbackExamples, fallbackTemplates, isTauri, listExamples, listTemplates, newProject,
     openProject, readAssetIndex, readCartSize, readFrame, readMemory, readTick, remixExample, saveProject, setInput, transport,
     addWatch, assetBank, audioTransport, clearOutput, closeProject, COLLISION_LEN, createModule, MEMORY, portDownload, portLinkCancel, portLinkPoll, portLinkStart, portListCarts,
     portLogout, portPublish, portSession, portSetUrl, scanLibrary, toggleBreakpoint, writeBuffer,
@@ -777,6 +777,20 @@
     }
   }
 
+  async function doExportWeb() {
+    try {
+      const path = await chooseExportWebPath(studio.title);
+      if (!path) return;
+      clearTimeout(writeTimer);
+      await Promise.all(studio.sources.filter((source) => source.dirty).map((source) => writeBuffer(source.path, source.text)));
+      await exportCartridgeWeb(path);
+      status = `Exported web build ${tidyPath(path)}`;
+      showToast(`Exported ${path}`);
+    } catch (error) {
+      showToast(`Web export failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   function handleKeys(event: KeyboardEvent) {
     const target = event.target as HTMLElement | null;
     const editing = target?.matches('input, textarea, [contenteditable="true"]');
@@ -1121,6 +1135,7 @@
     onNavigate={navigate}
     onRun={() => void doTransport(running ? 'pause' : 'run')}
     onExport={doExport}
+    onExportWeb={doExportWeb}
     onPublish={showPublish}
     title={studio.title}
     author={studio.author}

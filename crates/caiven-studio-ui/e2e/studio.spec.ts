@@ -15,6 +15,17 @@ test('tour, template, folder dialog, and new cart flow', async ({ page, e2e }) =
   expect((await e2e.calls()).some((call) => call.command === 'studio_new_project' && call.args.templateId === 'blank')).toBeTruthy();
 });
 
+test('command palette exports a self-contained web build via studio_export_web', async ({ page, e2e }) => {
+  await e2e.queueDialog('save', '/carts/test-cart/game.html');
+  await page.keyboard.press('Control+K');
+  await expect(page.getByPlaceholder('Search or run a command')).toBeVisible();
+  await page.getByText('Export to web (.html)', { exact: true }).click();
+  await expect(page.getByPlaceholder('Search or run a command')).toHaveCount(0);
+  await expect.poll(async () => (await e2e.calls()).some((call) => call.command === 'studio_export_web')).toBeTruthy();
+  const call = (await e2e.calls()).find((call) => call.command === 'studio_export_web');
+  expect(call?.args.path).toBe('/carts/test-cart/game.html');
+});
+
 test('code, runtime, shortcuts, watches, module, drawer, and console flow', async ({ page, e2e }) => {
   const editor = page.locator('.cm-content');
   await editor.click();

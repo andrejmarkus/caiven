@@ -1029,6 +1029,7 @@ name = "caiven-studio"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "caiven-cart",
  "caiven-core",
  "caiven-vm",

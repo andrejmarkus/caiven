@@ -36,6 +36,24 @@ enum Command {
         #[arg(long)]
         no_minify: bool,
     },
+    /// Export a project to a distribution artifact beyond a plain .cav
+    Export {
+        /// Path to a project dir (or its caiven.toml)
+        project: PathBuf,
+        /// Output path (.html when --web is set)
+        #[arg(short, long)]
+        out: PathBuf,
+        /// Produce a single self-contained .html that plays the cart
+        /// fully offline (inlines the caiven-web WASM runtime + cart +
+        /// audio worklet) — currently the only supported export kind;
+        /// use `build` for a plain .cav.
+        #[arg(long)]
+        web: bool,
+        /// Keep Lua source as-is (comments, indentation) instead of
+        /// stripping it for distribution
+        #[arg(long)]
+        no_minify: bool,
+    },
     /// Unpack a binary .cav cart into an editable project directory
     Unpack {
         /// Path to the .cav file
@@ -243,6 +261,35 @@ pub fn run() -> Result<()> {
             caiven_cart::write(out, &cart.header, &cart.program, &extra)
                 .with_context(|| format!("failed to write cart to {}", out.display()))?;
             println!("built {}", out.display());
+            Ok(())
+        }
+        Some(Command::Export {
+            project,
+            out,
+            web,
+            no_minify,
+        }) => {
+            if !web {
+                anyhow::bail!(
+                    "`export` currently only supports --web; use `build` for a plain .cav"
+                );
+            }
+            let mut cart = caiven_cart::load_project(project)
+                .with_context(|| format!("failed to load project from {}", project.display()))?;
+            if !no_minify {
+                caiven_cart::minify_cart_lua(&mut cart.sections);
+            }
+            let extra: Vec<(caiven_cart::SectionKind, Vec<u8>)> = cart
+                .sections
+                .into_iter()
+                .map(|s| (s.kind, s.data))
+                .collect();
+
+            let packed = crate::app::cart_io::pack_to_bytes(&cart.header, &cart.program, &extra)?;
+            let html = crate::app::web_export::build_web_html(&packed, &cart.header.title);
+            std::fs::write(out, html)
+                .with_context(|| format!("failed to write web export to {}", out.display()))?;
+            println!("exported web build {}", out.display());
             Ok(())
         }
         Some(Command::Unpack { cart, out }) => {

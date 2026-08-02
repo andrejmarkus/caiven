@@ -234,6 +234,7 @@ function installBridge() {
     if (command === 'studio_open_project' || command === 'studio_new_project') { if (command === 'studio_new_project') { sources = [{ path: `${args.path}/main.lua`, name: 'main.lua', text: '', dirty: false }]; persistSources(); } return { ...bootstrap(), path: String(args.path), title: command === 'studio_new_project' ? 'new-cart' : 'test-cart' }; }
     if (command === 'studio_close_project') return { ...bootstrap(), connected: false, title: '', path: '', sources: [] };
     if (command === 'studio_export') return null;
+    if (command === 'studio_export_web') return null;
     if (command === 'studio_audio_transport') return { ...audio(), [`${String(args.kind)}Active`]: args.action === 'play', [`${String(args.kind)}${args.kind === 'sfx' ? 'Id' : 'Pattern'}`]: Number(args.id) };
     if (command === 'studio_scan_library') return [{ path: '/library/moon', name: 'moon', title: 'Moon', author: 'tester', modified: 1, project: true }];
     if (command === 'port_session') return port;
