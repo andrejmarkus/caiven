@@ -355,6 +355,11 @@ export async function portLogout(): Promise<PortSession> {
   return invoke<PortSession>('port_logout');
 }
 
+export async function portSetUrl(url: string): Promise<PortSession> {
+  if (!isTauri()) return { authenticated: false, username: '', portUrl: url || 'http://localhost:8080' };
+  return invoke<PortSession>('port_set_url', { url });
+}
+
 export async function portListCarts(query = '', sort = 'new', page = 0): Promise<PortCartList> {
   return invoke<PortCartList>('port_list_carts', { query, sort, page });
 }

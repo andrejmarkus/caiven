@@ -2346,6 +2346,7 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
             crate::port_api::port_link_poll,
             crate::port_api::port_link_cancel,
             crate::port_api::port_logout,
+            crate::port_api::port_set_url,
             crate::port_api::port_list_carts,
             crate::port_api::port_download,
             crate::port_api::studio_scan_library,

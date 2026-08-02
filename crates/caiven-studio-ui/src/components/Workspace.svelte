@@ -104,6 +104,7 @@
     onPortLink: () => void;
     onPortLinkCancel: () => void;
     onPortLogout: () => void;
+    onSetServerUrl: (url: string) => void;
     onInsertBuiltin: (name: string) => void;
     onOpenSource: (path: string, line: number | null, column?: number | null) => void;
     /** Lets App mirror the active editor's undo/redo availability into the ⌘K command palette. */
@@ -119,8 +120,11 @@
     onBreakpoint, onMeta, onCreateModule, onPalette, onTour, onOpen, onNew, onRemix,
     localCarts, portCarts, portAccount, portBusy, portError, portLinkPending, portLinkExpiresAt, onScanLibrary,
     onSearchPort, onOpenLocal, onRemoveRecent, onDownloadPort, onOpenPortAccount, onPortLink, onPortLinkCancel, onPortLogout,
-    onInsertBuiltin, onOpenSource, onHistoryStatus,
+    onInsertBuiltin, onOpenSource, onHistoryStatus, onSetServerUrl,
   }: Props = $props();
+
+  let serverUrlDraft = $state('');
+  $effect(() => { serverUrlDraft = portAccount.portUrl; });
 
   let selectedColor = $state(8);
   let selectedSlot = $state(9);
@@ -1687,6 +1691,7 @@
           <span class="account-status">Not linked</span>
           <h2>Link Port account</h2>
           <p>Required before publishing. The browser handles sign-in — Studio never sees your password.</p>
+          <label class="server-url-field">Port server<Input value={serverUrlDraft} placeholder="http://localhost:8080" onblur={(event) => { serverUrlDraft = event.currentTarget.value; onSetServerUrl(serverUrlDraft); }} onkeydown={(event) => { if (event.key === 'Enter') { event.currentTarget.blur(); } }} /><small>Self-hosting or joining a community instance? Point Studio at it here — leave blank for {portAccount.portUrl || 'the default'}.</small></label>
           <Button disabled={portBusy} onclick={onPortLink}>Link Port account</Button>
         {/if}
         {#if portError}

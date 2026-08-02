@@ -121,24 +121,58 @@ pub(crate) struct PublishMeta {
     pub frames: u32,
 }
 
+fn config_dir() -> Option<PathBuf> {
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        return Some(PathBuf::from(appdata).join("caiven-studio"));
+    }
+    std::env::var("HOME")
+        .ok()
+        .map(|home| PathBuf::from(home).join(".config/caiven-studio"))
+}
+
+fn token_file_path() -> Option<PathBuf> {
+    config_dir().map(|dir| dir.join("port_token"))
+}
+
+fn url_file_path() -> Option<PathBuf> {
+    config_dir().map(|dir| dir.join("port_url"))
+}
+
+/// Trims trailing slashes and rejects anything that isn't a well-formed
+/// `http(s)://` URL. This is a Tauri IPC input boundary — validate before
+/// persisting or using it to build outgoing requests.
+fn validate_port_url(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Err("Server URL cannot be empty".to_string());
+    }
+    if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
+        return Err("Server URL must start with http:// or https://".to_string());
+    }
+    if trimmed.len() <= "https://".len() {
+        return Err("Server URL is missing a host".to_string());
+    }
+    Ok(trimmed.to_string())
+}
+
+fn load_saved_url() -> Option<String> {
+    let text = std::fs::read_to_string(url_file_path()?).ok()?;
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 fn port_url() -> String {
+    if let Some(saved) = load_saved_url() {
+        return saved;
+    }
     std::env::var("CAIVEN_PORT_URL")
         .unwrap_or_else(|_| "http://localhost:8080".to_string())
         .trim_end_matches('/')
         .to_string()
-}
-
-fn token_file_path() -> Option<PathBuf> {
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        return Some(
-            PathBuf::from(appdata)
-                .join("caiven-studio")
-                .join("port_token"),
-        );
-    }
-    std::env::var("HOME")
-        .ok()
-        .map(|home| PathBuf::from(home).join(".config/caiven-studio/port_token"))
 }
 
 fn load_token() -> Option<(String, String)> {
@@ -270,6 +304,29 @@ pub(crate) fn port_logout() -> Result<PortSession, String> {
             Err(error) => return Err(error.to_string()),
         }
     }
+    Ok(port_session())
+}
+
+/// Persists a custom Port server URL for creators self-hosting or using a
+/// non-default community instance. An empty `url` clears the override and
+/// falls back to `CAIVEN_PORT_URL` / the localhost default.
+#[tauri::command]
+pub(crate) fn port_set_url(url: String) -> Result<PortSession, String> {
+    let path = url_file_path().ok_or_else(|| "No config directory available".to_string())?;
+    if url.trim().is_empty() {
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.to_string()),
+        }
+        return Ok(port_session());
+    }
+    let validated = validate_port_url(&url)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    std::fs::write(&path, &validated)
+        .map_err(|error| format!("Could not save port URL: {error}"))?;
     Ok(port_session())
 }
 
@@ -485,11 +542,117 @@ pub(crate) fn publish(
 
 #[cfg(test)]
 mod tests {
-    use super::url_encode;
+    use super::{load_saved_url, port_set_url, url_encode, validate_port_url};
+    use std::sync::Mutex;
 
     #[test]
     fn encodes_port_query() {
         assert_eq!(url_encode("cave cart/α"), "cave%20cart%2F%CE%B1");
         assert_eq!(url_encode("tag-safe_1"), "tag-safe_1");
+    }
+
+    #[test]
+    fn validates_port_url_scheme_and_host() {
+        assert_eq!(
+            validate_port_url("http://example.com/"),
+            Ok("http://example.com".to_string())
+        );
+        assert_eq!(
+            validate_port_url("  https://cave.example/  "),
+            Ok("https://cave.example".to_string())
+        );
+        assert!(validate_port_url("").is_err());
+        assert!(validate_port_url("   ").is_err());
+        assert!(validate_port_url("ftp://example.com").is_err());
+        assert!(validate_port_url("https://").is_err());
+        assert!(validate_port_url("example.com").is_err());
+    }
+
+    /// Guards tests that mutate the process-wide `HOME` env var: `set_var`
+    /// is `unsafe` under edition 2024 because concurrent getenv/setenv from
+    /// other threads is a real race, so tests touching it run serialized.
+    static HOME_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn persists_and_clears_custom_port_url() {
+        let _guard = HOME_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "caiven-port-url-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let previous_home = std::env::var("HOME").ok();
+        let previous_appdata = std::env::var("APPDATA").ok();
+        // SAFETY: serialized by HOME_ENV_LOCK; no other test in this binary
+        // reads/writes HOME or APPDATA concurrently.
+        unsafe {
+            std::env::set_var("HOME", &dir);
+            std::env::remove_var("APPDATA");
+        }
+
+        assert_eq!(load_saved_url(), None);
+
+        let session = port_set_url("http://cave.example:9090/".to_string()).unwrap();
+        assert_eq!(session.port_url, "http://cave.example:9090");
+        assert_eq!(
+            load_saved_url(),
+            Some("http://cave.example:9090".to_string())
+        );
+
+        let cleared = port_set_url(String::new()).unwrap();
+        assert_eq!(cleared.port_url, "http://localhost:8080");
+        assert_eq!(load_saved_url(), None);
+
+        // SAFETY: same serialization guard as above, restoring prior state.
+        unsafe {
+            match previous_home {
+                Some(value) => std::env::set_var("HOME", value),
+                None => std::env::remove_var("HOME"),
+            }
+            match previous_appdata {
+                Some(value) => std::env::set_var("APPDATA", value),
+                None => std::env::remove_var("APPDATA"),
+            }
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn rejects_invalid_url_without_persisting() {
+        let _guard = HOME_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "caiven-port-url-reject-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let previous_home = std::env::var("HOME").ok();
+        let previous_appdata = std::env::var("APPDATA").ok();
+        // SAFETY: serialized by HOME_ENV_LOCK.
+        unsafe {
+            std::env::set_var("HOME", &dir);
+            std::env::remove_var("APPDATA");
+        }
+
+        assert!(port_set_url("not-a-url".to_string()).is_err());
+        assert_eq!(load_saved_url(), None);
+
+        // SAFETY: same serialization guard as above, restoring prior state.
+        unsafe {
+            match previous_home {
+                Some(value) => std::env::set_var("HOME", value),
+                None => std::env::remove_var("HOME"),
+            }
+            match previous_appdata {
+                Some(value) => std::env::set_var("APPDATA", value),
+                None => std::env::remove_var("APPDATA"),
+            }
+        }
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

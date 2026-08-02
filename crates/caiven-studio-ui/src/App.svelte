@@ -19,7 +19,7 @@
     bootstrap, chooseExportPath, chooseProject, exportCartridge, fallbackExamples, fallbackTemplates, isTauri, listExamples, listTemplates, newProject,
     openProject, readAssetIndex, readCartSize, readFrame, readMemory, readTick, remixExample, saveProject, setInput, transport,
     addWatch, assetBank, audioTransport, clearOutput, closeProject, COLLISION_LEN, createModule, MEMORY, portDownload, portLinkCancel, portLinkPoll, portLinkStart, portListCarts,
-    portLogout, portPublish, portSession, scanLibrary, toggleBreakpoint, writeBuffer,
+    portLogout, portPublish, portSession, portSetUrl, scanLibrary, toggleBreakpoint, writeBuffer,
     removeRecent, removeWatch, writeCollisionCells, writeCollisionTypes, writeMapCells, writeMemory, writeMeta, writePalette, writeSprite,
   } from './lib/ipc';
   import { plural, tidyPath } from './lib/format';
@@ -672,6 +672,11 @@
     try { portAccount = await portLogout(); } catch (error) { showToast(String(error)); }
   }
 
+  async function setServerUrl(url: string) {
+    try { portAccount = await portSetUrl(url); portError = ''; }
+    catch (error) { portError = error instanceof Error ? error.message : String(error); }
+  }
+
   async function doPublish(changelog: string) {
     publishError = '';
     publishDone = '';
@@ -1052,6 +1057,7 @@
           onPortLink={() => void linkPort()}
           onPortLinkCancel={() => void cancelPortLink()}
           onPortLogout={() => void logoutPort()}
+          onSetServerUrl={(url) => void setServerUrl(url)}
           onInsertBuiltin={insertBuiltin}
           onOpenSource={jumpToSource}
           onHistoryStatus={(status) => historyStatus = status}
