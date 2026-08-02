@@ -47,6 +47,17 @@ and Linux (AppImage or .deb) — grab the one matching your OS from the
 
 Install like any normal app, launch **Caiven Studio**, click **New cart**, and jump to the [tutorial below](#-tutorial-your-first-game).
 
+> **First launch warning?** Release builds aren't notarized/signed yet (see
+> [Code signing status](#-code-signing-status)) — your OS will flag the app
+> as untrusted the first time. This is expected, not a sign the download is
+> broken:
+>
+> - **macOS**: Gatekeeper blocks it as "unidentified developer." Right-click
+>   (or Control-click) the app → **Open** → **Open** again in the dialog. Or
+>   from a terminal: `xattr -dr com.apple.quarantine /Applications/Caiven\ Studio.app`.
+> - **Windows**: SmartScreen shows "Windows protected your PC." Click
+>   **More info** → **Run anyway**.
+
 #### 🕹️ Caiven Machine (just run a cart)
 
 Available for Linux, Windows, macOS Apple Silicon, and macOS Intel (archives) —
@@ -349,10 +360,20 @@ created with generated notes and all installers/archives.
 `workflow_dispatch` builds same artifacts for testing without publishing a
 release.
 
+#### 🔏 Code signing status
+
 macOS builds use ad-hoc signing, so they are not notarized; Windows installers
 are unsigned. Public trusted releases need
 [macOS signing/notarization](https://v2.tauri.app/distribute/sign/macos/) and
-[Windows code signing](https://v2.tauri.app/distribute/sign/windows/).
+[Windows code signing](https://v2.tauri.app/distribute/sign/windows/). The
+release workflow (`studio-bundles` in `.github/workflows/rust.yml`) is wired
+to sign automatically once the required secrets
+(`APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD`/`APPLE_SIGNING_IDENTITY`/
+`APPLE_ID`/`APPLE_PASSWORD`/`APPLE_TEAM_ID` for macOS notarization,
+`WINDOWS_CERTIFICATE`/`WINDOWS_CERTIFICATE_PASSWORD` for Windows) are added
+to the repo — builds stay ad-hoc/unsigned when they're unset. Until then,
+see the first-launch bypass steps in
+[Quick Start](#-quick-start-no-rust-no-node-no-build-step).
 
 ---
 

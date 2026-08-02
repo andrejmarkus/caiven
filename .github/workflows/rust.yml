@@ -373,6 +373,21 @@ jobs:
             pkg-config
       - name: Build native installers
         uses: tauri-apps/tauri-action@v1
+        # Signing is secret-gated and off by default: unset APPLE_*/WINDOWS_*
+        # secrets mean tauri-action falls back to the ad-hoc/unsigned build
+        # already configured in tauri.conf.json (see README "Code signing
+        # status"). Add the secrets below in repo settings to activate real
+        # macOS notarization / Windows code signing — no workflow change
+        # needed once they're set.
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         with:
           projectPath: crates/caiven-studio
           tauriScript: npm --prefix ../caiven-studio-ui exec tauri
