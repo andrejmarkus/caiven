@@ -14,6 +14,8 @@ pub mod font;
 #[allow(dead_code)]
 pub mod icon;
 #[allow(dead_code)]
+pub mod input;
+#[allow(dead_code)]
 pub mod settings;
 #[allow(dead_code)]
 pub mod state;

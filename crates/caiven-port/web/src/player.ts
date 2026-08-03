@@ -34,6 +34,7 @@ const KEY_TO_BUTTON: Record<string, number> = {
   k: 5,
   x: 5,
   X: 5,
+  Shift: 6,
 };
 
 // Standard-gamepad mapping button index -> Caiven button.
@@ -44,6 +45,7 @@ const GAMEPAD_TO_BUTTON: Record<number, number> = {
   15: 3, // d-pad right
   0: 4, // A / bottom face button
   1: 5, // B / right face button
+  8: 6, // Back / Select
 };
 
 // Button labels for the on-screen touch d-pad, in Caiven button-index order.

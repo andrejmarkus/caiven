@@ -1,6 +1,6 @@
 use crate::input::button::Button;
 
-const BUTTON_COUNT: usize = 6;
+const BUTTON_COUNT: usize = Button::ALL.len();
 
 /// Current and previous-frame button state. `end_frame` must be called once
 /// per VM frame so `just_pressed` (btnp) can detect edges.

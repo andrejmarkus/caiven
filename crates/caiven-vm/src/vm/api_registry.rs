@@ -60,13 +60,13 @@ pub const BUILTINS: &[ApiEntry] = &[
         name: "button_down",
         params: &[param!("button_index": "u8")],
         returns: "bool",
-        doc: "True while button_index is held down.",
+        doc: "True while button_index is held down. 0=Up 1=Down 2=Left 3=Right 4=A 5=B 6=Select. START is reserved by the console for its pause menu and never reaches a cart.",
     },
     ApiEntry {
         name: "button_pressed",
         params: &[param!("button_index": "u8")],
         returns: "bool",
-        doc: "True on the single frame button_index was first pressed.",
+        doc: "True on the single frame button_index was first pressed. Same indices as button_down; an out-of-range index is always false.",
     },
     ApiEntry {
         name: "draw_text",

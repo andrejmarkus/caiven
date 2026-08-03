@@ -23,6 +23,9 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
 - Shared UI (`caiven-ui`, shadcn-svelte) consumed by studio-ui & port/web;
   boundary enforced `npm run check:ui`.
 - License MPL-2.0. Creators own games/assets, sell royalty-free, source private.
+- `rustfmt.toml` @ repo root pins `style_edition = "2024"` — bare `rustfmt`
+  (editor/hook) otherwise defaults to 2015 import order & reverts committed
+  formatting, then `cargo fmt --check` fails. B1.
 - CI gate: fmt, clippy `-D warnings -A unused-imports`, build+test, cargo audit
   (ignore RUSTSEC-2023-0071), npm audit, cargo doc.
 - No new `unwrap`/`expect`/panic/unchecked-index on production path
@@ -43,7 +46,7 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
 - Machine shell UI = CPU raster (tiny-skia + fontdue) → RGBA buf → SDL texture.
   ⊥ egui | webview | Tauri ∈ Machine.
 - Console shell design = Obsidian & Ember tokens, handoff `Caiven Machine.dc.html`.
-  640×480 primary, 1280×720 desktop. Input = 6 buttons only (Up Down Left Right A B).
+  640×480 primary, 1280×720 desktop.
 - Machine console shell = 11 screens: boot, library (hero carousel), empty,
   cart detail, hand-off/loading, playing, pause, settings, controls remap,
   Port browse, crash. Spec = handoff `Caiven Machine.dc.html` (static canvas) +
@@ -61,9 +64,10 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
 - Out of scope this milestone: tag/search filtering beyond sort chip, Port
   sign-in, save-state management screens, screenshot gallery, firmware update,
   multi-user profiles.
-- `?` START/SELECT reachability: handoff legend assumes menu/select keys. Strict
-  6-button device → Settings+Port as shelf entries & pause via long-press B.
-  Per-device, needs decision before T44/T46.
+- Input set resolved: cart sees Up Down Left Right A B Select (idx 0-6).
+  START = host-reserved (`SystemButton::Start`), ⊥ reach cart Lua — it opens
+  pause menu = player's only exit on handheld. Strict 6-button device →
+  hold B ≥600ms = START (`shell/input.rs`). Resolves earlier `?`.
 
 ## §I INTERFACES
 
@@ -77,8 +81,11 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
 - machine-platform: SDL2 owns window/render/audio/input ∈ `caiven-machine`.
   render: 1 streaming texture @ `config.width`×`config.height`, `Screen::construct`
   reused verbatim. audio: `SDL_OpenAudioDevice` AUDIO_S16SYS, honor obtained spec.
-  input: `Scancode` → `Key` → `Button`; `SDL_GameController` idx 0.
-  `controls.toml` schema unchanged + additive `[gamepad]` table (`DPadUp`/`South`/`East`).
+  input: `Scancode` → `Key` → `Button` | `SystemButton`; `SDL_GameController` idx 0.
+  `controls.toml` additive `[gamepad]` table (`DPadUp`/`South`/`East`) +
+  additive `select`/`start` fields ∈ both tables. defaults: select =
+  ShiftLeft/ShiftRight | `Back`; start = Enter | `Start`.
+  input bound to both start & cart button → START wins, cart binding dropped + warn.
   cli: `--fullscreen`, `--scale <fit|2x|3x>`, `--aspect <square|stretch>`.
 - machine-shell: state = {screen ∈ Boot|Library|Detail|Loading|Playing|Pause|
   Settings|Controls|Port|Crash, sel (== carts.len() → PORT tile), detail_action
@@ -97,6 +104,11 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
   premultiplied RGBA, byte order == console framebuffer (V28).
   faces = static instances /weight (fontdue ⊥ variable axes): Inter 400/500/600,
   Space Grotesk 600/700, JetBrains Mono 400/500/700. subset = ASCII + `·×…’◄►←→`.
+- machine-shell-input: `caiven-machine/src/shell/input.rs` — `ShellInput`
+  translates physical down/up + dt → `ShellButton` stream. ∀ buttons resolve
+  on press except B: B resolves on release (tap → B) | on hold ≥ `LONG_PRESS`
+  600ms (→ Start, fires once, release silent). `b_hold_progress()` → 0..1 |
+  ⊥ once fired. `shell_button(Button)` / `shell_button_from_system(SystemButton)`.
 - machine-shell-nav: `caiven-machine/src/shell/state.rs` — `ShellState` = whole
   graph, ⊥ SDL | raster | fs ∴ fully unit-testable. `press(ShellButton) →
   Option<Effect>`; `tick(dt)` drives boot handover (wall-clock, V35).
@@ -232,6 +244,13 @@ V49: `Playing` screen consumes only START (V37) — ∀ other buttons → cart.
 Remap `listening` swallows ∀ nav presses until `bind_captured()`.
 V50: library cursor range = `0..=cart_count`; index == `cart_count` → PORT
 tile. `set_cart_count` re-clamps ∴ delete/download ⊥ leave dangling cursor.
+V51: `Button::Select` = idx 6, additive — idx 0-5 ⊥ move ∀ (carts on disk
+hard-code them). idx ∉ 0..6 → `false`, ⊥ error. Parity: native + Studio
+preview + web player all map it (V20).
+V52: START ⊥ ∈ `Button` ∴ ⊥ reachable from cart Lua ∀ paths. `SystemButton`
+separate map ∈ `InputMap`. Cart ⊥ able to hold pause menu hostage.
+V53: ∀ device → shell reachable: no physical START → hold B ≥600ms. ⊥ ship
+screen whose only exit needs a button the device may lack.
 
 ## §R RESEARCH
 
@@ -302,7 +321,12 @@ T48|.|Port browse: search/sort, result rows, download → append to library|I.ma
 T49|.|crash screen from mlua error + frame_count|V39,T35
 T50|.|save states per cart under saves/ keyed by cart id|I.machine-shell,T45
 T51|.|measure shell fps @640×480 on Cortex-A7-class device|V42,V32
+T52|x|pin `style_edition = "2024"` in root rustfmt.toml|B1
+T53|x|`Button::Select` idx 6 + `SystemButton::Start`; controls.toml `select`/`start` ∈ both tables, defaults + START-wins collision rule|V51,V52,V30
+T54|x|`shell/input.rs` — hold B ≥600ms → START; Button/SystemButton → ShellButton|V53,I.machine-shell-input
+T55|x|docs+parity: README API & controls tables, api_registry doc strings, Studio keymap idx 6, web-export/port/test.html key+gamepad maps|V51,V20,V2
 
 ## §B BUGS
 
 id|date|cause|fix
+B1|2026-08-03|bare `rustfmt` (editor/hook) defaults to 2015 style edition → reverts 2024 import order in committed files, `cargo fmt --check` then fails|root `rustfmt.toml` `style_edition = "2024"`, T52

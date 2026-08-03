@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use log::warn;
 use serde::Deserialize;
 
-use crate::input::{Button, Key, PadButton};
+use crate::input::{Button, Key, PadButton, SystemButton};
 
 #[derive(Deserialize)]
 struct ControlsFile {
@@ -27,6 +27,13 @@ struct ControlsSection {
     a: Vec<String>,
     #[serde(default = "default_b")]
     b: Vec<String>,
+    /// Added after the original six. Absent in files written before SELECT
+    /// existed, so it falls back like everything else.
+    #[serde(default = "default_select")]
+    select: Vec<String>,
+    /// START never reaches a cartridge — it opens the pause menu.
+    #[serde(default = "default_start")]
+    start: Vec<String>,
 }
 
 /// Optional `[gamepad]` table. Absent in every `controls.toml` written before
@@ -45,6 +52,10 @@ struct GamepadSection {
     a: Vec<String>,
     #[serde(default = "default_pad_b")]
     b: Vec<String>,
+    #[serde(default = "default_pad_select")]
+    select: Vec<String>,
+    #[serde(default = "default_pad_start")]
+    start: Vec<String>,
 }
 
 fn default_up() -> Vec<String> {
@@ -65,6 +76,12 @@ fn default_a() -> Vec<String> {
 fn default_b() -> Vec<String> {
     vec!["KeyK".into()]
 }
+fn default_select() -> Vec<String> {
+    vec!["ShiftLeft".into(), "ShiftRight".into()]
+}
+fn default_start() -> Vec<String> {
+    vec!["Enter".into()]
+}
 
 fn default_pad_up() -> Vec<String> {
     vec!["DPadUp".into()]
@@ -84,6 +101,12 @@ fn default_pad_a() -> Vec<String> {
 fn default_pad_b() -> Vec<String> {
     vec!["East".into()]
 }
+fn default_pad_select() -> Vec<String> {
+    vec!["Back".into()]
+}
+fn default_pad_start() -> Vec<String> {
+    vec!["Start".into()]
+}
 
 impl Default for ControlsSection {
     fn default() -> Self {
@@ -94,6 +117,8 @@ impl Default for ControlsSection {
             right: default_right(),
             a: default_a(),
             b: default_b(),
+            select: default_select(),
+            start: default_start(),
         }
     }
 }
@@ -107,6 +132,8 @@ impl Default for GamepadSection {
             right: default_pad_right(),
             a: default_pad_a(),
             b: default_pad_b(),
+            select: default_pad_select(),
+            start: default_pad_start(),
         }
     }
 }
@@ -114,6 +141,8 @@ impl Default for GamepadSection {
 pub struct InputMap {
     map: HashMap<Key, Button>,
     pad: HashMap<PadButton, Button>,
+    system: HashMap<Key, SystemButton>,
+    pad_system: HashMap<PadButton, SystemButton>,
 }
 
 impl Default for InputMap {
@@ -146,6 +175,16 @@ impl InputMap {
         self.pad.get(&button).copied()
     }
 
+    /// The host-reserved button this key drives, if any. Never a cart button.
+    pub fn get_system_button(&self, key: Key) -> Option<SystemButton> {
+        self.system.get(&key).copied()
+    }
+
+    /// The host-reserved button this gamepad button drives, if any.
+    pub fn get_pad_system_button(&self, button: PadButton) -> Option<SystemButton> {
+        self.pad_system.get(&button).copied()
+    }
+
     fn from_controls(controls: ControlsSection, gamepad: GamepadSection) -> Self {
         let mut map: HashMap<Key, Button> = HashMap::new();
         let bindings = [
@@ -155,6 +194,7 @@ impl InputMap {
             (&controls.right, Button::Right),
             (&controls.a, Button::A),
             (&controls.b, Button::B),
+            (&controls.select, Button::Select),
         ];
         for (keys, button) in bindings {
             for name in keys {
@@ -166,6 +206,16 @@ impl InputMap {
             }
         }
 
+        let mut system: HashMap<Key, SystemButton> = HashMap::new();
+        for name in &controls.start {
+            match Key::from_name(name) {
+                Some(key) => {
+                    system.insert(key, SystemButton::Start);
+                }
+                None => warn!("unknown key name in controls: {name}"),
+            }
+        }
+
         let mut pad: HashMap<PadButton, Button> = HashMap::new();
         let pad_bindings = [
             (&gamepad.up, Button::Up),
@@ -174,6 +224,7 @@ impl InputMap {
             (&gamepad.right, Button::Right),
             (&gamepad.a, Button::A),
             (&gamepad.b, Button::B),
+            (&gamepad.select, Button::Select),
         ];
         for (names, button) in pad_bindings {
             for name in names {
@@ -185,7 +236,42 @@ impl InputMap {
             }
         }
 
-        Self { map, pad }
+        let mut pad_system: HashMap<PadButton, SystemButton> = HashMap::new();
+        for name in &gamepad.start {
+            match PadButton::from_name(name) {
+                Some(pad_button) => {
+                    pad_system.insert(pad_button, SystemButton::Start);
+                }
+                None => warn!("unknown gamepad button in controls: {name}"),
+            }
+        }
+
+        // A binding listed under both a cart button and START belongs to
+        // START. Otherwise a cart could hold the pause menu hostage by
+        // shipping a controls file that claims the key.
+        for key in system.keys() {
+            if map.remove(key).is_some() {
+                warn!(
+                    "{} is bound to START; the cart binding is ignored",
+                    key.name()
+                );
+            }
+        }
+        for pad_button in pad_system.keys() {
+            if pad.remove(pad_button).is_some() {
+                warn!(
+                    "{} is bound to START; the cart binding is ignored",
+                    pad_button.name()
+                );
+            }
+        }
+
+        Self {
+            map,
+            pad,
+            system,
+            pad_system,
+        }
     }
 
     #[cfg(test)]
@@ -198,7 +284,7 @@ impl InputMap {
 #[cfg(test)]
 mod tests {
     use super::InputMap;
-    use crate::input::{Button, Key, PadButton};
+    use crate::input::{Button, Key, PadButton, SystemButton};
 
     #[test]
     fn defaults_bind_the_documented_keys() {
@@ -269,6 +355,79 @@ mod tests {
             "#,
         );
         assert_eq!(map.get_button(Key::KeyE), Some(Button::Up));
+    }
+
+    #[test]
+    fn defaults_bind_select_and_start() {
+        let map = InputMap::default();
+        assert_eq!(map.get_button(Key::ShiftLeft), Some(Button::Select));
+        assert_eq!(map.get_button(Key::ShiftRight), Some(Button::Select));
+        assert_eq!(map.get_pad_button(PadButton::Back), Some(Button::Select));
+
+        assert_eq!(map.get_system_button(Key::Enter), Some(SystemButton::Start));
+        assert_eq!(
+            map.get_pad_system_button(PadButton::Start),
+            Some(SystemButton::Start)
+        );
+        // START is host-only: it must never arrive as a cart button.
+        assert_eq!(map.get_button(Key::Enter), None);
+        assert_eq!(map.get_pad_button(PadButton::Start), None);
+    }
+
+    #[test]
+    fn a_controls_file_from_before_select_existed_still_gets_both() {
+        // Every file on a user's disk predates these two fields.
+        let map = InputMap::parse_str(
+            r#"
+            [controls]
+            up    = ["ArrowUp", "KeyW"]
+            down  = ["ArrowDown", "KeyS"]
+            left  = ["ArrowLeft", "KeyA"]
+            right = ["ArrowRight", "KeyD"]
+            a     = ["KeyJ"]
+            b     = ["KeyK"]
+            "#,
+        );
+        assert_eq!(map.get_button(Key::KeyJ), Some(Button::A));
+        assert_eq!(map.get_button(Key::ShiftLeft), Some(Button::Select));
+        assert_eq!(map.get_system_button(Key::Enter), Some(SystemButton::Start));
+    }
+
+    #[test]
+    fn start_wins_when_a_binding_claims_the_same_input_twice() {
+        let map = InputMap::parse_str(
+            r#"
+            [controls]
+            a     = ["Enter"]
+            start = ["Enter"]
+
+            [gamepad]
+            a     = ["Start"]
+            start = ["Start"]
+            "#,
+        );
+        assert_eq!(map.get_system_button(Key::Enter), Some(SystemButton::Start));
+        assert_eq!(map.get_button(Key::Enter), None);
+        assert_eq!(
+            map.get_pad_system_button(PadButton::Start),
+            Some(SystemButton::Start)
+        );
+        assert_eq!(map.get_pad_button(PadButton::Start), None);
+    }
+
+    #[test]
+    fn start_can_be_rebound_off_its_default() {
+        let map = InputMap::parse_str(
+            r#"
+            [controls]
+            start = ["Escape"]
+            "#,
+        );
+        assert_eq!(
+            map.get_system_button(Key::Escape),
+            Some(SystemButton::Start)
+        );
+        assert_eq!(map.get_system_button(Key::Enter), None);
     }
 
     #[test]
