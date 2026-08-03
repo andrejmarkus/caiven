@@ -224,6 +224,105 @@ fn capture_call_stack(lua: &Lua) -> Vec<(String, String)> {
     frames
 }
 
+/// Reads the innermost frame's active local variables via raw `lua_getlocal`
+/// (V23) — mlua's safe hook API has no locals accessor (R1), so this drops to
+/// `mlua_sys` through a reentrant `Lua::exec_raw` call from inside the
+/// already-active `EVERY_LINE` hook (proven safe by the T7 spike, R4).
+/// Read-only: nothing is pushed back via `lua_setlocal`, and this is only
+/// ever called from the Rust-side hook, never reachable from cart Lua (V8).
+///
+/// `lua_getlocal` enumerates every local active at the current program
+/// counter, including ones a later `local` declaration shadows — later
+/// declarations come later in the `n` enumeration, so overwriting on a name
+/// collision keeps the innermost (currently visible) binding. Names starting
+/// with `(` are compiler-internal (e.g. `(for state)`) and are skipped.
+fn read_active_locals(state: *mut mlua_sys::lua_State) -> Vec<(String, String)> {
+    use std::ffi::CStr;
+    use std::os::raw::c_int;
+
+    // `exec_raw` invokes this closure via `lua_pcall` (see mlua's
+    // `protect_lua_closure`), which pushes its own trampoline C function
+    // onto the call stack — so level 0 here is that trampoline, and the
+    // frame we actually want (`_update`, where the `EVERY_LINE` hook fired)
+    // is level 1.
+    const CALLER_FRAME_LEVEL: std::os::raw::c_int = 1;
+
+    let mut locals: Vec<(String, String)> = Vec::new();
+    unsafe {
+        let mut ar: mlua_sys::lua_Debug = std::mem::zeroed();
+        if mlua_sys::lua_getstack(state, CALLER_FRAME_LEVEL, &mut ar) == 0 {
+            return locals;
+        }
+        let mut n: c_int = 1;
+        loop {
+            let name_ptr = mlua_sys::lua_getlocal(state, &ar, n);
+            if name_ptr.is_null() {
+                break;
+            }
+            n += 1;
+            let name = CStr::from_ptr(name_ptr).to_string_lossy().into_owned();
+            if name.starts_with('(') {
+                mlua_sys::lua_pop(state, 1);
+                continue;
+            }
+            let value = describe_raw_stack_value(state, -1);
+            mlua_sys::lua_pop(state, 1);
+            match locals.iter_mut().find(|(existing, _)| *existing == name) {
+                Some(existing) => existing.1 = value,
+                None => locals.push((name, value)),
+            }
+        }
+    }
+    locals
+}
+
+/// Describes the value at a raw Lua stack index — the `lua_getlocal`
+/// counterpart of [`describe_lua_value`], since a raw-stack local isn't an
+/// `mlua::Value` without a round-trip this call path avoids. `unsafe`: caller
+/// guarantees `idx` is a valid, live stack index.
+unsafe fn describe_raw_stack_value(
+    state: *mut mlua_sys::lua_State,
+    idx: std::os::raw::c_int,
+) -> String {
+    use std::ffi::CStr;
+
+    unsafe {
+        match mlua_sys::lua_type(state, idx) {
+            mlua_sys::LUA_TNIL => "nil".to_string(),
+            mlua_sys::LUA_TBOOLEAN => (mlua_sys::lua_toboolean(state, idx) != 0).to_string(),
+            mlua_sys::LUA_TNUMBER => {
+                if mlua_sys::lua_isinteger(state, idx) != 0 {
+                    let mut ok = 0;
+                    mlua_sys::lua_tointegerx(state, idx, &mut ok).to_string()
+                } else {
+                    let mut ok = 0;
+                    mlua_sys::lua_tonumberx(state, idx, &mut ok).to_string()
+                }
+            }
+            mlua_sys::LUA_TSTRING => {
+                let mut len = 0usize;
+                let ptr = mlua_sys::lua_tolstring(state, idx, &mut len);
+                if ptr.is_null() {
+                    "\"\"".to_string()
+                } else {
+                    let bytes = std::slice::from_raw_parts(ptr as *const u8, len);
+                    format!("{:?}", String::from_utf8_lossy(bytes))
+                }
+            }
+            mlua_sys::LUA_TTABLE => "{table}".to_string(),
+            mlua_sys::LUA_TFUNCTION => "{function}".to_string(),
+            tp => {
+                let type_name = mlua_sys::lua_typename(state, tp);
+                if type_name.is_null() {
+                    "?".to_string()
+                } else {
+                    format!("{{{}}}", CStr::from_ptr(type_name).to_string_lossy())
+                }
+            }
+        }
+    }
+}
+
 /// Extracts the raw Lua message (no `syntax error:`/`runtime error:` wrapper)
 /// and, when present, the 1-based `cart:<line>:` source line.
 pub fn describe_lua_error(err: &mlua::Error) -> (Option<usize>, String) {
@@ -1078,10 +1177,12 @@ impl Vm {
     /// aborted call unwinds Lua's stack (mlua's hooks can't yield outside a
     /// coroutine while borrowing per-frame VM state via `Lua::scope`, so a
     /// suspend-and-resume mid-statement debugger isn't possible here) —
-    /// globals and RAM at the moment of the stop are still readable via
-    /// [`Vm::lua_globals`] and `peek_memory`, but locals are not: mlua's
-    /// safe hook API has no `lua_getlocal` binding. Resuming re-runs
-    /// `_update()` from the top, same as any other frame.
+    /// globals and RAM at the moment of the stop are readable via
+    /// [`Vm::lua_globals`] and `peek_memory`; locals are readable too, via
+    /// [`Vm::lua_debug_locals`] — mlua's safe hook API has no `lua_getlocal`
+    /// binding, so that path drops to raw `mlua_sys` FFI (see
+    /// [`read_active_locals`]). Resuming re-runs `_update()` from the top,
+    /// same as any other frame.
     pub fn run_frame_lua_bp(
         &mut self,
         input: &Input,
@@ -1114,14 +1215,14 @@ impl Vm {
 
         let hit: Rc<RefCell<Option<LuaBreakpoint>>> = Rc::new(RefCell::new(None));
         let stack: Rc<RefCell<Vec<(String, String)>>> = Rc::new(RefCell::new(Vec::new()));
-        let locals_spike: Rc<RefCell<Option<bool>>> = Rc::new(RefCell::new(None));
+        let locals: Rc<RefCell<Vec<(String, String)>>> = Rc::new(RefCell::new(Vec::new()));
         // EVERY_LINE fires a Rust callback per Lua instruction executed —
         // real overhead on any script with loops. Only pay for it when
         // there's actually something to break on.
         if !breakpoints.is_empty() {
             let hit_hook = hit.clone();
             let stack_hook = stack.clone();
-            let locals_spike_hook = locals_spike.clone();
+            let locals_hook = locals.clone();
             let bps: Vec<LuaBreakpoint> = breakpoints.to_vec();
             lua.set_hook(HookTriggers::EVERY_LINE, move |lua, debug| {
                 let line = debug.curr_line();
@@ -1147,21 +1248,18 @@ impl Vm {
                         line: breakpoint.line,
                     });
                     *stack_hook.borrow_mut() = capture_call_stack(lua);
-                    // R4 spike (T7): reentrant `exec_raw` call from inside
-                    // this already-active hook, proving it's safe to reach
-                    // for the raw state before T8 wires real local-var
-                    // reading through it. `Lua::lock()` uses a
-                    // `ReentrantMutexGuard` so this shouldn't deadlock, but
-                    // the spike exists to confirm that empirically rather
-                    // than trust the doc comment.
-                    let spike: mlua::Result<i64> = unsafe {
-                        lua.exec_raw((), |state| {
-                            let mut ar: mlua_sys::lua_Debug = std::mem::zeroed();
-                            mlua_sys::lua_getstack(state, 0, &mut ar);
-                            mlua_sys::lua_pushinteger(state, 42);
-                        })
+                    // Reentrant `exec_raw` call from inside this
+                    // already-active hook — proven safe by the T7 spike
+                    // (R4). Reads locals via raw `mlua_sys` FFI since mlua's
+                    // safe hook API has no `lua_getlocal` binding (R1, V23).
+                    // `exec_raw`'s `R` is read off the Lua stack, not the
+                    // closure's return value, so the result is threaded out
+                    // via the captured cell instead.
+                    let mut read_locals = Vec::new();
+                    let _: mlua::Result<()> = unsafe {
+                        lua.exec_raw((), |state| read_locals = read_active_locals(state))
                     };
-                    *locals_spike_hook.borrow_mut() = Some(matches!(spike, Ok(42)));
+                    *locals_hook.borrow_mut() = read_locals;
                     return Err(mlua::Error::runtime("breakpoint"));
                 }
                 Ok(VmState::Continue)
@@ -1201,9 +1299,10 @@ impl Vm {
 
         if hit.borrow().is_some() {
             self.call_stack = stack.borrow().clone();
-            self.locals_spike_ok = *locals_spike.borrow();
+            self.locals = locals.borrow().clone();
         } else {
             self.call_stack.clear();
+            self.locals.clear();
         }
 
         let breakpoint = hit.borrow().clone();
@@ -1226,20 +1325,19 @@ impl Vm {
         self.call_stack.clone()
     }
 
-    /// R4 spike result (T7): `Some(true)` if the last breakpoint hit's
-    /// reentrant `Lua::exec_raw` probe from inside the active hook
-    /// completed without panic/deadlock and returned the expected value;
-    /// `None` if no breakpoint has fired yet. Test-only diagnostic —
-    /// superseded by real locals reading in T8.
-    pub fn lua_debug_locals_spike_ok(&self) -> Option<bool> {
-        self.locals_spike_ok
+    /// Local variables at the innermost frame, captured at the moment the
+    /// last breakpoint was hit — cleared once execution resumes past a
+    /// breakpoint. Read via raw FFI from inside the `EVERY_LINE` hook (see
+    /// [`read_active_locals`]); empty if no breakpoint has fired yet.
+    pub fn lua_debug_locals(&self) -> Vec<(String, String)> {
+        self.locals.clone()
     }
 
     /// Snapshot of the script's global variables, for the Studio debugger's
     /// state inspector. Excludes registered builtins, the gameplay prelude,
     /// and Lua's own stdlib — see [`BUILTIN_NAMES`]/[`PRELUDE_NAMES`]/
-    /// [`STDLIB_NAMES`] — so only script-defined state shows up. Locals
-    /// aren't enumerable (see [`Vm::run_frame_lua_bp`]).
+    /// [`STDLIB_NAMES`] — so only script-defined state shows up. For locals
+    /// at a breakpoint, see [`Vm::lua_debug_locals`].
     pub fn lua_globals(&self) -> Vec<(String, String)> {
         let Some(script) = self.script.as_ref() else {
             return Vec::new();

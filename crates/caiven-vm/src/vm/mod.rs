@@ -191,11 +191,11 @@ pub struct Vm {
     script: Option<lua_exec::LuaScript>,
     capture_lua_output: bool,
     call_stack: Vec<(String, String)>,
-    /// R4 spike (T7): whether the last breakpoint hit's reentrant
-    /// `Lua::exec_raw` probe from inside the active `EVERY_LINE` hook
-    /// completed without panic/deadlock. `None` until a breakpoint fires.
-    /// Throwaway diagnostic — superseded by real locals reading in T8.
-    locals_spike_ok: Option<bool>,
+    /// Local variables at the innermost frame, captured at the moment the
+    /// last breakpoint hit — cleared once execution resumes past a
+    /// breakpoint, same lifecycle as `call_stack`. See
+    /// `Vm::run_frame_lua_bp` for how these are read via raw FFI.
+    locals: Vec<(String, String)>,
     asset_banks: AssetBanks,
     /// Cart-global collision-type table (names/colors/solid flags). Small
     /// metadata, not RAM-backed — see `caiven_core::collision` and
@@ -242,7 +242,7 @@ impl Vm {
             script: None,
             capture_lua_output: false,
             call_stack: Vec::new(),
-            locals_spike_ok: None,
+            locals: Vec::new(),
             asset_banks: AssetBanks::new(),
             collision_types: caiven_core::builtin_collision_types(),
         }

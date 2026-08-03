@@ -110,7 +110,7 @@ T4|x|CLI \`export --web\` subcommand in cli.rs|I.export-web
 T5|x|Studio studio_export_web Tauri cmd + export dialog "Web (HTML)" option|V9,I.studio-cmd
 T6|x|verify exported html runs offline (file://, network-blocked)|V19,V20
 T7|x|add `mlua_sys` as direct `caiven-vm` dep; spike: call `Lua::exec_raw` from inside `run_frame_lua_bp`'s existing `EVERY_LINE` hook, confirm ⊥ panic/deadlock (resolves R4) — gates T8|R4,V23
-T8|.|implement local-var inspection at breakpoint via `Lua::exec_raw` + `mlua_sys` `lua_getstack`/`lua_getlocal`, read-only, scoped to hook callback|V23,I.studio-debugger,T7
+T8|x|implement local-var inspection at breakpoint via `Lua::exec_raw` + `mlua_sys` `lua_getstack`/`lua_getlocal`, read-only, scoped to hook callback|V23,I.studio-debugger,T7
 T9|.|VM tests: (a) breakpoint hit exposes correct locals for nested-scope script (shadowed var, loop var, upvalue), (b) cart Lua ⊥ trigger/influence the locals-FFI path outside Studio's debugger-attached state|T8,V8,V23
 T10|.|new Tauri cmd (e.g. `studio_debug_locals`) + capabilities/`gen/schemas` regen for locals surface|T8,V9,I.studio-cmd
 T11|.|expose locals in Studio debug UI alongside existing watches/call-stack (ConsolePane.svelte)|T10,I.studio-cmd

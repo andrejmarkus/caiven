@@ -134,15 +134,16 @@ fn lua_run_frame_bp_stops_at_breakpointed_line() {
 }
 
 #[test]
-fn lua_run_frame_bp_locals_spike_survives_reentrant_exec_raw() {
+fn lua_run_frame_bp_exposes_locals_at_breakpoint() {
     let mut vm = make_vm();
     let input = Input::new();
     let font = Font::empty();
     vm.load_lua_source(
         r#"
         function _update()
-          x = 1
-          x = 2
+          local answer = 42
+          local label = "hi"
+          answer = answer + 1
         end
         "#,
         &input,
@@ -150,17 +151,28 @@ fn lua_run_frame_bp_locals_spike_survives_reentrant_exec_raw() {
     )
     .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
 
-    assert_eq!(vm.lua_debug_locals_spike_ok(), None);
-    match vm.run_frame_lua_bp(&input, &font, &[LuaBreakpoint::new("*", 4)]) {
-        LuaRunOutcome::Breakpoint(breakpoint) => assert_eq!(breakpoint.line, 4),
+    assert!(vm.lua_debug_locals().is_empty());
+    // Line 5 is `answer = answer + 1`, after both locals are declared.
+    match vm.run_frame_lua_bp(&input, &font, &[LuaBreakpoint::new("*", 5)]) {
+        LuaRunOutcome::Breakpoint(breakpoint) => assert_eq!(breakpoint.line, 5),
         other => panic!("expected a breakpoint stop, got {other:?}"),
     }
-    assert_eq!(
-        vm.lua_debug_locals_spike_ok(),
-        Some(true),
-        "reentrant exec_raw from inside the active EVERY_LINE hook should \
-         not panic or deadlock (resolves R4)"
+    let locals = vm.lua_debug_locals();
+    assert!(
+        locals.contains(&("answer".to_string(), "42".to_string())),
+        "expected local `answer` = 42, got {locals:?}"
     );
+    assert!(
+        locals.contains(&("label".to_string(), "\"hi\"".to_string())),
+        "expected local `label` = \"hi\", got {locals:?}"
+    );
+
+    // Resuming past the breakpoint clears the snapshot.
+    match vm.run_frame_lua_bp(&input, &font, &[]) {
+        LuaRunOutcome::Completed => {}
+        other => panic!("expected completion, got {other:?}"),
+    }
+    assert!(vm.lua_debug_locals().is_empty());
 }
 
 #[test]
