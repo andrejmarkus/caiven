@@ -6,13 +6,17 @@
 //! texture beside the console framebuffer, and only redraws when state
 //! changes.
 
-// The token set is defined up front, ahead of the screens that consume it,
-// so the design system lands in one reviewable piece. Drop this once the
-// screens are drawn.
+// The token set and the navigation graph land ahead of the screens that
+// consume them, so each piece is reviewable on its own. Drop these once the
+// screens are drawn and the app loop drives the state machine.
 #[allow(dead_code)]
 pub mod font;
 #[allow(dead_code)]
 pub mod icon;
+#[allow(dead_code)]
+pub mod settings;
+#[allow(dead_code)]
+pub mod state;
 #[allow(dead_code)]
 pub mod surface;
 #[allow(dead_code)]

@@ -97,6 +97,18 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
   premultiplied RGBA, byte order == console framebuffer (V28).
   faces = static instances /weight (fontdue ⊥ variable axes): Inter 400/500/600,
   Space Grotesk 600/700, JetBrains Mono 400/500/700. subset = ASCII + `·×…’◄►←→`.
+- machine-shell-nav: `caiven-machine/src/shell/state.rs` — `ShellState` = whole
+  graph, ⊥ SDL | raster | fs ∴ fully unit-testable. `press(ShellButton) →
+  Option<Effect>`; `tick(dt)` drives boot handover (wall-clock, V35).
+  Host→shell: `set_cart_count`/`set_port_count`/`cart_ready`/`cart_failed`/
+  `download_finished`/`download_failed`/`bind_captured`.
+  `Effect` ∈ {LoadCart(i), CancelLoad, DeleteCart(i), ResetCart, QuitToLibrary,
+  SaveState, LoadState, StartDownload(i), SettingsChanged, ListenForBind(i)}.
+  `legend()` → Vec<Legend{chip,label,primary,trailing}> per screen (⊥ chrome
+  screens → empty, except pause draws own). `Screen::has_chrome()`.
+  `shell/settings.rs` — `Pane::ALL` ×5, `Row{id,label,sub,kind}`,
+  `RowKind` ∈ {Choice,Toggle,Range,Action,Readout}; `is_adjustable()` decides
+  ◄► = adjust vs leave column. `Settings::adjust(id,dir) → bool changed`.
 - machine-shell-port: `GET /api/v2/carts` (page, per_page, q, tag, author, sort),
   thumb `/api/v2/carts/:id/screenshot`, download `/api/v2/carts/:id/cart`.
   Download complete → append to library immediately.
@@ -210,6 +222,16 @@ regen subset; drift guard = `font.rs` coverage test.
 V45: ◄ ► set in Mono only — Space Grotesk subset ⊥ geometric-shapes block.
 V46: `Surface::rgba()` = premultiplied — SDL texture ! told same, else overlay
 (pause scrim) fringes dark. Opaque menu screens identical either way.
+V47: Settings & Port screens return to origin screen, ⊥ always-library
+(prototype's B→library silently drops running cart when opened from pause).
+`settings_return`/`port_return` hold it.
+V48: settings rows ⊆ what Machine can honor. Handoff mocks brightness,
+scanline, vibration, sleep timer, mute-on-sleep — ⊥ impl behind them ∴ ⊥
+listed. Dead control worse than absent one. Add row when impl lands.
+V49: `Playing` screen consumes only START (V37) — ∀ other buttons → cart.
+Remap `listening` swallows ∀ nav presses until `bind_captured()`.
+V50: library cursor range = `0..=cart_count`; index == `cart_count` → PORT
+tile. `set_cart_count` re-clamps ∴ delete/download ⊥ leave dangling cursor.
 
 ## §R RESEARCH
 
@@ -264,7 +286,7 @@ T32|x|decide cart art source → screenshot @ 1:1, ⊥ new label section, ⊥ fo
 T33|x|`theme.rs` — Obsidian & Ember tokens + type scale (640×480 & 1280×720)|V34
 T34|x|bundle subset Space Grotesk/Inter/JetBrains Mono + Lucide glyphs ∈ binary|V41,V43,V44,V45,R10,R11
 T35|x|CPU raster surface: tiny-skia + fontdue glyph cache → RGBA buf, dirty-flag redraw (texture upload lands w/ T44)|V33,V42,V46,I.machine-shell-raster
-T36|.|shell state machine + navigation graph|I.machine-shell,T35
+T36|x|shell state machine + navigation graph|I.machine-shell,I.machine-shell-nav,V47,V48,V49,V50,T35
 T37|.|cart library scan: carts dir → Vec<CartMeta> from `.cav` header/section table|I.machine-shell
 T38|.|library screen 1a: hero carousel + shelf + dashed PORT tile|I.machine-shell,T35,T37
 T39|.|chrome: status bar (RTC clock @0x9600, cart count, battery, volume) + per-screen legend bar|I.machine-shell,T35
