@@ -245,6 +245,7 @@ struct BootstrapPayload {
     globals: Vec<GlobalPayload>,
     watches: Vec<GlobalPayload>,
     call_stack: Vec<CallFramePayload>,
+    locals: Vec<GlobalPayload>,
     breakpoints: Vec<Breakpoint>,
     pause_reason: Option<PauseReasonPayload>,
     diagnostics: Vec<DiagnosticPayload>,
@@ -266,6 +267,7 @@ struct TickPayload {
     globals: Vec<GlobalPayload>,
     watches: Vec<GlobalPayload>,
     call_stack: Vec<CallFramePayload>,
+    locals: Vec<GlobalPayload>,
     pause_reason: Option<PauseReasonPayload>,
     audio: AudioPayload,
     diagnostics: Vec<DiagnosticPayload>,
@@ -295,6 +297,7 @@ impl Default for SharedSnapshot {
                 globals: Vec::new(),
                 watches: Vec::new(),
                 call_stack: Vec::new(),
+                locals: Vec::new(),
                 pause_reason: None,
                 audio: AudioPayload {
                     sfx_active: false,
@@ -783,6 +786,7 @@ impl StudioCore {
             globals: self.globals(),
             watches: self.watches(),
             call_stack: self.call_stack(),
+            locals: self.locals(),
             breakpoints: self.debugger.breakpoints().to_vec(),
             pause_reason: self.pause_reason.clone(),
             diagnostics: self.diagnostics.clone(),
@@ -840,6 +844,7 @@ impl StudioCore {
             globals: self.globals(),
             watches: self.watches(),
             call_stack: self.call_stack(),
+            locals: self.locals(),
             pause_reason: self.pause_reason.clone(),
             audio: self.audio_payload(),
             diagnostics: self.diagnostics.clone(),
@@ -881,6 +886,15 @@ impl StudioCore {
         self.console
             .vm
             .lua_globals()
+            .into_iter()
+            .map(|(name, value)| GlobalPayload { name, value })
+            .collect()
+    }
+
+    fn locals(&self) -> Vec<GlobalPayload> {
+        self.console
+            .vm
+            .lua_debug_locals()
             .into_iter()
             .map(|(name, value)| GlobalPayload { name, value })
             .collect()

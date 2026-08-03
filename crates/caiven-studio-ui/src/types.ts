@@ -124,6 +124,7 @@ export interface StudioBootstrap {
   globals: GlobalValue[];
   watches: GlobalValue[];
   callStack: CallFrame[];
+  locals: GlobalValue[];
   breakpoints: Breakpoint[];
   pauseReason: PauseReason | null;
   diagnostics: Diagnostic[];
@@ -143,6 +144,7 @@ export interface TickSnapshot {
   globals: GlobalValue[];
   watches: GlobalValue[];
   callStack: CallFrame[];
+  locals: GlobalValue[];
   pauseReason: PauseReason | null;
   audio: AudioState;
   diagnostics: Diagnostic[];

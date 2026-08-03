@@ -121,6 +121,7 @@ const fallback: StudioBootstrap = {
   globals: [{ name: 'player', value: '{x=60, y=60, score=0}' }],
   watches: [],
   callStack: [],
+  locals: [],
   breakpoints: [],
   pauseReason: null,
   diagnostics: [],
@@ -218,7 +219,7 @@ export async function transport(action: 'run' | 'pause' | 'reset' | 'step'): Pro
     fallback.pauseReason = action === 'pause' || action === 'step'
       ? { kind: 'manual', source: null, line: null, message: null }
       : null;
-    return { runState: fallback.runState, frame: fallback.frame, fps: fallback.fps, frameTimeMs: 5.2, globals: fallback.globals, watches: fallback.watches, callStack: fallback.callStack, pauseReason: fallback.pauseReason, audio: fallback.audio, diagnostics: fallback.diagnostics, output: fallback.output, activeSpriteBank: fallback.activeSpriteBank, activeMapBank: fallback.activeMapBank, activePaletteBank: fallback.activePaletteBank, activeSfxBank: fallback.activeSfxBank, activeMusicBank: fallback.activeMusicBank };
+    return { runState: fallback.runState, frame: fallback.frame, fps: fallback.fps, frameTimeMs: 5.2, globals: fallback.globals, watches: fallback.watches, callStack: fallback.callStack, locals: fallback.locals, pauseReason: fallback.pauseReason, audio: fallback.audio, diagnostics: fallback.diagnostics, output: fallback.output, activeSpriteBank: fallback.activeSpriteBank, activeMapBank: fallback.activeMapBank, activePaletteBank: fallback.activePaletteBank, activeSfxBank: fallback.activeSfxBank, activeMusicBank: fallback.activeMusicBank };
   }
   return invoke<TickSnapshot>('studio_transport', { action });
 }
@@ -239,7 +240,7 @@ export async function readFrame(): Promise<Uint8Array | null> {
 
 export async function readTick(): Promise<TickSnapshot> {
   if (isTauri()) return invoke<TickSnapshot>('studio_tick');
-  return { runState: fallback.runState, frame: fallback.frame++, fps: 60, frameTimeMs: 5.2, globals: fallback.globals, watches: fallback.watches, callStack: fallback.callStack, pauseReason: fallback.pauseReason, audio: fallback.audio, diagnostics: fallback.diagnostics, output: fallback.output, activeSpriteBank: fallback.activeSpriteBank, activeMapBank: fallback.activeMapBank, activePaletteBank: fallback.activePaletteBank, activeSfxBank: fallback.activeSfxBank, activeMusicBank: fallback.activeMusicBank };
+  return { runState: fallback.runState, frame: fallback.frame++, fps: 60, frameTimeMs: 5.2, globals: fallback.globals, watches: fallback.watches, callStack: fallback.callStack, locals: fallback.locals, pauseReason: fallback.pauseReason, audio: fallback.audio, diagnostics: fallback.diagnostics, output: fallback.output, activeSpriteBank: fallback.activeSpriteBank, activeMapBank: fallback.activeMapBank, activePaletteBank: fallback.activePaletteBank, activeSfxBank: fallback.activeSfxBank, activeMusicBank: fallback.activeMusicBank };
 }
 
 export async function setInput(button: number, pressed: boolean): Promise<void> {

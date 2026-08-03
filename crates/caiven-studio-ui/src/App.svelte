@@ -28,7 +28,7 @@
   let studio = $state<StudioBootstrap>({
     connected: false, title: '', path: '', author: '', runState: 'stopped',
     frame: 0, fps: 0, cartSize: { packedBytes: 0, maxBytes: 128 * 1024 }, sources: [], palette: [], spriteSheet: [], map: [], spriteBanks: [0], mapBanks: [0], activeSpriteBank: 0, activeMapBank: 0, collision: [], collisionTypes: [],
-    sfx: [], music: [], paletteBanks: [0], activePaletteBank: 0, sfxBanks: [0], activeSfxBank: 0, musicBanks: [0], activeMusicBank: 0, ram: [], globals: [], watches: [], callStack: [], breakpoints: [], pauseReason: null, diagnostics: [], output: [],
+    sfx: [], music: [], paletteBanks: [0], activePaletteBank: 0, sfxBanks: [0], activeSfxBank: 0, musicBanks: [0], activeMusicBank: 0, ram: [], globals: [], watches: [], callStack: [], locals: [], breakpoints: [], pauseReason: null, diagnostics: [], output: [],
     meta: { description: '', tags: [] }, assetIndex: { entries: [], computedRefs: 0 },
     audio: { sfxActive: false, sfxId: 0, sfxStep: 0, musicActive: false, musicPattern: 0, musicRow: 0, musicLoop: true },
     recent: [], api: [],
@@ -232,6 +232,7 @@
     studio.globals = tick.globals;
     studio.watches = tick.watches;
     studio.callStack = tick.callStack;
+    studio.locals = tick.locals;
     studio.pauseReason = tick.pauseReason;
     studio.audio = tick.audio;
     studio.diagnostics = tick.diagnostics;
