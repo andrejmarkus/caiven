@@ -27,6 +27,13 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
   (ignore RUSTSEC-2023-0071), npm audit, cargo doc.
 - No new `unwrap`/`expect`/panic/unchecked-index on production path
   (`unwrap_used = "warn"` workspace lint).
+- caiven-lsp: tower-lsp (or lsp-server) crate, stdio transport. api_registry.rs
+  stays sole source of truth — ⊥ hand-maintained duplicate symbol list. ⊥
+  hand-rolled Lua parser — use existing/off-the-shelf crate.
+- `?` caiven-lsp distribution unresolved: bundled w/ Studio installer vs
+  `cargo install` vs VS Code marketplace ext — product decision, park for user.
+- `?` Lua parser/analysis crate for scope-aware local-var completion
+  unresolved — needs /research before build (blocks T14).
 
 ## §I INTERFACES
 
@@ -56,6 +63,12 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
   (comment at `lua_exec.rs:1076-1084`). "Step" (`ipc.ts::transport('step')`) = re-run `_update()` from
   top to one more line, ⊥ true mid-statement suspend/resume (mlua hook ⊥ yield while `Lua::scope`
   borrows per-frame VM state).
+- lsp: `crates/caiven-lsp` bin `caiven-lsp`, stdio JSON-RPC. Completion/hover/
+  signature-help sourced from `api_registry.rs`. Go-to-def scoped to
+  `prelude.lua` stdlib only (line-scan of prelude.lua source — `ApiEntry`
+  carries no source span, so Rust builtins have no jump target, excluded).
+  Reads `caiven.toml` for project root. Bare `.lua` outside any project →
+  degrade to plain-Lua stdlib-only completions, ⊥ crash/empty-error.
 
 ## §V INVARIANTS
 
@@ -91,6 +104,13 @@ V23: local-var inspection at breakpoint, if added, ! use `Lua::exec_raw` (mlua 0
 `caiven-vm` dep — R3), called only from inside the existing `EVERY_LINE` hook in `run_frame_lua_bp`,
 read-only, invoked only from Rust-side debugger code. ⊥ widen Lua sandbox (V8 still holds — path
 ⊥ reachable from cart Lua itself, only from the Rust hook).
+V24: caiven-lsp completion/hover/signature-help ! sourced from api_registry.rs
+only — ⊥ 2nd hand-maintained symbol list (drift guard: automated test diffs
+LSP symbol set vs registry entry count).
+V25: caiven-lsp go-to-def ⊥ builtins (ApiEntry has no source span) — prelude.lua
+stdlib only.
+V26: caiven-lsp on Lua file outside caiven.toml project ⊥ crash/error —
+degrade to plain-Lua stdlib completions.
 
 ## §R RESEARCH
 
@@ -116,6 +136,13 @@ T10|x|new Tauri cmd (e.g. `studio_debug_locals`) + capabilities/`gen/schemas` re
 T11|x|expose locals in Studio debug UI alongside existing watches/call-stack (ConsolePane.svelte)|T10,I.studio-cmd
 T12|x|audit README/docs for step-semantics claims (`ConsolePane.svelte:129` already accurate — "Step a frame at a time"; no mislabel found in checked surface, this is a repo-wide sweep not a fix)|V22
 T13|x|Rust unit tests for debugger.rs + tauri_app.rs breakpoint/step/locals IPC path (audit-flagged: no direct tests today)|T8,T10,T12
+T14|.|research: Lua parser/analysis crate for scope-aware local-var completion|?
+T15|.|scaffold crates/caiven-lsp bin crate, tower-lsp stdio skeleton|V24,I.lsp
+T16|.|impl completion+hover+signature-help from api_registry.rs|V24,I.lsp,T15
+T17|.|impl go-to-def for prelude.lua stdlib (line-scan)|V25,I.lsp,T16
+T18|.|impl caiven.toml project-root detection + bare-.lua degrade path|V26,I.lsp,T15
+T19|.|automated test: LSP symbol set vs api_registry.rs entry count, no drift|V24,T16
+T20|.|manual verify: VS Code + generic lua-language-server → draw_rect completion/signature matches Studio autocomplete|I.lsp,T16
 
 ## §B BUGS
 
