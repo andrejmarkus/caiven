@@ -44,6 +44,26 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
   ⊥ egui | webview | Tauri ∈ Machine.
 - Console shell design = Obsidian & Ember tokens, handoff `Caiven Machine.dc.html`.
   640×480 primary, 1280×720 desktop. Input = 6 buttons only (Up Down Left Right A B).
+- Machine console shell = 11 screens: boot, library (hero carousel), empty,
+  cart detail, hand-off/loading, playing, pause, settings, controls remap,
+  Port browse, crash. Spec = handoff `Caiven Machine.dc.html` (static canvas) +
+  `Caiven Machine Prototype.dc.html` (behavioral). HTML = design reference,
+  ⊥ production code, ⊥ port line-for-line.
+- Library direction 1a (hero carousel) chosen. 1b (shelf grid) ⊥ build.
+- Fonts Space Grotesk 600/700 (display) | Inter 400/500/600 (body) | JetBrains
+  Mono (numerics). Bundled subset w/ binary — ⊥ fetch (Google Fonts = documented
+  substitution). Icons = Lucide 1.5–2px stroke, ⊥ fill. ⊥ logo mark exists →
+  wordmark ∀ mark positions.
+- Type floor 10px. ⊥ photography | illustration | gradient bg | emoji.
+- Cart art = existing 128×128 auto-screenshot @ 1:1, title bottom-aligned over it
+  (form the mock placeholders already show). ⊥ new cart-label section this
+  milestone ∴ ⊥ format bump. Revisit as own scoped change post-shell.
+- Out of scope this milestone: tag/search filtering beyond sort chip, Port
+  sign-in, save-state management screens, screenshot gallery, firmware update,
+  multi-user profiles.
+- `?` START/SELECT reachability: handoff legend assumes menu/select keys. Strict
+  6-button device → Settings+Port as shelf entries & pause via long-press B.
+  Per-device, needs decision before T44/T46.
 
 ## §I INTERFACES
 
@@ -60,6 +80,18 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
   input: `Scancode` → `Key` → `Button`; `SDL_GameController` idx 0.
   `controls.toml` schema unchanged + additive `[gamepad]` table (`DPadUp`/`South`/`East`).
   cli: `--fullscreen`, `--scale <fit|2x|3x>`, `--aspect <square|stretch>`.
+- machine-shell: state = {screen ∈ Boot|Library|Detail|Loading|Playing|Pause|
+  Settings|Controls|Port|Crash, sel (== carts.len() → PORT tile), detail_action
+  ∈ {Play,Delete}, pause_index 0..6, pane/column/row, bind_index+listening,
+  port_index+download, carts: Vec<CartMeta>, settings, binds}.
+  chrome: status bar 30px (44 @1280×720) + legend bar 36px (52). Both absent ∀
+  boot|loading|playing|pause|crash. Legend per-screen.
+  persist: settings → TOML beside binary; binds → `controls.toml` (same format);
+  saves → `saves/` keyed by cart id.
+  CartMeta ← `.cav` header + section table (caiven-cart).
+- machine-shell-port: `GET /api/v2/carts` (page, per_page, q, tag, author, sort),
+  thumb `/api/v2/carts/:id/screenshot`, download `/api/v2/carts/:id/cart`.
+  Download complete → append to library immediately.
 - studio-cmd: Tauri `#[tauri::command]` IPC surface (studio backend ↔ Svelte);
   `capabilities/` + `gen/schemas/` gate what frontend may call.
 - port-api: rocket handlers `caiven-port/src/handlers/` — auth, carts, versions,
@@ -141,6 +173,27 @@ V31: SDL link — desktop = `bundled`+`static-link`; handheld = dynamic vs devic
 `libSDL2.so` (device ports carry display/input patches — R6). ⊥ bundle SDL on handheld.
 V32: Machine device acceptance = launches fullscreen 640×480 + holds 60fps on Cortex-A7.
 Perf claim ! measured (V5).
+V33: shell raster = CPU (tiny-skia + fontdue) → RGBA buf → 2nd SDL texture.
+⊥ GPU | egui | webview. Redraw only on state change — ⊥ per-frame repaint
+(A7 @1.2GHz budget).
+V34: design tokens defined once (`theme.rs`), referenced by name. ⊥ inline hex
+@ call site. `obsidian` #3B3E48 = logo body only, ⊥ UI surface.
+V35: ∀ progress bar & timed transition driven by wall-clock elapsed vs real work
+— ⊥ tick count (prototype stalled under throttling).
+V36: loading stage text derived from `Vm::load_cart_sections` + section table —
+⊥ faked/hardcoded counts.
+V37: Playing screen ⊥ HUD | frame | border. ∀ 6 buttons belong to cart; only
+START (| device menu) pauses. fps readout only if Settings › Video › Show fps.
+V38: pause renders over frozen last frame — blur+dim computed once @ freeze,
+⊥ per-frame.
+V39: crash screen content ← real `mlua` error + `frame_count()` — ⊥ synthesized
+message. Load failure → crash screen w/ `anyhow` context string.
+V40: controls remap writes same `controls.toml` format (V30 round-trip holds).
+Values = `Key`/`PadButton` names, ⊥ raw SDL scancode ints.
+V41: fonts+icons bundled ∈ binary — ⊥ network at runtime, ⊥ system font
+dependency (handheld has neither).
+V42: shell holds 60fps @640×480 on Cortex-A7 (V32 gate extends to shell).
+Perf claim ! measured (V5).
 
 ## §R RESEARCH
 
@@ -189,6 +242,26 @@ T28|x|platform/input.rs — Scancode→Key, `SDL_GameController` open/connect/di
 T29|x|rewrite app.rs SDL event pump (drop ApplicationHandler); keep cart load, check_mod_manifest, Ctrl+R, frame_steps timestep; add --fullscreen/--scale/--aspect|V27,I.machine
 T30|x|SDL link config: desktop bundled+static default, `sdl2-dynamic` feat for handheld; document cross-build|V31
 T31|.|device verify: cross-build handheld, run on Miyoo, confirm fullscreen 640×480 + 60fps + D-pad/A/B|V32
+T32|x|decide cart art source → screenshot @ 1:1, ⊥ new label section, ⊥ format bump|§C,V3
+T33|.|`theme.rs` — Obsidian & Ember tokens + type scale (640×480 & 1280×720)|V34
+T34|.|bundle subset Space Grotesk/Inter/JetBrains Mono + Lucide glyphs ∈ binary|V41
+T35|.|CPU raster surface: tiny-skia + fontdue glyph cache → RGBA buf → 2nd SDL texture, dirty-flag redraw|V33,V42
+T36|.|shell state machine + navigation graph|I.machine-shell,T35
+T37|.|cart library scan: carts dir → Vec<CartMeta> from `.cav` header/section table|I.machine-shell
+T38|.|library screen 1a: hero carousel + shelf + dashed PORT tile|I.machine-shell,T35,T37
+T39|.|chrome: status bar (RTC clock @0x9600, cart count, battery, volume) + per-screen legend bar|I.machine-shell,T35
+T40|.|boot screen: ember radial, wordmark, progress, spec line from CARGO_PKG_VERSION+VmConfig|T35
+T41|.|empty state screen|T35,T38
+T42|.|cart detail: screenshot 2× nearest, spec card, Play/Delete actions|T37,T35
+T43|.|hand-off/loading screen w/ real stage text + wall-clock progress|V35,V36,T35
+T44|.|playing fullscreen: ⊥ HUD, scaling from settings, optional fps readout|V37,T35
+T45|.|pause overlay over frozen frame (blur+dim once), 6 rows incl. save/load state|V38,T35
+T46|.|settings: 5 panes (Video/Audio/Controls/Port/System), immediate save to TOML|I.machine-shell,T35
+T47|.|controls remap screen → writes controls.toml round-trip|V40,T46
+T48|.|Port browse: search/sort, result rows, download → append to library|I.machine-shell-port,T35
+T49|.|crash screen from mlua error + frame_count|V39,T35
+T50|.|save states per cart under saves/ keyed by cart id|I.machine-shell,T45
+T51|.|measure shell fps @640×480 on Cortex-A7-class device|V42,V32
 
 ## §B BUGS
 
