@@ -190,6 +190,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "arrayref"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76a2e8124351fda1ef8aaaa3bbd7ebbcb486bbcd4225aca0aa0d84bb2db8fecb"
+
+[[package]]
 name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -884,8 +890,11 @@ dependencies = [
  "caiven-vm",
  "clap",
  "env_logger",
+ "fontdue",
  "log",
  "sdl2",
+ "svgtypes",
+ "tiny-skia",
 ]
 
 [[package]]
@@ -1244,6 +1253,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b49ba7ef1ad6107f8824dbe97de947cbaac53c44e7f9756a1fba0d37c1eec505"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "core_maths"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77745e017f5edba1a9c1d854f6f3a52dac8a12dd5af5d2f54aecf61e43d80d30"
+dependencies = [
+ "libm",
 ]
 
 [[package]]
@@ -1950,6 +1968,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "euclid"
+version = "0.22.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1a05365e3b1c6d1650318537c7460c6923f1abdd272ad6842baa2b509957a06"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "event-listener"
 version = "5.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2088,6 +2115,16 @@ name = "foldhash"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
+
+[[package]]
+name = "fontdue"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7894823fa221401399e2598f8b63f81ac77ff5c63248b7656779bff1632d7d3d"
+dependencies = [
+ "hashbrown 0.15.5",
+ "ttf-parser",
+]
 
 [[package]]
 name = "foreign-types"
@@ -3336,6 +3373,18 @@ dependencies = [
  "html5ever 0.29.1",
  "indexmap 2.13.0",
  "selectors 0.24.0",
+]
+
+[[package]]
+name = "kurbo"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b60dfc32f652b926df6192e55525b16d186c69d47876c3ead4da5cc9f8450e2"
+dependencies = [
+ "arrayvec",
+ "euclid",
+ "polycool",
+ "smallvec",
 ]
 
 [[package]]
@@ -4673,6 +4722,15 @@ dependencies = [
  "pin-project-lite",
  "rustix",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "polycool"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50596ddc09eb5ad5f75cacd40209568e66df71baf86e1499a0e99c4cff12a5a6"
+dependencies = [
+ "arrayvec",
 ]
 
 [[package]]
@@ -6605,6 +6663,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
+name = "strict-num"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6637bab7722d379c8b41ba849228d680cc12d0a45ba1fa2b48f2a30577a06731"
+
+[[package]]
 name = "string_cache"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6681,6 +6745,16 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
+name = "svgtypes"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "695b5790b3131dafa99b3bbfd25a216edb3d216dad9ca208d4657bfb8f2abc3d"
+dependencies = [
+ "kurbo",
+ "siphasher 1.0.3",
+]
 
 [[package]]
 name = "swift-rs"
@@ -7248,6 +7322,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "tiny-skia"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47ffee5eaaf5527f630fb0e356b90ebdec84d5d18d937c5e440350f88c5a91ea"
+dependencies = [
+ "arrayref",
+ "arrayvec",
+ "bytemuck",
+ "cfg-if",
+ "log",
+ "tiny-skia-path",
+]
+
+[[package]]
+name = "tiny-skia-path"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edca365c3faccca67d06593c5980fa6c57687de727a03131735bb85f01fdeeb9"
+dependencies = [
+ "arrayref",
+ "bytemuck",
+ "strict-num",
+]
+
+[[package]]
 name = "tinystr"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7600,6 +7699,15 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "ttf-parser"
+version = "0.25.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
+dependencies = [
+ "core_maths",
+]
 
 [[package]]
 name = "typeid"

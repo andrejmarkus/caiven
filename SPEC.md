@@ -89,6 +89,14 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
   persist: settings → TOML beside binary; binds → `controls.toml` (same format);
   saves → `saves/` keyed by cart id.
   CartMeta ← `.cav` header + section table (caiven-cart).
+- machine-shell-raster: `caiven-machine/src/shell/` — `theme.rs` tokens,
+  `font.rs` faces+glyph cache, `icon.rs` Lucide paths, `surface.rs` raster.
+  `Surface::new(w,h)` picks `METRICS_640` | `METRICS_1280` (wide only @ ≥1280×720,
+  else clipped chrome). draw: `clear`/`fill_rect`/`stroke_rect`/`draw_icon`/
+  `draw_text(style,x,baseline_y,align,text)`/`draw_pixmap`. `rgba()` =
+  premultiplied RGBA, byte order == console framebuffer (V28).
+  faces = static instances /weight (fontdue ⊥ variable axes): Inter 400/500/600,
+  Space Grotesk 600/700, JetBrains Mono 400/500/700. subset = ASCII + `·×…’◄►←→`.
 - machine-shell-port: `GET /api/v2/carts` (page, per_page, q, tag, author, sort),
   thumb `/api/v2/carts/:id/screenshot`, download `/api/v2/carts/:id/cart`.
   Download complete → append to library immediately.
@@ -194,6 +202,14 @@ V41: fonts+icons bundled ∈ binary — ⊥ network at runtime, ⊥ system font
 dependency (handheld has neither).
 V42: shell holds 60fps @640×480 on Cortex-A7 (V32 gate extends to shell).
 Perf claim ! measured (V5).
+V43: shell face = static instance /weight — ⊥ variable font (fontdue ⊥ weight
+axis ∴ variable file renders default instance only; Space Grotesk default 300
+∉ design). New weight → new subset file via `assets/fonts/build_fonts.py`.
+V44: shell copy ⊆ bundled subset (ASCII + `·×…’◄►←→`). New char outside set →
+regen subset; drift guard = `font.rs` coverage test.
+V45: ◄ ► set in Mono only — Space Grotesk subset ⊥ geometric-shapes block.
+V46: `Surface::rgba()` = premultiplied — SDL texture ! told same, else overlay
+(pause scrim) fringes dark. Opaque menu screens identical either way.
 
 ## §R RESEARCH
 
@@ -207,6 +223,8 @@ R6|Handheld SDL2 = device-patched ports carrying display+input code, ⊥ upstrea
 R7|PICO-8 runs on Miyoo via Raspberry Pi ARM binary = SDL2 ∴ SDL2 = the portability layer|lexaloffle.com/bbs/?tid=53599
 R8|`sdl2` crate: `bundled` feat builds SDL from src (needs cc/cmake), `static-link` links it in. Works any arch|github.com/Rust-SDL2/rust-sdl2
 R9|winit ⊥ fbdev/KMS backend & softbuffer ⊥ DRM backend ∴ winit+pixels stack desktop-only by construction, ⊥ by config|repo exploration + crate docs
+R10|fontdue 0.9.4 rasterizes file's default instance only — ⊥ variable-axis API ∴ static instances required|docs.rs/fontdue/0.9.4
+R11|`fonttools` `varLib.instancer` pins axes + `subset` trims charset → 8 faces, 121 KB total (Inter 19.1K ×3, Space Grotesk 16.1K ×2, JetBrains Mono 10.4K ×3)|local build, `assets/fonts/build_fonts.py`
 
 ## §T TASKS
 
@@ -243,9 +261,9 @@ T29|x|rewrite app.rs SDL event pump (drop ApplicationHandler); keep cart load, c
 T30|x|SDL link config: desktop bundled+static default, `sdl2-dynamic` feat for handheld; document cross-build|V31
 T31|.|device verify: cross-build handheld, run on Miyoo, confirm fullscreen 640×480 + 60fps + D-pad/A/B|V32
 T32|x|decide cart art source → screenshot @ 1:1, ⊥ new label section, ⊥ format bump|§C,V3
-T33|.|`theme.rs` — Obsidian & Ember tokens + type scale (640×480 & 1280×720)|V34
-T34|.|bundle subset Space Grotesk/Inter/JetBrains Mono + Lucide glyphs ∈ binary|V41
-T35|.|CPU raster surface: tiny-skia + fontdue glyph cache → RGBA buf → 2nd SDL texture, dirty-flag redraw|V33,V42
+T33|x|`theme.rs` — Obsidian & Ember tokens + type scale (640×480 & 1280×720)|V34
+T34|x|bundle subset Space Grotesk/Inter/JetBrains Mono + Lucide glyphs ∈ binary|V41,V43,V44,V45,R10,R11
+T35|x|CPU raster surface: tiny-skia + fontdue glyph cache → RGBA buf, dirty-flag redraw (texture upload lands w/ T44)|V33,V42,V46,I.machine-shell-raster
 T36|.|shell state machine + navigation graph|I.machine-shell,T35
 T37|.|cart library scan: carts dir → Vec<CartMeta> from `.cav` header/section table|I.machine-shell
 T38|.|library screen 1a: hero carousel + shelf + dashed PORT tile|I.machine-shell,T35,T37

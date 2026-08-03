@@ -83,6 +83,21 @@ Scaling is nearest-neighbour only (`SDL_RENDER_SCALE_QUALITY=0`). On a
 640×480 panel the default `--scale fit --aspect square` draws the 128×128
 framebuffer at 480×480, pillarboxed on black.
 
+## What ships inside the binary
+
+The console shell rasterizes on the CPU (`tiny-skia` + `fontdue`) because the
+Miyoo has no GPU, and everything it draws with is compiled in:
+
+- Eight subset type faces, about 121 KB total — see
+  `crates/caiven-machine/assets/fonts/README.md` for what they are and how to
+  regenerate them.
+- Six Lucide icons, carried as their upstream path data in
+  `src/shell/icon.rs` and built into geometry at the requested size.
+
+Nothing is fetched at runtime and nothing falls back to a system font, so a
+device with no network and no fonts installed renders the same shell as a
+desktop does.
+
 ## Running
 
 ```bash

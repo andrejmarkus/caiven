@@ -25,5 +25,8 @@ env_logger = { workspace = true }
 caiven-core = { workspace = true }
 caiven-cart = { workspace = true }
 caiven-vm = { workspace = true }
+fontdue = { workspace = true }
 log = { workspace = true }
 sdl2 = { workspace = true }
+svgtypes = { workspace = true }
+tiny-skia = { workspace = true }

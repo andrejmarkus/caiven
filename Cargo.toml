@@ -32,6 +32,11 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 rfd = "0.15"
 rocket = { version = "0.5", features = ["json"] }
 sdl2 = { version = "0.38", default-features = false }
+# Console shell raster stack. CPU only — the handheld target has no GPU.
+tiny-skia = { version = "0.12", default-features = false, features = ["std", "simd"] }
+fontdue = { version = "0.9", default-features = false, features = ["std", "hashbrown"] }
+# Parses the Lucide icon path data, arcs included, into plain curves.
+svgtypes = "0.16"
 totp-rs = { version = "5", features = ["qr", "gen_secret"] }
 sea-orm = { version = "1", features = ["sqlx-sqlite", "sqlx-postgres", "runtime-tokio-rustls", "macros"] }
 sea-orm-migration = { version = "1", features = ["sqlx-sqlite", "sqlx-postgres", "runtime-tokio-rustls"] }
