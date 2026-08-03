@@ -7,6 +7,17 @@ edition = "2024"
 name = "caiven-machine"
 path = "src/main.rs"
 
+[features]
+# Desktop and CI: build SDL from source and link it in, so the artifact is
+# self-contained and no runner needs a libsdl2-dev step.
+default = ["sdl2-bundled"]
+sdl2-bundled = ["sdl2/bundled", "sdl2/static-link"]
+# Handhelds (Miyoo, TrimUI, Anbernic): link against the device's own patched
+# libSDL2.so. Those ports carry device-specific display and input code that a
+# bundled upstream SDL would not have. Build with
+# `--no-default-features --features sdl2-dynamic`.
+sdl2-dynamic = []
+
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
@@ -15,4 +26,4 @@ caiven-core = { workspace = true }
 caiven-cart = { workspace = true }
 caiven-vm = { workspace = true }
 log = { workspace = true }
-winit = { workspace = true }
+sdl2 = { workspace = true }

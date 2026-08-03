@@ -2,14 +2,15 @@ use std::collections::HashMap;
 
 use log::warn;
 use serde::Deserialize;
-use winit::keyboard::KeyCode;
 
-use crate::input::Button;
+use crate::input::{Button, Key, PadButton};
 
 #[derive(Deserialize)]
 struct ControlsFile {
     #[serde(default)]
     controls: ControlsSection,
+    #[serde(default)]
+    gamepad: GamepadSection,
 }
 
 #[derive(Deserialize)]
@@ -25,6 +26,24 @@ struct ControlsSection {
     #[serde(default = "default_a")]
     a: Vec<String>,
     #[serde(default = "default_b")]
+    b: Vec<String>,
+}
+
+/// Optional `[gamepad]` table. Absent in every `controls.toml` written before
+/// gamepad support existed, so each field falls back to the fixed mapping.
+#[derive(Deserialize)]
+struct GamepadSection {
+    #[serde(default = "default_pad_up")]
+    up: Vec<String>,
+    #[serde(default = "default_pad_down")]
+    down: Vec<String>,
+    #[serde(default = "default_pad_left")]
+    left: Vec<String>,
+    #[serde(default = "default_pad_right")]
+    right: Vec<String>,
+    #[serde(default = "default_pad_a")]
+    a: Vec<String>,
+    #[serde(default = "default_pad_b")]
     b: Vec<String>,
 }
 
@@ -47,6 +66,25 @@ fn default_b() -> Vec<String> {
     vec!["KeyK".into()]
 }
 
+fn default_pad_up() -> Vec<String> {
+    vec!["DPadUp".into()]
+}
+fn default_pad_down() -> Vec<String> {
+    vec!["DPadDown".into()]
+}
+fn default_pad_left() -> Vec<String> {
+    vec!["DPadLeft".into()]
+}
+fn default_pad_right() -> Vec<String> {
+    vec!["DPadRight".into()]
+}
+fn default_pad_a() -> Vec<String> {
+    vec!["South".into()]
+}
+fn default_pad_b() -> Vec<String> {
+    vec!["East".into()]
+}
+
 impl Default for ControlsSection {
     fn default() -> Self {
         Self {
@@ -60,13 +98,27 @@ impl Default for ControlsSection {
     }
 }
 
+impl Default for GamepadSection {
+    fn default() -> Self {
+        Self {
+            up: default_pad_up(),
+            down: default_pad_down(),
+            left: default_pad_left(),
+            right: default_pad_right(),
+            a: default_pad_a(),
+            b: default_pad_b(),
+        }
+    }
+}
+
 pub struct InputMap {
-    map: HashMap<KeyCode, Button>,
+    map: HashMap<Key, Button>,
+    pad: HashMap<PadButton, Button>,
 }
 
 impl Default for InputMap {
     fn default() -> Self {
-        Self::from_controls(ControlsSection::default())
+        Self::from_controls(ControlsSection::default(), GamepadSection::default())
     }
 }
 
@@ -83,15 +135,19 @@ impl InputMap {
                 return Self::default();
             }
         };
-        Self::from_controls(file.controls)
+        Self::from_controls(file.controls, file.gamepad)
     }
 
-    pub fn get_button(&self, key: KeyCode) -> Option<Button> {
+    pub fn get_button(&self, key: Key) -> Option<Button> {
         self.map.get(&key).copied()
     }
 
-    fn from_controls(controls: ControlsSection) -> Self {
-        let mut map: HashMap<KeyCode, Button> = HashMap::new();
+    pub fn get_pad_button(&self, button: PadButton) -> Option<Button> {
+        self.pad.get(&button).copied()
+    }
+
+    fn from_controls(controls: ControlsSection, gamepad: GamepadSection) -> Self {
+        let mut map: HashMap<Key, Button> = HashMap::new();
         let bindings = [
             (&controls.up, Button::Up),
             (&controls.down, Button::Down),
@@ -102,70 +158,122 @@ impl InputMap {
         ];
         for (keys, button) in bindings {
             for name in keys {
-                if let Some(kc) = parse_keycode(name) {
-                    map.insert(kc, button);
+                if let Some(key) = Key::from_name(name) {
+                    map.insert(key, button);
                 } else {
                     warn!("unknown key name in controls: {name}");
                 }
             }
         }
-        Self { map }
+
+        let mut pad: HashMap<PadButton, Button> = HashMap::new();
+        let pad_bindings = [
+            (&gamepad.up, Button::Up),
+            (&gamepad.down, Button::Down),
+            (&gamepad.left, Button::Left),
+            (&gamepad.right, Button::Right),
+            (&gamepad.a, Button::A),
+            (&gamepad.b, Button::B),
+        ];
+        for (names, button) in pad_bindings {
+            for name in names {
+                if let Some(pad_button) = PadButton::from_name(name) {
+                    pad.insert(pad_button, button);
+                } else {
+                    warn!("unknown gamepad button in controls: {name}");
+                }
+            }
+        }
+
+        Self { map, pad }
+    }
+
+    #[cfg(test)]
+    fn parse_str(content: &str) -> Self {
+        let file: ControlsFile = toml::from_str(content).expect("test controls should parse");
+        Self::from_controls(file.controls, file.gamepad)
     }
 }
 
-fn parse_keycode(name: &str) -> Option<KeyCode> {
-    match name {
-        "ArrowUp" => Some(KeyCode::ArrowUp),
-        "ArrowDown" => Some(KeyCode::ArrowDown),
-        "ArrowLeft" => Some(KeyCode::ArrowLeft),
-        "ArrowRight" => Some(KeyCode::ArrowRight),
-        "KeyA" => Some(KeyCode::KeyA),
-        "KeyB" => Some(KeyCode::KeyB),
-        "KeyC" => Some(KeyCode::KeyC),
-        "KeyD" => Some(KeyCode::KeyD),
-        "KeyE" => Some(KeyCode::KeyE),
-        "KeyF" => Some(KeyCode::KeyF),
-        "KeyG" => Some(KeyCode::KeyG),
-        "KeyH" => Some(KeyCode::KeyH),
-        "KeyI" => Some(KeyCode::KeyI),
-        "KeyJ" => Some(KeyCode::KeyJ),
-        "KeyK" => Some(KeyCode::KeyK),
-        "KeyL" => Some(KeyCode::KeyL),
-        "KeyM" => Some(KeyCode::KeyM),
-        "KeyN" => Some(KeyCode::KeyN),
-        "KeyO" => Some(KeyCode::KeyO),
-        "KeyP" => Some(KeyCode::KeyP),
-        "KeyQ" => Some(KeyCode::KeyQ),
-        "KeyR" => Some(KeyCode::KeyR),
-        "KeyS" => Some(KeyCode::KeyS),
-        "KeyT" => Some(KeyCode::KeyT),
-        "KeyU" => Some(KeyCode::KeyU),
-        "KeyV" => Some(KeyCode::KeyV),
-        "KeyW" => Some(KeyCode::KeyW),
-        "KeyX" => Some(KeyCode::KeyX),
-        "KeyY" => Some(KeyCode::KeyY),
-        "KeyZ" => Some(KeyCode::KeyZ),
-        "Digit0" => Some(KeyCode::Digit0),
-        "Digit1" => Some(KeyCode::Digit1),
-        "Digit2" => Some(KeyCode::Digit2),
-        "Digit3" => Some(KeyCode::Digit3),
-        "Digit4" => Some(KeyCode::Digit4),
-        "Digit5" => Some(KeyCode::Digit5),
-        "Digit6" => Some(KeyCode::Digit6),
-        "Digit7" => Some(KeyCode::Digit7),
-        "Digit8" => Some(KeyCode::Digit8),
-        "Digit9" => Some(KeyCode::Digit9),
-        "Space" => Some(KeyCode::Space),
-        "Enter" => Some(KeyCode::Enter),
-        "Escape" => Some(KeyCode::Escape),
-        "Backspace" => Some(KeyCode::Backspace),
-        "Tab" => Some(KeyCode::Tab),
-        "ShiftLeft" => Some(KeyCode::ShiftLeft),
-        "ShiftRight" => Some(KeyCode::ShiftRight),
-        "ControlLeft" => Some(KeyCode::ControlLeft),
-        "ControlRight" => Some(KeyCode::ControlRight),
-        "AltLeft" => Some(KeyCode::AltLeft),
-        "AltRight" => Some(KeyCode::AltRight),
-        _ => None,
+#[cfg(test)]
+mod tests {
+    use super::InputMap;
+    use crate::input::{Button, Key, PadButton};
+
+    #[test]
+    fn defaults_bind_the_documented_keys() {
+        let map = InputMap::default();
+        assert_eq!(map.get_button(Key::ArrowUp), Some(Button::Up));
+        assert_eq!(map.get_button(Key::KeyW), Some(Button::Up));
+        assert_eq!(map.get_button(Key::KeyJ), Some(Button::A));
+        assert_eq!(map.get_button(Key::KeyK), Some(Button::B));
+        assert_eq!(map.get_button(Key::Escape), None);
+    }
+
+    #[test]
+    fn defaults_bind_the_fixed_gamepad_mapping() {
+        let map = InputMap::default();
+        assert_eq!(map.get_pad_button(PadButton::DPadUp), Some(Button::Up));
+        assert_eq!(map.get_pad_button(PadButton::South), Some(Button::A));
+        assert_eq!(map.get_pad_button(PadButton::East), Some(Button::B));
+        assert_eq!(map.get_pad_button(PadButton::North), None);
+    }
+
+    #[test]
+    fn explicit_controls_override_defaults() {
+        let map = InputMap::parse_str(
+            r#"
+            [controls]
+            up = ["KeyE"]
+            a = ["Space"]
+            "#,
+        );
+        assert_eq!(map.get_button(Key::KeyE), Some(Button::Up));
+        assert_eq!(map.get_button(Key::Space), Some(Button::A));
+        // Unlisted entries keep their documented defaults.
+        assert_eq!(map.get_button(Key::KeyK), Some(Button::B));
+        assert_eq!(map.get_button(Key::ArrowUp), None);
+    }
+
+    #[test]
+    fn controls_file_without_gamepad_table_keeps_pad_defaults() {
+        let map = InputMap::parse_str(
+            r#"
+            [controls]
+            up = ["KeyE"]
+            "#,
+        );
+        assert_eq!(map.get_pad_button(PadButton::DPadUp), Some(Button::Up));
+        assert_eq!(map.get_pad_button(PadButton::South), Some(Button::A));
+    }
+
+    #[test]
+    fn gamepad_table_overrides_pad_defaults() {
+        let map = InputMap::parse_str(
+            r#"
+            [gamepad]
+            a = ["East"]
+            b = ["South"]
+            "#,
+        );
+        assert_eq!(map.get_pad_button(PadButton::East), Some(Button::A));
+        assert_eq!(map.get_pad_button(PadButton::South), Some(Button::B));
+    }
+
+    #[test]
+    fn unknown_names_are_dropped_without_breaking_the_rest() {
+        let map = InputMap::parse_str(
+            r#"
+            [controls]
+            up = ["NotAKey", "KeyE"]
+            "#,
+        );
+        assert_eq!(map.get_button(Key::KeyE), Some(Button::Up));
+    }
+
+    #[test]
+    fn missing_file_falls_back_to_defaults() {
+        let map = InputMap::load("definitely-not-a-real-controls-file.toml");
+        assert_eq!(map.get_button(Key::ArrowUp), Some(Button::Up));
     }
 }

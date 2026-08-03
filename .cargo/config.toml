@@ -1,0 +1,7 @@
+[env]
+# SDL2's bundled CMakeLists declares `cmake_minimum_required(VERSION 3.0)`,
+# and CMake 4 removed compatibility with anything below 3.5. Without this the
+# `sdl2/bundled` build of caiven-machine fails to configure on any machine
+# with a current CMake. This is the escape hatch CMake itself suggests, and
+# it applies to the vendored SDL sources only.
+CMAKE_POLICY_VERSION_MINIMUM = "3.5"

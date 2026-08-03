@@ -15,7 +15,7 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
 - Rust workspace, `--locked`. mlua vendored — no system Lua.
 - Lua 5.4 real, full stdlib. No custom bytecode, no arity caps.
 - Fantasy-console limits: 128×128 default screen (configurable `config.width/height`
-  `runtime.rs:140`; asset PNG hard 128×128 `asset_png.rs:7`), hard 16-color palette
+  `vm/config.rs:13`; asset PNG hard 128×128 `asset_png.rs:7`), hard 16-color palette
   (`palette.rs:6` `DEFAULT_COLORS[16]`), hard 64×64 tilemap (`caiven-core/src/memory.rs:44,46`
   `MAP_W=MAP_H=64`), sprites/shape primitives/camera. 60 FPS (`lua_exec.rs:154`).
   Max cart 128 KiB (`caiven-cart/src/lib.rs:26` `MAX_CART_BYTES`).
@@ -34,6 +34,16 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
   `cargo install` vs VS Code marketplace ext — product decision, park for user.
 - `?` Lua parser/analysis crate for scope-aware local-var completion
   unresolved — needs /research before build (blocks T14).
+- caiven-machine targets: desktop (Win/Linux/macOS) + small Linux handhelds
+  (Miyoo Mini/Plus SSD202D, A30, TrimUI, Anbernic RG35XX) + later Android/iOS.
+  1 binary ∀ targets — ⊥ separate Tauri desktop shell.
+- Machine platform layer = SDL2 (`sdl2` crate 0.38): window+render+gamepad+audio.
+  ⊥ wgpu/GLES requirement (Miyoo Mini SSD202D = dual Cortex-A7 1.2GHz, 128MB RAM,
+  ⊥ GPU, GLES only via SwiftShader — R5). ⊥ SDL3 (handheld distros ship SDL2 — R6).
+- Machine shell UI = CPU raster (tiny-skia + fontdue) → RGBA buf → SDL texture.
+  ⊥ egui | webview | Tauri ∈ Machine.
+- Console shell design = Obsidian & Ember tokens, handoff `Caiven Machine.dc.html`.
+  640×480 primary, 1280×720 desktop. Input = 6 buttons only (Up Down Left Right A B).
 
 ## §I INTERFACES
 
@@ -44,6 +54,12 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
   built `.cav` binary = magic `b"CAIVEN"` + `u16` version (=3) + n_sections + 72B header.
   Owner `caiven-cart` (`format.rs`,`header.rs`,`section.rs`,`bundle.rs`,`project.rs`,`asset_png.rs`,`minify.rs`,`text.rs`).
 - machine: `caiven-machine` = cart-runner CLI (`app.rs:12` about="Caiven — cart runner") — runs project dir (hot-reload) or `.cav`. Studio launch = separate binary, ⊥ machine.
+- machine-platform: SDL2 owns window/render/audio/input ∈ `caiven-machine`.
+  render: 1 streaming texture @ `config.width`×`config.height`, `Screen::construct`
+  reused verbatim. audio: `SDL_OpenAudioDevice` AUDIO_S16SYS, honor obtained spec.
+  input: `Scancode` → `Key` → `Button`; `SDL_GameController` idx 0.
+  `controls.toml` schema unchanged + additive `[gamepad]` table (`DPadUp`/`South`/`East`).
+  cli: `--fullscreen`, `--scale <fit|2x|3x>`, `--aspect <square|stretch>`.
 - studio-cmd: Tauri `#[tauri::command]` IPC surface (studio backend ↔ Svelte);
   `capabilities/` + `gen/schemas/` gate what frontend may call.
 - port-api: rocket handlers `caiven-port/src/handlers/` — auth, carts, versions,
@@ -78,7 +94,7 @@ V3: cart format change ! bump version field, backward-compat analysis, round-tri
 V4: every `.cav` = untrusted input → bounds-checked parse; truncated/corrupt/malicious ⊥ panic | OOB read → fail safe.
 V5: `_update()`/`_draw()` hot path — per-frame alloc suspicious, needs reason. Perf claim ! measured (baseline before, same method after).
 V6: timing/RTC/RNG deterministic where API implies — ⊥ silent timing-semantics change (`src/timing.rs`, `src/vm/rtc.rs`).
-V7: audio path (`src/vm/audio.rs`, `sfx.rs`) adjacent real-time cpal thread → ⊥ block | unpredictable alloc.
+V7: audio path (`src/vm/audio.rs`, `sfx.rs`) adjacent real-time callback thread (cpal native | `SDL_AudioDevice` on Machine) → ⊥ block | unpredictable alloc.
 V8: Lua sandbox — cart Lua ⊥ reach filesystem | network | process outside sanctioned API.
 V9: Tauri command = security boundary — validate paths/inputs, ⊥ trust frontend; `capabilities`/`gen/schemas` ! match signatures, ⊥ over-grant.
 V10: Port authorization checked per-handler, ⊥ only route/frontend layer. Uploaded `.cav` reuse `caiven-cart` parse, ⊥ ad-hoc re-parse.
@@ -111,6 +127,20 @@ V25: caiven-lsp go-to-def ⊥ builtins (ApiEntry has no source span) — prelude
 stdlib only.
 V26: caiven-lsp on Lua file outside caiven.toml project ⊥ crash/error —
 degrade to plain-Lua stdlib completions.
+V27: caiven-vm ⊥ own window/GPU. `WindowGfx` deleted; winit+pixels ∉ caiven-vm deps.
+Machine owns window/process lifecycle (holds vm-runtime.md boundary).
+V28: Machine render = SDL streaming texture @ `PixelFormatEnum::ABGR8888` (VM buf byte
+order R,G,B,A, LE — `caiven-core/src/memory.rs:32`). nearest only
+(`SDL_HINT_RENDER_SCALE_QUALITY=0`) — ⊥ smooth-scale.
+V29: audio backend pluggable via `AudioOut` trait + `AudioFactory`, ⊥ cargo feature
+(workspace feature unification would force Studio onto Machine's backend).
+`ConsoleCore::new()` signature stable ∴ caiven-studio ⊥ edits.
+V30: `controls.toml` backward-compatible — ∀ existing key names ! round-trip (documented
+`README.md:518-540`, files on user disks). `[gamepad]` additive only.
+V31: SDL link — desktop = `bundled`+`static-link`; handheld = dynamic vs device
+`libSDL2.so` (device ports carry display/input patches — R6). ⊥ bundle SDL on handheld.
+V32: Machine device acceptance = launches fullscreen 640×480 + holds 60fps on Cortex-A7.
+Perf claim ! measured (V5).
 
 ## §R RESEARCH
 
@@ -119,6 +149,11 @@ R1|mlua 0.10.5 `Debug` (hook payload) exposes event/names/source/curr_line/is_ta
 R2|mlua has ⊥ separate "unsafe" cargo feature gating raw-state access. `Lua::exec_raw<R>(args\, \|state: *mut lua_State\| ...)` = inherently `unsafe fn`, ⊥ feature-gated, callable today w/ current `Cargo.toml:27` features (lua54,vendored)|docs.rs/mlua/0.10.5/mlua/struct.Lua.html#method.exec_raw
 R3|`mlua_sys` 0.6.8 `lua54::lua` module exposes raw `lua_getlocal`/`lua_getstack` C bindings — mechanism exists in principle. Currently transitive-only dep (`Cargo.lock:4153-4157`), ⊥ direct `caiven-vm` dep yet. Exact fn signatures unconfirmed by doc fetch|docs.rs/mlua_sys/0.6.8, Cargo.lock:4153-4157
 R4|`?` unresolved: is `exec_raw` safe to call reentrantly from inside an already-active `lua.set_hook` callback on the same `Lua` instance — mlua docs say instance "remains locked during execution," could mean reentrancy guard errors/panics if nested. Docs alone ⊥ settle this, needs a throwaway spike|docs.rs/mlua/0.10.5/mlua/struct.Lua.html#method.exec_raw
+R5|Miyoo Mini/Plus = SigmaStar SSD202D, dual Cortex-A7 1.2GHz, 128MB DDR3, 640×480 IPS, ⊥ GPU (2D blitter only)|retrogamingbanter.com/miyoo-mini-plus-guide/
+R6|Handheld SDL2 = device-patched ports carrying display+input code, ⊥ upstream. GLES only via SwiftShader (software)|github.com/steward-fu/sdl2, github.com/OOPay/sdl2, github.com/XK9274/sdl2_miyoo
+R7|PICO-8 runs on Miyoo via Raspberry Pi ARM binary = SDL2 ∴ SDL2 = the portability layer|lexaloffle.com/bbs/?tid=53599
+R8|`sdl2` crate: `bundled` feat builds SDL from src (needs cc/cmake), `static-link` links it in. Works any arch|github.com/Rust-SDL2/rust-sdl2
+R9|winit ⊥ fbdev/KMS backend & softbuffer ⊥ DRM backend ∴ winit+pixels stack desktop-only by construction, ⊥ by config|repo exploration + crate docs
 
 ## §T TASKS
 
@@ -143,6 +178,17 @@ T17|.|impl go-to-def for prelude.lua stdlib (line-scan)|V25,I.lsp,T16
 T18|.|impl caiven.toml project-root detection + bare-.lua degrade path|V26,I.lsp,T15
 T19|.|automated test: LSP symbol set vs api_registry.rs entry count, no drift|V24,T16
 T20|.|manual verify: VS Code + generic lua-language-server → draw_rect completion/signature matches Studio autocomplete|I.lsp,T16
+T21|x|portable `Key` enum `caiven-vm/src/input/key.rs`; re-key InputMap off `winit::KeyCode`; drop native cfg from `input/mod.rs`|V30,V27
+T22|x|additive `[gamepad]` table ∈ controls.toml schema + parse|V30,I.machine-platform
+T23|x|`AudioOut` trait + `AudioFactory` ∈ `vm/audio.rs`; ConsoleCore boxed audio + factory; `new()` sig unchanged|V29,V7
+T24|x|delete `WindowGfx`; drop winit+pixels from caiven-vm; `native = ["dep:cpal"]`|V27
+T25|x|`caiven-machine` platform/window.rs — SDL window+renderer+streaming ABGR8888 texture, nearest|V28,I.machine-platform
+T26|x|platform/scaling.rs — pure `dst_rect(window,console,mode,aspect)` fit/2x/3x × square/stretch|V28
+T27|x|platform/audio.rs — `SDL_AudioDevice` AUDIO_S16SYS impl AudioOut, honor obtained spec|V29,V7
+T28|x|platform/input.rs — Scancode→Key, `SDL_GameController` open/connect/disconnect|I.machine-platform
+T29|x|rewrite app.rs SDL event pump (drop ApplicationHandler); keep cart load, check_mod_manifest, Ctrl+R, frame_steps timestep; add --fullscreen/--scale/--aspect|V27,I.machine
+T30|x|SDL link config: desktop bundled+static default, `sdl2-dynamic` feat for handheld; document cross-build|V31
+T31|.|device verify: cross-build handheld, run on Miyoo, confirm fullscreen 640×480 + 60fps + D-pad/A/B|V32
 
 ## §B BUGS
 

@@ -26,12 +26,12 @@ lettre = { version = "0.11", default-features = false, features = ["tokio1-rustl
 log = "0.4"
 mlua = { version = "0.10", features = ["lua54", "vendored"] }
 mlua-sys = { version = "0.6", features = ["lua54", "vendored"] }
-pixels = "0.15"
 png = "0.18"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rfd = "0.15"
 rocket = { version = "0.5", features = ["json"] }
+sdl2 = { version = "0.38", default-features = false }
 totp-rs = { version = "5", features = ["qr", "gen_secret"] }
 sea-orm = { version = "1", features = ["sqlx-sqlite", "sqlx-postgres", "runtime-tokio-rustls", "macros"] }
 sea-orm-migration = { version = "1", features = ["sqlx-sqlite", "sqlx-postgres", "runtime-tokio-rustls"] }
@@ -50,4 +50,3 @@ ureq = "2"
 uuid = { version = "1", features = ["v4"] }
 webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
 wry = "=0.54.0"
-winit = "0.30"

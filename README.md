@@ -523,6 +523,11 @@ Cargo workspace with nine crates:
 | A      | `J`               |
 | B      | `K`               |
 
+A connected gamepad works out of the box — D-pad for direction, the south
+face button (A / Cross) for A, the east one (B / Circle) for B. Handhelds
+expose their built-in buttons this way, so this is the path that matters on
+device.
+
 Override by creating `controls.toml` next to the binary:
 
 ```toml
@@ -533,9 +538,22 @@ left  = ["ArrowLeft", "KeyA"]
 right = ["ArrowRight", "KeyD"]
 a     = ["KeyJ"]
 b     = ["KeyK"]
+
+# Optional. Omit the table entirely to keep the defaults below.
+[gamepad]
+up    = ["DPadUp"]
+down  = ["DPadDown"]
+left  = ["DPadLeft"]
+right = ["DPadRight"]
+a     = ["South"]
+b     = ["East"]
 ```
 
-Any `winit` physical key name is valid (e.g. `KeyZ`, `Digit1`, `Space`, `Enter`). Missing file falls back to defaults.
+Key names are physical positions, not layout characters: letters `KeyA`–`KeyZ`, digits `Digit0`–`Digit9`, `ArrowUp`/`ArrowDown`/`ArrowLeft`/`ArrowRight`, `Space`, `Enter`, `Escape`, `Backspace`, `Tab`, and the left/right `Shift`/`Control`/`Alt` pairs. Gamepad names follow SDL's controller vocabulary: `DPadUp`/`DPadDown`/`DPadLeft`/`DPadRight`, `South`/`East`/`West`/`North`, `LeftShoulder`/`RightShoulder`, `Start`, `Back`, `Guide`.
+
+A missing file, an unparseable one, or an unknown name falls back to the defaults.
+
+Handheld builds (Miyoo, TrimUI, Anbernic) are documented in [docs/development/handheld-builds.md](docs/development/handheld-builds.md).
 
 ---
 

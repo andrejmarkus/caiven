@@ -1,9 +1,10 @@
 use crate::peripheral::Peripheral;
 use crate::vm::memory::Memory;
+use anyhow::Result;
 use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "native")]
-use anyhow::{Context, Result};
+use anyhow::Context;
 #[cfg(feature = "native")]
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
@@ -84,10 +85,43 @@ pub struct Sound {
     pub noise: NoiseChannel,
 }
 
+/// An open audio output owned by the front-end.
+///
+/// Purely an RAII handle: the implementation streams samples from a
+/// [`Synth`] on its own real-time thread for as long as the value is alive,
+/// and dropping it silences the console. There is nothing to call.
+///
+/// The trait exists so the backend is chosen by whichever binary constructs
+/// the [`crate::runtime::ConsoleCore`] — cpal in Studio, SDL2 in Machine —
+/// rather than by a cargo feature. Features unify across a workspace build,
+/// so a feature-selected backend would silently follow whichever crate
+/// happened to enable it into every other crate.
+///
+/// Deliberately not `Send`: `cpal::Stream` is `!Send` on several backends,
+/// and `ConsoleCore` is already constructed on the thread that runs it.
+pub trait AudioOut {}
+
+/// Opens an audio output bound to `sound`. Returns `Err` when no device is
+/// available; callers treat that as non-fatal and run the console silently.
+///
+/// Not `Send`/`Sync` for the same reason as [`AudioOut`]: SDL's subsystem
+/// handles are thread-bound, and a `ConsoleCore` is used on the thread that
+/// created it regardless.
+pub type AudioFactory = Box<dyn Fn(Arc<Mutex<Sound>>) -> Result<Box<dyn AudioOut>>>;
+
 #[cfg(feature = "native")]
 pub struct Audio {
     #[allow(dead_code)]
     stream: cpal::Stream,
+}
+
+#[cfg(feature = "native")]
+impl AudioOut for Audio {}
+
+/// The cpal-backed default used by every front-end that doesn't supply one.
+#[cfg(feature = "native")]
+pub fn cpal_audio_factory() -> AudioFactory {
+    Box::new(|sound| Audio::new(sound).map(|a| Box::new(a) as Box<dyn AudioOut>))
 }
 
 #[cfg(feature = "native")]
