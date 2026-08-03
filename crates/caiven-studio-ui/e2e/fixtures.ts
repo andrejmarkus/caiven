@@ -237,11 +237,17 @@ function installBridge() {
     if (command === 'studio_export_web') return null;
     if (command === 'studio_audio_transport') return { ...audio(), [`${String(args.kind)}Active`]: args.action === 'play', [`${String(args.kind)}${args.kind === 'sfx' ? 'Id' : 'Pattern'}`]: Number(args.id) };
     if (command === 'studio_scan_library') return [{ path: '/library/moon', name: 'moon', title: 'Moon', author: 'tester', modified: 1, project: true }];
+    if (command === 'studio_list_examples') return [
+      { id: 'movement', name: 'Movement', description: 'Smallest possible playable cart: one sprite, arrow keys' },
+      { id: 'catch', name: 'Catch', description: 'A minigame with sound effects and a music bank' },
+    ];
+    if (command === 'studio_remix_example') return { ...bootstrap(), path: String(args.path), title: String(args.exampleId) };
     if (command === 'port_session') return port;
     if (command === 'port_link_start') return { requestId: 'request-1', pollSecret: 'secret', expiresAt: '2099-01-01T00:00:00Z' };
     if (command === 'port_link_poll') { port = { authenticated: true, username: 'tester', portUrl: 'http://port.test' }; return port; }
     if (command === 'port_link_cancel') return null;
     if (command === 'port_logout') { port = { authenticated: false, username: '', portUrl: port.portUrl }; return port; }
+    if (command === 'port_set_url') { port = { authenticated: false, username: '', portUrl: String(args.url) }; return port; }
     if (command === 'port_list_carts') return { carts: [{ id: 'cart-1', title: 'Moon', author: 'maker', description: 'Demo', tags: ['arcade'], downloads: 4, owner: null, ratingAvg: 5, ratingCount: 1, latestVersion: 2, cartSize: 2048, hasScreenshot: false, screenshotUrl: '' }], total: 1, page: 0, perPage: 20, portUrl: port.portUrl };
     if (command === 'port_download') return '/downloads/moon';
     if (command === 'studio_port_publish') { emit('publish:progress', { step: 'upload', pct: 75, note: 'Uploading' }); return { cartId: 'cart-1', version: 3 }; }
