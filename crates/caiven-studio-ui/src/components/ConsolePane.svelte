@@ -19,6 +19,7 @@
     globals: GlobalValue[];
     watches: GlobalValue[];
     callStack: CallFrame[];
+    locals: GlobalValue[];
     breakpointCount: number;
     diagnostics: Diagnostic[];
     pauseReason: PauseReason | null;
@@ -29,9 +30,9 @@
     onClose: () => void;
   }
 
-  let { runState, frame, fps, frameTime, frameData, onFocus, held, onInput, globals, watches, callStack, breakpointCount, diagnostics, pauseReason, onJumpToError, onJumpToLocation, onAddWatch, onRemoveWatch, onClose }: Props = $props();
+  let { runState, frame, fps, frameTime, frameData, onFocus, held, onInput, globals, watches, callStack, locals, breakpointCount, diagnostics, pauseReason, onJumpToError, onJumpToLocation, onAddWatch, onRemoveWatch, onClose }: Props = $props();
   let canvas: HTMLCanvasElement;
-  let debugTab = $state<'watches' | 'globals' | 'stack'>('watches');
+  let debugTab = $state<'watches' | 'globals' | 'locals' | 'stack'>('watches');
   let watchExpression = $state('');
   let watchError = $state('');
   let watchBusy = $state(false);
@@ -147,6 +148,7 @@
     <Tabs.List variant="line" class="debug-tabs w-full">
       <Tabs.Trigger value="watches" class={debugTab === 'watches' ? 'active' : undefined} onclick={() => debugTab = 'watches'}>Watches</Tabs.Trigger>
       <Tabs.Trigger value="globals" class={debugTab === 'globals' ? 'active' : undefined} onclick={() => debugTab = 'globals'}>Globals</Tabs.Trigger>
+      <Tabs.Trigger value="locals" class={debugTab === 'locals' ? 'active' : undefined} onclick={() => debugTab = 'locals'}>Locals</Tabs.Trigger>
       <Tabs.Trigger value="stack" class={debugTab === 'stack' ? 'active' : undefined} onclick={() => debugTab = 'stack'}>Call stack</Tabs.Trigger>
       <span>{breakpointCount} breakpoint{breakpointCount === 1 ? '' : 's'}</span>
     </Tabs.List>
@@ -167,6 +169,13 @@
           <div class="watch-row"><code>{global.name}</code><i>=</i><strong>{global.value}</strong></div>
         {/each}
         {#if !globals.length}<div class="watch-empty">Pause cart to inspect globals.</div>{/if}
+      </div>
+    {:else if debugTab === 'locals'}
+      <div class="watch-list">
+        {#each locals as local}
+          <div class="watch-row"><code>{local.name}</code><i>=</i><strong>{local.value}</strong></div>
+        {/each}
+        {#if !locals.length}<div class="watch-empty">Pause at a breakpoint to see local variables.</div>{/if}
       </div>
     {:else}
       <div class="watch-list">

@@ -1098,6 +1098,7 @@
             globals={studio.globals}
             watches={studio.watches}
             callStack={studio.callStack}
+            locals={studio.locals}
             breakpointCount={studio.breakpoints.length}
             diagnostics={studio.diagnostics}
             pauseReason={studio.pauseReason}

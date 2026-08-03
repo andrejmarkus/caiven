@@ -113,7 +113,7 @@ T7|x|add `mlua_sys` as direct `caiven-vm` dep; spike: call `Lua::exec_raw` from 
 T8|x|implement local-var inspection at breakpoint via `Lua::exec_raw` + `mlua_sys` `lua_getstack`/`lua_getlocal`, read-only, scoped to hook callback|V23,I.studio-debugger,T7
 T9|x|VM tests: (a) breakpoint hit exposes correct locals for nested-scope script (shadowed var, loop var, upvalue), (b) cart Lua ⊥ trigger/influence the locals-FFI path outside Studio's debugger-attached state|T8,V8,V23
 T10|x|new Tauri cmd (e.g. `studio_debug_locals`) + capabilities/`gen/schemas` regen for locals surface|T8,V9,I.studio-cmd
-T11|.|expose locals in Studio debug UI alongside existing watches/call-stack (ConsolePane.svelte)|T10,I.studio-cmd
+T11|x|expose locals in Studio debug UI alongside existing watches/call-stack (ConsolePane.svelte)|T10,I.studio-cmd
 T12|.|audit README/docs for step-semantics claims (`ConsolePane.svelte:129` already accurate — "Step a frame at a time"; no mislabel found in checked surface, this is a repo-wide sweep not a fix)|V22
 T13|.|Rust unit tests for debugger.rs + tauri_app.rs breakpoint/step/locals IPC path (audit-flagged: no direct tests today)|T8,T10,T12
 
