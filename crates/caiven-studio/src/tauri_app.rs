@@ -2407,8 +2407,8 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        CoreCommand, StudioCore, debug_path, handle_command, normalized_module_path, parse_hex,
-        trim_output, valid_watch_expression,
+        Breakpoint, CoreCommand, RunState, StudioCore, debug_path, handle_command,
+        normalized_module_path, parse_hex, trim_output, valid_watch_expression,
     };
     use caiven_vm::AssetBankKind;
     use std::path::{Path, PathBuf};
@@ -2849,6 +2849,153 @@ mod tests {
         let dir = temp_dir("new-project-unknown-template");
         let mut studio = StudioCore::new(None).expect("studio core");
         assert!(studio.new_project(&dir, "not-a-template").is_err());
+    }
+
+    // -- transport / breakpoint / locals IPC path ------------------------------
+
+    #[test]
+    fn step_transport_pauses_at_breakpoint_with_locals() {
+        let dir = temp_dir("transport-breakpoint-locals");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+        studio.sources[0].text =
+            "function _init()\nend\n\nfunction _update()\n  local hp = 42\n  clear_screen()\nend\n"
+                .to_string();
+        studio.needs_compile = true;
+
+        let toggled = dispatch(&mut studio, |reply| CoreCommand::ToggleBreakpoint {
+            source: "main.lua".to_string(),
+            line: 6,
+            reply,
+        })
+        .expect("toggle breakpoint");
+        assert_eq!(
+            toggled,
+            vec![Breakpoint {
+                source: "main.lua".to_string(),
+                line: 6
+            }]
+        );
+
+        let tick = dispatch(&mut studio, |reply| CoreCommand::Transport {
+            action: "step".to_string(),
+            reply,
+        })
+        .expect("step transport");
+
+        assert_eq!(tick.run_state, RunState::Paused);
+        let pause_reason = tick.pause_reason.expect("paused at breakpoint");
+        assert_eq!(pause_reason.kind, "breakpoint");
+        assert_eq!(pause_reason.source, Some("main.lua".to_string()));
+        assert_eq!(pause_reason.line, Some(6));
+        let locals: Vec<(String, String)> = tick
+            .locals
+            .iter()
+            .map(|local| (local.name.clone(), local.value.clone()))
+            .collect();
+        assert!(
+            locals
+                .iter()
+                .any(|(name, value)| name == "hp" && value == "42"),
+            "expected hp=42 in locals, got {locals:?}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn step_transport_from_stopped_compiles_and_runs_one_frame() {
+        let dir = temp_dir("transport-step-from-stopped");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+
+        let tick = dispatch(&mut studio, |reply| CoreCommand::Transport {
+            action: "step".to_string(),
+            reply,
+        })
+        .expect("step transport");
+
+        assert_eq!(tick.run_state, RunState::Paused);
+        assert_eq!(tick.frame, 1);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn step_transport_reports_runtime_error_pause_reason() {
+        let dir = temp_dir("transport-step-runtime-error");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+        studio.sources[0].text =
+            "function _init()\nend\n\nfunction _update()\n  error(\"boom\")\nend\n".to_string();
+        studio.needs_compile = true;
+
+        let tick = dispatch(&mut studio, |reply| CoreCommand::Transport {
+            action: "step".to_string(),
+            reply,
+        })
+        .expect("step transport");
+
+        assert_eq!(tick.run_state, RunState::Paused);
+        let pause_reason = tick.pause_reason.expect("paused on runtime error");
+        assert_eq!(pause_reason.kind, "error");
+        assert!(pause_reason.message.unwrap_or_default().contains("boom"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn toggle_breakpoint_accepts_known_source_and_line() {
+        let dir = temp_dir("toggle-breakpoint-happy-path");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+
+        let toggled = dispatch(&mut studio, |reply| CoreCommand::ToggleBreakpoint {
+            source: "main.lua".to_string(),
+            line: 5,
+            reply,
+        })
+        .expect("toggle on");
+        assert_eq!(
+            toggled,
+            vec![Breakpoint {
+                source: "main.lua".to_string(),
+                line: 5
+            }]
+        );
+
+        let toggled_off = dispatch(&mut studio, |reply| CoreCommand::ToggleBreakpoint {
+            source: "main.lua".to_string(),
+            line: 5,
+            reply,
+        })
+        .expect("toggle off");
+        assert!(toggled_off.is_empty());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn add_and_remove_watch_round_trip() {
+        let dir = temp_dir("watch-round-trip");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+
+        let added = dispatch(&mut studio, |reply| CoreCommand::AddWatch {
+            expression: "player_score".to_string(),
+            reply,
+        })
+        .expect("add watch");
+        assert!(added.iter().any(|watch| watch.name == "player_score"));
+
+        let removed = dispatch(&mut studio, |reply| CoreCommand::RemoveWatch {
+            expression: "player_score".to_string(),
+            reply,
+        })
+        .expect("remove watch");
+        assert!(removed.is_empty());
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     // -- StudioCore::create_module ---------------------------------------------

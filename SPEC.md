@@ -115,7 +115,7 @@ T9|x|VM tests: (a) breakpoint hit exposes correct locals for nested-scope script
 T10|x|new Tauri cmd (e.g. `studio_debug_locals`) + capabilities/`gen/schemas` regen for locals surface|T8,V9,I.studio-cmd
 T11|x|expose locals in Studio debug UI alongside existing watches/call-stack (ConsolePane.svelte)|T10,I.studio-cmd
 T12|x|audit README/docs for step-semantics claims (`ConsolePane.svelte:129` already accurate — "Step a frame at a time"; no mislabel found in checked surface, this is a repo-wide sweep not a fix)|V22
-T13|.|Rust unit tests for debugger.rs + tauri_app.rs breakpoint/step/locals IPC path (audit-flagged: no direct tests today)|T8,T10,T12
+T13|x|Rust unit tests for debugger.rs + tauri_app.rs breakpoint/step/locals IPC path (audit-flagged: no direct tests today)|T8,T10,T12
 
 ## §B BUGS
 
