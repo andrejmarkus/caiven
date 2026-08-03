@@ -176,6 +176,134 @@ fn lua_run_frame_bp_exposes_locals_at_breakpoint() {
 }
 
 #[test]
+fn lua_run_frame_bp_locals_reflect_shadowing_and_loop_scope() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          local shadow = 1
+          do
+            local shadow = 2
+            for i = 1, 3 do
+              local loopvar = i * 10
+              shadow = shadow + loopvar
+            end
+          end
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    // Line 8 is `shadow = shadow + loopvar`, first loop iteration
+    // (i = 1, loopvar = 10), inner `shadow` (2) still shadowing the outer one.
+    match vm.run_frame_lua_bp(&input, &font, &[LuaBreakpoint::new("*", 8)]) {
+        LuaRunOutcome::Breakpoint(breakpoint) => assert_eq!(breakpoint.line, 8),
+        other => panic!("expected a breakpoint stop, got {other:?}"),
+    }
+    let locals = vm.lua_debug_locals();
+    assert!(
+        locals.contains(&("shadow".to_string(), "2".to_string())),
+        "expected shadowed inner `shadow` = 2 (not outer's 1), got {locals:?}"
+    );
+    assert!(
+        locals.contains(&("i".to_string(), "1".to_string())),
+        "expected loop control var `i` = 1, got {locals:?}"
+    );
+    assert!(
+        locals.contains(&("loopvar".to_string(), "10".to_string())),
+        "expected loop-body local `loopvar` = 10, got {locals:?}"
+    );
+    // Only one `shadow` entry: the innermost visible binding wins, the
+    // shadowed outer one isn't reported alongside it.
+    assert_eq!(
+        locals.iter().filter(|(name, _)| name == "shadow").count(),
+        1,
+        "expected exactly one `shadow` entry (innermost wins), got {locals:?}"
+    );
+}
+
+#[test]
+fn lua_run_frame_bp_locals_exclude_captured_upvalues() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          local outer = 100
+          local function inner()
+            local innerlocal = 5
+            innerlocal = innerlocal + 1
+          end
+          inner()
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    // Line 6 is `innerlocal = innerlocal + 1`, inside `inner()` — `outer` is
+    // only reachable there as a captured upvalue, not a local of this frame.
+    match vm.run_frame_lua_bp(&input, &font, &[LuaBreakpoint::new("*", 6)]) {
+        LuaRunOutcome::Breakpoint(breakpoint) => assert_eq!(breakpoint.line, 6),
+        other => panic!("expected a breakpoint stop, got {other:?}"),
+    }
+    let locals = vm.lua_debug_locals();
+    assert!(
+        locals.contains(&("innerlocal".to_string(), "5".to_string())),
+        "expected innermost frame's own local `innerlocal` = 5, got {locals:?}"
+    );
+    assert!(
+        !locals.iter().any(|(name, _)| name == "outer"),
+        "upvalue `outer` isn't a local of this frame — lua_getlocal shouldn't \
+         report it (V23 documents this as read-only-current-frame, not \
+         full-scope-chain), got {locals:?}"
+    );
+}
+
+#[test]
+fn lua_debug_locals_stay_empty_outside_the_breakpoint_hook_path() {
+    // read_active_locals is a plain Rust fn only ever invoked from inside
+    // run_frame_lua_bp's EVERY_LINE hook — cart Lua has no registered
+    // builtin that reaches it, and plain run_frame() never wires the hook
+    // at all, so locals must never populate off that path (V8, V23).
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          local secret = 42
+          x = secret
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    vm.run_frame(&input, &font);
+    assert_eq!(vm.get_fault(), None);
+    assert!(
+        vm.lua_debug_locals().is_empty(),
+        "plain run_frame must never populate debugger locals"
+    );
+
+    // Even run_frame_lua_bp with breakpoints that don't match anything must
+    // leave locals empty — the hook only reads/reports on an actual hit.
+    match vm.run_frame_lua_bp(&input, &font, &[LuaBreakpoint::new("*", 999)]) {
+        LuaRunOutcome::Completed => {}
+        other => panic!("expected Completed, got {other:?}"),
+    }
+    assert!(vm.lua_debug_locals().is_empty());
+}
+
+#[test]
 fn lua_run_frame_bp_completes_when_no_breakpoint_hit() {
     let mut vm = make_vm();
     let input = Input::new();
