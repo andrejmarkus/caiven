@@ -97,7 +97,9 @@ test('art, sound, asset reference, and navigation flow', async ({ page, e2e }) =
   await page.getByTitle('Undo sprite edit').click();
 
   await page.getByRole('button', { name: 'Map', exact: true }).click();
-  await page.getByLabel('Tile 001 — empty').click();
+  const tilePicker = page.getByLabel(/^Tile picker/);
+  const pickerBox = await tilePicker.boundingBox();
+  await tilePicker.click({ position: { x: (pickerBox!.width / 16) * 1.5, y: (pickerBox!.height / 16) * 0.5 } });
   await page.getByLabel('64 by 64 tile map').click({ position: { x: 10, y: 10 } });
   await page.getByTitle('Fill (f)').click();
   await page.getByRole('button', { name: 'Collision', exact: true }).click();
