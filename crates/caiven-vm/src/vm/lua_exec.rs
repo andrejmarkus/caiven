@@ -1114,12 +1114,14 @@ impl Vm {
 
         let hit: Rc<RefCell<Option<LuaBreakpoint>>> = Rc::new(RefCell::new(None));
         let stack: Rc<RefCell<Vec<(String, String)>>> = Rc::new(RefCell::new(Vec::new()));
+        let locals_spike: Rc<RefCell<Option<bool>>> = Rc::new(RefCell::new(None));
         // EVERY_LINE fires a Rust callback per Lua instruction executed —
         // real overhead on any script with loops. Only pay for it when
         // there's actually something to break on.
         if !breakpoints.is_empty() {
             let hit_hook = hit.clone();
             let stack_hook = stack.clone();
+            let locals_spike_hook = locals_spike.clone();
             let bps: Vec<LuaBreakpoint> = breakpoints.to_vec();
             lua.set_hook(HookTriggers::EVERY_LINE, move |lua, debug| {
                 let line = debug.curr_line();
@@ -1145,6 +1147,21 @@ impl Vm {
                         line: breakpoint.line,
                     });
                     *stack_hook.borrow_mut() = capture_call_stack(lua);
+                    // R4 spike (T7): reentrant `exec_raw` call from inside
+                    // this already-active hook, proving it's safe to reach
+                    // for the raw state before T8 wires real local-var
+                    // reading through it. `Lua::lock()` uses a
+                    // `ReentrantMutexGuard` so this shouldn't deadlock, but
+                    // the spike exists to confirm that empirically rather
+                    // than trust the doc comment.
+                    let spike: mlua::Result<i64> = unsafe {
+                        lua.exec_raw((), |state| {
+                            let mut ar: mlua_sys::lua_Debug = std::mem::zeroed();
+                            mlua_sys::lua_getstack(state, 0, &mut ar);
+                            mlua_sys::lua_pushinteger(state, 42);
+                        })
+                    };
+                    *locals_spike_hook.borrow_mut() = Some(matches!(spike, Ok(42)));
                     return Err(mlua::Error::runtime("breakpoint"));
                 }
                 Ok(VmState::Continue)
@@ -1184,6 +1201,7 @@ impl Vm {
 
         if hit.borrow().is_some() {
             self.call_stack = stack.borrow().clone();
+            self.locals_spike_ok = *locals_spike.borrow();
         } else {
             self.call_stack.clear();
         }
@@ -1206,6 +1224,15 @@ impl Vm {
     /// breakpoint. Each entry is `(frame label, "file:line")`.
     pub fn lua_call_stack(&self) -> Vec<(String, String)> {
         self.call_stack.clone()
+    }
+
+    /// R4 spike result (T7): `Some(true)` if the last breakpoint hit's
+    /// reentrant `Lua::exec_raw` probe from inside the active hook
+    /// completed without panic/deadlock and returned the expected value;
+    /// `None` if no breakpoint has fired yet. Test-only diagnostic —
+    /// superseded by real locals reading in T8.
+    pub fn lua_debug_locals_spike_ok(&self) -> Option<bool> {
+        self.locals_spike_ok
     }
 
     /// Snapshot of the script's global variables, for the Studio debugger's

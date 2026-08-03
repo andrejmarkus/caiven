@@ -1062,6 +1062,7 @@ dependencies = [
  "image",
  "log",
  "mlua",
+ "mlua-sys",
  "pixels",
  "serde",
  "toml 0.8.23",
