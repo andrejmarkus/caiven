@@ -127,6 +127,17 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
   `shell/settings.rs` — `Pane::ALL` ×5, `Row{id,label,sub,kind}`,
   `RowKind` ∈ {Choice,Toggle,Range,Action,Readout}; `is_adjustable()` decides
   ◄► = adjust vs leave column. `Settings::adjust(id,dir) → bool changed`.
+- machine-shell-screens: `caiven-machine/src/shell/screens/` — one module per
+  `Screen`, draws content area only (between chrome bars, T39 owns those).
+  `library.rs::draw(surface,state,carts)` — hero panel over
+  `state.selected_cart()` | dashed-tile placeholder ∀ port tile selected;
+  shelf = every `CartMeta` + trailing port tile, `shelf_window(selected,
+  tile_count,capacity) → Range` pure fn keeps selection in view, scrolls
+  only at the edge. cover art ⊥ exist (CartMeta carries no art, I.machine-
+  shell-library) ∴ `swatch_for(id)` hashes id → `theme::color::SWATCH[5]`,
+  deterministic. hero spec line = kb size + section names, ⊥ rating/tags/
+  description (not in CartMeta). `theme::Metrics` gained `hero_cover`,
+  `shelf_tile`, `shelf_gap`; `TypeScale` gained `shelf_tile_title`.
 - machine-shell-port: `GET /api/v2/carts` (page, per_page, q, tag, author, sort),
   thumb `/api/v2/carts/:id/screenshot`, download `/api/v2/carts/:id/cart`.
   Download complete → append to library immediately.
@@ -319,7 +330,7 @@ T34|x|bundle subset Space Grotesk/Inter/JetBrains Mono + Lucide glyphs ∈ binar
 T35|x|CPU raster surface: tiny-skia + fontdue glyph cache → RGBA buf, dirty-flag redraw (texture upload lands w/ T44)|V33,V42,V46,I.machine-shell-raster
 T36|x|shell state machine + navigation graph|I.machine-shell,I.machine-shell-nav,V47,V48,V49,V50,T35
 T37|x|cart library scan: carts dir → Vec<CartMeta> from `.cav` header/section table|I.machine-shell,I.machine-shell-library,V54,V55,V56
-T38|.|library screen 1a: hero carousel + shelf + dashed PORT tile|I.machine-shell,T35,T37
+T38|x|library screen 1a: hero carousel + shelf + dashed PORT tile|I.machine-shell,I.machine-shell-screens,T35,T37
 T39|.|chrome: status bar (RTC clock @0x9600, cart count, battery, volume) + per-screen legend bar|I.machine-shell,T35
 T40|.|boot screen: ember radial, wordmark, progress, spec line from CARGO_PKG_VERSION+VmConfig|T35
 T41|.|empty state screen|T35,T38

@@ -103,6 +103,18 @@ pub mod color {
     /// Behind a running cart, and nothing else.
     pub const CART_BACKDROP: Color = Color::rgb(0x000000);
 
+    /// Deterministic per-cart identity colors, for a cover with no captured
+    /// screenshot — the library only knows a cart's header and section
+    /// table (T37), never its art. Picked by hashing the cart id; see
+    /// `shell/screens/library.rs::swatch_for`.
+    pub const SWATCH: [Color; 5] = [
+        Color::rgb(0x20337B),
+        Color::rgb(0x5E2C5C),
+        Color::rgb(0x287252),
+        Color::rgb(0x7D523A),
+        Color::rgb(0xC83C46),
+    ];
+
     /// Logo body color. Deliberately not exported as a UI surface — the
     /// handoff forbids it appearing as one, and it exists here only so the
     /// wordmark has a name to reach for if a mark is ever drawn.
@@ -164,6 +176,8 @@ pub struct TypeScale {
     pub caps_label: f32,
     pub mono_spec: f32,
     pub mono_micro: f32,
+    /// The cart name printed across a shelf tile.
+    pub shelf_tile_title: f32,
 }
 
 /// Bar heights, paddings and gaps in px for one layout.
@@ -178,6 +192,12 @@ pub struct Metrics {
     pub legend_gap: u32,
     pub screen_pad_x: u32,
     pub screen_pad_y: u32,
+    /// Side length of the library hero cover.
+    pub hero_cover: f32,
+    /// Side length of a library shelf tile.
+    pub shelf_tile: f32,
+    /// Gap between adjacent shelf tiles.
+    pub shelf_gap: u32,
     pub text: TypeScale,
 }
 
@@ -208,6 +228,9 @@ pub const METRICS_640: Metrics = Metrics {
     legend_gap: 18,
     screen_pad_x: 18,
     screen_pad_y: 16,
+    hero_cover: 186.0,
+    shelf_tile: 86.0,
+    shelf_gap: 12,
     text: TypeScale {
         boot_wordmark: 72.0,
         boot_lockup: 15.0,
@@ -225,6 +248,7 @@ pub const METRICS_640: Metrics = Metrics {
         caps_label: 12.0,
         mono_spec: 11.0,
         mono_micro: 10.0,
+        shelf_tile_title: 11.0,
     },
 };
 
@@ -241,6 +265,9 @@ pub const METRICS_1280: Metrics = Metrics {
     legend_gap: 28,
     screen_pad_x: 36,
     screen_pad_y: 32,
+    hero_cover: 297.0,
+    shelf_tile: 138.0,
+    shelf_gap: 19,
     text: TypeScale {
         boot_wordmark: 115.0,
         boot_lockup: 24.0,
@@ -258,6 +285,7 @@ pub const METRICS_1280: Metrics = Metrics {
         caps_label: 15.0,
         mono_spec: 13.0,
         mono_micro: 13.0,
+        shelf_tile_title: 17.0,
     },
 };
 
@@ -443,6 +471,7 @@ mod tests {
                 t.caps_label,
                 t.mono_spec,
                 t.mono_micro,
+                t.shelf_tile_title,
             ] {
                 assert!(size >= 10.0, "type role {size}px below the 10px floor");
             }
@@ -457,6 +486,8 @@ mod tests {
         assert!(METRICS_1280.screen_pad_x > METRICS_640.screen_pad_x);
         assert!(METRICS_1280.text.body > METRICS_640.text.body);
         assert!(METRICS_1280.text.hero_title > METRICS_640.text.hero_title);
+        assert!(METRICS_1280.hero_cover > METRICS_640.hero_cover);
+        assert!(METRICS_1280.shelf_tile > METRICS_640.shelf_tile);
     };
 
     #[test]

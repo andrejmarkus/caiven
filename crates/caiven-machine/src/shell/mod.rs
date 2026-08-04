@@ -18,6 +18,8 @@ pub mod input;
 #[allow(dead_code)]
 pub mod library;
 #[allow(dead_code)]
+pub mod screens;
+#[allow(dead_code)]
 pub mod settings;
 #[allow(dead_code)]
 pub mod state;
