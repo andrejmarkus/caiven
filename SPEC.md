@@ -138,6 +138,12 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
   deterministic. hero spec line = kb size + section names, ⊥ rating/tags/
   description (not in CartMeta). `theme::Metrics` gained `hero_cover`,
   `shelf_tile`, `shelf_gap`; `TypeScale` gained `shelf_tile_title`.
+  `chrome.rs::draw(surface,state,status:&StatusInfo)` → status bar + legend
+  bar ∀ `state.screen().has_chrome()`, else no-op. `StatusInfo{hour,minute,
+  battery:Option<f32>,wifi}` = host facts `ShellState` ⊥ own (RTC register,
+  SDL battery query); wiring → T44. cart count & volume read direct off
+  `state.cart_count()` / `state.settings().master_volume`. legend chips laid
+  out off `state.legend()` verbatim, trailing entries right-aligned.
 - machine-shell-port: `GET /api/v2/carts` (page, per_page, q, tag, author, sort),
   thumb `/api/v2/carts/:id/screenshot`, download `/api/v2/carts/:id/cart`.
   Download complete → append to library immediately.
@@ -331,7 +337,7 @@ T35|x|CPU raster surface: tiny-skia + fontdue glyph cache → RGBA buf, dirty-fl
 T36|x|shell state machine + navigation graph|I.machine-shell,I.machine-shell-nav,V47,V48,V49,V50,T35
 T37|x|cart library scan: carts dir → Vec<CartMeta> from `.cav` header/section table|I.machine-shell,I.machine-shell-library,V54,V55,V56
 T38|x|library screen 1a: hero carousel + shelf + dashed PORT tile|I.machine-shell,I.machine-shell-screens,T35,T37
-T39|.|chrome: status bar (RTC clock @0x9600, cart count, battery, volume) + per-screen legend bar|I.machine-shell,T35
+T39|x|chrome: status bar (RTC clock @0x9600, cart count, battery, volume) + per-screen legend bar|I.machine-shell,I.machine-shell-screens,T35
 T40|.|boot screen: ember radial, wordmark, progress, spec line from CARGO_PKG_VERSION+VmConfig|T35
 T41|.|empty state screen|T35,T38
 T42|.|cart detail: screenshot 2× nearest, spec card, Play/Delete actions|T37,T35
