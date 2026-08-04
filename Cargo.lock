@@ -894,6 +894,7 @@ dependencies = [
  "log",
  "sdl2",
  "svgtypes",
+ "tempfile",
  "tiny-skia",
 ]
 

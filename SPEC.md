@@ -96,6 +96,12 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
   persist: settings → TOML beside binary; binds → `controls.toml` (same format);
   saves → `saves/` keyed by cart id.
   CartMeta ← `.cav` header + section table (caiven-cart).
+- machine-shell-library: `caiven-machine/src/shell/library.rs` — `scan(dir) →
+  Vec<CartMeta>`, ⊥ Result (V54). `CartMeta{id,path,title,author,bytes,kinds}`;
+  `display_title()` = title | id ∀ empty title; `has(kind)`. kinds = dedup,
+  section-table order, `Program` first. sort = display_title lowercase, then id.
+  `default_dir()` = `<exe dir>/carts`. ⊥ library db, ⊥ sidecar metadata —
+  library == what's on card.
 - machine-shell-raster: `caiven-machine/src/shell/` — `theme.rs` tokens,
   `font.rs` faces+glyph cache, `icon.rs` Lucide paths, `surface.rs` raster.
   `Surface::new(w,h)` picks `METRICS_640` | `METRICS_1280` (wide only @ ≥1280×720,
@@ -251,6 +257,12 @@ V52: START ⊥ ∈ `Button` ∴ ⊥ reachable from cart Lua ∀ paths. `SystemBu
 separate map ∈ `InputMap`. Cart ⊥ able to hold pause menu hostage.
 V53: ∀ device → shell reachable: no physical START → hold B ≥600ms. ⊥ ship
 screen whose only exit needs a button the device may lack.
+V54: library scan ⊥ fail — missing dir → empty (empty-state screen), corrupt |
+oversized | unreadable cart → skip + warn. 1 bad `.cav` ⊥ take library down.
+V55: `.cav` = untrusted (Port download | hand-copied card). size checked on
+dirent, reject > `MAX_CART_BYTES` before read ∴ ⊥ multi-GB file → 128MB device.
+V56: cart id = file stem, ! single safe path component (⊥ empty, `.`, `..`,
+`/`, `\`, `:`, NUL) — id joined onto `saves/`, ∴ ⊥ escape.
 
 ## §R RESEARCH
 
@@ -306,7 +318,7 @@ T33|x|`theme.rs` — Obsidian & Ember tokens + type scale (640×480 & 1280×720)
 T34|x|bundle subset Space Grotesk/Inter/JetBrains Mono + Lucide glyphs ∈ binary|V41,V43,V44,V45,R10,R11
 T35|x|CPU raster surface: tiny-skia + fontdue glyph cache → RGBA buf, dirty-flag redraw (texture upload lands w/ T44)|V33,V42,V46,I.machine-shell-raster
 T36|x|shell state machine + navigation graph|I.machine-shell,I.machine-shell-nav,V47,V48,V49,V50,T35
-T37|.|cart library scan: carts dir → Vec<CartMeta> from `.cav` header/section table|I.machine-shell
+T37|x|cart library scan: carts dir → Vec<CartMeta> from `.cav` header/section table|I.machine-shell,I.machine-shell-library,V54,V55,V56
 T38|.|library screen 1a: hero carousel + shelf + dashed PORT tile|I.machine-shell,T35,T37
 T39|.|chrome: status bar (RTC clock @0x9600, cart count, battery, volume) + per-screen legend bar|I.machine-shell,T35
 T40|.|boot screen: ember radial, wordmark, progress, spec line from CARGO_PKG_VERSION+VmConfig|T35

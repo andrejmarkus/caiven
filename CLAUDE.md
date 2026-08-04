@@ -65,11 +65,34 @@ switching to an unrelated task.
 
 ## Git and completion
 
-- Commit format: `type(scope): summary`, blank line, then flat `- ...` bullets.
-- Never push, open a pull request, merge, force-push, amend, reset hard, or
-  discard work without explicit user approval.
-- Before declaring completion, run the targeted checks for every area touched
-  and report anything not verified.
+- Commit message format: `type(scope): summary` subject line, blank line,
+  then a flat bullet list (`- ...`), one line per bullet, no blank lines
+  between bullets, no trailing watermark/co-author line unless the user
+  asks for one. Match existing history style (e.g. `b64eebd`).
+- Never cite SPEC.md ids (`T*`, `V*`, `B*`, `§X`) in a commit message — git
+  readers don't have the spec open. Say what changed and why in plain terms;
+  the spec tracks its own ids.
+- Never push, merge, or open PRs without explicit approval.
+- Never force-push, `reset --hard`, or discard uncommitted work without
+  checking `git status` first and confirming.
+- Never commit secrets; `.env` / `.env.example` stay out of prompts and logs.
+- Create new commits rather than amending, unless told otherwise.
+- Treat every plugin, MCP server, hook, or script as executable code — read
+  it before trusting it (see `.claude/PLUGIN_STACK.md`).
 
-See `docs/development/claude-code-workflow.md` for task-to-profile and
-skill selection. See `.claude/PLUGIN_STACK.md` only when changing tooling.
+## Where to look next
+
+- Path-scoped rules: `.claude/rules/` (rust, vm-runtime, lua-api,
+  cart-format, studio-tauri, studio-ui, port-backend, port-web, testing,
+  security, performance, documentation, release).
+- Project skills: `.claude/skills/caiven-*` — see
+  `docs/development/claude-code-workflow.md` for when to invoke each.
+- Repository audit: `docs/development/claude-code-audit.md`.
+- Product loop: `docs/product/product-development-loop.md`.
+- Nested `CLAUDE.md` files (e.g. `crates/caiven-studio/CLAUDE.md`) hold
+  crate-specific operational detail — Claude Code loads these automatically
+  when working in that directory.
+
+When you discover a repeatable lesson (a bug class, a gotcha in a build
+step, a compatibility trap), write it into the relevant scoped rule file or
+CaveKit spec instead of letting it live only in conversation history.

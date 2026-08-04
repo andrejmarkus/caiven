@@ -30,3 +30,6 @@ log = { workspace = true }
 sdl2 = { workspace = true }
 svgtypes = { workspace = true }
 tiny-skia = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
