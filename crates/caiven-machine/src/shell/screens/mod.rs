@@ -6,4 +6,6 @@ pub mod boot;
 #[allow(dead_code)]
 pub mod chrome;
 #[allow(dead_code)]
+pub mod detail;
+#[allow(dead_code)]
 pub mod library;

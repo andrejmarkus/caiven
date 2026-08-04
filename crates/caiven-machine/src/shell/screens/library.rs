@@ -20,7 +20,8 @@ use crate::shell::surface::{Align, Box2, Surface, TextStyle};
 use crate::shell::theme::{Family, Metrics, Weight, color, focus, radius, space, tracking};
 
 /// Picks a deterministic identity color for a cart with no captured art.
-fn swatch_for(id: &str) -> crate::shell::theme::Color {
+/// `pub(super)`: the detail screen (T42) draws the same cover treatment.
+pub(super) fn swatch_for(id: &str) -> crate::shell::theme::Color {
     let mut hash: u32 = 2_166_136_261;
     for byte in id.bytes() {
         hash ^= u32::from(byte);
@@ -30,8 +31,9 @@ fn swatch_for(id: &str) -> crate::shell::theme::Color {
 }
 
 /// Formats a byte count the way the spec line wants it: whole kilobytes,
-/// rounding up so a small cart never reads "0 KB".
-fn format_kb(bytes: u64) -> String {
+/// rounding up so a small cart never reads "0 KB". `pub(super)`: the detail
+/// screen's spec card (T42) reuses it.
+pub(super) fn format_kb(bytes: u64) -> String {
     let kb = bytes.div_ceil(1024).max(1);
     format!("{kb} KB")
 }

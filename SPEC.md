@@ -155,7 +155,18 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
   hero+shelf: centered `Icon::Cartridge`, `empty_title` headline "No carts
   yet", body hint "Insert a cart, or browse the Port". No separate
   `Screen::Empty` variant — folds into `Screen::Library`'s draw path per
-  `state.cart_count()`.
+  `state.cart_count()`. `detail.rs::draw(surface,state,carts)` ∀
+  `state.selected_cart()` = `None` → no-op (state.rs ⊥ enters `Screen::Detail`
+  ⊥ selection, but module stays call-safe standalone). ⊥ real screenshot
+  (CartMeta carries none, same fact I.machine-shell-library) ∴ cover reuses
+  `library.rs::swatch_for(id)` (now `pub(super)`, shared w/ `format_kb`) at
+  `hero_cover` size — no 2× bitmap scale, no new metrics token. layout:
+  cover+title+author, `draw_spec_card` (bordered panel, SIZE row + SECTIONS
+  row ∀ kinds non-empty, returns own height for caller layout), 2
+  `draw_action` pill buttons (Play|Delete) 50/50 width, focused =
+  `state.detail_action()`, ember-fill vs outline — same treatment as legend
+  primary chip vs unfocused shelf tile. `detail_title` (`TypeScale`, T38-era
+  scoping) is the title font role.
 - machine-shell-port: `GET /api/v2/carts` (page, per_page, q, tag, author, sort),
   thumb `/api/v2/carts/:id/screenshot`, download `/api/v2/carts/:id/cart`.
   Download complete → append to library immediately.
@@ -352,7 +363,7 @@ T38|x|library screen 1a: hero carousel + shelf + dashed PORT tile|I.machine-shel
 T39|x|chrome: status bar (RTC clock @0x9600, cart count, battery, volume) + per-screen legend bar|I.machine-shell,I.machine-shell-screens,T35
 T40|x|boot screen: ember radial, wordmark, progress, spec line from CARGO_PKG_VERSION+VmConfig|I.machine-shell,I.machine-shell-screens,T35
 T41|x|empty state screen|I.machine-shell-screens,T35,T38
-T42|.|cart detail: screenshot 2× nearest, spec card, Play/Delete actions|T37,T35
+T42|x|cart detail: screenshot 2× nearest, spec card, Play/Delete actions|I.machine-shell-screens,T37,T35
 T43|.|hand-off/loading screen w/ real stage text + wall-clock progress|V35,V36,T35
 T44|.|playing fullscreen: ⊥ HUD, scaling from settings, optional fps readout|V37,T35
 T45|.|pause overlay over frozen frame (blur+dim once), 6 rows incl. save/load state|V38,T35
