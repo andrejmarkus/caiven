@@ -9,3 +9,5 @@ pub mod chrome;
 pub mod detail;
 #[allow(dead_code)]
 pub mod library;
+#[allow(dead_code)]
+pub mod loading;

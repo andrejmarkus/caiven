@@ -194,6 +194,8 @@ pub struct Metrics {
     pub screen_pad_y: u32,
     /// Side length of the library hero cover.
     pub hero_cover: f32,
+    /// Side length of the hand-off screen's cart label.
+    pub loading_cover: f32,
     /// Side length of a library shelf tile.
     pub shelf_tile: f32,
     /// Gap between adjacent shelf tiles.
@@ -229,6 +231,7 @@ pub const METRICS_640: Metrics = Metrics {
     screen_pad_x: 18,
     screen_pad_y: 16,
     hero_cover: 186.0,
+    loading_cover: 150.0,
     shelf_tile: 86.0,
     shelf_gap: 12,
     text: TypeScale {
@@ -266,6 +269,7 @@ pub const METRICS_1280: Metrics = Metrics {
     screen_pad_x: 36,
     screen_pad_y: 32,
     hero_cover: 297.0,
+    loading_cover: 240.0,
     shelf_tile: 138.0,
     shelf_gap: 19,
     text: TypeScale {

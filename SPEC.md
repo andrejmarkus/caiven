@@ -167,6 +167,19 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
   `state.detail_action()`, ember-fill vs outline — same treatment as legend
   primary chip vs unfocused shelf tile. `detail_title` (`TypeScale`, T38-era
   scoping) is the title font role.
+  `loading.rs::draw(surface,state,carts,progress:&LoadProgress)` — full-bleed,
+  no chrome. `LoadProgress{fraction,stage}` host-supplied (⊥ tracked ∈
+  `ShellState`, same pattern as `chrome.rs`'s `StatusInfo`); `fraction` = real
+  wall-clock progress (V35), `stage` built by `stage_text(sections,mounted)` —
+  pure fn, walks cart's section table in `Vm::load_cart_sections` order (V36),
+  groups legacy/bank kind pairs under 1 label (`sprites`,`map`,`sfx`,`music`,
+  `palette`,`collision`,`program`,`mods`,`data`) → `"mounting cart ·
+  {label} {i}/{n}"`, ⊥ sections left → `"running _init()"`. draw: static ember
+  glow (flat 16% alpha, ⊥ ring falloff — spec §5 gives single flat value, ⊥
+  boot's multi-ring gradient), cart label = `swatch_for(id)` @ new
+  `loading_cover` metrics token (150 @640, 240 @1280), title+author, progress
+  pill, stage line, "Hold MENU at any time to pause" footer. no-op ∀
+  `state.selected_cart()` = `None`, same discipline as `detail.rs`.
 - machine-shell-port: `GET /api/v2/carts` (page, per_page, q, tag, author, sort),
   thumb `/api/v2/carts/:id/screenshot`, download `/api/v2/carts/:id/cart`.
   Download complete → append to library immediately.
@@ -364,7 +377,7 @@ T39|x|chrome: status bar (RTC clock @0x9600, cart count, battery, volume) + per-
 T40|x|boot screen: ember radial, wordmark, progress, spec line from CARGO_PKG_VERSION+VmConfig|I.machine-shell,I.machine-shell-screens,T35
 T41|x|empty state screen|I.machine-shell-screens,T35,T38
 T42|x|cart detail: screenshot 2× nearest, spec card, Play/Delete actions|I.machine-shell-screens,T37,T35
-T43|.|hand-off/loading screen w/ real stage text + wall-clock progress|V35,V36,T35
+T43|x|hand-off/loading screen w/ real stage text + wall-clock progress|I.machine-shell-screens,V35,V36,T35
 T44|.|playing fullscreen: ⊥ HUD, scaling from settings, optional fps readout|V37,T35
 T45|.|pause overlay over frozen frame (blur+dim once), 6 rows incl. save/load state|V38,T35
 T46|.|settings: 5 panes (Video/Audio/Controls/Port/System), immediate save to TOML|I.machine-shell,T35
