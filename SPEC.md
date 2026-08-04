@@ -150,7 +150,12 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
   Progress bar fraction = `state.boot_elapsed()/BOOT_DURATION`. spec line =
   `v{version} · {w}×{h} · {kb}KB · {n} colors`, `version` normally
   `env!("CARGO_PKG_VERSION")`, `config` normally `VmConfig::default()` —
-  both threaded in by caller, ⊥ read off globals.
+  both threaded in by caller, ⊥ read off globals. `library.rs::draw` ∀
+  `carts.is_empty()` → `draw_empty_state(surface,m,content_top)` instead of
+  hero+shelf: centered `Icon::Cartridge`, `empty_title` headline "No carts
+  yet", body hint "Insert a cart, or browse the Port". No separate
+  `Screen::Empty` variant — folds into `Screen::Library`'s draw path per
+  `state.cart_count()`.
 - machine-shell-port: `GET /api/v2/carts` (page, per_page, q, tag, author, sort),
   thumb `/api/v2/carts/:id/screenshot`, download `/api/v2/carts/:id/cart`.
   Download complete → append to library immediately.
@@ -346,7 +351,7 @@ T37|x|cart library scan: carts dir → Vec<CartMeta> from `.cav` header/section 
 T38|x|library screen 1a: hero carousel + shelf + dashed PORT tile|I.machine-shell,I.machine-shell-screens,T35,T37
 T39|x|chrome: status bar (RTC clock @0x9600, cart count, battery, volume) + per-screen legend bar|I.machine-shell,I.machine-shell-screens,T35
 T40|x|boot screen: ember radial, wordmark, progress, spec line from CARGO_PKG_VERSION+VmConfig|I.machine-shell,I.machine-shell-screens,T35
-T41|.|empty state screen|T35,T38
+T41|x|empty state screen|I.machine-shell-screens,T35,T38
 T42|.|cart detail: screenshot 2× nearest, spec card, Play/Delete actions|T37,T35
 T43|.|hand-off/loading screen w/ real stage text + wall-clock progress|V35,V36,T35
 T44|.|playing fullscreen: ⊥ HUD, scaling from settings, optional fps readout|V37,T35

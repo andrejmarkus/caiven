@@ -13,10 +13,11 @@
 
 use std::ops::Range;
 
+use crate::shell::icon::Icon;
 use crate::shell::library::CartMeta;
 use crate::shell::state::ShellState;
 use crate::shell::surface::{Align, Box2, Surface, TextStyle};
-use crate::shell::theme::{Family, Weight, color, focus, radius, space, tracking};
+use crate::shell::theme::{Family, Metrics, Weight, color, focus, radius, space, tracking};
 
 /// Picks a deterministic identity color for a cart with no captured art.
 fn swatch_for(id: &str) -> crate::shell::theme::Color {
@@ -97,6 +98,11 @@ pub fn draw(surface: &mut Surface, state: &ShellState, carts: &[CartMeta]) {
     }
     y += m.text.caps_label + space::X4 as f32;
 
+    if carts.is_empty() {
+        draw_empty_state(surface, &m, y);
+        return;
+    }
+
     // --- hero -------------------------------------------------------------
     let cover = Box2::new(content_x, y, m.hero_cover, m.hero_cover);
     match state.selected_cart().and_then(|i| carts.get(i)) {
@@ -158,6 +164,48 @@ pub fn draw(surface: &mut Surface, state: &ShellState, carts: &[CartMeta]) {
             draw_port_tile(surface, &m, bounds, focused);
         }
     }
+}
+
+/// No carts on disk: a centered glyph, headline, and a hint pointing at the
+/// Port tile, instead of a hero-and-shelf built around nothing. `content_top`
+/// is the first free y below the eyebrow row.
+fn draw_empty_state(surface: &mut Surface, m: &Metrics, content_top: f32) {
+    let center_x = m.width as f32 / 2.0;
+    let content_bottom = (m.content_top() + m.content_height()) as f32;
+    let center_y = (content_top + content_bottom) / 2.0;
+
+    let icon_size = m.hero_cover * 0.4;
+    let _ = surface.draw_icon(
+        Icon::Cartridge,
+        center_x - icon_size / 2.0,
+        center_y - icon_size * 1.6,
+        icon_size,
+        1.6,
+        color::INK_FAINT,
+    );
+
+    let title_style = TextStyle::new(
+        Family::Display,
+        Weight::SemiBold,
+        m.text.empty_title,
+        color::INK_DIM,
+    );
+    surface.draw_text(
+        title_style,
+        center_x,
+        center_y,
+        Align::Center,
+        "No carts yet",
+    );
+
+    let hint_style = TextStyle::new(Family::Body, Weight::Regular, m.text.body, color::INK_FAINT);
+    surface.draw_text(
+        hint_style,
+        center_x,
+        center_y + m.text.empty_title * 0.5 + m.text.body,
+        Align::Center,
+        "Insert a cart, or browse the Port",
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -374,6 +422,28 @@ mod tests {
     #[test]
     fn drawing_an_empty_library_does_not_panic() {
         let mut s = surface();
+        let state = ShellState::new();
+        draw(&mut s, &state, &[]);
+    }
+
+    #[test]
+    fn empty_library_draws_the_empty_state_glyph() {
+        let mut s = surface();
+        s.clear(color::VOID_900);
+        let state = ShellState::new();
+        draw(&mut s, &state, &[]);
+        // Something other than the flat background painted somewhere in the
+        // content band — a loose check, but enough to catch a no-op draw.
+        let data = s.rgba().to_vec();
+        assert!(
+            data.chunks_exact(4).any(|px| px[..3] != [0x2B, 0x2A, 0x2A]),
+            "empty state drew nothing distinguishable from the background"
+        );
+    }
+
+    #[test]
+    fn wide_layout_empty_state_draws_without_panicking() {
+        let mut s = Surface::new(1280, 720).expect("1280×720 surface");
         let state = ShellState::new();
         draw(&mut s, &state, &[]);
     }
