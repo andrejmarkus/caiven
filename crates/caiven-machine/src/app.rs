@@ -20,7 +20,7 @@ use crate::shell::input::{ShellInput, shell_button, shell_button_from_system};
 use crate::shell::library::{self as cart_library, CartMeta};
 use crate::shell::screens::chrome::{self, StatusInfo};
 use crate::shell::screens::loading::{self, LoadProgress};
-use crate::shell::screens::{boot, detail, library as library_screen, playing};
+use crate::shell::screens::{boot, detail, library as library_screen, pause, playing};
 use crate::shell::settings::Settings;
 use crate::shell::state::{BOOT_DURATION, Effect, Screen, ShellButton, ShellState};
 use crate::shell::surface::{Align, Surface, TextStyle};
@@ -224,8 +224,8 @@ fn on_up(
 
 /// Carries out what `ShellState::press` decided the host must do.
 ///
-/// Screens that don't have real functionality behind them yet (Pause T45,
-/// Settings T46, Controls T47, Port T48, save states T50) resolve their
+/// Screens that don't have real functionality behind them yet (Settings T46,
+/// Controls T47, Port T48, save states T50) resolve their
 /// effects to a safe no-op rather than leaving the shell unable to
 /// navigate — `ListenForBind` in particular has to answer with
 /// `bind_captured` or `listening` would swallow every future press.
@@ -283,10 +283,10 @@ fn handle_effect(
     }
 }
 
-/// Draws whichever screen `ShellState` is on. The five screens without a
-/// real draw module yet (Pause, Settings, Controls, Port, Crash) get chrome
-/// (where they have any) plus a plain placeholder rather than being left
-/// unreachable — see SPEC T45-T49.
+/// Draws whichever screen `ShellState` is on. The four screens without a
+/// real draw module yet (Settings, Controls, Port, Crash) get chrome (where
+/// they have any) plus a plain placeholder rather than being left
+/// unreachable — see SPEC T46-T49.
 fn draw_screen(
     surface: &mut Surface,
     shell: &ShellState,
@@ -311,7 +311,8 @@ fn draw_screen(
             loading::draw(surface, shell, carts, &progress);
         }
         Screen::Playing => playing::draw(surface, shell, fps),
-        Screen::Pause | Screen::Settings | Screen::Controls | Screen::Port | Screen::Crash => {
+        Screen::Pause => pause::draw(surface, shell),
+        Screen::Settings | Screen::Controls | Screen::Port | Screen::Crash => {
             draw_placeholder(surface, shell);
         }
     }
@@ -320,7 +321,6 @@ fn draw_screen(
 
 fn placeholder_label(screen: Screen) -> Option<(&'static str, &'static str)> {
     match screen {
-        Screen::Pause => Some(("Pause", "T45")),
         Screen::Settings => Some(("Settings", "T46")),
         Screen::Controls => Some(("Controls", "T47")),
         Screen::Port => Some(("Port", "T48")),
