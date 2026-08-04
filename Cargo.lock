@@ -888,6 +888,7 @@ dependencies = [
  "caiven-cart",
  "caiven-core",
  "caiven-vm",
+ "chrono",
  "clap",
  "env_logger",
  "fontdue",

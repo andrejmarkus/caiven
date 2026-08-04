@@ -20,6 +20,7 @@ sdl2-dynamic = []
 
 [dependencies]
 anyhow = { workspace = true }
+chrono = { workspace = true }
 clap = { workspace = true }
 env_logger = { workspace = true }
 caiven-core = { workspace = true }

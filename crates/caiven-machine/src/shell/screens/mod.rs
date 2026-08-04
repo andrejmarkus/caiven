@@ -11,3 +11,5 @@ pub mod detail;
 pub mod library;
 #[allow(dead_code)]
 pub mod loading;
+#[allow(dead_code)]
+pub mod playing;

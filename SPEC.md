@@ -378,7 +378,7 @@ T40|x|boot screen: ember radial, wordmark, progress, spec line from CARGO_PKG_VE
 T41|x|empty state screen|I.machine-shell-screens,T35,T38
 T42|x|cart detail: screenshot 2× nearest, spec card, Play/Delete actions|I.machine-shell-screens,T37,T35
 T43|x|hand-off/loading screen w/ real stage text + wall-clock progress|I.machine-shell-screens,V35,V36,T35
-T44|.|playing fullscreen: ⊥ HUD, scaling from settings, optional fps readout|V37,T35
+T44|x|playing fullscreen: ⊥ HUD, scaling from settings, optional fps readout|V37,T35
 T45|.|pause overlay over frozen frame (blur+dim once), 6 rows incl. save/load state|V38,T35
 T46|.|settings: 5 panes (Video/Audio/Controls/Port/System), immediate save to TOML|I.machine-shell,T35
 T47|.|controls remap screen → writes controls.toml round-trip|V40,T46

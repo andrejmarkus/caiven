@@ -357,6 +357,13 @@ impl ShellState {
 
     // --- host notifications --------------------------------------------
 
+    /// Seeds the starting settings (e.g. `--scale`/`--aspect` CLI flags)
+    /// before the first frame. Once the shell is running, settings only
+    /// ever change through [`Self::press`] on the Settings screen.
+    pub fn set_settings(&mut self, settings: Settings) {
+        self.settings = settings;
+    }
+
     /// Replaces the library size, keeping the cursor in range.
     pub fn set_cart_count(&mut self, count: usize) {
         self.cart_count = count;

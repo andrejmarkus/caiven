@@ -7,5 +7,6 @@
 
 pub mod audio;
 pub mod input;
+pub mod power;
 pub mod scaling;
 pub mod window;

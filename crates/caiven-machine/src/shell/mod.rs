@@ -6,9 +6,9 @@
 //! texture beside the console framebuffer, and only redraws when state
 //! changes.
 
-// The token set and the navigation graph land ahead of the screens that
-// consume them, so each piece is reviewable on its own. Drop these once the
-// screens are drawn and the app loop drives the state machine.
+// Some tokens and methods here are still ahead of the screens that will
+// consume them (Pause T45, Settings T46, Controls T47, Port T48, save
+// states T50) — drop these once every screen is drawn for real.
 #[allow(dead_code)]
 pub mod font;
 #[allow(dead_code)]

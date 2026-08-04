@@ -1,36 +1,60 @@
 use anyhow::{Context, Result, anyhow};
 use caiven_cart::SectionKind;
+use caiven_vm::input::{Button, InputMap, Key, PadButton, SystemButton};
 use caiven_vm::runtime::ConsoleCore;
 use caiven_vm::settings::NAME;
+use chrono::Timelike;
 use clap::Parser;
 use log::{error, info};
 use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::{Mod, Scancode};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::platform::audio::sdl_audio_factory;
 use crate::platform::input::{Gamepads, key_from_scancode, pad_button_from_sdl};
+use crate::platform::power;
 use crate::platform::scaling::{AspectMode, ScaleMode};
 use crate::platform::window::Display;
+use crate::shell::input::{ShellInput, shell_button, shell_button_from_system};
+use crate::shell::library::{self as cart_library, CartMeta};
+use crate::shell::screens::chrome::{self, StatusInfo};
+use crate::shell::screens::loading::{self, LoadProgress};
+use crate::shell::screens::{boot, detail, library as library_screen, playing};
+use crate::shell::settings::Settings;
+use crate::shell::state::{BOOT_DURATION, Effect, Screen, ShellButton, ShellState};
+use crate::shell::surface::{Align, Surface, TextStyle};
+use crate::shell::theme::{Family, Weight, color};
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Parser)]
 #[command(name = "caiven-machine", about = "Caiven — cart runner")]
 struct Cli {
-    /// Path to a project dir, its caiven.toml, or a .cav cartridge
-    file: PathBuf,
+    /// Path to a project dir, its caiven.toml, or a .cav cartridge. Omit to
+    /// boot into the console shell and browse the cart library instead —
+    /// the same experience a handheld gives a player.
+    file: Option<PathBuf>,
 
     /// Run fullscreen. What handhelds want, where the panel is the window.
     #[arg(long)]
     fullscreen: bool,
 
-    /// How large the console framebuffer is drawn
+    /// How large the console framebuffer is drawn. Seeds the shell's
+    /// Settings › Video › Scaling row; changing it in Settings overrides
+    /// this for the rest of the session.
     #[arg(long, value_enum, default_value_t = ScaleMode::Fit)]
     scale: ScaleMode,
 
-    /// Whether console pixels stay square
+    /// Whether console pixels stay square. Seeds Settings › Video › Aspect.
     #[arg(long, value_enum, default_value_t = AspectMode::Square)]
     aspect: AspectMode,
+
+    /// Show the fps counter on the Playing screen. Stands in for the
+    /// Settings › Video › Show fps toggle until the Settings screen is
+    /// drawn (SPEC T46).
+    #[arg(long)]
+    show_fps: bool,
 }
 
 pub struct App {
@@ -92,22 +116,6 @@ impl App {
             Err(e) => error!("reload failed: {e:#}"),
         }
     }
-
-    fn set_key(&mut self, scancode: Scancode, pressed: bool) {
-        if let Some(key) = key_from_scancode(scancode)
-            && let Some(button) = self.core.input_map.get_button(key)
-        {
-            self.core.input.set_button(button, pressed);
-        }
-    }
-
-    fn set_pad(&mut self, button: sdl2::controller::Button, pressed: bool) {
-        if let Some(pad_button) = pad_button_from_sdl(button)
-            && let Some(button) = self.core.input_map.get_pad_button(pad_button)
-        {
-            self.core.input.set_button(button, pressed);
-        }
-    }
 }
 
 /// Checks that every peripheral a cart's `ModManifest` section declares it
@@ -119,6 +127,229 @@ fn check_mod_manifest(manifest: &str, registered: &[&str]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// What a physical key or pad button resolves to through `controls.toml`.
+/// At most one of these ever comes back for a given input — a binding
+/// shared by both a cart button and a `SystemButton` has already had the
+/// collision resolved in the cart's favor (SPEC V51/V52).
+enum Mapped {
+    Cart(Button),
+    System(SystemButton),
+}
+
+fn map_key(input_map: &InputMap, key: Key) -> Option<Mapped> {
+    if let Some(sys) = input_map.get_system_button(key) {
+        return Some(Mapped::System(sys));
+    }
+    input_map.get_button(key).map(Mapped::Cart)
+}
+
+fn map_pad(input_map: &InputMap, pad: PadButton) -> Option<Mapped> {
+    if let Some(sys) = input_map.get_pad_system_button(pad) {
+        return Some(Mapped::System(sys));
+    }
+    input_map.get_pad_button(pad).map(Mapped::Cart)
+}
+
+/// Runs one shell button event through `ShellState::press` and handles
+/// whatever effect comes back.
+fn dispatch(
+    evt: ShellButton,
+    app: &mut App,
+    shell: &mut ShellState,
+    carts: &mut Vec<CartMeta>,
+    library_dir: &Path,
+) {
+    if let Some(effect) = shell.press(evt) {
+        handle_effect(effect, app, shell, carts, library_dir);
+    }
+}
+
+/// A button (key or pad) went down. During `Playing`, every cart button
+/// (all six — SPEC V49) reaches the VM directly, in parallel with feeding
+/// `ShellInput`: the same physical B also has to keep counting toward the
+/// long-press-to-`Start` fallback (SPEC V53) no matter what screen is up —
+/// `press_playing` already ignores every shell event but `Start`, so
+/// routing every button through both paths unconditionally is safe.
+fn on_down(
+    mapped: Mapped,
+    app: &mut App,
+    shell: &mut ShellState,
+    shell_input: &mut ShellInput,
+    carts: &mut Vec<CartMeta>,
+    library_dir: &Path,
+) {
+    match mapped {
+        Mapped::Cart(button) => {
+            if shell.screen() == Screen::Playing {
+                app.core.input.set_button(button, true);
+            }
+            if let Some(evt) = shell_input.press(shell_button(button)) {
+                dispatch(evt, app, shell, carts, library_dir);
+            }
+        }
+        Mapped::System(sys) => {
+            dispatch(
+                shell_button_from_system(sys),
+                app,
+                shell,
+                carts,
+                library_dir,
+            );
+        }
+    }
+}
+
+fn on_up(
+    mapped: Mapped,
+    app: &mut App,
+    shell: &mut ShellState,
+    shell_input: &mut ShellInput,
+    carts: &mut Vec<CartMeta>,
+    library_dir: &Path,
+) {
+    // SystemButton has no release semantics of its own — B's hold timer is
+    // what carries the long-press fallback, and that lives on the Cart(B)
+    // arm below.
+    if let Mapped::Cart(button) = mapped {
+        if shell.screen() == Screen::Playing {
+            app.core.input.set_button(button, false);
+        }
+        if let Some(evt) = shell_input.release(shell_button(button)) {
+            dispatch(evt, app, shell, carts, library_dir);
+        }
+    }
+}
+
+/// Carries out what `ShellState::press` decided the host must do.
+///
+/// Screens that don't have real functionality behind them yet (Pause T45,
+/// Settings T46, Controls T47, Port T48, save states T50) resolve their
+/// effects to a safe no-op rather than leaving the shell unable to
+/// navigate — `ListenForBind` in particular has to answer with
+/// `bind_captured` or `listening` would swallow every future press.
+fn handle_effect(
+    effect: Effect,
+    app: &mut App,
+    shell: &mut ShellState,
+    carts: &mut Vec<CartMeta>,
+    library_dir: &Path,
+) {
+    match effect {
+        Effect::LoadCart(index) => {
+            let Some(cart) = carts.get(index) else {
+                shell.cart_failed("selected cart no longer exists", None);
+                return;
+            };
+            let path = cart.path.clone();
+            match app.load(&path) {
+                Ok(()) => shell.cart_ready(),
+                Err(e) => {
+                    error!("failed to load {}: {e:#}", path.display());
+                    shell.cart_failed(e.to_string(), None);
+                }
+            }
+        }
+        Effect::CancelLoad => {
+            // Loads above resolve synchronously in the same call that
+            // requested them, so nothing is ever actually in flight to
+            // cancel by the time this could fire.
+        }
+        Effect::DeleteCart(index) => {
+            if let Some(cart) = carts.get(index)
+                && let Err(e) = std::fs::remove_file(&cart.path)
+            {
+                error!("failed to delete {}: {e}", cart.path.display());
+            }
+            *carts = cart_library::scan(library_dir);
+            shell.set_cart_count(carts.len());
+        }
+        Effect::ResetCart => app.reload(),
+        Effect::QuitToLibrary => app.core.reset_vm(),
+        Effect::SaveState | Effect::LoadState => {
+            info!("save states are not implemented yet (SPEC T50)");
+        }
+        Effect::StartDownload(_) => {
+            info!("Port downloads are not implemented yet (SPEC T48)");
+        }
+        Effect::SettingsChanged => {
+            info!("settings persistence is not implemented yet");
+        }
+        Effect::ListenForBind(_) => {
+            info!("controls remap capture is not implemented yet (SPEC T47)");
+            shell.bind_captured();
+        }
+    }
+}
+
+/// Draws whichever screen `ShellState` is on. The five screens without a
+/// real draw module yet (Pause, Settings, Controls, Port, Crash) get chrome
+/// (where they have any) plus a plain placeholder rather than being left
+/// unreachable — see SPEC T45-T49.
+fn draw_screen(
+    surface: &mut Surface,
+    shell: &ShellState,
+    carts: &[CartMeta],
+    config: &caiven_vm::VmConfig,
+    fps: u32,
+    status: &StatusInfo,
+) {
+    match shell.screen() {
+        Screen::Boot => boot::draw(surface, shell, VERSION, config),
+        Screen::Library => library_screen::draw(surface, shell, carts),
+        Screen::Detail => detail::draw(surface, shell, carts),
+        Screen::Loading => {
+            // In practice this never draws mid-progress: loads resolve
+            // synchronously before the next frame, so by the time this
+            // screen is on, the real work is already done (SPEC V35 — the
+            // fraction below is real, not a faked tick count).
+            let progress = LoadProgress {
+                fraction: 1.0,
+                stage: "running _init()".to_string(),
+            };
+            loading::draw(surface, shell, carts, &progress);
+        }
+        Screen::Playing => playing::draw(surface, shell, fps),
+        Screen::Pause | Screen::Settings | Screen::Controls | Screen::Port | Screen::Crash => {
+            draw_placeholder(surface, shell);
+        }
+    }
+    chrome::draw(surface, shell, status);
+}
+
+fn placeholder_label(screen: Screen) -> Option<(&'static str, &'static str)> {
+    match screen {
+        Screen::Pause => Some(("Pause", "T45")),
+        Screen::Settings => Some(("Settings", "T46")),
+        Screen::Controls => Some(("Controls", "T47")),
+        Screen::Port => Some(("Port", "T48")),
+        Screen::Crash => Some(("Crash", "T49")),
+        _ => None,
+    }
+}
+
+fn draw_placeholder(surface: &mut Surface, shell: &ShellState) {
+    let Some((label, task)) = placeholder_label(shell.screen()) else {
+        return;
+    };
+    let m = *surface.metrics();
+    surface.clear(color::VOID_900);
+    surface.draw_text(
+        TextStyle::new(Family::Body, Weight::Medium, m.text.body, color::INK_DIM),
+        m.width as f32 / 2.0,
+        m.height as f32 / 2.0,
+        Align::Center,
+        &format!("{label} — not yet available ({task})"),
+    );
+}
+
+/// Whether the content on screen right now animates every frame on its
+/// own, independent of input — the shell only redraws on state change
+/// (SPEC V33), and these are the states that change every tick.
+fn animates_every_frame(shell: &ShellState) -> bool {
+    matches!(shell.screen(), Screen::Boot | Screen::Loading)
+        || (shell.screen() == Screen::Playing && shell.settings().show_fps)
 }
 
 pub fn run() -> Result<()> {
@@ -144,18 +375,45 @@ pub fn run() -> Result<()> {
     };
 
     let mut app = App::new(ConsoleCore::with_audio_factory(audio_factory)?);
-    app.load(&cli.file)?;
 
-    let mut display = Display::new(
-        &video,
-        &app.core.config,
-        NAME,
-        cli.fullscreen,
-        cli.scale,
-        cli.aspect,
-    )?;
+    let mut shell_state = ShellState::new();
+    shell_state.set_settings(Settings {
+        scaling: cli.scale,
+        aspect: cli.aspect,
+        show_fps: cli.show_fps,
+        ..Settings::default()
+    });
+
+    let library_dir = cart_library::default_dir();
+    let mut carts: Vec<CartMeta> = Vec::new();
+
+    match &cli.file {
+        // A cart given directly on the command line is the developer
+        // hot-reload flow: load it eagerly, fail fast on error (this is a
+        // dev tool, not a player-facing crash screen), and skip straight
+        // past Boot/Library — neither ever draws, so the fake cart count
+        // and discarded `LoadCart` effect below never surface anywhere.
+        Some(file) => {
+            app.load(file)?;
+            shell_state.tick(BOOT_DURATION);
+            shell_state.set_cart_count(1);
+            let _ = shell_state.press(ShellButton::A);
+            shell_state.cart_ready();
+        }
+        None => {
+            carts = cart_library::scan(&library_dir);
+            shell_state.set_cart_count(carts.len());
+        }
+    }
+
+    let mut display = Display::new(&video, &app.core.config, NAME, cli.fullscreen)?;
     let texture_creator = display.texture_creator();
-    let mut texture = Display::create_console_texture(&texture_creator, &app.core.config)?;
+    let mut console_texture = Display::create_console_texture(&texture_creator, &app.core.config)?;
+
+    let (win_w, win_h) = display.window_size();
+    let mut surface = Surface::new(win_w, win_h).context("failed to build the shell surface")?;
+    let mut shell_texture =
+        Display::create_shell_texture(&texture_creator, surface.width(), surface.height())?;
 
     let mut gamepads = Gamepads::new();
     gamepads.open_attached(&controller_subsystem);
@@ -164,7 +422,16 @@ pub fn run() -> Result<()> {
         .event_pump()
         .map_err(|e| anyhow!("failed to create SDL event pump: {e}"))?;
 
+    let mut shell_input = ShellInput::new();
+    let mut last_tick = Instant::now();
+
+    let mut fps_window_start = Instant::now();
+    let mut fps_frames_in_window = 0u32;
+    let mut current_fps = 0u32;
+
     'running: loop {
+        let mut input_event_this_frame = false;
+
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit { .. }
@@ -173,6 +440,19 @@ pub fn run() -> Result<()> {
                     ..
                 } => break 'running,
 
+                Event::Window {
+                    win_event: WindowEvent::SizeChanged(w, h),
+                    ..
+                } => {
+                    surface.resize(w as u32, h as u32)?;
+                    shell_texture = Display::create_shell_texture(
+                        &texture_creator,
+                        surface.width(),
+                        surface.height(),
+                    )?;
+                    surface.mark_dirty();
+                }
+
                 Event::KeyDown {
                     scancode: Some(scancode),
                     keymod,
@@ -180,46 +460,155 @@ pub fn run() -> Result<()> {
                     ..
                 } => {
                     // Ctrl+R reloads. It is a host shortcut, so it must not
-                    // also reach the cart as a button press.
+                    // also reach the cart or the shell as a button press —
+                    // only meaningful once a cart is actually running.
                     if !repeat
                         && scancode == Scancode::R
                         && keymod.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD)
+                        && shell_state.screen() == Screen::Playing
                     {
                         app.reload();
                         continue;
                     }
-                    app.set_key(scancode, true);
+                    if !repeat
+                        && let Some(key) = key_from_scancode(scancode)
+                        && let Some(mapped) = map_key(&app.core.input_map, key)
+                    {
+                        input_event_this_frame = true;
+                        on_down(
+                            mapped,
+                            &mut app,
+                            &mut shell_state,
+                            &mut shell_input,
+                            &mut carts,
+                            &library_dir,
+                        );
+                    }
                 }
                 Event::KeyUp {
                     scancode: Some(scancode),
                     ..
-                } => app.set_key(scancode, false),
+                } => {
+                    if let Some(key) = key_from_scancode(scancode)
+                        && let Some(mapped) = map_key(&app.core.input_map, key)
+                    {
+                        input_event_this_frame = true;
+                        on_up(
+                            mapped,
+                            &mut app,
+                            &mut shell_state,
+                            &mut shell_input,
+                            &mut carts,
+                            &library_dir,
+                        );
+                    }
+                }
 
                 Event::ControllerDeviceAdded { which, .. } => {
                     gamepads.open(&controller_subsystem, which)
                 }
                 Event::ControllerDeviceRemoved { which, .. } => gamepads.close(which),
-                Event::ControllerButtonDown { button, .. } => app.set_pad(button, true),
-                Event::ControllerButtonUp { button, .. } => app.set_pad(button, false),
+                Event::ControllerButtonDown { button, .. } => {
+                    if let Some(pad) = pad_button_from_sdl(button)
+                        && let Some(mapped) = map_pad(&app.core.input_map, pad)
+                    {
+                        input_event_this_frame = true;
+                        on_down(
+                            mapped,
+                            &mut app,
+                            &mut shell_state,
+                            &mut shell_input,
+                            &mut carts,
+                            &library_dir,
+                        );
+                    }
+                }
+                Event::ControllerButtonUp { button, .. } => {
+                    if let Some(pad) = pad_button_from_sdl(button)
+                        && let Some(mapped) = map_pad(&app.core.input_map, pad)
+                    {
+                        input_event_this_frame = true;
+                        on_up(
+                            mapped,
+                            &mut app,
+                            &mut shell_state,
+                            &mut shell_input,
+                            &mut carts,
+                            &library_dir,
+                        );
+                    }
+                }
 
                 _ => {}
             }
         }
 
-        let steps = app.core.frame_steps();
-        if steps == 0 {
-            // Nothing to advance yet. Without an accelerated renderer there
-            // is no vsync to block on, so yield instead of spinning a core —
-            // which on a handheld is battery burned for nothing.
-            std::thread::sleep(Duration::from_millis(1));
-            continue;
-        }
-        for _ in 0..steps {
-            app.core.run_frame();
+        let now = Instant::now();
+        let dt = now.duration_since(last_tick);
+        last_tick = now;
+
+        shell_state.tick(dt);
+        if let Some(evt) = shell_input.tick(dt) {
+            dispatch(evt, &mut app, &mut shell_state, &mut carts, &library_dir);
         }
 
-        app.core.screen.get_debug_layer().clear();
-        display.present(&mut texture, &app.core.screen, &app.core.vm)?;
+        if shell_state.screen() == Screen::Playing {
+            let steps = app.core.frame_steps();
+            for _ in 0..steps {
+                app.core.run_frame();
+            }
+            app.core.screen.get_debug_layer().clear();
+        } else {
+            // Nothing to advance yet outside gameplay. Without an
+            // accelerated renderer there is no vsync to block on, so yield
+            // instead of spinning a core — battery burned for nothing on a
+            // handheld sitting in a menu.
+            std::thread::sleep(Duration::from_millis(1));
+        }
+
+        fps_frames_in_window += 1;
+        let window_elapsed = now.duration_since(fps_window_start);
+        if window_elapsed >= Duration::from_secs(1) {
+            current_fps =
+                (fps_frames_in_window as f32 / window_elapsed.as_secs_f32()).round() as u32;
+            fps_frames_in_window = 0;
+            fps_window_start = now;
+        }
+
+        if animates_every_frame(&shell_state) || input_event_this_frame {
+            surface.mark_dirty();
+        }
+        if surface.is_dirty() {
+            let now = chrono::Local::now();
+            let status = StatusInfo {
+                hour: now.hour() as u8,
+                minute: now.minute() as u8,
+                battery: power::battery_fraction(),
+                // The Machine has no wifi hardware to query — SDL exposes
+                // no such API either way, so this is always false rather
+                // than a fabricated reading.
+                wifi: false,
+            };
+            draw_screen(
+                &mut surface,
+                &shell_state,
+                &carts,
+                &app.core.config,
+                current_fps,
+                &status,
+            );
+            surface.mark_clean();
+        }
+
+        display.present(
+            &mut console_texture,
+            &mut shell_texture,
+            &app.core.screen,
+            &app.core.vm,
+            shell_state.settings().scaling,
+            shell_state.settings().aspect,
+            surface.rgba(),
+        )?;
     }
 
     Ok(())
