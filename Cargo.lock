@@ -969,6 +969,7 @@ dependencies = [
  "mlua",
  "mlua-sys",
  "serde",
+ "tempfile",
  "toml 0.8.23",
 ]
 

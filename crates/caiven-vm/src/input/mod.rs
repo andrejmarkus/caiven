@@ -7,4 +7,4 @@ pub mod keymap;
 pub use button::*;
 pub use input::*;
 pub use key::{Key, PadButton};
-pub use keymap::InputMap;
+pub use keymap::{ControlsFile, InputMap};

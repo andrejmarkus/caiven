@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use caiven_cart::SectionKind;
-use caiven_vm::input::{Button, InputMap, Key, PadButton, SystemButton};
+use caiven_vm::input::{Button, ControlsFile, InputMap, Key, PadButton, SystemButton};
 use caiven_vm::runtime::ConsoleCore;
 use caiven_vm::settings::NAME;
 use chrono::Timelike;
@@ -16,15 +16,16 @@ use crate::platform::input::{Gamepads, key_from_scancode, pad_button_from_sdl};
 use crate::platform::power;
 use crate::platform::scaling::{AspectMode, ScaleMode};
 use crate::platform::window::Display;
-use crate::shell::input::{ShellInput, shell_button, shell_button_from_system};
+use crate::shell::input::{ShellInput, cart_button, shell_button, shell_button_from_system};
 use crate::shell::library::{self as cart_library, CartMeta};
 use crate::shell::screens::chrome::{self, StatusInfo};
 use crate::shell::screens::loading::{self, LoadProgress};
 use crate::shell::screens::{
-    boot, detail, library as library_screen, pause, playing, settings as settings_screen,
+    boot, controls as controls_screen, detail, library as library_screen, pause, playing,
+    settings as settings_screen,
 };
 use crate::shell::settings::Settings;
-use crate::shell::state::{BOOT_DURATION, Effect, Screen, ShellButton, ShellState};
+use crate::shell::state::{BIND_ORDER, BOOT_DURATION, Effect, Screen, ShellButton, ShellState};
 use crate::shell::surface::{Align, Surface, TextStyle};
 use crate::shell::theme::{Family, Weight, color};
 
@@ -162,6 +163,79 @@ fn save_settings(path: &Path, settings: &Settings) {
     }
 }
 
+/// Where `controls.toml` lives: the same bare, CWD-relative name
+/// `caiven_vm::runtime::ConsoleCore` already reads it from — writing
+/// anywhere else would mean the remap screen's changes silently don't
+/// survive a restart (SPEC V40 round-trip).
+fn controls_path() -> PathBuf {
+    PathBuf::from("controls.toml")
+}
+
+/// The remap screen's per-row label for each of `BIND_ORDER`'s six buttons:
+/// its keyboard names, its gamepad names, joined for display. Empty on both
+/// sides reads as "—" rather than a blank row.
+fn bind_labels(controls: &ControlsFile) -> [String; 6] {
+    let mut labels: [String; 6] = Default::default();
+    for (index, shell_button) in BIND_ORDER.into_iter().enumerate() {
+        let Some(button) = cart_button(shell_button) else {
+            continue;
+        };
+        let keys = controls.controls.names(button).join(", ");
+        let pads = controls.gamepad.names(button).join(", ");
+        labels[index] = match (keys.is_empty(), pads.is_empty()) {
+            (true, true) => String::new(),
+            (false, true) => keys,
+            (true, false) => pads,
+            (false, false) => format!("{keys} \u{b7} {pads}"),
+        };
+    }
+    labels
+}
+
+/// A physical input captured while the remap screen is listening.
+enum Captured {
+    Key(Key),
+    Pad(PadButton),
+}
+
+/// Applies one captured input to the button the remap screen has focused:
+/// writes it into `controls_doc`, persists it, rebuilds the live
+/// `InputMap` so the new binding works immediately, and tells the shell
+/// what to show for it — a single fresh binding replaces whatever was
+/// there, in the same `[controls]`/`[gamepad]` shape `controls.toml`
+/// already uses (SPEC V40).
+fn capture_bind(
+    app: &mut App,
+    shell: &mut ShellState,
+    controls_doc: &mut ControlsFile,
+    captured: Captured,
+) {
+    let index = shell.bind_index();
+    let Some(button) = BIND_ORDER.get(index).copied().and_then(cart_button) else {
+        shell.bind_captured(String::new());
+        return;
+    };
+    let label = match captured {
+        Captured::Key(key) => {
+            controls_doc
+                .controls
+                .set(button, vec![key.name().to_string()]);
+            key.name().to_string()
+        }
+        Captured::Pad(pad) => {
+            controls_doc
+                .gamepad
+                .set(button, vec![pad.name().to_string()]);
+            pad.name().to_string()
+        }
+    };
+    app.core.input_map = controls_doc.to_input_map();
+    if let Err(e) = controls_doc.save(&controls_path()) {
+        error!("failed to write controls.toml: {e}");
+    }
+    shell.bind_captured(label);
+}
+
 /// Checks that every peripheral a cart's `ModManifest` section declares it
 /// needs is present in `registered`. Blank lines are ignored.
 fn check_mod_manifest(manifest: &str, registered: &[&str]) -> Result<()> {
@@ -268,10 +342,11 @@ fn on_up(
 
 /// Carries out what `ShellState::press` decided the host must do.
 ///
-/// Screens that don't have real functionality behind them yet (Controls
-/// T47, Port T48, save states T50) resolve their effects to a safe no-op
-/// rather than leaving the shell unable to navigate — `ListenForBind` in
-/// particular has to answer with `bind_captured` or `listening` would
+/// Screens that don't have real functionality behind them yet (Port T48,
+/// save states T50) resolve their effects to a safe no-op rather than
+/// leaving the shell unable to navigate. `ListenForBind` needs no action
+/// here — the run loop's top-level listening check answers with
+/// `bind_captured` once a physical input arrives, or `listening` would
 /// swallow every future press.
 fn handle_effect(
     effect: Effect,
@@ -318,17 +393,16 @@ fn handle_effect(
             info!("Port downloads are not implemented yet (SPEC T48)");
         }
         Effect::SettingsChanged => save_settings(&settings_path(), shell.settings()),
-        Effect::ListenForBind(_) => {
-            info!("controls remap capture is not implemented yet (SPEC T47)");
-            shell.bind_captured();
-        }
+        // `press_controls` already flipped `listening`; the run loop's
+        // top-level check does the rest by routing the next physical input
+        // to `bind_captured` instead of normal navigation.
+        Effect::ListenForBind(_) => {}
     }
 }
 
-/// Draws whichever screen `ShellState` is on. The three screens without a
-/// real draw module yet (Controls, Port, Crash) get chrome (where they have
-/// any) plus a plain placeholder rather than being left unreachable — see
-/// SPEC T47-T49.
+/// Draws whichever screen `ShellState` is on. The two screens without a
+/// real draw module yet (Port, Crash) get chrome (where they have any) plus
+/// a plain placeholder rather than being left unreachable — see SPEC T48-T49.
 fn draw_screen(
     surface: &mut Surface,
     shell: &ShellState,
@@ -355,7 +429,8 @@ fn draw_screen(
         Screen::Playing => playing::draw(surface, shell, fps),
         Screen::Pause => pause::draw(surface, shell),
         Screen::Settings => settings_screen::draw(surface, shell, VERSION),
-        Screen::Controls | Screen::Port | Screen::Crash => {
+        Screen::Controls => controls_screen::draw(surface, shell),
+        Screen::Port | Screen::Crash => {
             draw_placeholder(surface, shell);
         }
     }
@@ -364,7 +439,6 @@ fn draw_screen(
 
 fn placeholder_label(screen: Screen) -> Option<(&'static str, &'static str)> {
     match screen {
-        Screen::Controls => Some(("Controls", "T47")),
         Screen::Port => Some(("Port", "T48")),
         Screen::Crash => Some(("Crash", "T49")),
         _ => None,
@@ -428,6 +502,9 @@ pub fn run() -> Result<()> {
     }
     settings.show_fps |= cli.show_fps;
     shell_state.set_settings(settings);
+
+    let mut controls_doc = ControlsFile::load(&controls_path());
+    shell_state.set_binds(bind_labels(&controls_doc));
 
     let library_dir = cart_library::default_dir();
     let mut carts: Vec<CartMeta> = Vec::new();
@@ -515,6 +592,22 @@ pub fn run() -> Result<()> {
                         app.reload();
                         continue;
                     }
+                    // The remap screen wants the next physical input, not a
+                    // mapped button — capture it here instead of routing it
+                    // through the normal controls.toml lookup below.
+                    if !repeat
+                        && shell_state.is_listening()
+                        && let Some(key) = key_from_scancode(scancode)
+                    {
+                        input_event_this_frame = true;
+                        capture_bind(
+                            &mut app,
+                            &mut shell_state,
+                            &mut controls_doc,
+                            Captured::Key(key),
+                        );
+                        continue;
+                    }
                     if !repeat
                         && let Some(key) = key_from_scancode(scancode)
                         && let Some(mapped) = map_key(&app.core.input_map, key)
@@ -554,6 +647,18 @@ pub fn run() -> Result<()> {
                 }
                 Event::ControllerDeviceRemoved { which, .. } => gamepads.close(which),
                 Event::ControllerButtonDown { button, .. } => {
+                    if shell_state.is_listening()
+                        && let Some(pad) = pad_button_from_sdl(button)
+                    {
+                        input_event_this_frame = true;
+                        capture_bind(
+                            &mut app,
+                            &mut shell_state,
+                            &mut controls_doc,
+                            Captured::Pad(pad),
+                        );
+                        continue;
+                    }
                     if let Some(pad) = pad_button_from_sdl(button)
                         && let Some(mapped) = map_pad(&app.core.input_map, pad)
                     {

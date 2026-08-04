@@ -1,20 +1,54 @@
 use std::collections::HashMap;
+use std::path::Path;
 
 use log::warn;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::input::{Button, Key, PadButton, SystemButton};
 
-#[derive(Deserialize)]
-struct ControlsFile {
+/// The whole `controls.toml` document: what's on disk, and what the remap
+/// screen edits in memory before writing it back (SPEC V40).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ControlsFile {
     #[serde(default)]
-    controls: ControlsSection,
+    pub controls: ControlsSection,
     #[serde(default)]
-    gamepad: GamepadSection,
+    pub gamepad: GamepadSection,
 }
 
-#[derive(Deserialize)]
-struct ControlsSection {
+impl ControlsFile {
+    /// Reads `controls.toml`, falling back to the documented defaults on a
+    /// missing or corrupt file — the same tolerance `InputMap::load` has
+    /// always had.
+    pub fn load(path: &Path) -> Self {
+        let Ok(content) = std::fs::read_to_string(path) else {
+            return Self::default();
+        };
+        match toml::from_str(&content) {
+            Ok(file) => file,
+            Err(e) => {
+                warn!("failed to parse {}: {e}", path.display());
+                Self::default()
+            }
+        }
+    }
+
+    /// Writes this document back to `path` in the same `[controls]`/
+    /// `[gamepad]` shape it was read in (SPEC V30, V40).
+    pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        let content = toml::to_string_pretty(self)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        std::fs::write(path, content)
+    }
+
+    /// Builds the runtime lookup table this document resolves to.
+    pub fn to_input_map(&self) -> InputMap {
+        InputMap::from_controls(self.controls.clone(), self.gamepad.clone())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ControlsSection {
     #[serde(default = "default_up")]
     up: Vec<String>,
     #[serde(default = "default_down")]
@@ -38,8 +72,8 @@ struct ControlsSection {
 
 /// Optional `[gamepad]` table. Absent in every `controls.toml` written before
 /// gamepad support existed, so each field falls back to the fixed mapping.
-#[derive(Deserialize)]
-struct GamepadSection {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GamepadSection {
     #[serde(default = "default_pad_up")]
     up: Vec<String>,
     #[serde(default = "default_pad_down")]
@@ -138,6 +172,66 @@ impl Default for GamepadSection {
     }
 }
 
+impl ControlsSection {
+    /// The key names currently bound to `button`. The remap screen displays
+    /// these; `Start` has no `Button` binding here (it lives in its own
+    /// `start` field) so it always reads empty.
+    pub fn names(&self, button: Button) -> &[String] {
+        match button {
+            Button::Up => &self.up,
+            Button::Down => &self.down,
+            Button::Left => &self.left,
+            Button::Right => &self.right,
+            Button::A => &self.a,
+            Button::B => &self.b,
+            Button::Select => &self.select,
+        }
+    }
+
+    /// Replaces the binding for `button` with exactly `names` — a remap
+    /// capture always sets a single fresh binding rather than appending to
+    /// the old one.
+    pub fn set(&mut self, button: Button, names: Vec<String>) {
+        *match button {
+            Button::Up => &mut self.up,
+            Button::Down => &mut self.down,
+            Button::Left => &mut self.left,
+            Button::Right => &mut self.right,
+            Button::A => &mut self.a,
+            Button::B => &mut self.b,
+            Button::Select => &mut self.select,
+        } = names;
+    }
+}
+
+impl GamepadSection {
+    /// The gamepad button names currently bound to `button`.
+    pub fn names(&self, button: Button) -> &[String] {
+        match button {
+            Button::Up => &self.up,
+            Button::Down => &self.down,
+            Button::Left => &self.left,
+            Button::Right => &self.right,
+            Button::A => &self.a,
+            Button::B => &self.b,
+            Button::Select => &self.select,
+        }
+    }
+
+    /// Replaces the gamepad binding for `button` with exactly `names`.
+    pub fn set(&mut self, button: Button, names: Vec<String>) {
+        *match button {
+            Button::Up => &mut self.up,
+            Button::Down => &mut self.down,
+            Button::Left => &mut self.left,
+            Button::Right => &mut self.right,
+            Button::A => &mut self.a,
+            Button::B => &mut self.b,
+            Button::Select => &mut self.select,
+        } = names;
+    }
+}
+
 pub struct InputMap {
     map: HashMap<Key, Button>,
     pad: HashMap<PadButton, Button>,
@@ -153,18 +247,7 @@ impl Default for InputMap {
 
 impl InputMap {
     pub fn load(path: &str) -> Self {
-        let content = match std::fs::read_to_string(path) {
-            Ok(s) => s,
-            Err(_) => return Self::default(),
-        };
-        let file: ControlsFile = match toml::from_str(&content) {
-            Ok(f) => f,
-            Err(e) => {
-                warn!("failed to parse {path}: {e}");
-                return Self::default();
-            }
-        };
-        Self::from_controls(file.controls, file.gamepad)
+        ControlsFile::load(Path::new(path)).to_input_map()
     }
 
     pub fn get_button(&self, key: Key) -> Option<Button> {
@@ -283,7 +366,7 @@ impl InputMap {
 
 #[cfg(test)]
 mod tests {
-    use super::InputMap;
+    use super::{ControlsFile, InputMap};
     use crate::input::{Button, Key, PadButton, SystemButton};
 
     #[test]
@@ -434,5 +517,43 @@ mod tests {
     fn missing_file_falls_back_to_defaults() {
         let map = InputMap::load("definitely-not-a-real-controls-file.toml");
         assert_eq!(map.get_button(Key::ArrowUp), Some(Button::Up));
+    }
+
+    #[test]
+    fn a_remap_round_trips_through_disk_unchanged() {
+        // SPEC V40/V30: what the remap screen writes must read back
+        // identically, key names rather than raw codes, and every other
+        // binding untouched.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("controls.toml");
+
+        let mut file = ControlsFile::load(&path); // no file yet: defaults
+        assert_eq!(file.controls.names(Button::Up), ["ArrowUp", "KeyW"]);
+        file.controls.set(Button::Up, vec!["KeyE".to_string()]);
+        file.gamepad.set(Button::A, vec!["West".to_string()]);
+        file.save(&path).expect("save controls.toml");
+
+        let reloaded = ControlsFile::load(&path);
+        assert_eq!(reloaded.controls.names(Button::Up), ["KeyE"]);
+        assert_eq!(reloaded.gamepad.names(Button::A), ["West"]);
+        // Untouched bindings kept their values, not just their defaults.
+        assert_eq!(reloaded.controls.names(Button::B), ["KeyK"]);
+        assert_eq!(reloaded.gamepad.names(Button::B), ["East"]);
+
+        let map = reloaded.to_input_map();
+        assert_eq!(map.get_button(Key::KeyE), Some(Button::Up));
+        assert_eq!(
+            map.get_button(Key::ArrowUp),
+            None,
+            "the old binding is gone"
+        );
+        assert_eq!(map.get_pad_button(PadButton::West), Some(Button::A));
+    }
+
+    #[test]
+    fn set_replaces_rather_than_appends() {
+        let mut section = super::ControlsSection::default();
+        section.set(Button::A, vec!["Space".to_string()]);
+        assert_eq!(section.names(Button::A), ["Space"]);
     }
 }

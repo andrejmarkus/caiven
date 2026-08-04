@@ -236,6 +236,10 @@ pub struct ShellState {
 
     bind_index: usize,
     listening: bool,
+    /// The display label for each of `BIND_ORDER`'s six buttons — what the
+    /// remap screen shows. The host seeds this from `controls.toml` and
+    /// updates it as captures land; the shell never reads the file itself.
+    binds: [String; 6],
 
     port_count: usize,
     port_index: usize,
@@ -269,6 +273,7 @@ impl ShellState {
             settings_return: Screen::Library,
             bind_index: 0,
             listening: false,
+            binds: Default::default(),
             port_count: 0,
             port_index: 0,
             downloading: None,
@@ -335,6 +340,11 @@ impl ShellState {
         self.listening
     }
 
+    /// The display label for each of `BIND_ORDER`'s six buttons, in order.
+    pub fn binds(&self) -> &[String; 6] {
+        &self.binds
+    }
+
     pub fn port_index(&self) -> usize {
         self.port_index
     }
@@ -362,6 +372,12 @@ impl ShellState {
     /// ever change through [`Self::press`] on the Settings screen.
     pub fn set_settings(&mut self, settings: Settings) {
         self.settings = settings;
+    }
+
+    /// Seeds the remap screen's labels from `controls.toml` before the
+    /// first frame, same convention as [`Self::set_settings`].
+    pub fn set_binds(&mut self, binds: [String; 6]) {
+        self.binds = binds;
     }
 
     /// Replaces the library size, keeping the cursor in range.
@@ -403,9 +419,12 @@ impl ShellState {
         self.downloading = None;
     }
 
-    /// The remap screen captured (or gave up on) an input.
-    pub fn bind_captured(&mut self) {
+    /// The remap screen captured a new binding for the focused button,
+    /// already written to `controls.toml` by the host — `label` is what the
+    /// screen now shows for it.
+    pub fn bind_captured(&mut self, label: impl Into<String>) {
         self.listening = false;
+        self.binds[self.bind_index] = label.into();
     }
 
     /// Advances wall-clock-driven transitions. `dt` is real elapsed time, so
@@ -826,7 +845,13 @@ impl ShellState {
                     legend("◄►", "Adjust"),
                 ],
             },
-            Screen::Controls => vec![primary("A", "Rebind"), legend("B", "Back")],
+            Screen::Controls => {
+                if self.listening {
+                    Vec::new()
+                } else {
+                    vec![primary("A", "Rebind"), legend("B", "Back")]
+                }
+            }
             Screen::Port => vec![
                 primary("A", "Download"),
                 legend("B", "Library"),
@@ -1170,8 +1195,9 @@ mod tests {
         assert_eq!(state.bind_index(), 1);
         assert_eq!(state.screen(), Screen::Controls);
 
-        state.bind_captured();
+        state.bind_captured("KeyE");
         assert!(!state.is_listening());
+        assert_eq!(state.binds()[1], "KeyE");
         state.press(ShellButton::Down);
         assert_eq!(state.bind_index(), 2);
     }
@@ -1193,6 +1219,37 @@ mod tests {
         assert_eq!(state.bind_index(), BIND_ORDER.len() - 1);
         state.press(ShellButton::Down);
         assert_eq!(state.bind_index(), 0);
+    }
+
+    #[test]
+    fn seeded_binds_show_until_a_capture_replaces_one() {
+        let mut state = library(1);
+        let seeded = [
+            "ArrowUp, KeyW".to_string(),
+            "ArrowDown, KeyS".to_string(),
+            "ArrowLeft, KeyA".to_string(),
+            "ArrowRight, KeyD".to_string(),
+            "KeyJ".to_string(),
+            "KeyK".to_string(),
+        ];
+        state.set_binds(seeded.clone());
+        assert_eq!(state.binds(), &seeded);
+
+        state.press(ShellButton::Start);
+        press_all(
+            &mut state,
+            &[
+                ShellButton::Down,
+                ShellButton::Down,
+                ShellButton::A,
+                ShellButton::A,
+            ],
+        );
+        assert_eq!(state.press(ShellButton::A), Some(Effect::ListenForBind(0)));
+        state.bind_captured("KeyE");
+        assert_eq!(state.binds()[0], "KeyE");
+        // Every other row's label is untouched by an unrelated capture.
+        assert_eq!(state.binds()[1], seeded[1]);
     }
 
     #[test]

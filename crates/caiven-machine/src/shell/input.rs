@@ -38,6 +38,20 @@ pub fn shell_button_from_system(button: SystemButton) -> ShellButton {
     }
 }
 
+/// The reverse of [`shell_button`], scoped to the six buttons the remap
+/// screen actually lists (`BIND_ORDER`) — Start and Select never reach it.
+pub fn cart_button(button: ShellButton) -> Option<Button> {
+    match button {
+        ShellButton::Up => Some(Button::Up),
+        ShellButton::Down => Some(Button::Down),
+        ShellButton::Left => Some(Button::Left),
+        ShellButton::Right => Some(Button::Right),
+        ShellButton::A => Some(Button::A),
+        ShellButton::B => Some(Button::B),
+        ShellButton::Start | ShellButton::Select => None,
+    }
+}
+
 /// How long B must be held before it counts as START.
 ///
 /// Long enough that a normal Back tap never trips it, short enough that a
@@ -242,6 +256,16 @@ mod tests {
             shell_button_from_system(SystemButton::Start),
             ShellButton::Start
         );
+    }
+
+    #[test]
+    fn cart_button_covers_bind_order_and_excludes_start_and_select() {
+        use crate::shell::state::BIND_ORDER;
+        for button in BIND_ORDER {
+            assert!(cart_button(button).is_some(), "{button:?} should map");
+        }
+        assert_eq!(cart_button(ShellButton::Start), None);
+        assert_eq!(cart_button(ShellButton::Select), None);
     }
 
     #[test]
