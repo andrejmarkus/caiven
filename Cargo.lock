@@ -894,9 +894,11 @@ dependencies = [
  "fontdue",
  "log",
  "sdl2",
+ "serde",
  "svgtypes",
  "tempfile",
  "tiny-skia",
+ "toml 0.8.23",
 ]
 
 [[package]]

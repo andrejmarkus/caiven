@@ -5,9 +5,10 @@
 //! knobs later.
 
 use clap::ValueEnum;
+use serde::{Deserialize, Serialize};
 
 /// How large the framebuffer is drawn.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default, Serialize, Deserialize)]
 pub enum ScaleMode {
     /// Fill the window's height, whatever factor that takes. The handheld
     /// default: a 128×128 console becomes 480×480 on a 640×480 panel.
@@ -22,7 +23,7 @@ pub enum ScaleMode {
 }
 
 /// Whether pixels stay square.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default, Serialize, Deserialize)]
 pub enum AspectMode {
     /// 1:1 pixels, pillarboxed on black.
     #[default]

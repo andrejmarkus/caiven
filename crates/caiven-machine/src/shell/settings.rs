@@ -11,6 +11,8 @@
 //! a control that does nothing is worse than an absent one. They come back
 //! when something can act on them.
 
+use serde::{Deserialize, Serialize};
+
 use crate::platform::scaling::{AspectMode, ScaleMode};
 
 /// A settings section, in rail order.
@@ -220,7 +222,7 @@ const SYSTEM_ROWS: &[Row] = &[
 ///
 /// Persistence is not here — the shell writes this to TOML beside the binary
 /// whenever `adjust` reports a change.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
     pub scaling: ScaleMode,
     pub aspect: AspectMode,

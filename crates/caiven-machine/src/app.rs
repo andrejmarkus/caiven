@@ -20,7 +20,9 @@ use crate::shell::input::{ShellInput, shell_button, shell_button_from_system};
 use crate::shell::library::{self as cart_library, CartMeta};
 use crate::shell::screens::chrome::{self, StatusInfo};
 use crate::shell::screens::loading::{self, LoadProgress};
-use crate::shell::screens::{boot, detail, library as library_screen, pause, playing};
+use crate::shell::screens::{
+    boot, detail, library as library_screen, pause, playing, settings as settings_screen,
+};
 use crate::shell::settings::Settings;
 use crate::shell::state::{BOOT_DURATION, Effect, Screen, ShellButton, ShellState};
 use crate::shell::surface::{Align, Surface, TextStyle};
@@ -40,19 +42,21 @@ struct Cli {
     #[arg(long)]
     fullscreen: bool,
 
-    /// How large the console framebuffer is drawn. Seeds the shell's
-    /// Settings › Video › Scaling row; changing it in Settings overrides
-    /// this for the rest of the session.
-    #[arg(long, value_enum, default_value_t = ScaleMode::Fit)]
-    scale: ScaleMode,
+    /// How large the console framebuffer is drawn. Overrides whatever the
+    /// persisted `settings.toml` (or the default) has for this session;
+    /// omit it to let a value set from the Settings screen stick across
+    /// runs.
+    #[arg(long, value_enum)]
+    scale: Option<ScaleMode>,
 
-    /// Whether console pixels stay square. Seeds Settings › Video › Aspect.
-    #[arg(long, value_enum, default_value_t = AspectMode::Square)]
-    aspect: AspectMode,
+    /// Whether console pixels stay square. Same override behavior as
+    /// `--scale`.
+    #[arg(long, value_enum)]
+    aspect: Option<AspectMode>,
 
-    /// Show the fps counter on the Playing screen. Stands in for the
-    /// Settings › Video › Show fps toggle until the Settings screen is
-    /// drawn (SPEC T46).
+    /// Show the fps counter on the Playing screen. Only forces it on for
+    /// this session — a persisted "off" is never silently overridden to
+    /// off by the flag's absence.
     #[arg(long)]
     show_fps: bool,
 }
@@ -115,6 +119,46 @@ impl App {
             Ok(()) => info!("reloaded {}", path.display()),
             Err(e) => error!("reload failed: {e:#}"),
         }
+    }
+}
+
+/// Where persisted settings live: a `settings.toml` beside the binary, the
+/// same exe-relative bargain `cart_library::default_dir()` makes for
+/// `carts/` — one folder a player can copy off a card wholesale.
+fn settings_path() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf))
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("settings.toml")
+}
+
+/// Loads persisted settings, falling back to defaults on a missing or
+/// corrupt file rather than failing to boot — the same tolerance
+/// `cart_library::scan` has for a bad `.cav` (SPEC V54).
+fn load_settings(path: &Path) -> Settings {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return Settings::default();
+    };
+    match toml::from_str(&content) {
+        Ok(settings) => settings,
+        Err(e) => {
+            error!("failed to parse {}: {e}", path.display());
+            Settings::default()
+        }
+    }
+}
+
+/// Writes settings to `path`, logging (not failing) on error — a save
+/// that can't land shouldn't take the settings screen down with it.
+fn save_settings(path: &Path, settings: &Settings) {
+    match toml::to_string_pretty(settings) {
+        Ok(content) => {
+            if let Err(e) = std::fs::write(path, content) {
+                error!("failed to write {}: {e}", path.display());
+            }
+        }
+        Err(e) => error!("failed to serialize settings: {e}"),
     }
 }
 
@@ -224,11 +268,11 @@ fn on_up(
 
 /// Carries out what `ShellState::press` decided the host must do.
 ///
-/// Screens that don't have real functionality behind them yet (Settings T46,
-/// Controls T47, Port T48, save states T50) resolve their
-/// effects to a safe no-op rather than leaving the shell unable to
-/// navigate — `ListenForBind` in particular has to answer with
-/// `bind_captured` or `listening` would swallow every future press.
+/// Screens that don't have real functionality behind them yet (Controls
+/// T47, Port T48, save states T50) resolve their effects to a safe no-op
+/// rather than leaving the shell unable to navigate — `ListenForBind` in
+/// particular has to answer with `bind_captured` or `listening` would
+/// swallow every future press.
 fn handle_effect(
     effect: Effect,
     app: &mut App,
@@ -273,9 +317,7 @@ fn handle_effect(
         Effect::StartDownload(_) => {
             info!("Port downloads are not implemented yet (SPEC T48)");
         }
-        Effect::SettingsChanged => {
-            info!("settings persistence is not implemented yet");
-        }
+        Effect::SettingsChanged => save_settings(&settings_path(), shell.settings()),
         Effect::ListenForBind(_) => {
             info!("controls remap capture is not implemented yet (SPEC T47)");
             shell.bind_captured();
@@ -283,10 +325,10 @@ fn handle_effect(
     }
 }
 
-/// Draws whichever screen `ShellState` is on. The four screens without a
-/// real draw module yet (Settings, Controls, Port, Crash) get chrome (where
-/// they have any) plus a plain placeholder rather than being left
-/// unreachable — see SPEC T46-T49.
+/// Draws whichever screen `ShellState` is on. The three screens without a
+/// real draw module yet (Controls, Port, Crash) get chrome (where they have
+/// any) plus a plain placeholder rather than being left unreachable — see
+/// SPEC T47-T49.
 fn draw_screen(
     surface: &mut Surface,
     shell: &ShellState,
@@ -312,7 +354,8 @@ fn draw_screen(
         }
         Screen::Playing => playing::draw(surface, shell, fps),
         Screen::Pause => pause::draw(surface, shell),
-        Screen::Settings | Screen::Controls | Screen::Port | Screen::Crash => {
+        Screen::Settings => settings_screen::draw(surface, shell, VERSION),
+        Screen::Controls | Screen::Port | Screen::Crash => {
             draw_placeholder(surface, shell);
         }
     }
@@ -321,7 +364,6 @@ fn draw_screen(
 
 fn placeholder_label(screen: Screen) -> Option<(&'static str, &'static str)> {
     match screen {
-        Screen::Settings => Some(("Settings", "T46")),
         Screen::Controls => Some(("Controls", "T47")),
         Screen::Port => Some(("Port", "T48")),
         Screen::Crash => Some(("Crash", "T49")),
@@ -377,12 +419,15 @@ pub fn run() -> Result<()> {
     let mut app = App::new(ConsoleCore::with_audio_factory(audio_factory)?);
 
     let mut shell_state = ShellState::new();
-    shell_state.set_settings(Settings {
-        scaling: cli.scale,
-        aspect: cli.aspect,
-        show_fps: cli.show_fps,
-        ..Settings::default()
-    });
+    let mut settings = load_settings(&settings_path());
+    if let Some(scale) = cli.scale {
+        settings.scaling = scale;
+    }
+    if let Some(aspect) = cli.aspect {
+        settings.aspect = aspect;
+    }
+    settings.show_fps |= cli.show_fps;
+    shell_state.set_settings(settings);
 
     let library_dir = cart_library::default_dir();
     let mut carts: Vec<CartMeta> = Vec::new();
@@ -616,7 +661,9 @@ pub fn run() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::check_mod_manifest;
+    use super::{check_mod_manifest, load_settings, save_settings};
+    use crate::platform::scaling::{AspectMode, ScaleMode};
+    use crate::shell::settings::Settings;
 
     #[test]
     fn passes_when_all_required_peripherals_registered() {
@@ -637,5 +684,36 @@ mod tests {
     #[test]
     fn empty_manifest_always_passes() {
         assert!(check_mod_manifest("", &[]).is_ok());
+    }
+
+    #[test]
+    fn saved_settings_round_trip_through_load() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("settings.toml");
+        let settings = Settings {
+            scaling: ScaleMode::Integer2x,
+            aspect: AspectMode::Stretch,
+            show_fps: true,
+            master_volume: 42,
+            sfx_volume: 7,
+            music_volume: 99,
+        };
+        save_settings(&path, &settings);
+        assert_eq!(load_settings(&path), settings);
+    }
+
+    #[test]
+    fn a_missing_settings_file_loads_as_default() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("does-not-exist.toml");
+        assert_eq!(load_settings(&path), Settings::default());
+    }
+
+    #[test]
+    fn a_corrupt_settings_file_loads_as_default_instead_of_panicking() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("settings.toml");
+        std::fs::write(&path, "not valid toml {{{").expect("write garbage");
+        assert_eq!(load_settings(&path), Settings::default());
     }
 }
