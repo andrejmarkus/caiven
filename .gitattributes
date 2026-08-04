@@ -1,1 +1,17 @@
-*.sh text eol=lf
+# Everything git considers text is stored and checked out with LF, whatever
+# a given clone has core.autocrlf set to. Without this, a machine with
+# autocrlf=true rewrites the working tree to CRLF on every checkout and git
+# warns on every add — and shell scripts, cross-built for handhelds, break
+# outright under CRLF.
+* text=auto eol=lf
+
+# Binary formats git must never touch.
+*.cav binary
+*.png binary
+*.ico binary
+*.icns binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.wasm binary

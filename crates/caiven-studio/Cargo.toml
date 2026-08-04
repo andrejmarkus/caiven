@@ -10,6 +10,12 @@ path = "src/main.rs"
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+# WebDriver automation plugin, for driving the UI from tests and the
+# `tauri-automation` MCP server. Deliberately off by default: it opens a
+# remote-control channel into a running Studio, which has no business being
+# in a build a creator installs. Enable it explicitly for local automation
+# (`cargo build -p caiven-studio --features automation`).
+automation = ["dep:tauri-plugin-webdriver-automation"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -30,9 +36,6 @@ tauri = { workspace = true }
 tauri-runtime = { workspace = true }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
-
-[target.'cfg(debug_assertions)'.dependencies]
-tauri-plugin-webdriver-automation = "0.1"
+tauri-plugin-webdriver-automation = { version = "0.1", optional = true }
 toml = { workspace = true }
 ureq = { workspace = true }
-wry = { workspace = true }
