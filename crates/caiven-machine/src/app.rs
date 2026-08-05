@@ -16,13 +16,14 @@ use crate::platform::input::{Gamepads, key_from_scancode, pad_button_from_sdl};
 use crate::platform::power;
 use crate::platform::scaling::{AspectMode, ScaleMode};
 use crate::platform::window::Display;
+use crate::port_client::{self, PortEntry};
 use crate::shell::input::{ShellInput, cart_button, shell_button, shell_button_from_system};
 use crate::shell::library::{self as cart_library, CartMeta};
 use crate::shell::screens::chrome::{self, StatusInfo};
 use crate::shell::screens::loading::{self, LoadProgress};
 use crate::shell::screens::{
     boot, controls as controls_screen, detail, library as library_screen, pause, playing,
-    settings as settings_screen,
+    port as port_screen, settings as settings_screen,
 };
 use crate::shell::settings::Settings;
 use crate::shell::state::{BIND_ORDER, BOOT_DURATION, Effect, Screen, ShellButton, ShellState};
@@ -278,9 +279,10 @@ fn dispatch(
     shell: &mut ShellState,
     carts: &mut Vec<CartMeta>,
     library_dir: &Path,
+    port_entries: &mut Vec<PortEntry>,
 ) {
     if let Some(effect) = shell.press(evt) {
-        handle_effect(effect, app, shell, carts, library_dir);
+        handle_effect(effect, app, shell, carts, library_dir, port_entries);
     }
 }
 
@@ -297,6 +299,7 @@ fn on_down(
     shell_input: &mut ShellInput,
     carts: &mut Vec<CartMeta>,
     library_dir: &Path,
+    port_entries: &mut Vec<PortEntry>,
 ) {
     match mapped {
         Mapped::Cart(button) => {
@@ -304,7 +307,7 @@ fn on_down(
                 app.core.input.set_button(button, true);
             }
             if let Some(evt) = shell_input.press(shell_button(button)) {
-                dispatch(evt, app, shell, carts, library_dir);
+                dispatch(evt, app, shell, carts, library_dir, port_entries);
             }
         }
         Mapped::System(sys) => {
@@ -314,6 +317,7 @@ fn on_down(
                 shell,
                 carts,
                 library_dir,
+                port_entries,
             );
         }
     }
@@ -326,6 +330,7 @@ fn on_up(
     shell_input: &mut ShellInput,
     carts: &mut Vec<CartMeta>,
     library_dir: &Path,
+    port_entries: &mut Vec<PortEntry>,
 ) {
     // SystemButton has no release semantics of its own — B's hold timer is
     // what carries the long-press fallback, and that lives on the Cart(B)
@@ -335,25 +340,29 @@ fn on_up(
             app.core.input.set_button(button, false);
         }
         if let Some(evt) = shell_input.release(shell_button(button)) {
-            dispatch(evt, app, shell, carts, library_dir);
+            dispatch(evt, app, shell, carts, library_dir, port_entries);
         }
     }
 }
 
 /// Carries out what `ShellState::press` decided the host must do.
 ///
-/// Screens that don't have real functionality behind them yet (Port T48,
-/// save states T50) resolve their effects to a safe no-op rather than
-/// leaving the shell unable to navigate. `ListenForBind` needs no action
-/// here — the run loop's top-level listening check answers with
-/// `bind_captured` once a physical input arrives, or `listening` would
-/// swallow every future press.
+/// Screens that don't have real functionality behind them yet (save states,
+/// T50) resolve their effects to a safe no-op rather than leaving the shell
+/// unable to navigate. `ListenForBind` needs no action here — the run
+/// loop's top-level listening check answers with `bind_captured` once a
+/// physical input arrives, or `listening` would swallow every future press.
+///
+/// Port requests (`RefreshPort`, `StartDownload`) block on `ureq` just like
+/// `LoadCart`/`DeleteCart` block on the filesystem — same synchronous
+/// convention, see `port_client`'s module doc.
 fn handle_effect(
     effect: Effect,
     app: &mut App,
     shell: &mut ShellState,
     carts: &mut Vec<CartMeta>,
     library_dir: &Path,
+    port_entries: &mut Vec<PortEntry>,
 ) {
     match effect {
         Effect::LoadCart(index) => {
@@ -389,8 +398,43 @@ fn handle_effect(
         Effect::SaveState | Effect::LoadState => {
             info!("save states are not implemented yet (SPEC T50)");
         }
-        Effect::StartDownload(_) => {
-            info!("Port downloads are not implemented yet (SPEC T48)");
+        Effect::RefreshPort => match port_client::list(shell.port_sort()) {
+            Ok(entries) => {
+                *port_entries = entries;
+                shell.set_port_count(port_entries.len());
+            }
+            Err(e) => {
+                error!("Port listing failed: {e}");
+                port_entries.clear();
+                shell.set_port_count(0);
+            }
+        },
+        Effect::StartDownload(index) => {
+            let Some(entry) = port_entries.get(index) else {
+                shell.download_failed();
+                return;
+            };
+            let id = entry.id.clone();
+            match port_client::download(&id) {
+                Ok(bytes) => {
+                    let path = library_dir.join(format!("{}.cav", port_client::safe_filename(&id)));
+                    match std::fs::write(&path, &bytes) {
+                        Ok(()) => {
+                            *carts = cart_library::scan(library_dir);
+                            shell.download_finished();
+                            shell.set_cart_count(carts.len());
+                        }
+                        Err(e) => {
+                            error!("failed to save downloaded cart to {}: {e}", path.display());
+                            shell.download_failed();
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Port download failed for {id}: {e}");
+                    shell.download_failed();
+                }
+            }
         }
         Effect::SettingsChanged => save_settings(&settings_path(), shell.settings()),
         // `press_controls` already flipped `listening`; the run loop's
@@ -400,13 +444,14 @@ fn handle_effect(
     }
 }
 
-/// Draws whichever screen `ShellState` is on. The two screens without a
-/// real draw module yet (Port, Crash) get chrome (where they have any) plus
-/// a plain placeholder rather than being left unreachable — see SPEC T48-T49.
+/// Draws whichever screen `ShellState` is on. The one screen without a real
+/// draw module yet (Crash) gets chrome plus a plain placeholder rather than
+/// being left unreachable — see SPEC T49.
 fn draw_screen(
     surface: &mut Surface,
     shell: &ShellState,
     carts: &[CartMeta],
+    port_entries: &[PortEntry],
     config: &caiven_vm::VmConfig,
     fps: u32,
     status: &StatusInfo,
@@ -430,16 +475,14 @@ fn draw_screen(
         Screen::Pause => pause::draw(surface, shell),
         Screen::Settings => settings_screen::draw(surface, shell, VERSION),
         Screen::Controls => controls_screen::draw(surface, shell),
-        Screen::Port | Screen::Crash => {
-            draw_placeholder(surface, shell);
-        }
+        Screen::Port => port_screen::draw(surface, shell, port_entries),
+        Screen::Crash => draw_placeholder(surface, shell),
     }
     chrome::draw(surface, shell, status);
 }
 
 fn placeholder_label(screen: Screen) -> Option<(&'static str, &'static str)> {
     match screen {
-        Screen::Port => Some(("Port", "T48")),
         Screen::Crash => Some(("Crash", "T49")),
         _ => None,
     }
@@ -508,6 +551,7 @@ pub fn run() -> Result<()> {
 
     let library_dir = cart_library::default_dir();
     let mut carts: Vec<CartMeta> = Vec::new();
+    let mut port_entries: Vec<PortEntry> = Vec::new();
 
     match &cli.file {
         // A cart given directly on the command line is the developer
@@ -620,6 +664,7 @@ pub fn run() -> Result<()> {
                             &mut shell_input,
                             &mut carts,
                             &library_dir,
+                            &mut port_entries,
                         );
                     }
                 }
@@ -638,6 +683,7 @@ pub fn run() -> Result<()> {
                             &mut shell_input,
                             &mut carts,
                             &library_dir,
+                            &mut port_entries,
                         );
                     }
                 }
@@ -670,6 +716,7 @@ pub fn run() -> Result<()> {
                             &mut shell_input,
                             &mut carts,
                             &library_dir,
+                            &mut port_entries,
                         );
                     }
                 }
@@ -685,6 +732,7 @@ pub fn run() -> Result<()> {
                             &mut shell_input,
                             &mut carts,
                             &library_dir,
+                            &mut port_entries,
                         );
                     }
                 }
@@ -699,7 +747,14 @@ pub fn run() -> Result<()> {
 
         shell_state.tick(dt);
         if let Some(evt) = shell_input.tick(dt) {
-            dispatch(evt, &mut app, &mut shell_state, &mut carts, &library_dir);
+            dispatch(
+                evt,
+                &mut app,
+                &mut shell_state,
+                &mut carts,
+                &library_dir,
+                &mut port_entries,
+            );
         }
 
         if shell_state.screen() == Screen::Playing {
@@ -743,6 +798,7 @@ pub fn run() -> Result<()> {
                 &mut surface,
                 &shell_state,
                 &carts,
+                &port_entries,
                 &app.core.config,
                 current_fps,
                 &status,

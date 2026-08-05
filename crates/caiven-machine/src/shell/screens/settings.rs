@@ -3,10 +3,10 @@
 //!
 //! `state.rs` owns which pane and row are focused and what Left/Right/A do
 //! to each [`RowKind`](crate::shell::settings::RowKind) — this module only
-//! turns that into pixels. Values come straight off `state.settings()`; a
-//! pane with no runtime backing yet (Port's Server row — Port browse is
-//! T48) draws an honest "—" rather than a fabricated one, same discipline
-//! `library.rs`/`detail.rs` use for a cart with no captured screenshot.
+//! turns that into pixels. Values come straight off `state.settings()`; the
+//! Port pane's Server row reads `port_client::port_url()` directly (it has
+//! no `Settings` field of its own yet — there is no UI to edit it, only to
+//! see what `CAIVEN_PORT_URL`/the default resolves to).
 
 use crate::shell::settings::{Pane, Row, RowKind, SettingId, Settings};
 use crate::shell::state::{Column, ShellState};
@@ -193,9 +193,8 @@ fn draw_row(
 }
 
 /// The right-hand text for one row. Everything here comes off `Settings`
-/// (or the caller-supplied `version`) — never a hardcoded stand-in for a
-/// real value except the Port `Server` row, which has nothing to read yet
-/// (Port browse is T48).
+/// (or the caller-supplied `version`), except the Port `Server` row, which
+/// reads `port_client::port_url()` directly — never a hardcoded stand-in.
 fn row_value(row: &Row, settings: &Settings, version: &str) -> String {
     match row.kind {
         RowKind::Choice { options } => {
@@ -222,7 +221,7 @@ fn row_value(row: &Row, settings: &Settings, version: &str) -> String {
         RowKind::Action => String::new(),
         RowKind::Readout => match row.id {
             SettingId::Version => version.to_string(),
-            SettingId::Server => "\u{2014}".to_string(),
+            SettingId::Server => crate::port_client::port_url(),
             _ => String::new(),
         },
     }

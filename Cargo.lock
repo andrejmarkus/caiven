@@ -895,10 +895,12 @@ dependencies = [
  "log",
  "sdl2",
  "serde",
+ "serde_json",
  "svgtypes",
  "tempfile",
  "tiny-skia",
  "toml 0.8.23",
+ "ureq",
 ]
 
 [[package]]

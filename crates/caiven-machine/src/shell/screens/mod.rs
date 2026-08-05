@@ -18,4 +18,6 @@ pub mod pause;
 #[allow(dead_code)]
 pub mod playing;
 #[allow(dead_code)]
+pub mod port;
+#[allow(dead_code)]
 pub mod settings;

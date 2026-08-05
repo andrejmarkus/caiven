@@ -73,6 +73,55 @@ pub enum DetailAction {
     Delete,
 }
 
+/// How the Port screen orders its listing. SELECT cycles through these
+/// (search/tag/author filtering is out of scope this milestone — SPEC §C —
+/// so a sort chip is the only query control the shell exposes).
+///
+/// Defined here rather than in `port_client` so `state.rs` stays free of
+/// network concerns (per this module's doc comment) while `port_client`
+/// (the host-side HTTP client) depends on this type, not the reverse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PortSort {
+    #[default]
+    New,
+    Popular,
+    Trending,
+    Top,
+}
+
+impl PortSort {
+    /// The next sort in the cycle SELECT steps through.
+    pub fn next(self) -> Self {
+        match self {
+            PortSort::New => PortSort::Popular,
+            PortSort::Popular => PortSort::Trending,
+            PortSort::Trending => PortSort::Top,
+            PortSort::Top => PortSort::New,
+        }
+    }
+
+    /// The `?sort=` value the Port API's `Sort::parse` recognizes
+    /// (`caiven-port/src/db.rs`).
+    pub fn query_value(self) -> &'static str {
+        match self {
+            PortSort::New => "new",
+            PortSort::Popular => "popular",
+            PortSort::Trending => "trending",
+            PortSort::Top => "top",
+        }
+    }
+
+    /// What the legend bar and the screen's own sort chip show.
+    pub fn legend_label(self) -> &'static str {
+        match self {
+            PortSort::New => "Sort: New",
+            PortSort::Popular => "Sort: Popular",
+            PortSort::Trending => "Sort: Trending",
+            PortSort::Top => "Sort: Top",
+        }
+    }
+}
+
 /// Which of the settings screen's two columns has the cursor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Column {
@@ -153,6 +202,9 @@ pub enum Effect {
     LoadState,
     /// Begin downloading the Port listing at this index.
     StartDownload(usize),
+    /// (Re)fetch the Port listing for the current sort — entering the Port
+    /// screen, or SELECT cycling the sort.
+    RefreshPort,
     /// A setting changed; persist it.
     SettingsChanged,
     /// The remap screen wants the next physical input captured.
@@ -243,6 +295,7 @@ pub struct ShellState {
 
     port_count: usize,
     port_index: usize,
+    port_sort: PortSort,
     downloading: Option<usize>,
     /// Where B leaves the Port screen for — same reasoning as
     /// `settings_return`.
@@ -276,6 +329,7 @@ impl ShellState {
             binds: Default::default(),
             port_count: 0,
             port_index: 0,
+            port_sort: PortSort::default(),
             downloading: None,
             port_return: Screen::Library,
             settings: Settings::default(),
@@ -347,6 +401,10 @@ impl ShellState {
 
     pub fn port_index(&self) -> usize {
         self.port_index
+    }
+
+    pub fn port_sort(&self) -> PortSort {
+        self.port_sort
     }
 
     pub fn downloading(&self) -> Option<usize> {
@@ -485,10 +543,7 @@ impl ShellState {
             }
             ShellButton::A => match self.selected_cart() {
                 Some(index) => self.begin_load(index),
-                None => {
-                    self.open_port(Screen::Library);
-                    None
-                }
+                None => Some(self.open_port(Screen::Library)),
             },
             ShellButton::B => {
                 if self.selected_cart().is_some() {
@@ -501,10 +556,7 @@ impl ShellState {
                 self.open_settings(Screen::Library);
                 None
             }
-            ShellButton::Select => {
-                self.open_port(Screen::Library);
-                None
-            }
+            ShellButton::Select => Some(self.open_port(Screen::Library)),
             ShellButton::Up | ShellButton::Down => None,
         }
     }
@@ -722,9 +774,14 @@ impl ShellState {
                 self.downloading = Some(self.port_index);
                 Some(Effect::StartDownload(self.port_index))
             }
-            ShellButton::B | ShellButton::Select => {
+            ShellButton::B => {
                 self.screen = self.port_return;
                 None
+            }
+            ShellButton::Select => {
+                self.port_sort = self.port_sort.next();
+                self.port_index = 0;
+                Some(Effect::RefreshPort)
             }
             ShellButton::Left | ShellButton::Right | ShellButton::Start => None,
         }
@@ -769,10 +826,11 @@ impl ShellState {
         self.row = 0;
     }
 
-    fn open_port(&mut self, from: Screen) {
+    fn open_port(&mut self, from: Screen) -> Effect {
         self.port_return = from;
         self.screen = Screen::Port;
         self.port_index = 0;
+        Effect::RefreshPort
     }
 
     fn current_row(&self) -> Option<&'static Row> {
@@ -794,10 +852,7 @@ impl ShellState {
                 self.listening = false;
                 None
             }
-            SettingId::Browse => {
-                self.open_port(Screen::Settings);
-                None
-            }
+            SettingId::Browse => Some(self.open_port(Screen::Settings)),
             SettingId::RestoreDefaults => {
                 let defaults = Settings::default();
                 if self.settings == defaults {
@@ -852,11 +907,18 @@ impl ShellState {
                     vec![primary("A", "Rebind"), legend("B", "Back")]
                 }
             }
-            Screen::Port => vec![
-                primary("A", "Download"),
-                legend("B", "Library"),
-                trailing("SELECT", "Search"),
-            ],
+            Screen::Port => {
+                let back = if self.port_return == Screen::Settings {
+                    "Settings"
+                } else {
+                    "Library"
+                };
+                vec![
+                    primary("A", "Download"),
+                    legend("B", back),
+                    trailing("SELECT", self.port_sort.legend_label()),
+                ]
+            }
             Screen::Pause => vec![primary("A", "Select"), legend("B", "Resume")],
             Screen::Boot | Screen::Loading | Screen::Playing | Screen::Crash => Vec::new(),
         }
@@ -908,7 +970,7 @@ mod tests {
         let mut state = library(0);
         assert!(state.on_port_tile());
         assert_eq!(state.selected_cart(), None);
-        assert_eq!(state.press(ShellButton::A), None);
+        assert_eq!(state.press(ShellButton::A), Some(Effect::RefreshPort));
         assert_eq!(state.screen(), Screen::Port);
     }
 
@@ -1275,6 +1337,33 @@ mod tests {
         state.download_finished();
         assert_eq!(state.downloading(), None);
         assert_eq!(state.cart_count(), 2);
+    }
+
+    #[test]
+    fn opening_port_requests_a_refresh() {
+        let mut state = library(1);
+        assert_eq!(state.press(ShellButton::Select), Some(Effect::RefreshPort));
+        assert_eq!(state.screen(), Screen::Port);
+    }
+
+    #[test]
+    fn select_cycles_sort_and_resets_the_cursor_and_requests_a_refresh() {
+        let mut state = library(1);
+        state.press(ShellButton::Select); // open Port
+        state.set_port_count(3);
+        state.press(ShellButton::Down);
+        assert_eq!(state.port_index(), 1);
+
+        assert_eq!(state.port_sort(), PortSort::New);
+        assert_eq!(state.press(ShellButton::Select), Some(Effect::RefreshPort));
+        assert_eq!(state.port_sort(), PortSort::Popular);
+        assert_eq!(state.port_index(), 0, "changing sort resets the cursor");
+
+        state.press(ShellButton::Select);
+        state.press(ShellButton::Select);
+        assert_eq!(state.port_sort(), PortSort::Top);
+        state.press(ShellButton::Select);
+        assert_eq!(state.port_sort(), PortSort::New, "the cycle wraps");
     }
 
     #[test]
