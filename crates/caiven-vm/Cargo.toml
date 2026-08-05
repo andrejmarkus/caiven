@@ -11,19 +11,27 @@ name = "caiven_vm"
 path = "src/lib.rs"
 
 [features]
-default = ["native"]
-native = ["dep:cpal"]
+# Desktop and CI: build SDL from source and link it in, so the artifact is
+# self-contained and no runner needs a libsdl2-dev step. Mirrors
+# caiven-machine's own sdl2-bundled/sdl2-dynamic split (see
+# docs/development/handheld-builds.md) — a front-end building for a
+# handheld must forward its choice down to this crate's feature, since
+# `sdl2` here is a separate optional-dependency activation from the same
+# crate requested elsewhere in the graph.
+default = ["sdl2-bundled"]
+sdl2-bundled = ["dep:sdl2", "sdl2/bundled", "sdl2/static-link"]
+sdl2-dynamic = ["dep:sdl2"]
 
 [dependencies]
 anyhow = { workspace = true }
 chrono = { workspace = true }
-cpal = { workspace = true, optional = true }
 caiven-cart = { workspace = true }
 caiven-core = { workspace = true }
 image = { workspace = true }
 log = { workspace = true }
 mlua = { workspace = true }
 mlua-sys = { workspace = true }
+sdl2 = { workspace = true, optional = true }
 serde = { workspace = true }
 toml = { workspace = true }
 

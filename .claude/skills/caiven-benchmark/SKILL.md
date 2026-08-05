@@ -28,7 +28,7 @@ VM frame loop (`caiven-vm/src/vm/lua_exec.rs`, `rendering/*`), map/tilemap
 operations, cartridge loading/parsing (`caiven-cart`), Studio editor
 responsiveness on large projects, audio callback timing
 (`caiven-vm/src/vm/audio.rs` — must never block/allocate unpredictably on
-the `cpal` callback thread).
+the SDL2 audio callback thread).
 
 ## Do not
 

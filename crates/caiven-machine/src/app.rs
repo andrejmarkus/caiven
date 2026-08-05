@@ -4,6 +4,7 @@ use caiven_core::Color;
 use caiven_vm::input::{Button, ControlsFile, InputMap, Key, PadButton, SystemButton};
 use caiven_vm::runtime::ConsoleCore;
 use caiven_vm::settings::NAME;
+use caiven_vm::vm::audio::sdl_audio_factory;
 use chrono::Timelike;
 use clap::Parser;
 use log::{error, info};
@@ -12,7 +13,6 @@ use sdl2::keyboard::{Mod, Scancode};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crate::platform::audio::sdl_audio_factory;
 use crate::platform::input::{Gamepads, key_from_scancode, pad_button_from_sdl};
 use crate::platform::power;
 use crate::platform::scaling::{AspectMode, ScaleMode};

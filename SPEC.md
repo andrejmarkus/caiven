@@ -217,7 +217,7 @@ V3: cart format change ! bump version field, backward-compat analysis, round-tri
 V4: every `.cav` = untrusted input → bounds-checked parse; truncated/corrupt/malicious ⊥ panic | OOB read → fail safe.
 V5: `_update()`/`_draw()` hot path — per-frame alloc suspicious, needs reason. Perf claim ! measured (baseline before, same method after).
 V6: timing/RTC/RNG deterministic where API implies — ⊥ silent timing-semantics change (`src/timing.rs`, `src/vm/rtc.rs`).
-V7: audio path (`src/vm/audio.rs`, `sfx.rs`) adjacent real-time callback thread (cpal native | `SDL_AudioDevice` on Machine) → ⊥ block | unpredictable alloc.
+V7: audio path (`src/vm/audio.rs`, `sfx.rs`) adjacent real-time callback thread (SDL2 `AudioCallback`, 1 backend ∀ front-ends) → ⊥ block | unpredictable alloc.
 V8: Lua sandbox — cart Lua ⊥ reach filesystem | network | process outside sanctioned API.
 V9: Tauri command = security boundary — validate paths/inputs, ⊥ trust frontend; `capabilities`/`gen/schemas` ! match signatures, ⊥ over-grant.
 V10: Port authorization checked per-handler, ⊥ only route/frontend layer. Uploaded `.cav` reuse `caiven-cart` parse, ⊥ ad-hoc re-parse.
@@ -255,9 +255,17 @@ Machine owns window/process lifecycle (holds vm-runtime.md boundary).
 V28: Machine render = SDL streaming texture @ `PixelFormatEnum::ABGR8888` (VM buf byte
 order R,G,B,A, LE — `caiven-core/src/memory.rs:32`). nearest only
 (`SDL_HINT_RENDER_SCALE_QUALITY=0`) — ⊥ smooth-scale.
-V29: audio backend pluggable via `AudioOut` trait + `AudioFactory`, ⊥ cargo feature
-(workspace feature unification would force Studio onto Machine's backend).
-`ConsoleCore::new()` signature stable ∴ caiven-studio ⊥ edits.
+V29: audio backend = SDL2 ∀ front-end (cpal/alsa removed workspace-wide, B2),
+injected via `AudioOut` trait + `AudioFactory` rather than baked into
+`ConsoleCore::new()` — a front-end that already owns an SDL context
+(`caiven-machine`, via video) reuses it (`sdl_audio_factory`) instead of
+opening a 2nd; one that doesn't (Studio, tests) gets
+`sdl_default_audio_factory`'s own audio-only context via `ConsoleCore::new()`.
+`ConsoleCore::new()` signature stable ∴ caiven-studio ⊥ edits. caiven-vm's
+`sdl2` dep = optional, gated `sdl2-bundled`/`sdl2-dynamic` (mirrors
+caiven-machine's own split, I.machine-platform, V31) — a front-end forwards
+its bundled-vs-dynamic choice down via `caiven-vm/sdl2-bundled` |
+`caiven-vm/sdl2-dynamic`, ⊥ caiven-vm hardcode 1.
 V30: `controls.toml` backward-compatible — ∀ existing key names ! round-trip (documented
 `README.md:518-540`, files on user disks). `[gamepad]` additive only.
 V31: SDL link — desktop = `bundled`+`static-link`; handheld = dynamic vs device
@@ -395,3 +403,4 @@ T55|x|docs+parity: README API & controls tables, api_registry doc strings, Studi
 
 id|date|cause|fix
 B1|2026-08-03|bare `rustfmt` (editor/hook) defaults to 2015 style edition → reverts 2024 import order in committed files, `cargo fmt --check` then fails|root `rustfmt.toml` `style_edition = "2024"`, T52
+B2|2026-08-05|`caiven-vm/src/lib.rs` gated whole `runtime` module (ConsoleCore, shared by Machine+Studio) behind cpal's `native` feature when only `ConsoleCore::new()` needed cpal → caiven-machine pulled cpal/alsa it never used, broke documented armv7 handheld cross-build at alsa-sys cross pkg-config (found while prepping T51)|cpal/alsa removed workspace-wide, SDL2 audio backend everywhere, V7, V29

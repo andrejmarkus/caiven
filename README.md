@@ -20,7 +20,7 @@
 - 🌙 **Real Lua 5.4** — embedded via `mlua` (vendored, no system Lua required); `_init()` runs once, `_update()` runs every frame, optional `_draw()` runs right after it
 - 🎨 **Palette-based Graphics** — 128×128 resolution, 16-color swappable palette; sprites, 64×64 tilemap, shape primitives, camera
 - 📦 **Descriptive Builtin API** — `sprite`, `draw_rect`, `button_down`, `set_palette_color`, etc. — no cryptic abbreviations; `print()` goes to Machine's terminal or Studio's Output drawer (screen text is `draw_text`)
-- 🔊 **Audio Engine** — real-time sound synthesis, SFX and music banks, playback via CPAL
+- 🔊 **Audio Engine** — real-time sound synthesis, SFX and music banks, playback via SDL2
 - 🧰 **Gameplay Stdlib** — tweens, easing curves, AABB/tile collision, a particle system, and sprite-frame animation, all pure Lua and preloaded into every cart
 - 🖌️ **Caiven Studio** — Tauri 2 + Svelte 5 editor: live console, code and asset workspaces, diagnostics drawer, command palette, onboarding, and publishing flow
 - 🔍 **Debugger** — line breakpoints (click the code editor gutter), pause/step-by-frame, script-globals inspector, live RAM view, `.cavdbg` sidecar persistence
@@ -476,7 +476,7 @@ build of the VM that fetches the cart over the same REST API and renders to a
   Gamepad API support, and an on-screen touch d-pad + A/B on coarse-pointer
   (mobile) viewports.
 - **Audio:** the same square/noise synth used natively, driven by a
-  `ScriptProcessorNode` instead of `cpal`.
+  `ScriptProcessorNode` instead of SDL2.
 - **Crash handling:** a Lua runtime error stops the cart and shows the error
   and line number over the last frame, instead of hanging silently.
 - Click the canvas or press a key once to start audio — browsers require a

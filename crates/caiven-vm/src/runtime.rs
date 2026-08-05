@@ -55,10 +55,11 @@ pub struct ConsoleCore {
 }
 
 impl ConsoleCore {
-    /// Builds a console using the default cpal audio backend.
-    #[cfg(feature = "native")]
+    /// Builds a console using the default SDL2 audio backend, opening its
+    /// own audio-only SDL context.
+    #[cfg(any(feature = "sdl2-bundled", feature = "sdl2-dynamic"))]
     pub fn new() -> Result<Self> {
-        Self::with_audio_factory(crate::vm::audio::cpal_audio_factory())
+        Self::with_audio_factory(crate::vm::audio::sdl_default_audio_factory())
     }
 
     /// Builds a console whose audio output comes from `audio_factory`.
@@ -163,6 +164,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "sdl2-bundled", feature = "sdl2-dynamic"))]
     fn reset_vm_preserves_output_capture_setting() {
         let mut core = ConsoleCore::new().expect("console core should initialize");
         core.vm.set_lua_output_capture(true);
