@@ -1,10 +1,24 @@
 {
   "enabledPlugins": {
-    "rust-analyzer-lsp@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true,
-    "lua-lsp@claude-plugins-official": true,
-    "playwright@claude-plugins-official": true,
-    "chrome-devtools-mcp@claude-plugins-official": true
+    "rust-analyzer-lsp@claude-plugins-official": false,
+    "typescript-lsp@claude-plugins-official": false,
+    "lua-lsp@claude-plugins-official": false,
+    "playwright@claude-plugins-official": false,
+    "chrome-devtools-mcp@claude-plugins-official": false
+  },
+  "skillListingBudgetFraction": 0.005,
+  "skillOverrides": {
+    "caiven-benchmark": "user-invocable-only",
+    "caiven-cart-compat": "user-invocable-only",
+    "caiven-debug": "user-invocable-only",
+    "caiven-feature": "user-invocable-only",
+    "caiven-game-prototype": "user-invocable-only",
+    "caiven-idea": "user-invocable-only",
+    "caiven-lua-api": "user-invocable-only",
+    "caiven-release": "user-invocable-only",
+    "caiven-review": "user-invocable-only",
+    "caiven-status": "user-invocable-only",
+    "caiven-studio-flow": "user-invocable-only"
   },
   "hooks": {
     "PreToolUse": [
@@ -36,16 +50,6 @@
           {
             "type": "command",
             "command": "${CLAUDE_PROJECT_DIR}/scripts/claude/hook-test-failure-reminder.sh"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/scripts/claude/hook-stop-reminder.sh"
           }
         ]
       }
