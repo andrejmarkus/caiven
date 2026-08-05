@@ -1,0 +1,9 @@
+{
+  "enabledPlugins": {
+    "rust-analyzer-lsp@claude-plugins-official": false,
+    "typescript-lsp@claude-plugins-official": false,
+    "lua-lsp@claude-plugins-official": false,
+    "playwright@claude-plugins-official": false,
+    "chrome-devtools-mcp@claude-plugins-official": false
+  }
+}

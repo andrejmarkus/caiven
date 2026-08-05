@@ -1,94 +1,84 @@
-# Claude Code workflow guide for Caiven
+# Claude Code workflow for Caiven
 
-How to use the Claude Code setup in this repo day to day. See also root
-`CLAUDE.md`, `.claude/rules/*.md`, `.claude/skills/caiven-*`, and
-`.claude/PLUGIN_STACK.md`.
+The default project configuration is deliberately lean. It disables project
+LSP/browser plugins and keeps `caiven-*` skills user-invocable so startup
+context stays available for implementation work.
 
-## Tool-selection policy
+## Start the smallest session
 
-Classify the task first, then use the smallest matching set below. Never
-invoke every plugin/skill for every task.
+Normal `claude` startup uses the lean checked-in settings. Use the launcher
+when a task benefits from one integration:
 
-**Product idea**
-- Product Management plugin (available externally via
-  `anthropics/knowledge-work-plugins`, deferred — see
-  `.claude/PLUGIN_STACK.md` — use `caiven-idea` instead for now)
-- `caiven-idea`
-- Playground for interactive exploration (deferred, install on demand)
-- CaveKit only after an idea is approved for implementation
+| Task | Launch |
+|---|---|
+| General planning, docs, small edits | `scripts/claude-session.sh lean` |
+| Rust implementation | `scripts/claude-session.sh rust` |
+| Svelte/TypeScript implementation | `scripts/claude-session.sh typescript` |
+| Lua/API or cartridge examples | `scripts/claude-session.sh lua` |
+| Browser automation/e2e | `scripts/claude-session.sh ui-test` |
+| Interactive browser diagnosis | `scripts/claude-session.sh ui-debug` |
 
-**New feature**
-- CaveKit specification
-- Superpowers (primary implementation workflow)
-- Relevant LSP (rust-analyzer / typescript / lua, all project-installed)
-- Context7 for current external library documentation
-- Focused tests
-- Code Review after implementation
+Do not enable both Playwright and Chrome DevTools by default. Playwright is for
+repeatable browser actions and tests; Chrome DevTools is for interactive
+runtime/network/performance diagnosis.
 
-**UI or creator workflow**
-- Frontend Design
-- Playground when rapid visual experimentation helps (deferred)
-- `caiven-studio-flow`
-- Playwright (project-installed)
-- Chrome DevTools MCP for diagnosis (project-installed)
-- Manual accessibility check (no dedicated a11y plugin exists — see
-  `.claude/rules/studio-ui.md`)
+Install missing integrations explicitly:
 
-**Bug**
-- `caiven-debug`
-- A regression test
-- Targeted implementation
-- CaveKit back-propagation or durable documentation when the bug reveals a
-  reusable invariant
+```bash
+scripts/setup-claude-code.sh rust
+scripts/setup-claude-code.sh typescript ui-test
+```
 
-**Public Lua API**
-- `caiven-lua-api`
-- `caiven-cart-compat` when serialization is affected
-- Example cartridge
-- Full documentation and autocomplete review
+## Invoke project skills deliberately
 
-**Performance**
-- `caiven-benchmark`
-- Baseline measurement
-- Comparable after-measurement
-- Correctness tests
+Project skills remain in the slash menu but are hidden from model context until
+you invoke one. This prevents automatic skill chaining and keeps unused skill
+bodies out of the session.
 
-**Security-sensitive change**
-- Security Guidance during implementation
-- Claude Security (deferred plugin — install with `claude plugin install
-  claude-security -s project` when doing a deep pass) or `caiven-review`
-  before completion
-- Explicit threat analysis (see `.claude/rules/security.md`)
+- `/caiven-feature` — approved feature implementation
+- `/caiven-debug` — reproduce and fix a bug
+- `/caiven-studio-flow` — Studio or Port creator workflow
+- `/caiven-lua-api` — public runtime API change
+- `/caiven-cart-compat` — cartridge/project format review
+- `/caiven-benchmark` — measured performance work
+- `/caiven-review` — independent review after implementation
+- `/caiven-release` — release preparation
+- `/caiven-idea`, `/caiven-game-prototype`, `/caiven-status` — product or
+  status workflows
 
-**Release**
-- `caiven-release`
-- Full repository gates (`scripts/claude/pre-commit-gate.sh`)
-- Security review
-- Documentation and compatibility review
+Use one primary workflow skill. Add a second only when the change genuinely
+crosses a boundary, such as `/caiven-feature` plus `/caiven-lua-api`.
 
-## GitHub usage
+## Implementation loop
 
-The `github` plugin is not installed in this repo yet (see
-`.claude/PLUGIN_STACK.md`) — install with `claude plugin install github -s
-project` when issue/PR read access is wanted. Once available:
+1. Read the request/specification and inspect the current implementation.
+2. Identify touched subsystems and matching path-scoped rules.
+3. Define a narrow acceptance target and explicit non-goals.
+4. Add focused tests, implement the smallest coherent change, and run the
+   matching `scripts/claude/check-*.sh` command.
+5. Review the diff for compatibility, security, and unrelated changes.
+6. Run `/caiven-review` only after the implementation is stable.
+7. Run the full pre-commit gate only for a final pass or release.
 
-- Read issues, pull requests, and CI status when relevant to the task.
-- Connect implementation work to an existing issue when one exists.
-- Create focused draft issue/PR text only when requested.
-- Never post comments, create issues, open PRs, merge, or push without
-  explicit approval.
-- Include tests, screenshots, and compatibility notes in any proposed PR
-  description.
+## Context budget habits
 
-## Example requests
+- Run `/context` near session start to verify which memory, skills, and tools
+  loaded.
+- Use `/clear` before an unrelated feature instead of carrying the previous
+  task's files and outputs forward.
+- Delegate broad repository research to an Explore subagent so large reads do
+  not remain in the implementation context.
+- Avoid reading `.claude/PLUGIN_STACK.md`, the full architecture audit, or all
+  scoped rules unless the task actually needs them.
+- Prefer targeted command output. Redirect or filter verbose build logs and
+  inspect only the failing section.
 
-- "Use `caiven-idea` to find a small feature that improves first-time
-  creator success."
-- "Use CaveKit to specify this approved feature."
-- "Use `caiven-feature` to implement the next specification task."
-- "Use `caiven-studio-flow` to redesign and test the cartridge export
-  workflow."
-- "Use `caiven-debug` to reproduce and fix this crash."
-- "Use `caiven-lua-api` to design this runtime API."
-- "Use `caiven-review` on the current diff."
-- "Use `caiven-release` to prepare version X."
+See `docs/development/claude-code-context-budget.md` for the rationale and a
+repeatable before/after measurement procedure.
+
+## GitHub and remote actions
+
+Read issues, pull requests, diffs, and CI when relevant. Never post comments,
+create issues, push, open a pull request, merge, or alter remote state without
+explicit user approval. Any proposed PR description should include tests,
+compatibility notes, and screenshots when applicable.

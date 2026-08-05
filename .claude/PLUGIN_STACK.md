@@ -1,77 +1,62 @@
 # Claude Code plugin stack for Caiven
 
-Verified against `claude plugin list`, `~/.claude/plugins/installed_plugins.json`,
-and the live `claude-plugins-official` marketplace catalog
-(`~/.claude/plugins/marketplaces/claude-plugins-official/.claude-plugin/marketplace.json`)
-on 2026-08-01. All currently-installed plugins are **user scope** (apply to every
-project on this machine), installed before this setup. Nothing here was assumed
-from the setup prompt without checking the actual catalog first — several
-candidates named in the prompt do not exist under that name and are marked
-`unavailable` below.
+This document records the repository policy, not the complete plugin inventory
+of any developer's machine. User-scope plugins vary and should be inspected
+with `/plugin` when diagnosing context cost.
 
-Re-verify with `claude plugin list` / `claude plugin marketplace list` if this
-file grows stale.
+## Runtime policy
 
-## Core development
+All optional project integrations are installed on demand and disabled by the
+checked-in `.claude/settings.json`. Start a focused session through
+`scripts/claude-session.sh`; command-line settings enable only the selected
+profile.
 
-| Candidate | Identifier | Status | Reason |
-|---|---|---|---|
-| Superpowers | `superpowers@claude-plugins-official` | **installed** (user, v6.2.0) | Primary implementation methodology per orchestration rules. Brainstorming + subagent-driven dev + built-in review. |
-| Feature Dev | `feature-dev@claude-plugins-official` | deferred | Exists in catalog, not installed. Overlaps Superpowers as a full workflow; per orchestration rule only run one primary methodology. Use only for a workflow shape Superpowers doesn't cover. |
-| Code Review | `code-review@claude-plugins-official` | **installed** (user) | Default independent reviewer (`/code-review`), used by `caiven-review` skill. |
-| PR Review Toolkit | `pr-review-toolkit@claude-plugins-official` | deferred, optional | Confirmed exists in catalog, not installed, not in the default plugin list. Code Review (`code-review@claude-plugins-official`) is the default independent reviewer for all changes. Reserve PR Review Toolkit for unusually risky reviews only: cartridge-format changes, authentication or session changes, Lua sandbox changes, file parsing or upload changes, release security changes. Install on demand with `claude plugin install pr-review-toolkit -s project`, use for that review, and uninstall/leave disabled afterward if not needed ongoing. |
-| Code Simplifier | `code-simplifier@claude-plugins-official` | **installed** (user, v1.0.0) | Use only after correctness/tests land, per orchestration rule 9. |
-| Security Guidance | `security-guidance@claude-plugins-official` | **installed** (user, v2.0.6) | Pattern-based warnings during implementation of security-sensitive changes (auth, sessions, cart parsing, Tauri commands, sandbox). |
-| Claude Security | `claude-security@claude-plugins-official` | deferred | Confirmed exists in catalog ("Deep vulnerability scanning... entirely inside your Claude Code session"). Overlaps Security Guidance. Use as the stronger reviewer immediately before completing a security-sensitive change per Phase 7 policy; don't run both on every diff. |
-| Hookify | `hookify@claude-plugins-official` | deferred | Exists in catalog ("create custom hooks to prevent unwanted behaviors"). Repo's own hooks are handwritten in `scripts/claude/` + `.claude/settings.json` instead, since they need Caiven-specific logic (Rust/Lua/cart paths) that a generic hook generator wouldn't know without those specifics anyway. Revisit if hook authoring becomes frequent. |
-| CLAUDE.md Management | `claude-md-management@claude-plugins-official` | **installed** (user, v1.0.0) | Audits/improves CLAUDE.md quality; used after "discovering repeatable lessons" per root CLAUDE.md instruction. |
-| Context7 | `context7@claude-plugins-official` | **installed** (user) | Current external library docs (Tauri 2, Svelte 5, sea-orm, mlua ecosystem, webauthn-rs). |
-| GitHub | `github@claude-plugins-official` | deferred | Confirmed exists (official GitHub MCP server). Not installed: no explicit ask to wire up issue/PR automation yet, and it requires GitHub auth/token setup. Install with `claude plugin install github -s project` when the user wants issue/PR reads wired in (Phase 8 policy already assumes read-only usage once available). |
-| Rust Analyzer LSP | `rust-analyzer-lsp@claude-plugins-official` | deferred, **recommended** | Confirmed exists. Not installed this session — requires `rust-analyzer` binary on PATH, not auto-installed without permission. See `scripts/setup-claude-code.sh`. |
-| TypeScript LSP | `typescript-lsp@claude-plugins-official` | deferred, **recommended** | Confirmed exists. For `caiven-studio-ui` and `caiven-port/web` Svelte/TS code. Needs `typescript-language-server`; see setup script. |
-| Lua LSP | `lua-lsp@claude-plugins-official` | deferred, **recommended** | Confirmed exists. For Lua stdlib/example-cart authoring and `caiven-lua-api` work. Needs `lua-language-server`; see setup script. |
+| Profile | Enabled integration(s) | Use for |
+|---|---|---|
+| `lean` | none | planning, docs, small edits, broad reasoning |
+| `rust` | `rust-analyzer-lsp` | Rust implementation and diagnostics |
+| `typescript` | `typescript-lsp` | Svelte/TypeScript implementation |
+| `lua` | `lua-lsp` | Lua code and public runtime API work |
+| `ui-test` | TypeScript LSP + `playwright` | repeatable browser actions and e2e |
+| `ui-debug` | TypeScript LSP + `chrome-devtools-mcp` | interactive browser/runtime diagnosis |
 
-## UI and testing
+Playwright and Chrome DevTools overlap and must not be enabled together by
+default. Use `scripts/setup-claude-code.sh <profile...>` to install missing
+integrations at user scope without changing the repository's lean default.
 
-| Candidate | Identifier | Status | Reason |
-|---|---|---|---|
-| Playwright | `playwright@claude-plugins-official` | deferred, **recommended** | Confirmed exists (Microsoft Playwright MCP). Repo already runs Playwright via npm scripts (`test:e2e`, `test:e2e:stress`, `test:e2e:live` in both `caiven-studio-ui` and `caiven-port/web`) and CI. The MCP plugin adds live browser control for `caiven-studio-flow`; install via setup script since it needs the Playwright browser binaries. |
-| Chrome DevTools | `chrome-devtools-mcp@claude-plugins-official` | deferred, **recommended** | Confirmed exists as `chrome-devtools-mcp` (not `chrome-devtools`). For live diagnosis per Phase 7 UI-workflow policy. Install via setup script. |
-| Frontend Design | `frontend-design@claude-plugins-official` | **installed** (user) | Used during Studio/Port UI exploration per `caiven-studio-flow`. |
-| Playground | `playground@claude-plugins-official` | deferred | Confirmed exists ("interactive HTML playgrounds"). Not installed — no session need yet; install on demand when rapid visual prototyping comes up (Phase 7 policy references it). |
-| Accessibility-related tools | — | **unavailable** | No dedicated accessibility-scanning plugin exists in the official marketplace catalog under any obvious name. Accessibility checks are instead encoded as a requirement inside `.claude/rules/studio-ui.md` and `.claude/rules/port-web.md`, and as a checklist item in `caiven-studio-flow`. |
+## Project workflows
 
-## Project specialization
+The 11 `caiven-*` skills under `.claude/skills/` are project-specific and
+remain directly invocable. Checked-in settings mark them user-only so their
+descriptions do not occupy normal model context and Claude cannot chain them
+automatically.
 
-| Candidate | Identifier | Status | Reason |
-|---|---|---|---|
-| Plugin Developer Toolkit | `plugin-dev@claude-plugins-official` | **unavailable in this session's need** | Confirmed exists in catalog as `plugin-dev`. Not installed — Caiven has no plan to author its own Claude Code plugin right now; nothing in this setup needs it. |
-| Skill Creator | `skill-creator@claude-plugins-official` | **installed** (user) | Used to scaffold/refine the 11 `caiven-*` skills created in this setup. |
-| Claude Code Setup | `claude-code-setup@claude-plugins-official` | **unavailable in this session's need** | Confirmed exists ("Analyze codebases and recommend tailored Claude Code automations"). Not installed — this manual setup pass supersedes what it would generate; revisit for future incremental automation suggestions. |
-| CaveKit v4 | `ck@cavekit-marketplace` | **installed** (user, v4.1.0) | Confirmed lightweight v4 workflow (not the older autonomous multi-agent version — version string and marketplace source `JuliusBrussee/cavekit` checked directly). Durable specification system per orchestration rule 1. |
+Use one primary workflow per task:
 
-## Product and growth
+- `caiven-feature`, `caiven-debug`, `caiven-review`, `caiven-release`
+- `caiven-studio-flow`, `caiven-lua-api`, `caiven-cart-compat`
+- `caiven-benchmark`, `caiven-idea`, `caiven-game-prototype`, `caiven-status`
 
-| Candidate | Identifier | Status | Reason |
-|---|---|---|---|
-| Product Management | `product-management@knowledge-work-plugins` | **available externally, deferred** | Not in the default `claude-plugins-official` marketplace — lives in Anthropic's separate `anthropics/knowledge-work-plugins` marketplace. Deferred because the local `caiven-idea` skill and `docs/product/product-development-loop.md` already cover the immediate product-ideation workflow. Install only when broader product-planning workflows become actively useful. Not added to `.claude/settings.json` or `scripts/setup-claude-code.sh`. Documented install pattern (do not run automatically):<br>`/plugin marketplace add anthropics/knowledge-work-plugins`<br>`/plugin install product-management@knowledge-work-plugins` |
-| Marketing | `marketing@knowledge-work-plugins` | **available externally, deferred** | Same source marketplace as Product Management (`anthropics/knowledge-work-plugins`), not `claude-plugins-official`. Deferred for the same reason: `caiven-idea` plus `docs/product/product-development-loop.md` already cover current needs. Install only when marketing/growth workflows become actively useful. Not added to `.claude/settings.json` or `scripts/setup-claude-code.sh`. Documented install pattern (do not run automatically):<br>`/plugin marketplace add anthropics/knowledge-work-plugins`<br>`/plugin install marketing@knowledge-work-plugins` |
+## Optional user-scope plugins
 
-## Later-stage observability (per prompt: do not install unless already configured)
+Developers may have plugins such as Superpowers, Code Review, Context7,
+Frontend Design, Security Guidance, Code Simplifier, Skill Creator, or CaveKit
+installed globally. They are not required by the repository and are not
+force-enabled here. Enable only the plugin needed for the current task and
+inspect `/context` after doing so.
 
-| Candidate | Identifier | Status | Reason |
-|---|---|---|---|
-| Sentry | `sentry@claude-plugins-official` | rejected (for now) | Exists in catalog. No Sentry project configured in this repo (no DSN, no `.env` key referencing it). Do not install until a Sentry project exists and the user decides to adopt it. |
-| PostHog | `posthog@claude-plugins-official` | rejected (for now) | Exists in catalog. No PostHog config found. Ties into `docs/product/product-development-loop.md` metrics list as a future option only. |
-| CodSpeed | `codspeed@claude-plugins-official` | rejected (for now) | Exists in catalog. No CodSpeed config in CI. `caiven-benchmark` skill uses local baseline/after measurement instead; revisit if continuous perf tracking in CI becomes a priority. |
+For high-risk security or compatibility reviews, a stronger review plugin may
+be enabled temporarily. Do not make broad reviewer stacks part of the default
+session.
 
-## Security note on every plugin above
+## Verification
 
-Per repository-rule 11 (treat all third-party plugins as executable code), every
-`installed` row above was already present in `~/.claude/plugins/installed_plugins.json`
-before this session touched anything — this setup did not blindly trust the
-prompt's candidate list, it cross-checked against what's actually registered and
-what actually exists in the marketplace catalog. Anything newly installed by
-`scripts/setup-claude-code.sh` should be reviewed (`claude plugin details <name>`)
-before first use in this repo, especially anything granting MCP server or hook
-capability (Playwright, Chrome DevTools, GitHub).
+- `/context` shows the actual startup cost and loaded tools.
+- `/status` shows active settings layers.
+- `/plugin` shows installed and enabled plugins.
+- `/skills` shows project skills as user-only.
+- `claude doctor` reports oversized memory or skill listings.
+
+Recheck this policy after Claude Code configuration changes. Treat every
+plugin, MCP server, hook, and setup script as executable code and review it
+before trusting it.
