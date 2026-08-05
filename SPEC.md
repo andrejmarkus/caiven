@@ -383,7 +383,7 @@ T45|x|pause overlay over frozen frame (blur+dim once), 6 rows incl. save/load st
 T46|x|settings: 5 panes (Video/Audio/Controls/Port/System), immediate save to TOML|I.machine-shell,T35
 T47|x|controls remap screen → writes controls.toml round-trip|V40,T46
 T48|x|Port browse: search/sort, result rows, download → append to library|I.machine-shell-port,T35
-T49|.|crash screen from mlua error + frame_count|V39,T35
+T49|x|crash screen from mlua error + frame_count|V39,T35
 T50|.|save states per cart under saves/ keyed by cart id|I.machine-shell,T45
 T51|.|measure shell fps @640×480 on Cortex-A7-class device|V42,V32
 T52|x|pin `style_edition = "2024"` in root rustfmt.toml|B1

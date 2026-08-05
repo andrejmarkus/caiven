@@ -22,13 +22,12 @@ use crate::shell::library::{self as cart_library, CartMeta};
 use crate::shell::screens::chrome::{self, StatusInfo};
 use crate::shell::screens::loading::{self, LoadProgress};
 use crate::shell::screens::{
-    boot, controls as controls_screen, detail, library as library_screen, pause, playing,
+    boot, controls as controls_screen, crash, detail, library as library_screen, pause, playing,
     port as port_screen, settings as settings_screen,
 };
 use crate::shell::settings::Settings;
 use crate::shell::state::{BIND_ORDER, BOOT_DURATION, Effect, Screen, ShellButton, ShellState};
-use crate::shell::surface::{Align, Surface, TextStyle};
-use crate::shell::theme::{Family, Weight, color};
+use crate::shell::surface::Surface;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -444,9 +443,7 @@ fn handle_effect(
     }
 }
 
-/// Draws whichever screen `ShellState` is on. The one screen without a real
-/// draw module yet (Crash) gets chrome plus a plain placeholder rather than
-/// being left unreachable — see SPEC T49.
+/// Draws whichever screen `ShellState` is on.
 fn draw_screen(
     surface: &mut Surface,
     shell: &ShellState,
@@ -476,31 +473,9 @@ fn draw_screen(
         Screen::Settings => settings_screen::draw(surface, shell, VERSION),
         Screen::Controls => controls_screen::draw(surface, shell),
         Screen::Port => port_screen::draw(surface, shell, port_entries),
-        Screen::Crash => draw_placeholder(surface, shell),
+        Screen::Crash => crash::draw(surface, shell),
     }
     chrome::draw(surface, shell, status);
-}
-
-fn placeholder_label(screen: Screen) -> Option<(&'static str, &'static str)> {
-    match screen {
-        Screen::Crash => Some(("Crash", "T49")),
-        _ => None,
-    }
-}
-
-fn draw_placeholder(surface: &mut Surface, shell: &ShellState) {
-    let Some((label, task)) = placeholder_label(shell.screen()) else {
-        return;
-    };
-    let m = *surface.metrics();
-    surface.clear(color::VOID_900);
-    surface.draw_text(
-        TextStyle::new(Family::Body, Weight::Medium, m.text.body, color::INK_DIM),
-        m.width as f32 / 2.0,
-        m.height as f32 / 2.0,
-        Align::Center,
-        &format!("{label} — not yet available ({task})"),
-    );
 }
 
 /// Whether the content on screen right now animates every frame on its
