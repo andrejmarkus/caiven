@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use caiven_cart::SectionKind;
+use caiven_core::Color;
 use caiven_vm::input::{Button, ControlsFile, InputMap, Key, PadButton, SystemButton};
 use caiven_vm::runtime::ConsoleCore;
 use caiven_vm::settings::NAME;
@@ -19,6 +20,7 @@ use crate::platform::window::Display;
 use crate::port_client::{self, PortEntry};
 use crate::shell::input::{ShellInput, cart_button, shell_button, shell_button_from_system};
 use crate::shell::library::{self as cart_library, CartMeta};
+use crate::shell::save_state;
 use crate::shell::screens::chrome::{self, StatusInfo};
 use crate::shell::screens::loading::{self, LoadProgress};
 use crate::shell::screens::{
@@ -65,6 +67,10 @@ struct Cli {
 pub struct App {
     core: ConsoleCore,
     cart_path: PathBuf,
+    /// The loaded cart's save-state key, `None` when the path's file stem
+    /// isn't a V56-safe path component (`cart_library::cart_id`) — save/load
+    /// then resolve to a no-op rather than guessing a fallback id.
+    cart_id: Option<String>,
 }
 
 impl App {
@@ -72,6 +78,7 @@ impl App {
         Self {
             core,
             cart_path: PathBuf::new(),
+            cart_id: None,
         }
     }
 
@@ -108,6 +115,58 @@ impl App {
 
         info!("cart loaded from {}", path.display());
         self.cart_path = path.to_path_buf();
+        self.cart_id = cart_library::cart_id(path);
+        Ok(())
+    }
+
+    /// Snapshots RAM + palette to `dir/<cart id>.cavstate`. A no-op when no
+    /// cart is loaded or its id isn't V56-safe — the pause menu still needs
+    /// somewhere harmless to land the effect.
+    fn save_state(&self, dir: &Path) -> Result<()> {
+        let Some(id) = &self.cart_id else {
+            return Ok(());
+        };
+        std::fs::create_dir_all(dir)
+            .with_context(|| format!("failed to create save-state dir {}", dir.display()))?;
+        let ram = self.core.vm.ram();
+        let palette: Vec<u8> = self
+            .core
+            .vm
+            .get_palette()
+            .iter()
+            .flat_map(|c| c.to_rgb())
+            .collect();
+        let path = save_state::save_path(dir, id);
+        std::fs::write(&path, save_state::encode(ram, &palette))
+            .with_context(|| format!("failed to write {}", path.display()))
+    }
+
+    /// Restores RAM + palette from `dir/<cart id>.cavstate`. A no-op when no
+    /// cart is loaded, its id isn't V56-safe, or no save file exists yet —
+    /// "nothing saved" is expected, not an error.
+    fn load_state(&mut self, dir: &Path) -> Result<()> {
+        let Some(id) = &self.cart_id else {
+            return Ok(());
+        };
+        let path = save_state::save_path(dir, id);
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e).with_context(|| format!("failed to read {}", path.display())),
+        };
+        let (ram, palette) = save_state::decode(&bytes)
+            .ok_or_else(|| anyhow!("save state {} is corrupt", path.display()))?;
+        if !self.core.vm.load_ram(&ram) {
+            return Err(anyhow!(
+                "save state {} has a RAM size that doesn't match this build",
+                path.display()
+            ));
+        }
+        for (i, rgb) in palette.chunks_exact(3).enumerate() {
+            self.core
+                .vm
+                .set_palette_color(i, Color::new_rgb(rgb[0], rgb[1], rgb[2]));
+        }
         Ok(())
     }
 
@@ -346,11 +405,9 @@ fn on_up(
 
 /// Carries out what `ShellState::press` decided the host must do.
 ///
-/// Screens that don't have real functionality behind them yet (save states,
-/// T50) resolve their effects to a safe no-op rather than leaving the shell
-/// unable to navigate. `ListenForBind` needs no action here — the run
-/// loop's top-level listening check answers with `bind_captured` once a
-/// physical input arrives, or `listening` would swallow every future press.
+/// `ListenForBind` needs no action here — the run loop's top-level
+/// listening check answers with `bind_captured` once a physical input
+/// arrives, or `listening` would swallow every future press.
 ///
 /// Port requests (`RefreshPort`, `StartDownload`) block on `ureq` just like
 /// `LoadCart`/`DeleteCart` block on the filesystem — same synchronous
@@ -394,9 +451,14 @@ fn handle_effect(
         }
         Effect::ResetCart => app.reload(),
         Effect::QuitToLibrary => app.core.reset_vm(),
-        Effect::SaveState | Effect::LoadState => {
-            info!("save states are not implemented yet (SPEC T50)");
-        }
+        Effect::SaveState => match app.save_state(&save_state::saves_dir()) {
+            Ok(()) => info!("state saved"),
+            Err(e) => error!("failed to save state: {e:#}"),
+        },
+        Effect::LoadState => match app.load_state(&save_state::saves_dir()) {
+            Ok(()) => info!("state loaded"),
+            Err(e) => error!("failed to load state: {e:#}"),
+        },
         Effect::RefreshPort => match port_client::list(shell.port_sort()) {
             Ok(entries) => {
                 *port_entries = entries;
@@ -797,9 +859,18 @@ pub fn run() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{check_mod_manifest, load_settings, save_settings};
+    use super::{App, check_mod_manifest, load_settings, save_settings};
     use crate::platform::scaling::{AspectMode, ScaleMode};
     use crate::shell::settings::Settings;
+    use anyhow::anyhow;
+    use caiven_vm::runtime::ConsoleCore;
+
+    fn test_app() -> App {
+        App::new(
+            ConsoleCore::with_audio_factory(Box::new(|_| Err(anyhow!("no audio in tests"))))
+                .expect("console core"),
+        )
+    }
 
     #[test]
     fn passes_when_all_required_peripherals_registered() {
@@ -851,5 +922,46 @@ mod tests {
         let path = dir.path().join("settings.toml");
         std::fs::write(&path, "not valid toml {{{").expect("write garbage");
         assert_eq!(load_settings(&path), Settings::default());
+    }
+
+    #[test]
+    fn save_state_round_trips_ram_and_palette() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = test_app();
+        app.cart_id = Some("mygame".to_string());
+
+        app.core.vm.poke_memory(0, 42);
+        app.core
+            .vm
+            .set_palette_color(0, caiven_core::Color::new_rgb(1, 2, 3));
+        app.save_state(dir.path()).expect("save state");
+
+        app.core.vm.poke_memory(0, 0);
+        app.core
+            .vm
+            .set_palette_color(0, caiven_core::Color::new_rgb(0, 0, 0));
+        app.load_state(dir.path()).expect("load state");
+
+        assert_eq!(app.core.vm.peek_memory(0), 42);
+        assert_eq!(app.core.vm.get_palette()[0].to_rgb(), [1, 2, 3]);
+    }
+
+    #[test]
+    fn load_state_is_a_no_op_when_no_save_file_exists() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = test_app();
+        app.cart_id = Some("mygame".to_string());
+
+        app.load_state(dir.path()).expect("no-op, not an error");
+    }
+
+    #[test]
+    fn save_and_load_state_are_no_ops_without_a_loaded_cart() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = test_app();
+
+        app.save_state(dir.path()).expect("no-op save");
+        app.load_state(dir.path()).expect("no-op load");
+        assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
     }
 }

@@ -153,7 +153,7 @@ fn is_cart_file(path: &Path) -> bool {
 /// Derives the save-state key from the filename. Rejects anything that is
 /// not a plain, single path component: this id gets joined onto `saves/`,
 /// so a stem that can escape that directory must not become an id.
-fn cart_id(path: &Path) -> Option<String> {
+pub(crate) fn cart_id(path: &Path) -> Option<String> {
     let stem = path.file_stem()?.to_str()?;
     if stem.is_empty()
         || stem == "."

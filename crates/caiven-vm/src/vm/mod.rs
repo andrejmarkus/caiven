@@ -591,6 +591,27 @@ impl Vm {
         let _ = self.memory.write(address, value);
     }
 
+    /// Full RAM snapshot — the flat buffer backing sprites, map, palette
+    /// region, sfx/music banks, collision and heap. Used by front-ends for
+    /// save-state persistence; RTC's 3 live-register bytes ride along
+    /// harmlessly, since the RTC peripheral overwrites them every tick
+    /// regardless of what a restore puts there.
+    pub fn ram(&self) -> &[u8] {
+        self.memory.get_ram()
+    }
+
+    /// Restores a RAM snapshot taken from [`Vm::ram`]. `bytes` is untrusted
+    /// (a save file may be truncated or hand-edited) — a length mismatch is
+    /// rejected rather than resizing the buffer, which would desync every
+    /// hardcoded region offset in `caiven_core::memory`.
+    pub fn load_ram(&mut self, bytes: &[u8]) -> bool {
+        if bytes.len() != self.memory.get_length() {
+            return false;
+        }
+        self.memory.set_ram(bytes.to_vec());
+        true
+    }
+
     pub fn start_sfx(&mut self, id: u8) {
         self.sfx_player.start(id);
     }
@@ -661,6 +682,28 @@ mod asset_bank_tests {
         assert!(vm.select_asset_bank(AssetBankKind::Sprites, 2));
         assert_eq!(vm.peek_memory(SPRITE_SHEET_RAM_BASE), 9);
         assert!(!vm.select_asset_bank(AssetBankKind::Sprites, 3));
+    }
+
+    #[test]
+    fn ram_round_trips_through_load_ram() {
+        let mut vm = Vm::new(VmConfig::default());
+        vm.poke_memory(SPRITE_SHEET_RAM_BASE, 42);
+        let snapshot = vm.ram().to_vec();
+
+        vm.poke_memory(SPRITE_SHEET_RAM_BASE, 7);
+        assert_eq!(vm.peek_memory(SPRITE_SHEET_RAM_BASE), 7);
+
+        assert!(vm.load_ram(&snapshot));
+        assert_eq!(vm.peek_memory(SPRITE_SHEET_RAM_BASE), 42);
+    }
+
+    #[test]
+    fn load_ram_rejects_a_length_mismatch() {
+        let mut vm = Vm::new(VmConfig::default());
+        vm.poke_memory(SPRITE_SHEET_RAM_BASE, 42);
+
+        assert!(!vm.load_ram(&[0; 4]));
+        assert_eq!(vm.peek_memory(SPRITE_SHEET_RAM_BASE), 42);
     }
 
     #[test]
