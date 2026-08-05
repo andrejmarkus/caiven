@@ -217,6 +217,52 @@ impl Metrics {
     pub const fn content_top(&self) -> u32 {
         self.status_bar_h
     }
+
+    /// Scales every pixel-based token by a uniform factor derived from
+    /// `width`/`height` vs. this design's own nominal size, then stamps
+    /// the real size in. Clamped to the shorter axis so content never
+    /// overflows either dimension — a wide-but-short or narrow-but-tall
+    /// window still gets fully visible content, just with margin on the
+    /// axis that didn't limit the scale.
+    fn scaled_to(&self, width: u32, height: u32) -> Metrics {
+        let scale = (width as f32 / self.width as f32).min(height as f32 / self.height as f32);
+        let px = |v: u32| ((v as f32 * scale).round() as u32).max(1);
+        let sc = |v: f32| v * scale;
+        Metrics {
+            width,
+            height,
+            status_bar_h: px(self.status_bar_h),
+            legend_bar_h: px(self.legend_bar_h),
+            status_bar_pad_x: px(self.status_bar_pad_x),
+            legend_bar_pad_x: px(self.legend_bar_pad_x),
+            legend_gap: px(self.legend_gap),
+            screen_pad_x: px(self.screen_pad_x),
+            screen_pad_y: px(self.screen_pad_y),
+            hero_cover: sc(self.hero_cover),
+            loading_cover: sc(self.loading_cover),
+            shelf_tile: sc(self.shelf_tile),
+            shelf_gap: px(self.shelf_gap),
+            text: TypeScale {
+                boot_wordmark: sc(self.text.boot_wordmark),
+                boot_lockup: sc(self.text.boot_lockup),
+                hero_title: sc(self.text.hero_title),
+                detail_title: sc(self.text.detail_title),
+                crash_title: sc(self.text.crash_title),
+                loading_title: sc(self.text.loading_title),
+                empty_title: sc(self.text.empty_title),
+                hero_cover_title: sc(self.text.hero_cover_title),
+                port_row_title: sc(self.text.port_row_title),
+                pause_title: sc(self.text.pause_title),
+                pause_item: sc(self.text.pause_item),
+                body: sc(self.text.body),
+                legend_label: sc(self.text.legend_label),
+                caps_label: sc(self.text.caps_label),
+                mono_spec: sc(self.text.mono_spec),
+                mono_micro: sc(self.text.mono_micro),
+                shelf_tile_title: sc(self.text.shelf_tile_title),
+            },
+        }
+    }
 }
 
 /// The handheld layout, and the one the design is authored against.
@@ -296,13 +342,16 @@ pub const METRICS_1280: Metrics = Metrics {
 /// Picks the layout for a surface size. The wide layout only applies once
 /// the surface is at least as large as it was designed for; anything
 /// smaller stays on the handheld scale rather than rendering clipped
-/// chrome.
-pub const fn metrics_for(width: u32, height: u32) -> Metrics {
-    if width >= METRICS_1280.width && height >= METRICS_1280.height {
+/// chrome. Either base design is then scaled uniformly to the real
+/// surface size, so the shell renders correctly at any window size
+/// rather than only its two hand-authored ones.
+pub fn metrics_for(width: u32, height: u32) -> Metrics {
+    let base = if width >= METRICS_1280.width && height >= METRICS_1280.height {
         METRICS_1280
     } else {
         METRICS_640
-    }
+    };
+    base.scaled_to(width, height)
 }
 
 /// Corner radii in px. 8 is the default; reaching for anything else should
@@ -495,13 +544,55 @@ mod tests {
     };
 
     #[test]
-    fn metrics_for_only_upgrades_at_the_full_wide_size() {
+    fn metrics_for_matches_the_base_design_at_its_own_nominal_size() {
         assert_eq!(metrics_for(640, 480), METRICS_640);
         assert_eq!(metrics_for(1280, 720), METRICS_1280);
-        assert_eq!(metrics_for(1920, 1080), METRICS_1280);
-        // A window one pixel short of the wide layout keeps the small one
-        // rather than clipping its chrome.
-        assert_eq!(metrics_for(1280, 719), METRICS_640);
-        assert_eq!(metrics_for(1279, 720), METRICS_640);
+    }
+
+    #[test]
+    fn metrics_for_scales_up_past_the_wide_design_size() {
+        let m = metrics_for(1920, 1080);
+        assert_eq!((m.width, m.height), (1920, 1080));
+        // 1.5x the 1280x720 design on both axes.
+        assert_eq!(
+            m.status_bar_h,
+            (METRICS_1280.status_bar_h as f32 * 1.5).round() as u32
+        );
+        assert!((m.text.hero_title - METRICS_1280.text.hero_title * 1.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn metrics_for_scales_the_handheld_design_to_fill_a_bigger_but_not_wide_enough_window() {
+        // Short of the wide breakpoint on height, so it still bases off the
+        // handheld design — but that design is now scaled up close to fill
+        // the real window instead of leaving it clipped/offset.
+        let m = metrics_for(1280, 719);
+        assert_eq!((m.width, m.height), (1280, 719));
+        assert!(m.screen_pad_x > METRICS_640.screen_pad_x);
+
+        let m = metrics_for(1279, 720);
+        assert_eq!((m.width, m.height), (1279, 720));
+        assert!(m.screen_pad_x > METRICS_640.screen_pad_x);
+    }
+
+    #[test]
+    fn metrics_for_never_overflows_the_shorter_axis() {
+        // Square-ish window: width-based scale (1.0) would overflow
+        // height, so the shorter axis (height, scale ~0.833) wins.
+        let m = metrics_for(640, 400);
+        assert!((m.text.body / METRICS_640.text.body - 400.0 / 480.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn metrics_for_default_launch_size_keeps_its_own_dimensions_and_scales_down() {
+        // 128x128 default VmConfig console res x WINDOW_SCALE(4) from
+        // platform/window.rs -- the size every default launch actually
+        // gets, never 640x480. Regression guard for the boot screen
+        // rendering off-center and using oversized fixed padding/fonts on
+        // the real, smaller canvas.
+        let m = metrics_for(512, 512);
+        assert_eq!((m.width, m.height), (512, 512));
+        assert!(m.screen_pad_x < METRICS_640.screen_pad_x);
+        assert!(m.text.boot_wordmark < METRICS_640.text.boot_wordmark);
     }
 }

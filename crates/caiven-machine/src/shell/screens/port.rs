@@ -40,6 +40,7 @@ fn row_window(selected: usize, row_count: usize, capacity: usize) -> std::ops::R
 /// in display order, matching [`ShellState::port_index`]'s indexing.
 pub fn draw(surface: &mut Surface, state: &ShellState, entries: &[PortEntry]) {
     let m = *surface.metrics();
+    surface.clear(color::VOID_900);
     let content_x = m.screen_pad_x as f32;
     let content_w = (m.width - 2 * m.screen_pad_x) as f32;
     let mut y = (m.content_top() + m.screen_pad_y) as f32;

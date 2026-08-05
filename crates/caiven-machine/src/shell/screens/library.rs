@@ -58,6 +58,7 @@ fn shelf_window(selected: usize, tile_count: usize, capacity: usize) -> Range<us
 /// library in display order, matching [`ShellState::selected`]'s indexing.
 pub fn draw(surface: &mut Surface, state: &ShellState, carts: &[CartMeta]) {
     let m = *surface.metrics();
+    surface.clear(color::VOID_900);
     let content_x = m.screen_pad_x as f32;
     let content_w = (m.width - 2 * m.screen_pad_x) as f32;
     let mut y = (m.content_top() + m.screen_pad_y) as f32;
@@ -440,6 +441,30 @@ mod tests {
         assert!(
             data.chunks_exact(4).any(|px| px[..3] != [0x2B, 0x2A, 0x2A]),
             "empty state drew nothing distinguishable from the background"
+        );
+    }
+
+    /// Regression test: `draw` must clear the surface itself rather than
+    /// trust the caller left it blank. `app.rs`'s `draw_screen` dispatcher
+    /// has no shared clear between screens (only screens that own their own
+    /// full-bleed background — boot/crash/loading/pause/playing — clear
+    /// themselves), so a screen with chrome that skipped this would leave
+    /// whatever the previously drawn screen (e.g. boot's wordmark and glow)
+    /// bleeding through untouched regions of the canvas forever.
+    #[test]
+    fn drawing_the_library_clears_stale_pixels_from_a_previous_screen() {
+        let mut s = surface();
+        // A color no library content would ever paint, simulating leftover
+        // pixels from whatever screen drew last.
+        s.clear(crate::shell::theme::Color::rgb(0xFF00FF));
+        let state = ShellState::new();
+        draw(&mut s, &state, &[]);
+
+        let data = s.rgba();
+        assert_eq!(
+            &data[0..3],
+            &[0x2B, 0x2A, 0x2A],
+            "top-left corner should be the cleared background, not a stale pixel"
         );
     }
 

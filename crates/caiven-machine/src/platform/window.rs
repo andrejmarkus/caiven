@@ -36,6 +36,12 @@ fn build_canvas(
         config.width * WINDOW_SCALE,
         config.height * WINDOW_SCALE,
     );
+    // Without this, a HiDPI display (any current Mac) renders the window at
+    // 1x and the OS upscales that to fit — every pixel, console art and
+    // shell chrome alike, comes out visibly soft/blurry. A fixed-DPI
+    // handheld panel has no such scaling to opt into, so this is a no-op
+    // there.
+    builder.allow_highdpi();
     builder.position_centered();
     if fullscreen {
         builder.fullscreen_desktop();
@@ -92,9 +98,13 @@ impl Display {
         Ok(Self { canvas })
     }
 
-    /// The window's current size in pixels.
+    /// The window's current size in actual pixels — its drawable size,
+    /// which on a HiDPI display is larger than `Window::size()`'s point
+    /// size. Everything allocated off this (the shell surface, the console
+    /// texture's destination rect) must use this, not the point size, or
+    /// the rendered frame only fills a fraction of the real window.
     pub fn window_size(&self) -> (u32, u32) {
-        self.canvas.window().size()
+        self.canvas.window().drawable_size()
     }
 
     /// Creates the texture creator the console and shell textures are
@@ -158,7 +168,7 @@ impl Display {
             })
             .map_err(|e| anyhow!("failed to lock console texture: {e}"))?;
 
-        let (win_w, win_h) = self.canvas.window().size();
+        let (win_w, win_h) = self.canvas.window().drawable_size();
         let query = console_texture.query();
         let dst = dst_rect((win_w, win_h), (query.width, query.height), scale, aspect);
 

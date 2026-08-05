@@ -548,6 +548,20 @@ fn animates_every_frame(shell: &ShellState) -> bool {
         || (shell.screen() == Screen::Playing && shell.settings().show_fps)
 }
 
+/// Whether the shell surface needs repainting this frame. Beyond input and
+/// the continuously-animating screens, a screen transition must force a
+/// redraw even with no input this frame — `ShellState::tick`'s wall-clock
+/// boot handover flips `Screen::Boot` to `Screen::Library` on its own, and
+/// `Screen::Library` isn't one of [`animates_every_frame`]'s states, so
+/// without this the last boot frame would stay on screen forever.
+fn should_redraw(
+    shell: &ShellState,
+    screen_before_tick: Screen,
+    input_event_this_frame: bool,
+) -> bool {
+    animates_every_frame(shell) || input_event_this_frame || shell.screen() != screen_before_tick
+}
+
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
 
@@ -644,10 +658,15 @@ pub fn run() -> Result<()> {
                 } => break 'running,
 
                 Event::Window {
-                    win_event: WindowEvent::SizeChanged(w, h),
+                    win_event: WindowEvent::SizeChanged(..),
                     ..
                 } => {
-                    surface.resize(w as u32, h as u32)?;
+                    // Not the event's own (w, h): those are the window's
+                    // point size, but the shell surface and console texture
+                    // rect need the real drawable pixel size (HiDPI-aware,
+                    // `Display::window_size`).
+                    let (w, h) = display.window_size();
+                    surface.resize(w, h)?;
                     shell_texture = Display::create_shell_texture(
                         &texture_creator,
                         surface.width(),
@@ -782,6 +801,7 @@ pub fn run() -> Result<()> {
         let dt = now.duration_since(last_tick);
         last_tick = now;
 
+        let screen_before_tick = shell_state.screen();
         shell_state.tick(dt);
         if let Some(evt) = shell_input.tick(dt) {
             dispatch(
@@ -817,7 +837,7 @@ pub fn run() -> Result<()> {
             fps_window_start = now;
         }
 
-        if animates_every_frame(&shell_state) || input_event_this_frame {
+        if should_redraw(&shell_state, screen_before_tick, input_event_this_frame) {
             surface.mark_dirty();
         }
         if surface.is_dirty() {
@@ -859,9 +879,10 @@ pub fn run() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{App, check_mod_manifest, load_settings, save_settings};
+    use super::{App, check_mod_manifest, load_settings, save_settings, should_redraw};
     use crate::platform::scaling::{AspectMode, ScaleMode};
     use crate::shell::settings::Settings;
+    use crate::shell::state::{BOOT_DURATION, Screen, ShellState};
     use anyhow::anyhow;
     use caiven_vm::runtime::ConsoleCore;
 
@@ -963,5 +984,48 @@ mod tests {
         app.save_state(dir.path()).expect("no-op save");
         app.load_state(dir.path()).expect("no-op load");
         assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
+    }
+
+    /// Regression test: `ShellState::tick` hands Boot over to Library on
+    /// its own wall-clock timer, with no input that frame. Before this
+    /// fix, `should_redraw` only looked at `animates_every_frame` (which
+    /// excludes `Screen::Library`) and `input_event_this_frame`, so this
+    /// exact transition never marked the surface dirty and the last Boot
+    /// frame stayed on screen forever — the console shell looked stuck.
+    #[test]
+    fn should_redraw_catches_a_wall_clock_screen_change_with_no_input() {
+        let mut shell = ShellState::new();
+        let screen_before_tick = shell.screen();
+        assert_eq!(screen_before_tick, Screen::Boot);
+
+        shell.tick(BOOT_DURATION);
+        assert_eq!(shell.screen(), Screen::Library);
+
+        assert!(
+            should_redraw(&shell, screen_before_tick, false),
+            "a screen transition with no input must still force a redraw"
+        );
+    }
+
+    #[test]
+    fn should_redraw_is_false_on_a_quiet_frame_with_no_transition_or_input() {
+        let mut shell = ShellState::new();
+        shell.tick(BOOT_DURATION);
+        assert_eq!(shell.screen(), Screen::Library);
+
+        let screen_before_tick = shell.screen();
+        shell.tick(std::time::Duration::from_millis(16));
+        assert_eq!(shell.screen(), screen_before_tick, "already past boot");
+
+        assert!(!should_redraw(&shell, screen_before_tick, false));
+    }
+
+    #[test]
+    fn should_redraw_is_true_on_input_even_without_a_transition() {
+        let mut shell = ShellState::new();
+        shell.tick(BOOT_DURATION);
+        let screen_before_tick = shell.screen();
+
+        assert!(should_redraw(&shell, screen_before_tick, true));
     }
 }

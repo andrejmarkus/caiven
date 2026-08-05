@@ -18,6 +18,7 @@ use crate::shell::theme::{Family, Metrics, Weight, color, focus, radius, space, 
 /// `env!` here, same convention `boot.rs` uses.
 pub fn draw(surface: &mut Surface, state: &ShellState, version: &str) {
     let m = *surface.metrics();
+    surface.clear(color::VOID_900);
     let content_x = m.screen_pad_x as f32;
     let content_top = m.content_top() as f32 + m.screen_pad_y as f32;
     let content_w = (m.width - 2 * m.screen_pad_x) as f32;
