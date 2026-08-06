@@ -13,7 +13,8 @@ paths:
   `.github/workflows/rust.yml` verifies Studio version — keep it passing).
 - Release builds run on tag push (`v*`) via `platform-builds`-style jobs in
   the same workflow file: `machine-artifacts` (Linux/Windows/macOS x64+arm64
-  `caiven-machine` binaries) and `studio-bundles` (Tauri installers per
+  `caiven-machine` binaries), `machine-artifacts-miyoo` (Miyoo Mini Ports
+  build via `scripts/miyoo/`), and `studio-bundles` (Tauri installers per
   platform: appimage/deb, nsis/msi, dmg).
 - `cargo audit` (with the documented `RUSTSEC-2023-0071` exception for
   unused `rsa` via sqlx-mysql metadata) and `npm audit --omit=dev

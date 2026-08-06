@@ -44,9 +44,97 @@ Miyoo Mini has no GPU at all, only a SigmaStar 2D blitter, and its SDL port
 is what knows how to drive it. A bundled upstream SDL would lose that.
 
 Build against the vendor toolchain's sysroot so the binary links against the
-same libc and SDL the device has. For Miyoo, that is the
-[miyoomini-toolchain](https://github.com/MiyooMini) Docker image; other
-devices ship their own.
+same libc and SDL the device has. `scripts/miyoo/` does this end to end for
+the Miyoo Mini (Plus); see below. Other devices ship their own toolchain and
+need their own script, following the same pattern.
+
+#### Miyoo Mini (Plus): `scripts/miyoo/`
+
+```bash
+scripts/miyoo/build-all.sh
+```
+
+produces an OnionOS Apps-ready folder at `dist/miyoo/Caiven/` — drag it
+straight into `/mnt/SDCARD/App/` on the card; it'll show up as "Caiven" in
+the Apps list. (Not `Roms/PORTS`: that's the older convention and OnionOS
+didn't pick Caiven up from there in testing — Apps, with a `config.json` +
+`launch.sh` at the folder root, is what current OnionOS actually scans.)
+It runs three scripts in order, each idempotent and individually
+re-runnable:
+
+1. `fetch-toolchain.sh` — downloads and extracts steward-fu's
+   `mini_toolchain` (arm-buildroot-linux-gnueabihf gcc 8.2.1) to
+   `MIYOO_TOOLCHAIN_DIR`. The tarball has two sibling directories, `mini`
+   (sysroot + gcc) and `prebuilt` (the actual gcc/binutils binaries mini's
+   gcc wrapper delegates to by hardcoded path) — both must be present.
+2. `build-sdl2.sh` — clones the pinned commit of
+   [steward-fu/sdl2](https://github.com/steward-fu/sdl2) (SDL2 patched for
+   the Miyoo's SigmaStar MI_GFX/MI_AO hardware), builds it plus the
+   swiftshader EGL/GLESv2 shim, and stages `libSDL2-2.0.so.0.*`,
+   `libEGL.so`, `libGLESv2.so`, and the SigmaStar MI SDK stub libs the fork
+   bundles (`libmi_ao.so`, `libmi_gfx.so`, etc.) into `MIYOO_SDL2_OUT` with
+   proper SONAME symlinks.
+3. `build-machine.sh` — cross-compiles `caiven-machine` against that SDL2
+   and packages everything (binary + libs + `config.json` + `icon.png` + a
+   `launch.sh` entry point + `catch.cav` as a smoke-test cart) into
+   `MIYOO_DIST_DIR/Caiven`. `config.json` needs `label`, `icon`, and
+   `description` — OnionOS silently drops an App from its list if any of
+   those three are missing, with no error shown. `launch.sh` widens
+   `LD_LIBRARY_PATH` to include
+   `/config/lib` and `/customer/lib` — the Miyoo firmware's own library
+   paths, which is where the *real*, non-stub MI SDK implementations live —
+   and logs stdout/stderr to `caiven.log` next to the binary on every run,
+   since a crash on-device otherwise gives no visible error at all (straight
+   back to the menu, no message). `libjson-c.so.5` (that `libSDL2.so` itself
+   links against) is bundled directly rather than relied on from firmware,
+   since it isn't reliably present there.
+
+All three must run on Linux x86_64 — the toolchain is a Linux ELF binary,
+so on macOS run them inside a Linux container:
+
+```bash
+docker run --rm --platform linux/amd64 -v "$PWD":/work -w /work \
+  rust:slim-bookworm bash -c '
+    apt-get update && apt-get install -y --no-install-recommends \
+      build-essential autoconf automake libtool cmake git curl ca-certificates
+    scripts/miyoo/build-all.sh'
+```
+
+Two upstream bugs in the SDL2 fork make `build-sdl2.sh` more than a plain
+`./configure && make`, and are worth knowing about if this ever needs
+debugging by hand instead of through the script:
+
+- **`autogen.sh` doesn't run `autoheader`**, only `autoconf`. That leaves
+  the checked-in `include/SDL_config.h.in` stale relative to
+  `configure.ac` — `./configure` still runs and every feature check still
+  passes, but `config.status` has no matching template line to substitute
+  most of them into, and silently leaves the generated `SDL_config.h` at
+  its unconfigured (`#undef` everything) defaults instead of failing
+  loudly. This isn't just cosmetic: `SDL_VIDEO_DRIVER_MINI` and
+  `SDL_AUDIO_DRIVER_MINI` come back undefined too, which would produce a
+  binary that *builds* but silently uses no video/audio driver at all.
+  Fix: run `autoheader` alongside `autoconf` before configuring.
+- **`SDL_internal.h` never includes `SDL_platform.h`**, so `__LINUX__` is
+  undefined at the top of every translation unit and only becomes defined
+  partway through a file if something *else* it includes happens to pull
+  in `SDL_platform.h` first. `src/core/linux/SDL_threadprio.c` guards its
+  entire body in `#ifdef __LINUX__` before any such include runs, so the
+  whole file silently compiles to nothing — the failure only shows up much
+  later, as a link error (`undefined reference to
+  SDL_LinuxSetThreadPriorityAndPolicy_REAL`) that doesn't obviously point
+  back at this. Fix: add `#include "SDL_platform.h"` directly to
+  `SDL_internal.h`, once, rather than patching every call site that
+  happens to need it early.
+
+`build-sdl2.sh` applies both fixes with a `sed` edit and an extra
+`autoheader` call; nothing here is caiven's own code, so there's no vendored
+patch file, just the script doing it at checkout time.
+
+The final link also needs `-Wl,-rpath-link,<sdl2-out-dir>`, not just `-L`:
+`libSDL2.so` itself has undefined references into the MI SDK
+(`libmi_gfx.so`, `libmi_ao.so`, ...), and `-L` alone only resolves explicit
+`-l` flags — `ld` only follows `-rpath-link` to satisfy a shared library's
+own transitive `NEEDED` entries. `build-machine.sh` sets this.
 
 ## Verifying SDL2 on a device
 
