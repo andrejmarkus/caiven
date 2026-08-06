@@ -19,6 +19,9 @@ task needs a broad architecture review.
   production path.
 - Keep generated files, secrets, `.env` content, and large command output out
   of prompts unless directly needed.
+- Comments stay short: one line stating the non-obvious WHY, not a
+  multi-paragraph story. If it needs more than ~3 lines to justify, that's a
+  sign to shorten it, not a license to keep going.
 
 ## Repository map
 
