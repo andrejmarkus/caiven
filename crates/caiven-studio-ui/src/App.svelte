@@ -67,11 +67,13 @@
   let templates = $state<CartTemplateSummary[]>(fallbackTemplates);
   let examples = $state<ExampleSummary[]>(fallbackExamples);
 
-  // Button indices match the VM's Button enum (0 Up, 1 Down, 2 Left, 3 Right, 4 A, 5 B).
-  const BUTTON_LABELS = ['Up', 'Down', 'Left', 'Right', 'A', 'B'];
+  // Button indices match the VM's Button enum (0 Up, 1 Down, 2 Left, 3 Right,
+  // 4 A, 5 B, 6 Select). START has no index — the Machine keeps it for its
+  // pause menu, which Studio's preview does not have.
+  const BUTTON_LABELS = ['Up', 'Down', 'Left', 'Right', 'A', 'B', 'Select'];
   const DEFAULT_KEYMAP: Record<number, string[]> = {
     0: ['ArrowUp', 'w'], 1: ['ArrowDown', 's'], 2: ['ArrowLeft', 'a'],
-    3: ['ArrowRight', 'd'], 4: ['j'], 5: ['k'],
+    3: ['ArrowRight', 'd'], 4: ['j'], 5: ['k'], 6: ['Shift'],
   };
   const INPUT_STORAGE_KEY = 'caiven-studio-input';
 

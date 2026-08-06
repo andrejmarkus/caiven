@@ -1,11 +1,12 @@
 use crate::peripheral::Peripheral;
 use crate::vm::memory::Memory;
+use anyhow::Result;
 use std::sync::{Arc, Mutex};
 
-#[cfg(feature = "native")]
-use anyhow::{Context, Result};
-#[cfg(feature = "native")]
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+#[cfg(any(feature = "sdl2-bundled", feature = "sdl2-dynamic"))]
+use anyhow::{Context, anyhow};
+#[cfg(any(feature = "sdl2-bundled", feature = "sdl2-dynamic"))]
+use sdl2::audio::{AudioCallback, AudioDevice, AudioSpecDesired};
 
 /// Per-channel scale so square+noise summing doesn't hard-clip at full volume.
 const CHANNEL_HEADROOM: f32 = 0.5;
@@ -84,82 +85,176 @@ pub struct Sound {
     pub noise: NoiseChannel,
 }
 
-#[cfg(feature = "native")]
-pub struct Audio {
-    #[allow(dead_code)]
-    stream: cpal::Stream,
+/// An open audio output owned by the front-end.
+///
+/// Purely an RAII handle: the implementation streams samples from a
+/// [`Synth`] on its own real-time thread for as long as the value is alive,
+/// and dropping it silences the console. There is nothing to call.
+///
+/// The trait exists so the backend is supplied by whichever binary
+/// constructs the [`crate::runtime::ConsoleCore`] — `caiven-machine` passes
+/// in the `AudioSubsystem` it already owns for video via
+/// [`sdl_audio_factory`], while Studio and tests get one via
+/// [`sdl_default_audio_factory`]/[`ConsoleCore::new`](crate::runtime::ConsoleCore::new).
+/// Front-end-supplied injection (rather than a plain constructor) keeps a
+/// front-end that already owns an SDL context from opening a second one.
+///
+/// Deliberately not `Send`: SDL's audio device handle is thread-bound, and
+/// `ConsoleCore` is already constructed on the thread that runs it.
+pub trait AudioOut {
+    /// Stops the device pulling samples. The synth thread keeps running
+    /// idle, but nothing reaches the speaker until [`AudioOut::resume`] is
+    /// called — front ends use this when the VM itself stops ticking (e.g.
+    /// the pause menu), since the audio thread otherwise keeps rendering
+    /// whatever the `Sound` state was left at, unaware the game paused.
+    fn pause(&mut self) {}
+    /// Resumes a device previously stopped with [`AudioOut::pause`].
+    fn resume(&mut self) {}
 }
 
-#[cfg(feature = "native")]
-impl Audio {
-    pub fn new(sound: Arc<Mutex<Sound>>) -> Result<Self> {
-        let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .context("no default audio output device")?;
-        let config = device
-            .default_output_config()
-            .context("failed to get default audio output config")?;
+/// Opens an audio output bound to `sound`. Returns `Err` when no device is
+/// available; callers treat that as non-fatal and run the console silently.
+///
+/// Not `Send`/`Sync` for the same reason as [`AudioOut`]: SDL's subsystem
+/// handles are thread-bound, and a `ConsoleCore` is used on the thread that
+/// created it regardless.
+pub type AudioFactory = Box<dyn Fn(Arc<Mutex<Sound>>) -> Result<Box<dyn AudioOut>>>;
 
-        let channels = config.channels() as usize;
-        let sample_rate = config.sample_rate() as f32;
+/// Sample rate requested from the device. SDL may grant something else; the
+/// synth is told whatever was actually obtained.
+#[cfg(any(feature = "sdl2-bundled", feature = "sdl2-dynamic"))]
+const DESIRED_SAMPLE_RATE: i32 = 44_100;
+/// Buffer size in sample frames. 512 @ 44.1kHz is ~11ms — small enough that
+/// sound effects feel attached to the frame that fired them, large enough
+/// not to starve a 1.2GHz Cortex-A7.
+#[cfg(any(feature = "sdl2-bundled", feature = "sdl2-dynamic"))]
+const DESIRED_BUFFER_FRAMES: u16 = 512;
 
-        let mut synth = Synth::new();
+/// Renders synth samples on SDL's audio thread.
+///
+/// Requests signed 16-bit samples rather than float: handheld SDL ports are
+/// inconsistent about float output, and S16 is the format every one of them
+/// supports. Whatever the device actually grants is honoured as-is.
+#[cfg(any(feature = "sdl2-bundled", feature = "sdl2-dynamic"))]
+struct ConsoleCallback {
+    sound: Arc<Mutex<Sound>>,
+    synth: Synth,
+    sample_rate: f32,
+    channels: usize,
+}
 
-        macro_rules! build_stream {
-            ($t:ty, $conv:expr) => {{
-                let sound = sound.clone();
-                device.build_output_stream(
-                    &config.into(),
-                    move |out: &mut [$t], _: &cpal::OutputCallbackInfo| {
-                        let s = match sound.try_lock() {
-                            Ok(s) => s,
-                            Err(_) => return,
-                        };
-                        for frame in out.chunks_mut(channels) {
-                            let sample_value = synth.next_sample(&s, sample_rate);
-                            let final_sample: $t = $conv(sample_value);
-                            for sample in frame.iter_mut() {
-                                *sample = final_sample;
-                            }
-                        }
-                    },
-                    |_| {},
-                    None,
-                )
-            }};
-        }
+#[cfg(any(feature = "sdl2-bundled", feature = "sdl2-dynamic"))]
+impl AudioCallback for ConsoleCallback {
+    type Channel = i16;
 
-        let sample_format = config.sample_format();
-        let stream = match sample_format {
-            cpal::SampleFormat::F32 => build_stream!(f32, |x: f32| x),
-            cpal::SampleFormat::I16 => {
-                build_stream!(i16, |x: f32| (x * i16::MAX as f32) as i16)
-            }
-            cpal::SampleFormat::U16 => {
-                build_stream!(u16, |x: f32| ((x * 0.5 + 0.5) * u16::MAX as f32) as u16)
-            }
-            _ => {
-                return Err(anyhow::anyhow!(
-                    "unsupported audio sample format: {:?}",
-                    sample_format
-                ));
+    fn callback(&mut self, out: &mut [i16]) {
+        // Never block the audio thread. If the VM holds the lock this
+        // frame, emit silence rather than stalling playback.
+        let Ok(sound) = self.sound.try_lock() else {
+            out.fill(0);
+            return;
+        };
+
+        for frame in out.chunks_mut(self.channels) {
+            let sample = self.synth.next_sample(&sound, self.sample_rate);
+            let value = to_i16(sample);
+            for slot in frame.iter_mut() {
+                *slot = value;
             }
         }
-        .context("failed to build audio output stream")?;
+    }
+}
 
-        stream.play().context("failed to start audio playback")?;
+/// Converts a synth sample in `[-1, 1]` to signed 16-bit.
+///
+/// Clamps first: `Synth::next_sample` already limits its output, but an
+/// out-of-range value would otherwise wrap on cast and turn a loud sound
+/// into a full-scale click.
+#[cfg(any(feature = "sdl2-bundled", feature = "sdl2-dynamic"))]
+fn to_i16(sample: f32) -> i16 {
+    (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
+}
 
-        #[allow(deprecated)]
-        let device_name = device
-            .name()
-            .unwrap_or_else(|_| "unknown device".to_string());
+/// An open SDL audio device. Dropping it stops playback.
+#[cfg(any(feature = "sdl2-bundled", feature = "sdl2-dynamic"))]
+pub struct SdlAudio {
+    #[allow(dead_code)]
+    device: AudioDevice<ConsoleCallback>,
+}
+
+#[cfg(any(feature = "sdl2-bundled", feature = "sdl2-dynamic"))]
+impl AudioOut for SdlAudio {
+    fn pause(&mut self) {
+        self.device.pause();
+    }
+
+    fn resume(&mut self) {
+        self.device.resume();
+    }
+}
+
+#[cfg(any(feature = "sdl2-bundled", feature = "sdl2-dynamic"))]
+impl SdlAudio {
+    fn new(audio: &sdl2::AudioSubsystem, sound: Arc<Mutex<Sound>>) -> Result<Self> {
+        let desired = AudioSpecDesired {
+            freq: Some(DESIRED_SAMPLE_RATE),
+            channels: None,
+            samples: Some(DESIRED_BUFFER_FRAMES),
+        };
+
+        let device = audio
+            .open_playback(None, &desired, |spec| ConsoleCallback {
+                sound,
+                synth: Synth::new(),
+                // Honour what the device granted, not what was asked for —
+                // getting this wrong detunes every sound.
+                sample_rate: spec.freq as f32,
+                channels: spec.channels as usize,
+            })
+            .map_err(|e| anyhow!("failed to open SDL audio device: {e}"))?;
+
+        let spec = device.spec();
         log::info!(
-            "audio output: {device_name} ({channels}ch @ {sample_rate}Hz, {sample_format:?})"
+            "audio output: SDL ({}ch @ {}Hz, {} sample buffer)",
+            spec.channels,
+            spec.freq,
+            spec.samples
         );
 
-        Ok(Self { stream })
+        device.resume();
+        Ok(Self { device })
     }
+}
+
+/// Builds an [`AudioFactory`] backed by SDL, for a front-end that already
+/// owns an `AudioSubsystem` (`caiven-machine` opens one for video already)
+/// to hand `ConsoleCore` rather than have it open a second SDL context.
+///
+/// The subsystem is cloned into the closure because `reset_vm` reopens the
+/// device on every cart reload.
+#[cfg(any(feature = "sdl2-bundled", feature = "sdl2-dynamic"))]
+pub fn sdl_audio_factory(audio: sdl2::AudioSubsystem) -> AudioFactory {
+    Box::new(move |sound| {
+        SdlAudio::new(&audio, sound)
+            .map(|a| Box::new(a) as Box<dyn AudioOut>)
+            .context("SDL audio unavailable")
+    })
+}
+
+/// The default used by every front-end that doesn't already own an SDL
+/// context (Studio, tests): opens its own audio-only SDL subsystem on
+/// first use. `AudioDevice` keeps that subsystem (and its parent `Sdl`
+/// context) alive internally for as long as the device is open, so nothing
+/// needs to be held onto here beyond the closure itself.
+#[cfg(any(feature = "sdl2-bundled", feature = "sdl2-dynamic"))]
+pub fn sdl_default_audio_factory() -> AudioFactory {
+    Box::new(|sound| {
+        let sdl = sdl2::init().map_err(|e| anyhow!("failed to init SDL: {e}"))?;
+        let audio = sdl
+            .audio()
+            .map_err(|e| anyhow!("failed to init SDL audio subsystem: {e}"))?;
+        SdlAudio::new(&audio, sound).map(|a| Box::new(a) as Box<dyn AudioOut>)
+    })
 }
 
 pub struct AudioPeripheral {
@@ -195,5 +290,31 @@ impl Peripheral for AudioPeripheral {
                 s.noise.enabled = false;
             }
         }
+    }
+}
+
+#[cfg(all(test, any(feature = "sdl2-bundled", feature = "sdl2-dynamic")))]
+mod sdl_audio_tests {
+    use super::to_i16;
+
+    #[test]
+    fn full_scale_samples_map_to_the_i16_extremes() {
+        assert_eq!(to_i16(1.0), i16::MAX);
+        assert_eq!(to_i16(-1.0), -i16::MAX);
+        assert_eq!(to_i16(0.0), 0);
+    }
+
+    #[test]
+    fn out_of_range_samples_clamp_instead_of_wrapping() {
+        // Without the clamp these would wrap and produce a full-scale click
+        // of the opposite sign.
+        assert_eq!(to_i16(4.0), i16::MAX);
+        assert_eq!(to_i16(-4.0), -i16::MAX);
+    }
+
+    #[test]
+    fn midscale_sample_is_proportional() {
+        let half = to_i16(0.5);
+        assert!((half - i16::MAX / 2).abs() <= 1, "got {half}");
     }
 }

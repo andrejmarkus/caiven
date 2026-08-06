@@ -1,6 +1,10 @@
 /target
 /data/
+/dist/
+/.cache/
 .env
 .playwright-mcp/
 playwright-report/
 test-results/
+/.miyoo-sdl2-out/
+/.miyoo-work/

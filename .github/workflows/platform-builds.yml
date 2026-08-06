@@ -42,6 +42,43 @@ jobs:
       - name: Build Machine
         run: cargo build --locked --release -p caiven-machine --target ${{ matrix.target }}
 
+  machine-miyoo:
+    name: Machine (Miyoo Mini)
+    runs-on: ubuntu-22.04
+    env:
+      # Must be /opt — see the comment at the top of fetch-toolchain.sh.
+      MIYOO_TOOLCHAIN_DIR: /opt
+      MIYOO_WORK_DIR: ${{ github.workspace }}/.cache/miyoo/work
+      MIYOO_SDL2_OUT: ${{ github.workspace }}/.cache/miyoo/sdl2-out
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: armv7-unknown-linux-gnueabihf
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: machine-miyoo
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y autoconf automake libtool cmake
+      - name: Cache Miyoo toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            /opt/mini
+            /opt/prebuilt
+          key: miyoo-toolchain-${{ hashFiles('scripts/miyoo/versions.env') }}
+      - name: Cache Miyoo SDL2 build
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.MIYOO_SDL2_OUT }}
+          key: miyoo-sdl2-${{ hashFiles('scripts/miyoo/versions.env', 'scripts/miyoo/build-sdl2.sh') }}
+      - name: Fetch toolchain
+        run: scripts/miyoo/fetch-toolchain.sh
+      - name: Build SDL2
+        run: scripts/miyoo/build-sdl2.sh
+      - name: Build Machine
+        run: scripts/miyoo/build-machine.sh
+
   studio:
     name: Studio (${{ matrix.label }})
     strategy:

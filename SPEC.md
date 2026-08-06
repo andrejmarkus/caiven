@@ -15,7 +15,7 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
 - Rust workspace, `--locked`. mlua vendored — no system Lua.
 - Lua 5.4 real, full stdlib. No custom bytecode, no arity caps.
 - Fantasy-console limits: 128×128 default screen (configurable `config.width/height`
-  `runtime.rs:140`; asset PNG hard 128×128 `asset_png.rs:7`), hard 16-color palette
+  `vm/config.rs:13`; asset PNG hard 128×128 `asset_png.rs:7`), hard 16-color palette
   (`palette.rs:6` `DEFAULT_COLORS[16]`), hard 64×64 tilemap (`caiven-core/src/memory.rs:44,46`
   `MAP_W=MAP_H=64`), sprites/shape primitives/camera. 60 FPS (`lua_exec.rs:154`).
   Max cart 128 KiB (`caiven-cart/src/lib.rs:26` `MAX_CART_BYTES`).
@@ -23,6 +23,9 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
 - Shared UI (`caiven-ui`, shadcn-svelte) consumed by studio-ui & port/web;
   boundary enforced `npm run check:ui`.
 - License MPL-2.0. Creators own games/assets, sell royalty-free, source private.
+- `rustfmt.toml` @ repo root pins `style_edition = "2024"` — bare `rustfmt`
+  (editor/hook) otherwise defaults to 2015 import order & reverts committed
+  formatting, then `cargo fmt --check` fails. B1.
 - CI gate: fmt, clippy `-D warnings -A unused-imports`, build+test, cargo audit
   (ignore RUSTSEC-2023-0071), npm audit, cargo doc.
 - No new `unwrap`/`expect`/panic/unchecked-index on production path
@@ -34,6 +37,37 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
   `cargo install` vs VS Code marketplace ext — product decision, park for user.
 - `?` Lua parser/analysis crate for scope-aware local-var completion
   unresolved — needs /research before build (blocks T14).
+- caiven-machine targets: desktop (Win/Linux/macOS) + small Linux handhelds
+  (Miyoo Mini/Plus SSD202D, A30, TrimUI, Anbernic RG35XX) + later Android/iOS.
+  1 binary ∀ targets — ⊥ separate Tauri desktop shell.
+- Machine platform layer = SDL2 (`sdl2` crate 0.38): window+render+gamepad+audio.
+  ⊥ wgpu/GLES requirement (Miyoo Mini SSD202D = dual Cortex-A7 1.2GHz, 128MB RAM,
+  ⊥ GPU, GLES only via SwiftShader — R5). ⊥ SDL3 (handheld distros ship SDL2 — R6).
+- Machine shell UI = CPU raster (tiny-skia + fontdue) → RGBA buf → SDL texture.
+  ⊥ egui | webview | Tauri ∈ Machine.
+- Console shell design = Obsidian & Ember tokens, handoff `Caiven Machine.dc.html`.
+  640×480 primary, 1280×720 desktop.
+- Machine console shell = 11 screens: boot, library (hero carousel), empty,
+  cart detail, hand-off/loading, playing, pause, settings, controls remap,
+  Port browse, crash. Spec = handoff `Caiven Machine.dc.html` (static canvas) +
+  `Caiven Machine Prototype.dc.html` (behavioral). HTML = design reference,
+  ⊥ production code, ⊥ port line-for-line.
+- Library direction 1a (hero carousel) chosen. 1b (shelf grid) ⊥ build.
+- Fonts Space Grotesk 600/700 (display) | Inter 400/500/600 (body) | JetBrains
+  Mono (numerics). Bundled subset w/ binary — ⊥ fetch (Google Fonts = documented
+  substitution). Icons = Lucide 1.5–2px stroke, ⊥ fill. ⊥ logo mark exists →
+  wordmark ∀ mark positions.
+- Type floor 10px. ⊥ photography | illustration | gradient bg | emoji.
+- Cart art = existing 128×128 auto-screenshot @ 1:1, title bottom-aligned over it
+  (form the mock placeholders already show). ⊥ new cart-label section this
+  milestone ∴ ⊥ format bump. Revisit as own scoped change post-shell.
+- Out of scope this milestone: tag/search filtering beyond sort chip, Port
+  sign-in, save-state management screens, screenshot gallery, firmware update,
+  multi-user profiles.
+- Input set resolved: cart sees Up Down Left Right A B Select (idx 0-6).
+  START = host-reserved (`SystemButton::Start`), ⊥ reach cart Lua — it opens
+  pause menu = player's only exit on handheld. Strict 6-button device →
+  hold B ≥600ms = START (`shell/input.rs`). Resolves earlier `?`.
 
 ## §I INTERFACES
 
@@ -44,6 +78,111 @@ code, in-engine editor (Caiven Studio), optional self-host cart-sharing server
   built `.cav` binary = magic `b"CAIVEN"` + `u16` version (=3) + n_sections + 72B header.
   Owner `caiven-cart` (`format.rs`,`header.rs`,`section.rs`,`bundle.rs`,`project.rs`,`asset_png.rs`,`minify.rs`,`text.rs`).
 - machine: `caiven-machine` = cart-runner CLI (`app.rs:12` about="Caiven — cart runner") — runs project dir (hot-reload) or `.cav`. Studio launch = separate binary, ⊥ machine.
+- machine-platform: SDL2 owns window/render/audio/input ∈ `caiven-machine`.
+  render: 1 streaming texture @ `config.width`×`config.height`, `Screen::construct`
+  reused verbatim. audio: `SDL_OpenAudioDevice` AUDIO_S16SYS, honor obtained spec.
+  input: `Scancode` → `Key` → `Button` | `SystemButton`; `SDL_GameController` idx 0.
+  `controls.toml` additive `[gamepad]` table (`DPadUp`/`South`/`East`) +
+  additive `select`/`start` fields ∈ both tables. defaults: select =
+  ShiftLeft/ShiftRight | `Back`; start = Enter | `Start`.
+  input bound to both start & cart button → START wins, cart binding dropped + warn.
+  cli: `--fullscreen`, `--scale <fit|2x|3x>`, `--aspect <square|stretch>`.
+- machine-shell: state = {screen ∈ Boot|Library|Detail|Loading|Playing|Pause|
+  Settings|Controls|Port|Crash, sel (== carts.len() → PORT tile), detail_action
+  ∈ {Play,Delete}, pause_index 0..6, pane/column/row, bind_index+listening,
+  port_index+download, carts: Vec<CartMeta>, settings, binds}.
+  chrome: status bar 30px (44 @1280×720) + legend bar 36px (52). Both absent ∀
+  boot|loading|playing|pause|crash. Legend per-screen.
+  persist: settings → TOML beside binary; binds → `controls.toml` (same format);
+  saves → `saves/` keyed by cart id.
+  CartMeta ← `.cav` header + section table (caiven-cart).
+- machine-shell-library: `caiven-machine/src/shell/library.rs` — `scan(dir) →
+  Vec<CartMeta>`, ⊥ Result (V54). `CartMeta{id,path,title,author,bytes,kinds}`;
+  `display_title()` = title | id ∀ empty title; `has(kind)`. kinds = dedup,
+  section-table order, `Program` first. sort = display_title lowercase, then id.
+  `default_dir()` = `<exe dir>/carts`. ⊥ library db, ⊥ sidecar metadata —
+  library == what's on card.
+- machine-shell-raster: `caiven-machine/src/shell/` — `theme.rs` tokens,
+  `font.rs` faces+glyph cache, `icon.rs` Lucide paths, `surface.rs` raster.
+  `Surface::new(w,h)` picks `METRICS_640` | `METRICS_1280` (wide only @ ≥1280×720,
+  else clipped chrome). draw: `clear`/`fill_rect`/`stroke_rect`/`draw_icon`/
+  `draw_text(style,x,baseline_y,align,text)`/`draw_pixmap`. `rgba()` =
+  premultiplied RGBA, byte order == console framebuffer (V28).
+  faces = static instances /weight (fontdue ⊥ variable axes): Inter 400/500/600,
+  Space Grotesk 600/700, JetBrains Mono 400/500/700. subset = ASCII + `·×…’◄►←→`.
+- machine-shell-input: `caiven-machine/src/shell/input.rs` — `ShellInput`
+  translates physical down/up + dt → `ShellButton` stream. ∀ buttons resolve
+  on press except B: B resolves on release (tap → B) | on hold ≥ `LONG_PRESS`
+  600ms (→ Start, fires once, release silent). `b_hold_progress()` → 0..1 |
+  ⊥ once fired. `shell_button(Button)` / `shell_button_from_system(SystemButton)`.
+- machine-shell-nav: `caiven-machine/src/shell/state.rs` — `ShellState` = whole
+  graph, ⊥ SDL | raster | fs ∴ fully unit-testable. `press(ShellButton) →
+  Option<Effect>`; `tick(dt)` drives boot handover (wall-clock, V35).
+  Host→shell: `set_cart_count`/`set_port_count`/`cart_ready`/`cart_failed`/
+  `download_finished`/`download_failed`/`bind_captured`.
+  `Effect` ∈ {LoadCart(i), CancelLoad, DeleteCart(i), ResetCart, QuitToLibrary,
+  SaveState, LoadState, StartDownload(i), SettingsChanged, ListenForBind(i)}.
+  `legend()` → Vec<Legend{chip,label,primary,trailing}> per screen (⊥ chrome
+  screens → empty, except pause draws own). `Screen::has_chrome()`.
+  `shell/settings.rs` — `Pane::ALL` ×5, `Row{id,label,sub,kind}`,
+  `RowKind` ∈ {Choice,Toggle,Range,Action,Readout}; `is_adjustable()` decides
+  ◄► = adjust vs leave column. `Settings::adjust(id,dir) → bool changed`.
+- machine-shell-screens: `caiven-machine/src/shell/screens/` — one module per
+  `Screen`, draws content area only (between chrome bars, T39 owns those).
+  `library.rs::draw(surface,state,carts)` — hero panel over
+  `state.selected_cart()` | dashed-tile placeholder ∀ port tile selected;
+  shelf = every `CartMeta` + trailing port tile, `shelf_window(selected,
+  tile_count,capacity) → Range` pure fn keeps selection in view, scrolls
+  only at the edge. cover art ⊥ exist (CartMeta carries no art, I.machine-
+  shell-library) ∴ `swatch_for(id)` hashes id → `theme::color::SWATCH[5]`,
+  deterministic. hero spec line = kb size + section names, ⊥ rating/tags/
+  description (not in CartMeta). `theme::Metrics` gained `hero_cover`,
+  `shelf_tile`, `shelf_gap`; `TypeScale` gained `shelf_tile_title`.
+  `chrome.rs::draw(surface,state,status:&StatusInfo)` → status bar + legend
+  bar ∀ `state.screen().has_chrome()`, else no-op. `StatusInfo{hour,minute,
+  battery:Option<f32>,wifi}` = host facts `ShellState` ⊥ own (RTC register,
+  SDL battery query); wiring → T44. cart count & volume read direct off
+  `state.cart_count()` / `state.settings().master_volume`. legend chips laid
+  out off `state.legend()` verbatim, trailing entries right-aligned.
+  `boot.rs::draw(surface,state,version:&str,config:&VmConfig)` → full-frame
+  (no chrome, Boot immersive). Ember radial = 4 concentric `fill_rect`
+  (radius ∞) rings @ decreasing alpha, ⊥ real gradient primitive on surface.
+  Progress bar fraction = `state.boot_elapsed()/BOOT_DURATION`. spec line =
+  `v{version} · {w}×{h} · {kb}KB · {n} colors`, `version` normally
+  `env!("CARGO_PKG_VERSION")`, `config` normally `VmConfig::default()` —
+  both threaded in by caller, ⊥ read off globals. `library.rs::draw` ∀
+  `carts.is_empty()` → `draw_empty_state(surface,m,content_top)` instead of
+  hero+shelf: centered `Icon::Cartridge`, `empty_title` headline "No carts
+  yet", body hint "Insert a cart, or browse the Port". No separate
+  `Screen::Empty` variant — folds into `Screen::Library`'s draw path per
+  `state.cart_count()`. `detail.rs::draw(surface,state,carts)` ∀
+  `state.selected_cart()` = `None` → no-op (state.rs ⊥ enters `Screen::Detail`
+  ⊥ selection, but module stays call-safe standalone). ⊥ real screenshot
+  (CartMeta carries none, same fact I.machine-shell-library) ∴ cover reuses
+  `library.rs::swatch_for(id)` (now `pub(super)`, shared w/ `format_kb`) at
+  `hero_cover` size — no 2× bitmap scale, no new metrics token. layout:
+  cover+title+author, `draw_spec_card` (bordered panel, SIZE row + SECTIONS
+  row ∀ kinds non-empty, returns own height for caller layout), 2
+  `draw_action` pill buttons (Play|Delete) 50/50 width, focused =
+  `state.detail_action()`, ember-fill vs outline — same treatment as legend
+  primary chip vs unfocused shelf tile. `detail_title` (`TypeScale`, T38-era
+  scoping) is the title font role.
+  `loading.rs::draw(surface,state,carts,progress:&LoadProgress)` — full-bleed,
+  no chrome. `LoadProgress{fraction,stage}` host-supplied (⊥ tracked ∈
+  `ShellState`, same pattern as `chrome.rs`'s `StatusInfo`); `fraction` = real
+  wall-clock progress (V35), `stage` built by `stage_text(sections,mounted)` —
+  pure fn, walks cart's section table in `Vm::load_cart_sections` order (V36),
+  groups legacy/bank kind pairs under 1 label (`sprites`,`map`,`sfx`,`music`,
+  `palette`,`collision`,`program`,`mods`,`data`) → `"mounting cart ·
+  {label} {i}/{n}"`, ⊥ sections left → `"running _init()"`. draw: static ember
+  glow (flat 16% alpha, ⊥ ring falloff — spec §5 gives single flat value, ⊥
+  boot's multi-ring gradient), cart label = `swatch_for(id)` @ new
+  `loading_cover` metrics token (150 @640, 240 @1280), title+author, progress
+  pill, stage line, "Hold MENU at any time to pause" footer. no-op ∀
+  `state.selected_cart()` = `None`, same discipline as `detail.rs`.
+- machine-shell-port: `GET /api/v2/carts` (page, per_page, q, tag, author, sort),
+  thumb `/api/v2/carts/:id/screenshot`, download `/api/v2/carts/:id/cart`.
+  Download complete → append to library immediately.
 - studio-cmd: Tauri `#[tauri::command]` IPC surface (studio backend ↔ Svelte);
   `capabilities/` + `gen/schemas/` gate what frontend may call.
 - port-api: rocket handlers `caiven-port/src/handlers/` — auth, carts, versions,
@@ -78,7 +217,7 @@ V3: cart format change ! bump version field, backward-compat analysis, round-tri
 V4: every `.cav` = untrusted input → bounds-checked parse; truncated/corrupt/malicious ⊥ panic | OOB read → fail safe.
 V5: `_update()`/`_draw()` hot path — per-frame alloc suspicious, needs reason. Perf claim ! measured (baseline before, same method after).
 V6: timing/RTC/RNG deterministic where API implies — ⊥ silent timing-semantics change (`src/timing.rs`, `src/vm/rtc.rs`).
-V7: audio path (`src/vm/audio.rs`, `sfx.rs`) adjacent real-time cpal thread → ⊥ block | unpredictable alloc.
+V7: audio path (`src/vm/audio.rs`, `sfx.rs`) adjacent real-time callback thread (SDL2 `AudioCallback`, 1 backend ∀ front-ends) → ⊥ block | unpredictable alloc.
 V8: Lua sandbox — cart Lua ⊥ reach filesystem | network | process outside sanctioned API.
 V9: Tauri command = security boundary — validate paths/inputs, ⊥ trust frontend; `capabilities`/`gen/schemas` ! match signatures, ⊥ over-grant.
 V10: Port authorization checked per-handler, ⊥ only route/frontend layer. Uploaded `.cav` reuse `caiven-cart` parse, ⊥ ad-hoc re-parse.
@@ -111,6 +250,80 @@ V25: caiven-lsp go-to-def ⊥ builtins (ApiEntry has no source span) — prelude
 stdlib only.
 V26: caiven-lsp on Lua file outside caiven.toml project ⊥ crash/error —
 degrade to plain-Lua stdlib completions.
+V27: caiven-vm ⊥ own window/GPU. `WindowGfx` deleted; winit+pixels ∉ caiven-vm deps.
+Machine owns window/process lifecycle (holds vm-runtime.md boundary).
+V28: Machine render = SDL streaming texture @ `PixelFormatEnum::ABGR8888` (VM buf byte
+order R,G,B,A, LE — `caiven-core/src/memory.rs:32`). nearest only
+(`SDL_HINT_RENDER_SCALE_QUALITY=0`) — ⊥ smooth-scale.
+V29: audio backend = SDL2 ∀ front-end (cpal/alsa removed workspace-wide, B2),
+injected via `AudioOut` trait + `AudioFactory` rather than baked into
+`ConsoleCore::new()` — a front-end that already owns an SDL context
+(`caiven-machine`, via video) reuses it (`sdl_audio_factory`) instead of
+opening a 2nd; one that doesn't (Studio, tests) gets
+`sdl_default_audio_factory`'s own audio-only context via `ConsoleCore::new()`.
+`ConsoleCore::new()` signature stable ∴ caiven-studio ⊥ edits. caiven-vm's
+`sdl2` dep = optional, gated `sdl2-bundled`/`sdl2-dynamic` (mirrors
+caiven-machine's own split, I.machine-platform, V31) — a front-end forwards
+its bundled-vs-dynamic choice down via `caiven-vm/sdl2-bundled` |
+`caiven-vm/sdl2-dynamic`, ⊥ caiven-vm hardcode 1.
+V30: `controls.toml` backward-compatible — ∀ existing key names ! round-trip (documented
+`README.md:518-540`, files on user disks). `[gamepad]` additive only.
+V31: SDL link — desktop = `bundled`+`static-link`; handheld = dynamic vs device
+`libSDL2.so` (device ports carry display/input patches — R6). ⊥ bundle SDL on handheld.
+V32: Machine device acceptance = launches fullscreen 640×480 + holds 60fps on Cortex-A7.
+Perf claim ! measured (V5).
+V33: shell raster = CPU (tiny-skia + fontdue) → RGBA buf → 2nd SDL texture.
+⊥ GPU | egui | webview. Redraw only on state change — ⊥ per-frame repaint
+(A7 @1.2GHz budget).
+V34: design tokens defined once (`theme.rs`), referenced by name. ⊥ inline hex
+@ call site. `obsidian` #3B3E48 = logo body only, ⊥ UI surface.
+V35: ∀ progress bar & timed transition driven by wall-clock elapsed vs real work
+— ⊥ tick count (prototype stalled under throttling).
+V36: loading stage text derived from `Vm::load_cart_sections` + section table —
+⊥ faked/hardcoded counts.
+V37: Playing screen ⊥ HUD | frame | border. ∀ 6 buttons belong to cart; only
+START (| device menu) pauses. fps readout only if Settings › Video › Show fps.
+V38: pause renders over frozen last frame — blur+dim computed once @ freeze,
+⊥ per-frame.
+V39: crash screen content ← real `mlua` error + `frame_count()` — ⊥ synthesized
+message. Load failure → crash screen w/ `anyhow` context string.
+V40: controls remap writes same `controls.toml` format (V30 round-trip holds).
+Values = `Key`/`PadButton` names, ⊥ raw SDL scancode ints.
+V41: fonts+icons bundled ∈ binary — ⊥ network at runtime, ⊥ system font
+dependency (handheld has neither).
+V42: shell holds 60fps @640×480 on Cortex-A7 (V32 gate extends to shell).
+Perf claim ! measured (V5).
+V43: shell face = static instance /weight — ⊥ variable font (fontdue ⊥ weight
+axis ∴ variable file renders default instance only; Space Grotesk default 300
+∉ design). New weight → new subset file via `assets/fonts/build_fonts.py`.
+V44: shell copy ⊆ bundled subset (ASCII + `·×…’◄►←→`). New char outside set →
+regen subset; drift guard = `font.rs` coverage test.
+V45: ◄ ► set in Mono only — Space Grotesk subset ⊥ geometric-shapes block.
+V46: `Surface::rgba()` = premultiplied — SDL texture ! told same, else overlay
+(pause scrim) fringes dark. Opaque menu screens identical either way.
+V47: Settings & Port screens return to origin screen, ⊥ always-library
+(prototype's B→library silently drops running cart when opened from pause).
+`settings_return`/`port_return` hold it.
+V48: settings rows ⊆ what Machine can honor. Handoff mocks brightness,
+scanline, vibration, sleep timer, mute-on-sleep — ⊥ impl behind them ∴ ⊥
+listed. Dead control worse than absent one. Add row when impl lands.
+V49: `Playing` screen consumes only START (V37) — ∀ other buttons → cart.
+Remap `listening` swallows ∀ nav presses until `bind_captured()`.
+V50: library cursor range = `0..=cart_count`; index == `cart_count` → PORT
+tile. `set_cart_count` re-clamps ∴ delete/download ⊥ leave dangling cursor.
+V51: `Button::Select` = idx 6, additive — idx 0-5 ⊥ move ∀ (carts on disk
+hard-code them). idx ∉ 0..6 → `false`, ⊥ error. Parity: native + Studio
+preview + web player all map it (V20).
+V52: START ⊥ ∈ `Button` ∴ ⊥ reachable from cart Lua ∀ paths. `SystemButton`
+separate map ∈ `InputMap`. Cart ⊥ able to hold pause menu hostage.
+V53: ∀ device → shell reachable: no physical START → hold B ≥600ms. ⊥ ship
+screen whose only exit needs a button the device may lack.
+V54: library scan ⊥ fail — missing dir → empty (empty-state screen), corrupt |
+oversized | unreadable cart → skip + warn. 1 bad `.cav` ⊥ take library down.
+V55: `.cav` = untrusted (Port download | hand-copied card). size checked on
+dirent, reject > `MAX_CART_BYTES` before read ∴ ⊥ multi-GB file → 128MB device.
+V56: cart id = file stem, ! single safe path component (⊥ empty, `.`, `..`,
+`/`, `\`, `:`, NUL) — id joined onto `saves/`, ∴ ⊥ escape.
 
 ## §R RESEARCH
 
@@ -119,6 +332,13 @@ R1|mlua 0.10.5 `Debug` (hook payload) exposes event/names/source/curr_line/is_ta
 R2|mlua has ⊥ separate "unsafe" cargo feature gating raw-state access. `Lua::exec_raw<R>(args\, \|state: *mut lua_State\| ...)` = inherently `unsafe fn`, ⊥ feature-gated, callable today w/ current `Cargo.toml:27` features (lua54,vendored)|docs.rs/mlua/0.10.5/mlua/struct.Lua.html#method.exec_raw
 R3|`mlua_sys` 0.6.8 `lua54::lua` module exposes raw `lua_getlocal`/`lua_getstack` C bindings — mechanism exists in principle. Currently transitive-only dep (`Cargo.lock:4153-4157`), ⊥ direct `caiven-vm` dep yet. Exact fn signatures unconfirmed by doc fetch|docs.rs/mlua_sys/0.6.8, Cargo.lock:4153-4157
 R4|`?` unresolved: is `exec_raw` safe to call reentrantly from inside an already-active `lua.set_hook` callback on the same `Lua` instance — mlua docs say instance "remains locked during execution," could mean reentrancy guard errors/panics if nested. Docs alone ⊥ settle this, needs a throwaway spike|docs.rs/mlua/0.10.5/mlua/struct.Lua.html#method.exec_raw
+R5|Miyoo Mini/Plus = SigmaStar SSD202D, dual Cortex-A7 1.2GHz, 128MB DDR3, 640×480 IPS, ⊥ GPU (2D blitter only)|retrogamingbanter.com/miyoo-mini-plus-guide/
+R6|Handheld SDL2 = device-patched ports carrying display+input code, ⊥ upstream. GLES only via SwiftShader (software)|github.com/steward-fu/sdl2, github.com/OOPay/sdl2, github.com/XK9274/sdl2_miyoo
+R7|PICO-8 runs on Miyoo via Raspberry Pi ARM binary = SDL2 ∴ SDL2 = the portability layer|lexaloffle.com/bbs/?tid=53599
+R8|`sdl2` crate: `bundled` feat builds SDL from src (needs cc/cmake), `static-link` links it in. Works any arch|github.com/Rust-SDL2/rust-sdl2
+R9|winit ⊥ fbdev/KMS backend & softbuffer ⊥ DRM backend ∴ winit+pixels stack desktop-only by construction, ⊥ by config|repo exploration + crate docs
+R10|fontdue 0.9.4 rasterizes file's default instance only — ⊥ variable-axis API ∴ static instances required|docs.rs/fontdue/0.9.4
+R11|`fonttools` `varLib.instancer` pins axes + `subset` trims charset → 8 faces, 121 KB total (Inter 19.1K ×3, Space Grotesk 16.1K ×2, JetBrains Mono 10.4K ×3)|local build, `assets/fonts/build_fonts.py`
 
 ## §T TASKS
 
@@ -143,7 +363,44 @@ T17|.|impl go-to-def for prelude.lua stdlib (line-scan)|V25,I.lsp,T16
 T18|.|impl caiven.toml project-root detection + bare-.lua degrade path|V26,I.lsp,T15
 T19|.|automated test: LSP symbol set vs api_registry.rs entry count, no drift|V24,T16
 T20|.|manual verify: VS Code + generic lua-language-server → draw_rect completion/signature matches Studio autocomplete|I.lsp,T16
+T21|x|portable `Key` enum `caiven-vm/src/input/key.rs`; re-key InputMap off `winit::KeyCode`; drop native cfg from `input/mod.rs`|V30,V27
+T22|x|additive `[gamepad]` table ∈ controls.toml schema + parse|V30,I.machine-platform
+T23|x|`AudioOut` trait + `AudioFactory` ∈ `vm/audio.rs`; ConsoleCore boxed audio + factory; `new()` sig unchanged|V29,V7
+T24|x|delete `WindowGfx`; drop winit+pixels from caiven-vm; `native = ["dep:cpal"]`|V27
+T25|x|`caiven-machine` platform/window.rs — SDL window+renderer+streaming ABGR8888 texture, nearest|V28,I.machine-platform
+T26|x|platform/scaling.rs — pure `dst_rect(window,console,mode,aspect)` fit/2x/3x × square/stretch|V28
+T27|x|platform/audio.rs — `SDL_AudioDevice` AUDIO_S16SYS impl AudioOut, honor obtained spec|V29,V7
+T28|x|platform/input.rs — Scancode→Key, `SDL_GameController` open/connect/disconnect|I.machine-platform
+T29|x|rewrite app.rs SDL event pump (drop ApplicationHandler); keep cart load, check_mod_manifest, Ctrl+R, frame_steps timestep; add --fullscreen/--scale/--aspect|V27,I.machine
+T30|x|SDL link config: desktop bundled+static default, `sdl2-dynamic` feat for handheld; document cross-build|V31
+T31|x|device verify: cross-build handheld, run on Miyoo, confirm fullscreen 640×480 + 60fps + D-pad/A/B|V32
+T32|x|decide cart art source → screenshot @ 1:1, ⊥ new label section, ⊥ format bump|§C,V3
+T33|x|`theme.rs` — Obsidian & Ember tokens + type scale (640×480 & 1280×720)|V34
+T34|x|bundle subset Space Grotesk/Inter/JetBrains Mono + Lucide glyphs ∈ binary|V41,V43,V44,V45,R10,R11
+T35|x|CPU raster surface: tiny-skia + fontdue glyph cache → RGBA buf, dirty-flag redraw (texture upload lands w/ T44)|V33,V42,V46,I.machine-shell-raster
+T36|x|shell state machine + navigation graph|I.machine-shell,I.machine-shell-nav,V47,V48,V49,V50,T35
+T37|x|cart library scan: carts dir → Vec<CartMeta> from `.cav` header/section table|I.machine-shell,I.machine-shell-library,V54,V55,V56
+T38|x|library screen 1a: hero carousel + shelf + dashed PORT tile|I.machine-shell,I.machine-shell-screens,T35,T37
+T39|x|chrome: status bar (RTC clock @0x9600, cart count, battery, volume) + per-screen legend bar|I.machine-shell,I.machine-shell-screens,T35
+T40|x|boot screen: ember radial, wordmark, progress, spec line from CARGO_PKG_VERSION+VmConfig|I.machine-shell,I.machine-shell-screens,T35
+T41|x|empty state screen|I.machine-shell-screens,T35,T38
+T42|x|cart detail: screenshot 2× nearest, spec card, Play/Delete actions|I.machine-shell-screens,T37,T35
+T43|x|hand-off/loading screen w/ real stage text + wall-clock progress|I.machine-shell-screens,V35,V36,T35
+T44|x|playing fullscreen: ⊥ HUD, scaling from settings, optional fps readout|V37,T35
+T45|x|pause overlay over frozen frame (blur+dim once), 6 rows incl. save/load state|V38,T35
+T46|x|settings: 5 panes (Video/Audio/Controls/Port/System), immediate save to TOML|I.machine-shell,T35
+T47|x|controls remap screen → writes controls.toml round-trip|V40,T46
+T48|x|Port browse: search/sort, result rows, download → append to library|I.machine-shell-port,T35
+T49|x|crash screen from mlua error + frame_count|V39,T35
+T50|x|save states per cart under saves/ keyed by cart id|I.machine-shell,T45
+T51|.|measure shell fps @640×480 on Cortex-A7-class device|V42,V32
+T52|x|pin `style_edition = "2024"` in root rustfmt.toml|B1
+T53|x|`Button::Select` idx 6 + `SystemButton::Start`; controls.toml `select`/`start` ∈ both tables, defaults + START-wins collision rule|V51,V52,V30
+T54|x|`shell/input.rs` — hold B ≥600ms → START; Button/SystemButton → ShellButton|V53,I.machine-shell-input
+T55|x|docs+parity: README API & controls tables, api_registry doc strings, Studio keymap idx 6, web-export/port/test.html key+gamepad maps|V51,V20,V2
 
 ## §B BUGS
 
 id|date|cause|fix
+B1|2026-08-03|bare `rustfmt` (editor/hook) defaults to 2015 style edition → reverts 2024 import order in committed files, `cargo fmt --check` then fails|root `rustfmt.toml` `style_edition = "2024"`, T52
+B2|2026-08-05|`caiven-vm/src/lib.rs` gated whole `runtime` module (ConsoleCore, shared by Machine+Studio) behind cpal's `native` feature when only `ConsoleCore::new()` needed cpal → caiven-machine pulled cpal/alsa it never used, broke documented armv7 handheld cross-build at alsa-sys cross pkg-config (found while prepping T51)|cpal/alsa removed workspace-wide, SDL2 audio backend everywhere, V7, V29

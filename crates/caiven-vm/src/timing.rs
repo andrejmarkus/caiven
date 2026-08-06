@@ -22,4 +22,12 @@ impl FixedTimestep {
         }
         steps
     }
+
+    /// Drops any banked time. Callers must use this after a gap where
+    /// `tick` wasn't called for real elapsed time (e.g. the VM was paused)
+    /// — otherwise the next `tick` sees the whole gap as `dt` and dumps it
+    /// as one huge burst of catch-up steps.
+    pub fn reset(&mut self) {
+        self.accumulator = Duration::ZERO;
+    }
 }

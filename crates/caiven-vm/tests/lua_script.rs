@@ -72,6 +72,36 @@ fn lua_btn_reads_input_state() {
 }
 
 #[test]
+fn lua_reads_select_at_index_six_and_nothing_beyond_it() {
+    let mut vm = make_vm();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          -- Index 7 is where START would sit if carts could see it. They
+          -- cannot, so it must stay false however the console is wired.
+          if button_down(6) and not button_down(7) then
+            set_pixel(0, 0, 1)
+          else
+            set_pixel(0, 0, 2)
+          end
+        end
+        "#,
+        &Input::new(),
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    let mut input = Input::new();
+    input.set_button(caiven_vm::input::Button::Select, true);
+    vm.run_frame(&input, &font);
+
+    assert_eq!(vm.get_fault(), None);
+    // color index 1 = dark blue (32, 51, 123) confirms the true branch ran.
+    assert_eq!(read_rgba(&vm, 0, 0), [32, 51, 123, 255]);
+}
+
+#[test]
 fn lua_runtime_error_faults_cleanly() {
     let mut vm = make_vm();
     let input = Input::new();

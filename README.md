@@ -20,7 +20,7 @@
 - 🌙 **Real Lua 5.4** — embedded via `mlua` (vendored, no system Lua required); `_init()` runs once, `_update()` runs every frame, optional `_draw()` runs right after it
 - 🎨 **Palette-based Graphics** — 128×128 resolution, 16-color swappable palette; sprites, 64×64 tilemap, shape primitives, camera
 - 📦 **Descriptive Builtin API** — `sprite`, `draw_rect`, `button_down`, `set_palette_color`, etc. — no cryptic abbreviations; `print()` goes to Machine's terminal or Studio's Output drawer (screen text is `draw_text`)
-- 🔊 **Audio Engine** — real-time sound synthesis, SFX and music banks, playback via CPAL
+- 🔊 **Audio Engine** — real-time sound synthesis, SFX and music banks, playback via SDL2
 - 🧰 **Gameplay Stdlib** — tweens, easing curves, AABB/tile collision, a particle system, and sprite-frame animation, all pure Lua and preloaded into every cart
 - 🖌️ **Caiven Studio** — Tauri 2 + Svelte 5 editor: live console, code and asset workspaces, diagnostics drawer, command palette, onboarding, and publishing flow
 - 🔍 **Debugger** — line breakpoints (click the code editor gutter), pause/step-by-frame, script-globals inspector, live RAM view, `.cavdbg` sidecar persistence
@@ -70,6 +70,13 @@ Unpack the archive, then run the `caiven-machine` binary against a cart or proje
 ./caiven-machine my-game/    # project dir, hot-reloads with Ctrl+R
 ./caiven-machine game.cav    # distribution cartridge
 ```
+
+Run it with no argument and it boots into the console shell — the library
+screen scans a `carts/` folder next to the binary for `.cav` files (drop them
+in, or download them from a Port through the shell's own Port browse screen).
+There's no `--carts-dir` flag or env var; the folder is always exe-relative,
+so the whole install stays portable from any mount point (an SD card on a
+handheld, a copied folder on desktop).
 
 That's it — the sections below (source build, CLI, Cargo workspace) are for
 contributors working on Caiven itself, not for making or playing games with it.
@@ -244,10 +251,15 @@ Math (`sin`/`cos`/`abs`/`floor`/`sqrt`/`max`/`min`/`random`), strings (`..`, `su
 
 ### Input
 
-| Function             | Description                                      |
-| :------------------- | :----------------------------------------------- |
-| `button_down(id)`    | Button held (0=Up 1=Down 2=Left 3=Right 4=A 5=B) |
-| `button_pressed(id)` | Button pressed this frame                        |
+| Function             | Description                                               |
+| :------------------- | :-------------------------------------------------------- |
+| `button_down(id)`    | Button held (0=Up 1=Down 2=Left 3=Right 4=A 5=B 6=Select) |
+| `button_pressed(id)` | Button pressed this frame                                  |
+
+START is reserved by the console. It opens the pause menu, which on a
+handheld is the player's only way out of a running cart, so it never reaches
+cartridge code — there is no index for it. Any index outside the table above
+returns `false` rather than erroring.
 
 ### Audio
 
@@ -471,7 +483,7 @@ build of the VM that fetches the cart over the same REST API and renders to a
   Gamepad API support, and an on-screen touch d-pad + A/B on coarse-pointer
   (mobile) viewports.
 - **Audio:** the same square/noise synth used natively, driven by a
-  `ScriptProcessorNode` instead of `cpal`.
+  `ScriptProcessorNode` instead of SDL2.
 - **Crash handling:** a Lua runtime error stops the cart and shows the error
   and line number over the last frame, instead of hanging silently.
 - Click the canvas or press a key once to start audio — browsers require a
@@ -522,20 +534,53 @@ Cargo workspace with nine crates:
 | Right  | `ArrowRight`, `D` |
 | A      | `J`               |
 | B      | `K`               |
+| Select | `Shift`           |
+| START  | `Enter`           |
+
+A connected gamepad works out of the box — D-pad for direction, the south
+face button (A / Cross) for A, the east one (B / Circle) for B, `Back` for
+Select and `Start` for START. Handhelds expose their built-in buttons this
+way, so this is the path that matters on device.
+
+START belongs to the console, not to the cart: it opens the pause menu. On a
+device with no physical START, **holding B for about half a second** does the
+same thing, so the menu is always reachable. A short B press is unaffected.
 
 Override by creating `controls.toml` next to the binary:
 
 ```toml
 [controls]
-up    = ["ArrowUp", "KeyW"]
-down  = ["ArrowDown", "KeyS"]
-left  = ["ArrowLeft", "KeyA"]
-right = ["ArrowRight", "KeyD"]
-a     = ["KeyJ"]
-b     = ["KeyK"]
+up     = ["ArrowUp", "KeyW"]
+down   = ["ArrowDown", "KeyS"]
+left   = ["ArrowLeft", "KeyA"]
+right  = ["ArrowRight", "KeyD"]
+a      = ["KeyJ"]
+b      = ["KeyK"]
+select = ["ShiftLeft", "ShiftRight"]
+start  = ["Enter"]
+
+# Optional. Omit the table entirely to keep the defaults below.
+[gamepad]
+up     = ["DPadUp"]
+down   = ["DPadDown"]
+left   = ["DPadLeft"]
+right  = ["DPadRight"]
+a      = ["South"]
+b      = ["East"]
+select = ["Back"]
+start  = ["Start"]
 ```
 
-Any `winit` physical key name is valid (e.g. `KeyZ`, `Digit1`, `Space`, `Enter`). Missing file falls back to defaults.
+Every field is optional, including `select` and `start` — a `controls.toml`
+written before those existed keeps working and picks up the defaults above.
+Binding the same input to both `start` and a cart button gives it to START;
+the cart binding is dropped and a warning is logged.
+
+Key names are physical positions, not layout characters: letters `KeyA`–`KeyZ`, digits `Digit0`–`Digit9`, `ArrowUp`/`ArrowDown`/`ArrowLeft`/`ArrowRight`, `Space`, `Enter`, `Escape`, `Backspace`, `Tab`, and the left/right `Shift`/`Control`/`Alt` pairs. Gamepad names follow SDL's controller vocabulary: `DPadUp`/`DPadDown`/`DPadLeft`/`DPadRight`, `South`/`East`/`West`/`North`, `LeftShoulder`/`RightShoulder`, `Start`, `Back`, `Guide`.
+
+A missing file, an unparseable one, or an unknown name falls back to the defaults.
+
+Handheld builds (Miyoo, TrimUI, Anbernic) are documented in [docs/development/handheld-builds.md](docs/development/handheld-builds.md).
 
 ---
 

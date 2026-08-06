@@ -22,5 +22,6 @@ paths:
   `src/input/*`. Changes here warrant a benchmark comparison
   (`caiven-benchmark` skill) if the change could affect per-frame cost.
 - Audio (`src/vm/audio.rs`, `sfx.rs`) runs adjacent to a real-time thread via
-  `cpal` — never block or allocate unpredictably on that path; see
-  `.claude/rules/security.md` for the sandbox-boundary angle.
+  SDL2 (`sdl2::audio::AudioCallback`) — never block or allocate unpredictably
+  on that path; see `.claude/rules/security.md` for the sandbox-boundary
+  angle.

@@ -29,10 +29,11 @@
     ArrowRight: 3, d: 3, D: 3,
     j: 4, z: 4, Z: 4,
     k: 5, x: 5, X: 5,
+    Shift: 6,
   };
 
-  // Standard-gamepad mapping button index -> Caiven button.
-  const GAMEPAD_TO_BUTTON = { 12: 0, 13: 1, 14: 2, 15: 3, 0: 4, 1: 5 };
+  // Standard-gamepad mapping button index -> Caiven button. 8 is Back/Select.
+  const GAMEPAD_TO_BUTTON = { 12: 0, 13: 1, 14: 2, 15: 3, 0: 4, 1: 5, 8: 6 };
 
   // Renders audio on the main thread (the only place the emscripten module
   // lives) and hands pre-rendered PCM chunks to an AudioWorklet for
