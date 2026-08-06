@@ -71,6 +71,13 @@ Unpack the archive, then run the `caiven-machine` binary against a cart or proje
 ./caiven-machine game.cav    # distribution cartridge
 ```
 
+Run it with no argument and it boots into the console shell — the library
+screen scans a `carts/` folder next to the binary for `.cav` files (drop them
+in, or download them from a Port through the shell's own Port browse screen).
+There's no `--carts-dir` flag or env var; the folder is always exe-relative,
+so the whole install stays portable from any mount point (an SD card on a
+handheld, a copied folder on desktop).
+
 That's it — the sections below (source build, CLI, Cargo workspace) are for
 contributors working on Caiven itself, not for making or playing games with it.
 
