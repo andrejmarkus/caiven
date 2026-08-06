@@ -191,7 +191,12 @@ jobs:
       - name: cargo audit
         # sqlx-mysql keeps rsa in Cargo.lock through sqlx macro metadata, but this
         # workspace enables only SQLite and PostgreSQL. No patched rsa release exists.
-        run: cargo audit --ignore RUSTSEC-2023-0071
+        #
+        # rkyv 0.7 (RUSTSEC-2026-0235, OOB read decoding Rc/Arc in untrusted rkyv
+        # archives) is pulled in transitively by rust_decimal, itself pulled in by
+        # sea-orm/sqlx-postgres. This workspace never constructs or deserializes an
+        # rkyv archive directly, so the vulnerable path is unreachable.
+        run: cargo audit --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2026-0235
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
