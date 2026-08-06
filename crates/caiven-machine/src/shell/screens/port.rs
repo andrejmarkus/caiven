@@ -1,7 +1,7 @@
 //! The Port browse screen: a sorted, scrollable list of carts on a Port
 //! server, download-on-A. Search/tag/author filtering beyond the sort chip
 //! is out of scope this milestone (SPEC §C) — SELECT only cycles
-//! [`PortSort`].
+//! [`PortSort`](crate::shell::state::PortSort).
 //!
 //! `entries` is host-fetched (`port_client::list`) and handed in fresh every
 //! time the screen becomes current — `Effect::RefreshPort` resolves

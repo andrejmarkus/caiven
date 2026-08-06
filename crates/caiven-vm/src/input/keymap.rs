@@ -551,7 +551,7 @@ mod tests {
         assert_eq!(reloaded.controls.names(Button::Up), ["KeyE"]);
         assert_eq!(reloaded.gamepad.names(Button::A), ["West"]);
         // Untouched bindings kept their values, not just their defaults.
-        assert_eq!(reloaded.controls.names(Button::B), ["KeyK"]);
+        assert_eq!(reloaded.controls.names(Button::B), ["KeyK", "ControlLeft"]);
         assert_eq!(reloaded.gamepad.names(Button::B), ["East"]);
 
         let map = reloaded.to_input_map();

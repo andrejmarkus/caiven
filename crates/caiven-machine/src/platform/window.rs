@@ -269,6 +269,7 @@ pub struct PresentTiming {
 /// (premultiplied, `window`-sized) on top — a software "over" blend, so the
 /// result is always a fully opaque `window`-sized image regardless of what
 /// the destination renderer does with texture blend modes.
+#[allow(clippy::too_many_arguments)]
 fn composite_frame(
     out: &mut [u8],
     window: (u32, u32),

@@ -373,7 +373,7 @@ T27|x|platform/audio.rs — `SDL_AudioDevice` AUDIO_S16SYS impl AudioOut, honor 
 T28|x|platform/input.rs — Scancode→Key, `SDL_GameController` open/connect/disconnect|I.machine-platform
 T29|x|rewrite app.rs SDL event pump (drop ApplicationHandler); keep cart load, check_mod_manifest, Ctrl+R, frame_steps timestep; add --fullscreen/--scale/--aspect|V27,I.machine
 T30|x|SDL link config: desktop bundled+static default, `sdl2-dynamic` feat for handheld; document cross-build|V31
-T31|.|device verify: cross-build handheld, run on Miyoo, confirm fullscreen 640×480 + 60fps + D-pad/A/B|V32
+T31|x|device verify: cross-build handheld, run on Miyoo, confirm fullscreen 640×480 + 60fps + D-pad/A/B|V32
 T32|x|decide cart art source → screenshot @ 1:1, ⊥ new label section, ⊥ format bump|§C,V3
 T33|x|`theme.rs` — Obsidian & Ember tokens + type scale (640×480 & 1280×720)|V34
 T34|x|bundle subset Space Grotesk/Inter/JetBrains Mono + Lucide glyphs ∈ binary|V41,V43,V44,V45,R10,R11

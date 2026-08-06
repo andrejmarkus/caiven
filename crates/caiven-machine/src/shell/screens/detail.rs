@@ -6,7 +6,8 @@
 //! screen's deterministic color-swatch treatment rather than a bitmap.
 //!
 //! Draws only the content area between the two chrome bars; a screen with
-//! nothing selected draws nothing; `state.rs` never enters [`Screen::Detail`]
+//! nothing selected draws nothing; `state.rs` never enters
+//! [`Screen::Detail`](crate::shell::state::Screen::Detail)
 //! without a selection, and the same discipline is used at T41's
 //! `carts.is_empty()` check.
 

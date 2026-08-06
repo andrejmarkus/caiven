@@ -2,7 +2,7 @@
 //! the right ([`crate::shell::settings::Pane`], [`crate::shell::settings::Row`]).
 //!
 //! `state.rs` owns which pane and row are focused and what Left/Right/A do
-//! to each [`RowKind`](crate::shell::settings::RowKind) — this module only
+//! to each [`RowKind`] — this module only
 //! turns that into pixels. Values come straight off `state.settings()`; the
 //! Port pane's Server row reads `port_client::port_url()` directly (it has
 //! no `Settings` field of its own yet — there is no UI to edit it, only to
