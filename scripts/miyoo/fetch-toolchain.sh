@@ -25,7 +25,47 @@ if [[ "$MIYOO_TOOLCHAIN_DIR" != "/opt" ]]; then
   exit 1
 fi
 
+# The SDL2 fork hardcodes /opt/mini/bin/cmake and passes a non-standard
+# --host=<toolchain-file> option. The bundled binary currently requires
+# GLIBC_2.36, so it cannot start on Ubuntu 22.04. When that happens, retain
+# the original binary for inspection and install a wrapper that translates
+# the custom option to standard CMake syntax before invoking the host CMake.
+ensure_host_cmake() {
+  local cmake_bin="$MIYOO_TOOLCHAIN_DIR/mini/bin/cmake"
+  local original="$cmake_bin.toolchain"
+
+  [[ -x "$cmake_bin" ]] || return 0
+  if [[ -x "$original" ]] && head -n 1 "$cmake_bin" | grep -q '^#!/usr/bin/env bash$'; then
+    return 0
+  fi
+  if "$cmake_bin" --version >/dev/null 2>&1; then
+    return 0
+  fi
+  if [[ ! -x /usr/bin/cmake ]]; then
+    echo "Bundled CMake cannot run and /usr/bin/cmake is unavailable." >&2
+    exit 1
+  fi
+
+  mv "$cmake_bin" "$original"
+  cat > "$cmake_bin" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+args=()
+for arg in "$@"; do
+  case "$arg" in
+    --host=*) args+=("-DCMAKE_TOOLCHAIN_FILE=${arg#--host=}") ;;
+    *) args+=("$arg") ;;
+  esac
+done
+exec /usr/bin/cmake "${args[@]}"
+EOF
+  chmod +x "$cmake_bin"
+  echo "Bundled CMake is incompatible with this host; using /usr/bin/cmake through a compatibility wrapper."
+}
+
 if [[ -x "$MIYOO_TOOLCHAIN_DIR/mini/bin/arm-linux-gnueabihf-gcc" && -d "$MIYOO_TOOLCHAIN_DIR/prebuilt" ]]; then
+  ensure_host_cmake
   echo "Toolchain already present at $MIYOO_TOOLCHAIN_DIR, skipping download."
   exit 0
 fi
@@ -69,4 +109,5 @@ tar xzf "$tmp_tar" -C "$MIYOO_TOOLCHAIN_DIR" || true
 
 test -x "$MIYOO_TOOLCHAIN_DIR/mini/bin/arm-linux-gnueabihf-gcc"
 test -d "$MIYOO_TOOLCHAIN_DIR/prebuilt"
+ensure_host_cmake
 echo "Toolchain ready at $MIYOO_TOOLCHAIN_DIR"
