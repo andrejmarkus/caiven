@@ -42,7 +42,16 @@ as_root() {
 }
 
 as_root mkdir -p "$MIYOO_TOOLCHAIN_DIR"
-as_root chown "$(id -u):$(id -g)" "$MIYOO_TOOLCHAIN_DIR"
+# Write permission can come from an ACL even when the runner does not own
+# /opt. Ownership changes still require root, so do not use the writability
+# heuristic for chown.
+if [[ ! -O "$MIYOO_TOOLCHAIN_DIR" ]]; then
+  if [[ "$(id -u)" -eq 0 ]]; then
+    chown "$(id -u):$(id -g)" "$MIYOO_TOOLCHAIN_DIR"
+  else
+    sudo chown "$(id -u):$(id -g)" "$MIYOO_TOOLCHAIN_DIR"
+  fi
+fi
 
 tmp_tar="$(mktemp -t miyoo-toolchain.XXXXXX.tar.gz)"
 trap 'rm -f "$tmp_tar"' EXIT
