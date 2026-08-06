@@ -394,9 +394,10 @@ fn on_up(
     // what carries the long-press fallback, and that lives on the Cart(B)
     // arm below.
     if let Mapped::Cart(button) = mapped {
-        if shell.screen() == Screen::Playing {
-            app.core.input.set_button(button, false);
-        }
+        // Not gated on `Screen::Playing` like `on_down`: the press that opens
+        // the pause menu can flip the screen before its key-up arrives, and
+        // gating the release the same way would leave the button latched.
+        app.core.input.set_button(button, false);
         if let Some(evt) = shell_input.release(shell_button(button)) {
             dispatch(evt, app, shell, carts, library_dir, port_entries);
         }
@@ -502,6 +503,9 @@ fn handle_effect(
         // top-level check does the rest by routing the next physical input
         // to `bind_captured` instead of normal navigation.
         Effect::ListenForBind(_) => {}
+        // A handheld has no window-close gesture, so Settings needs its own
+        // way out back to the device's launcher menu.
+        Effect::QuitApp => std::process::exit(0),
     }
 }
 
@@ -584,6 +588,12 @@ pub fn run() -> Result<()> {
         }
     };
 
+    // The window must exist before audio opens: on the Miyoo Mini, window
+    // creation runs `MI_SYS_Init()`, and the audio driver fails to open
+    // until that shared subsystem is initialized.
+    let default_config = caiven_vm::VmConfig::default();
+    let mut display = Display::new(&video, &default_config, NAME, cli.fullscreen)?;
+
     let mut app = App::new(ConsoleCore::with_audio_factory(audio_factory)?);
 
     let mut shell_state = ShellState::new();
@@ -623,14 +633,17 @@ pub fn run() -> Result<()> {
         }
     }
 
-    let mut display = Display::new(&video, &app.core.config, NAME, cli.fullscreen)?;
     let texture_creator = display.texture_creator();
-    let mut console_texture = Display::create_console_texture(&texture_creator, &app.core.config)?;
+    let console_size = (app.core.config.width, app.core.config.height);
+    let mut console_buffer =
+        vec![
+            0u8;
+            console_size.0 as usize * console_size.1 as usize * caiven_core::memory::RGBA_BYTES
+        ];
 
     let (win_w, win_h) = display.window_size();
     let mut surface = Surface::new(win_w, win_h).context("failed to build the shell surface")?;
-    let mut shell_texture =
-        Display::create_shell_texture(&texture_creator, surface.width(), surface.height())?;
+    let mut frame_texture = Display::create_frame_texture(&texture_creator, win_w, win_h)?;
 
     let mut gamepads = Gamepads::new();
     gamepads.open_attached(&controller_subsystem);
@@ -645,9 +658,22 @@ pub fn run() -> Result<()> {
     let mut fps_window_start = Instant::now();
     let mut fps_frames_in_window = 0u32;
     let mut current_fps = 0u32;
+    // Temporary diagnostic, throttled to once per fps window. Remove once
+    // the fps report is resolved.
+    let mut vm_time_in_window = Duration::ZERO;
+    let mut present_time_in_window = Duration::ZERO;
+    let mut construct_time_in_window = Duration::ZERO;
+    let mut composite_time_in_window = Duration::ZERO;
+    let mut copy_time_in_window = Duration::ZERO;
+    let mut sdl_present_time_in_window = Duration::ZERO;
+    let mut vm_steps_in_window = 0u64;
 
     'running: loop {
         let mut input_event_this_frame = false;
+        // Snapshotted before the event loop: a button press below can flip
+        // `shell_state`'s screen synchronously, and this is compared against
+        // the post-event screen further down to detect Playing<->Pause.
+        let screen_at_frame_start = shell_state.screen();
 
         for event in event_pump.poll_iter() {
             match event {
@@ -662,16 +688,12 @@ pub fn run() -> Result<()> {
                     ..
                 } => {
                     // Not the event's own (w, h): those are the window's
-                    // point size, but the shell surface and console texture
-                    // rect need the real drawable pixel size (HiDPI-aware,
+                    // point size, but the shell surface and frame texture
+                    // need the real drawable pixel size (HiDPI-aware,
                     // `Display::window_size`).
                     let (w, h) = display.window_size();
                     surface.resize(w, h)?;
-                    shell_texture = Display::create_shell_texture(
-                        &texture_creator,
-                        surface.width(),
-                        surface.height(),
-                    )?;
+                    frame_texture = Display::create_frame_texture(&texture_creator, w, h)?;
                     surface.mark_dirty();
                 }
 
@@ -814,18 +836,37 @@ pub fn run() -> Result<()> {
             );
         }
 
-        if shell_state.screen() == Screen::Playing {
+        let now_playing = shell_state.screen() == Screen::Playing;
+        if now_playing != (screen_at_frame_start == Screen::Playing) {
+            // The VM only advances while `Playing`; without this the audio
+            // thread keeps rendering whatever was last queued after leaving
+            // it (pause menu, quit to library, ...).
+            if let Some(audio) = app.core.audio.as_mut() {
+                if now_playing {
+                    audio.resume();
+                } else {
+                    audio.pause();
+                }
+            }
+            // `frame_steps` isn't called while paused, so reset its clock or
+            // the fixed-timestep accumulator replays the whole pause as one
+            // burst of catch-up steps.
+            if now_playing {
+                app.core.reset_timing();
+            }
+        }
+
+        let mut vm_advanced = false;
+        if now_playing {
             let steps = app.core.frame_steps();
+            vm_advanced = steps > 0;
+            let vm_start = Instant::now();
             for _ in 0..steps {
                 app.core.run_frame();
             }
+            vm_time_in_window += vm_start.elapsed();
+            vm_steps_in_window += steps as u64;
             app.core.screen.get_debug_layer().clear();
-        } else {
-            // Nothing to advance yet outside gameplay. Without an
-            // accelerated renderer there is no vsync to block on, so yield
-            // instead of spinning a core — battery burned for nothing on a
-            // handheld sitting in a menu.
-            std::thread::sleep(Duration::from_millis(1));
         }
 
         fps_frames_in_window += 1;
@@ -833,14 +874,34 @@ pub fn run() -> Result<()> {
         if window_elapsed >= Duration::from_secs(1) {
             current_fps =
                 (fps_frames_in_window as f32 / window_elapsed.as_secs_f32()).round() as u32;
+            info!(
+                "fps={current_fps} vm_steps={vm_steps_in_window} vm_ms={:.1} present_ms={:.1} \
+                 (construct_ms={:.1} composite_ms={:.1} copy_ms={:.1} sdl_present_ms={:.1}) \
+                 window_ms={:.1}",
+                vm_time_in_window.as_secs_f64() * 1000.0,
+                present_time_in_window.as_secs_f64() * 1000.0,
+                construct_time_in_window.as_secs_f64() * 1000.0,
+                composite_time_in_window.as_secs_f64() * 1000.0,
+                copy_time_in_window.as_secs_f64() * 1000.0,
+                sdl_present_time_in_window.as_secs_f64() * 1000.0,
+                window_elapsed.as_secs_f64() * 1000.0,
+            );
             fps_frames_in_window = 0;
             fps_window_start = now;
+            vm_time_in_window = Duration::ZERO;
+            present_time_in_window = Duration::ZERO;
+            construct_time_in_window = Duration::ZERO;
+            composite_time_in_window = Duration::ZERO;
+            copy_time_in_window = Duration::ZERO;
+            sdl_present_time_in_window = Duration::ZERO;
+            vm_steps_in_window = 0;
         }
 
         if should_redraw(&shell_state, screen_before_tick, input_event_this_frame) {
             surface.mark_dirty();
         }
-        if surface.is_dirty() {
+        let shell_redrawn = surface.is_dirty();
+        if shell_redrawn {
             let now = chrono::Local::now();
             let status = StatusInfo {
                 hour: now.hour() as u8,
@@ -863,15 +924,29 @@ pub fn run() -> Result<()> {
             surface.mark_clean();
         }
 
-        display.present(
-            &mut console_texture,
-            &mut shell_texture,
-            &app.core.screen,
-            &app.core.vm,
-            shell_state.settings().scaling,
-            shell_state.settings().aspect,
-            surface.rgba(),
-        )?;
+        if vm_advanced || shell_redrawn {
+            let present_start = Instant::now();
+            let timing = display.present(
+                &mut frame_texture,
+                &mut console_buffer,
+                console_size,
+                &app.core.screen,
+                &app.core.vm,
+                shell_state.settings().scaling,
+                shell_state.settings().aspect,
+                surface.rgba(),
+                surface.is_fully_transparent(),
+            )?;
+            present_time_in_window += present_start.elapsed();
+            construct_time_in_window += timing.construct;
+            composite_time_in_window += timing.composite;
+            copy_time_in_window += timing.copy;
+            sdl_present_time_in_window += timing.sdl_present;
+        } else {
+            // Nothing changed this iteration — yield instead of spinning a
+            // core recompositing an identical frame.
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 
     Ok(())

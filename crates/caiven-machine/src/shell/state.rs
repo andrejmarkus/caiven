@@ -209,6 +209,8 @@ pub enum Effect {
     SettingsChanged,
     /// The remap screen wants the next physical input captured.
     ListenForBind(usize),
+    /// Exit the process entirely, back to the device's own launcher.
+    QuitApp,
 }
 
 /// One legend entry: a button chip and what it does here.
@@ -861,6 +863,7 @@ impl ShellState {
                 self.settings = defaults;
                 Some(Effect::SettingsChanged)
             }
+            SettingId::QuitConsole => Some(Effect::QuitApp),
             _ => None,
         }
     }

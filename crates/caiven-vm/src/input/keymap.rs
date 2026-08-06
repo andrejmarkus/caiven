@@ -105,13 +105,26 @@ fn default_right() -> Vec<String> {
     vec!["ArrowRight".into(), "KeyD".into()]
 }
 fn default_a() -> Vec<String> {
-    vec!["KeyJ".into()]
+    // `Space` is included alongside the desktop default because OnionOS's
+    // keyboard-emulation driver on the Miyoo Mini (and compatible handhelds)
+    // sends the A face button as a Space keydown — there is no recognised
+    // SDL_GameController on that hardware, so this is the only path A
+    // reaches the VM through.
+    vec!["KeyJ".into(), "Space".into()]
 }
 fn default_b() -> Vec<String> {
-    vec!["KeyK".into()]
+    // See `default_a`: OnionOS's Miyoo Mini keyboard emulation sends the B
+    // face button as a Left Ctrl keydown.
+    vec!["KeyK".into(), "ControlLeft".into()]
 }
 fn default_select() -> Vec<String> {
-    vec!["ShiftLeft".into(), "ShiftRight".into()]
+    // See `default_a`: OnionOS's Miyoo Mini keyboard emulation sends the
+    // Select button as a Right Ctrl keydown.
+    vec![
+        "ShiftLeft".into(),
+        "ShiftRight".into(),
+        "ControlRight".into(),
+    ]
 }
 fn default_start() -> Vec<String> {
     vec!["Enter".into()]
@@ -445,6 +458,7 @@ mod tests {
         let map = InputMap::default();
         assert_eq!(map.get_button(Key::ShiftLeft), Some(Button::Select));
         assert_eq!(map.get_button(Key::ShiftRight), Some(Button::Select));
+        assert_eq!(map.get_button(Key::ControlRight), Some(Button::Select));
         assert_eq!(map.get_pad_button(PadButton::Back), Some(Button::Select));
 
         assert_eq!(map.get_system_button(Key::Enter), Some(SystemButton::Start));

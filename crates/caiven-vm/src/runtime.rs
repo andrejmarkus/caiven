@@ -29,7 +29,10 @@ fn open_audio(
     match factory(sound) {
         Ok(a) => Some(a),
         Err(e) => {
-            error!("failed to initialize audio: {e}");
+            // `{e}` only prints the top `anyhow::Context` message, discarding
+            // the actual SDL error underneath it — `{e:#}` prints the full
+            // chain, which is the only way to see why the device open failed.
+            error!("failed to initialize audio: {e:#}");
             None
         }
     }
@@ -121,6 +124,14 @@ impl ConsoleCore {
         let dt = now.duration_since(self.last_tick);
         self.last_tick = now;
         self.timing.tick(dt)
+    }
+
+    /// Drops any time banked while `frame_steps` wasn't called (e.g. paused)
+    /// and resets the clock to now, so resuming doesn't replay the gap as a
+    /// catch-up burst.
+    pub fn reset_timing(&mut self) {
+        self.timing.reset();
+        self.last_tick = Instant::now();
     }
 
     /// Runs one VM frame with the current input state, then latches it so

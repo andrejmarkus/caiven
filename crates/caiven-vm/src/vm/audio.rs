@@ -101,7 +101,16 @@ pub struct Sound {
 ///
 /// Deliberately not `Send`: SDL's audio device handle is thread-bound, and
 /// `ConsoleCore` is already constructed on the thread that runs it.
-pub trait AudioOut {}
+pub trait AudioOut {
+    /// Stops the device pulling samples. The synth thread keeps running
+    /// idle, but nothing reaches the speaker until [`AudioOut::resume`] is
+    /// called — front ends use this when the VM itself stops ticking (e.g.
+    /// the pause menu), since the audio thread otherwise keeps rendering
+    /// whatever the `Sound` state was left at, unaware the game paused.
+    fn pause(&mut self) {}
+    /// Resumes a device previously stopped with [`AudioOut::pause`].
+    fn resume(&mut self) {}
+}
 
 /// Opens an audio output bound to `sound`. Returns `Err` when no device is
 /// available; callers treat that as non-fatal and run the console silently.
@@ -174,7 +183,15 @@ pub struct SdlAudio {
 }
 
 #[cfg(any(feature = "sdl2-bundled", feature = "sdl2-dynamic"))]
-impl AudioOut for SdlAudio {}
+impl AudioOut for SdlAudio {
+    fn pause(&mut self) {
+        self.device.pause();
+    }
+
+    fn resume(&mut self) {
+        self.device.resume();
+    }
+}
 
 #[cfg(any(feature = "sdl2-bundled", feature = "sdl2-dynamic"))]
 impl SdlAudio {

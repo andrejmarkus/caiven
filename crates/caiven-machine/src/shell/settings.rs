@@ -90,6 +90,7 @@ pub enum SettingId {
     Browse,
     Version,
     RestoreDefaults,
+    QuitConsole,
 }
 
 /// What a row does when you press Left, Right or A on it.
@@ -216,6 +217,12 @@ const SYSTEM_ROWS: &[Row] = &[
         sub: "",
         kind: RowKind::Action,
     },
+    Row {
+        id: SettingId::QuitConsole,
+        label: "Quit console",
+        sub: "Exits back to the device's own menu",
+        kind: RowKind::Action,
+    },
 ];
 
 /// The values the settings rows edit.
@@ -271,7 +278,8 @@ impl Settings {
             | SettingId::Server
             | SettingId::Browse
             | SettingId::Version
-            | SettingId::RestoreDefaults => {}
+            | SettingId::RestoreDefaults
+            | SettingId::QuitConsole => {}
         }
         *self != before
     }

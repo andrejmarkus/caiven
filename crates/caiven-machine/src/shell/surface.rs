@@ -91,6 +91,9 @@ pub struct Surface {
     metrics: Metrics,
     fonts: Fonts,
     dirty: bool,
+    /// Whether every pixel is fully transparent, recomputed in `mark_clean`.
+    /// Lets the platform layer skip blending a no-op overlay.
+    fully_transparent: bool,
 }
 
 impl Surface {
@@ -104,6 +107,8 @@ impl Surface {
             metrics: metrics_for(width, height),
             fonts: Fonts::load().context("failed to load the bundled shell faces")?,
             dirty: true,
+            // A freshly allocated `Pixmap` is zero-filled, i.e. transparent.
+            fully_transparent: true,
         })
     }
 
@@ -132,9 +137,16 @@ impl Surface {
     }
 
     /// Marks the surface as matching the state it was drawn from. Call
-    /// after a repaint, before uploading to the texture.
+    /// after a repaint, before uploading to the texture. Also recomputes
+    /// [`Self::is_fully_transparent`].
     pub fn mark_clean(&mut self) {
         self.dirty = false;
+        self.fully_transparent = self.pixmap.data().chunks_exact(4).all(|px| px[3] == 0);
+    }
+
+    /// Whether the last repaint left every pixel fully transparent.
+    pub fn is_fully_transparent(&self) -> bool {
+        self.fully_transparent
     }
 
     /// Resizes to a new window size, adopting whichever layout fits.
