@@ -399,6 +399,9 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     needs: release-check
     runs-on: ${{ matrix.os }}
+    env:
+      HAS_APPLE_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' }}
+      HAS_WINDOWS_SIGNING: ${{ secrets.WINDOWS_CERTIFICATE != '' && secrets.WINDOWS_CERTIFICATE_PASSWORD != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -449,19 +452,29 @@ jobs:
             libxkbcommon-dev \
             patchelf \
             pkg-config
-      - name: Build native installers
-        # Pinned to the commit behind the v1 tag (2026-06-29), not the
-        # floating tag: this step now receives signing secrets, and a tag
-        # can be repointed by the upstream repo without our review. Verify
-        # https://github.com/tauri-apps/tauri-action/releases/tag/v1
-        # matches before bumping.
+      - name: Build unsigned native installers
+        if: >-
+          runner.os == 'Linux' ||
+          github.event_name == 'workflow_dispatch' ||
+          (runner.os == 'macOS' && env.HAS_APPLE_SIGNING != 'true') ||
+          (runner.os == 'Windows' && env.HAS_WINDOWS_SIGNING != 'true')
+        # Pinned to the commit behind the v1 tag (2026-06-29). Verify the
+        # upstream v1 release before changing this SHA.
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f
-        # Signing is secret-gated and off by default: unset APPLE_*/WINDOWS_*
-        # secrets mean tauri-action falls back to the ad-hoc/unsigned build
-        # already configured in tauri.conf.json (see README "Code signing
-        # status"). Add the secrets below in repo settings to activate real
-        # macOS notarization / Windows code signing — no workflow change
-        # needed once they're set.
+        with:
+          projectPath: crates/caiven-studio
+          tauriScript: npm --prefix ../caiven-studio-ui exec tauri
+          args: ${{ matrix.args }}
+          retryAttempts: 1
+          uploadUpdaterJson: false
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: caiven-studio-[platform]-[arch]-[bundle]
+      - name: Build signed macOS installers
+        if: >-
+          startsWith(github.ref, 'refs/tags/v') &&
+          runner.os == 'macOS' &&
+          env.HAS_APPLE_SIGNING == 'true'
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -469,6 +482,21 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: crates/caiven-studio
+          tauriScript: npm --prefix ../caiven-studio-ui exec tauri
+          args: ${{ matrix.args }}
+          retryAttempts: 1
+          uploadUpdaterJson: false
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: caiven-studio-[platform]-[arch]-[bundle]
+      - name: Build signed Windows installers
+        if: >-
+          startsWith(github.ref, 'refs/tags/v') &&
+          runner.os == 'Windows' &&
+          env.HAS_WINDOWS_SIGNING == 'true'
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f
+        env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         with:
