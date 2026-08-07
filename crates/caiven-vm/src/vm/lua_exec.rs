@@ -1046,9 +1046,7 @@ impl Vm {
         // StdLib mask entirely. PACKAGE stays enabled (mlua auto-disables
         // package.loadlib and the C searchers for it — see `disable_c_modules`)
         // because `require`/`package.preload` back the multi-module bundling
-        // format (`caiven_cart::bundle_lua`); `package.path`/`cpath` are forced
-        // empty below so `require` can only resolve preloaded bundle modules,
-        // never the host filesystem.
+        // format (`caiven_cart::bundle_lua`).
         let lua = Lua::new_with(
             StdLib::COROUTINE
                 | StdLib::TABLE
@@ -1059,9 +1057,50 @@ impl Vm {
             mlua::LuaOptions::default(),
         )?;
         {
-            let package: Table = lua.globals().get("package")?;
+            let globals = lua.globals();
+            let package: Table = globals.get("package")?;
             package.set("path", "")?;
             package.set("cpath", "")?;
+
+            // `disable_c_modules` (called by `Lua::new_with` for StdLib::PACKAGE)
+            // only neuters the C-loader searchers (index 3, and removes index 4).
+            // Index 2 is the stock Lua-file searcher, which walks `package.path`
+            // via C `fopen` regardless of what we set `package.path` to above —
+            // a cart could reassign `package.path` at runtime and have `require`
+            // read arbitrary files. Remove every searcher but index 1 (preload)
+            // so `require` can never resolve anything outside `package.preload`,
+            // no matter what a cart later does to `package.path`/`cpath`.
+            let searchers: Table = package.get("searchers")?;
+            for i in 2..=4 {
+                searchers.raw_set(i, mlua::Nil)?;
+            }
+
+            // The base library (always loaded regardless of the StdLib mask)
+            // exposes `load` with its default "bt" mode, which accepts
+            // precompiled Lua bytecode strings — a known memory-safety hazard
+            // independent of filesystem access. Replace it with a wrapper that
+            // forces text-only ("t") mode, keeping the source-text use that
+            // `caiven_cart::bundle_lua` depends on while rejecting bytecode.
+            // The 4th arg (`env`) sets the loaded chunk's `_ENV` upvalue only
+            // when actually *passed* — real Lua distinguishes "argument
+            // omitted" (chunk inherits the caller's globals) from "argument
+            // is nil" (chunk gets a nil `_ENV`, so any global access inside
+            // it errors). Forward it only when the cart's call actually
+            // supplied one, so callers that omit it (like `bundle_lua`'s
+            // generated `load(src, name)`) keep the normal global env.
+            let base_load: mlua::Function = globals.get("load")?;
+            let text_only_load = lua.create_function(move |_, args: mlua::MultiValue| {
+                let args: Vec<mlua::Value> = args.into_iter().collect();
+                let chunk = args.first().cloned().unwrap_or(mlua::Value::Nil);
+                let chunkname = args.get(1).cloned().unwrap_or(mlua::Value::Nil);
+                match args.get(3) {
+                    Some(env) => {
+                        base_load.call::<mlua::MultiValue>((chunk, chunkname, "t", env.clone()))
+                    }
+                    None => base_load.call::<mlua::MultiValue>((chunk, chunkname, "t")),
+                }
+            })?;
+            globals.set("load", text_only_load)?;
         }
         let output = Arc::new(Mutex::new(Vec::new()));
         if self.capture_lua_output {
