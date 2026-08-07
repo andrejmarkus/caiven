@@ -97,8 +97,7 @@ use mlua::StdLib;
 let lua = Lua::new_with(
     StdLib::COROUTINE | StdLib::TABLE | StdLib::STRING | StdLib::UTF8 | StdLib::MATH,
     mlua::LuaOptions::default(),
-)
-.expect("restricted stdlib set is always valid");
+)?;
 ```
 
 (Add `StdLib` to the existing `use mlua::{...}` import list at `lua_exec.rs:29` instead of a local `use` if that fits the file's existing import style better — check the top of the file before deciding.)

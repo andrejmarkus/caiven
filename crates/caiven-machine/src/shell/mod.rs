@@ -18,6 +18,8 @@ pub mod input;
 #[allow(dead_code)]
 pub mod library;
 #[allow(dead_code)]
+pub mod save_data_io;
+#[allow(dead_code)]
 pub mod save_state;
 #[allow(dead_code)]
 pub mod screens;

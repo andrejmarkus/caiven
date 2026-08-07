@@ -15,6 +15,7 @@
 
 use super::memory::Memory;
 use super::palette::Palette;
+use super::save_data::{SaveData, SaveDataError};
 use super::sfx::{MusicPlayer, SfxPlayer};
 use super::{AssetBankKind, AssetBanks, Camera, Vm, VmFault};
 use crate::input::{Button, Input};
@@ -26,7 +27,7 @@ use caiven_core::memory::{
     SPRITE_SHEET_RAM_BASE,
 };
 use caiven_core::{Color, Vec2};
-use mlua::{HookTriggers, Lua, MultiValue, Scope, Table, VmState};
+use mlua::{HookTriggers, Lua, LuaSerdeExt, MultiValue, Scope, StdLib, Table, VmState};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -69,6 +70,10 @@ const BUILTIN_NAMES: &[&str] = &[
     "frame_count",
     "time",
     "SPRITE_SIZE",
+    "dset",
+    "dget",
+    "save_data",
+    "load_data",
 ];
 
 /// Names defined by [`PRELUDE_SOURCE`] — also excluded from
@@ -562,6 +567,7 @@ fn register_builtins<'scope, 'env>(
     sfx_player: &'env RefCell<&'env mut SfxPlayer>,
     music_player: &'env RefCell<&'env mut MusicPlayer>,
     asset_banks: &'env RefCell<&'env mut AssetBanks>,
+    save_data: &'env RefCell<&'env mut SaveData>,
     collision_types: &'env [caiven_core::CollisionType],
     input: &'env Input,
     font: &'env Font,
@@ -1032,6 +1038,48 @@ fn register_builtins<'scope, 'env>(
         scope.create_function(move |_, ()| Ok(frame_count as f64 / TARGET_FPS))?,
     )?;
 
+    globals.set(
+        "dset",
+        scope.create_function(move |_, (slot, value): (i64, f64)| {
+            let slot: u8 = slot.try_into().map_err(|_| {
+                mlua::Error::RuntimeError(SaveDataError::SlotOutOfRange(slot as u8).to_string())
+            })?;
+            save_data
+                .borrow_mut()
+                .set_slot(slot, value)
+                .map_err(|e| mlua::Error::RuntimeError(e.to_string()))
+        })?,
+    )?;
+
+    globals.set(
+        "dget",
+        scope.create_function(move |_, slot: i64| {
+            let slot: u8 = slot.try_into().unwrap_or(u8::MAX);
+            if slot as usize >= crate::vm::SAVE_DATA_SLOT_COUNT {
+                return Err(mlua::Error::RuntimeError(
+                    SaveDataError::SlotOutOfRange(slot).to_string(),
+                ));
+            }
+            Ok(save_data.borrow().get_slot(slot))
+        })?,
+    )?;
+
+    globals.set(
+        "save_data",
+        scope.create_function(move |lua, table: mlua::Table| {
+            let value: serde_json::Value = lua.from_value(mlua::Value::Table(table))?;
+            save_data
+                .borrow_mut()
+                .set_blob(value)
+                .map_err(|e| mlua::Error::RuntimeError(e.to_string()))
+        })?,
+    )?;
+
+    globals.set(
+        "load_data",
+        scope.create_function(move |lua, ()| lua.to_value(save_data.borrow().blob()))?,
+    )?;
+
     Ok(())
 }
 
@@ -1041,7 +1089,67 @@ impl Vm {
     /// exactly like `_update()` can. Subsequent frames call `_update()` via
     /// [`Vm::run_frame`].
     pub fn load_lua_source(&mut self, src: &str, input: &Input, font: &Font) -> mlua::Result<()> {
-        let lua = Lua::new();
+        // Cart Lua must not reach the filesystem/process: mask out io/os at the
+        // StdLib level, then null dofile/loadfile below since they bypass the
+        // StdLib mask entirely. PACKAGE stays enabled (mlua auto-disables
+        // package.loadlib and the C searchers for it — see `disable_c_modules`)
+        // because `require`/`package.preload` back the multi-module bundling
+        // format (`caiven_cart::bundle_lua`).
+        let lua = Lua::new_with(
+            StdLib::COROUTINE
+                | StdLib::TABLE
+                | StdLib::STRING
+                | StdLib::UTF8
+                | StdLib::MATH
+                | StdLib::PACKAGE,
+            mlua::LuaOptions::default(),
+        )?;
+        {
+            let globals = lua.globals();
+            let package: Table = globals.get("package")?;
+            package.set("path", "")?;
+            package.set("cpath", "")?;
+
+            // `disable_c_modules` (called by `Lua::new_with` for StdLib::PACKAGE)
+            // only neuters the C-loader searchers (index 3, and removes index 4).
+            // Index 2 is the stock Lua-file searcher, which walks `package.path`
+            // via C `fopen` regardless of what we set `package.path` to above —
+            // a cart could reassign `package.path` at runtime and have `require`
+            // read arbitrary files. Remove every searcher but index 1 (preload)
+            // so `require` can never resolve anything outside `package.preload`,
+            // no matter what a cart later does to `package.path`/`cpath`.
+            let searchers: Table = package.get("searchers")?;
+            for i in 2..=4 {
+                searchers.raw_set(i, mlua::Nil)?;
+            }
+
+            // The base library (always loaded regardless of the StdLib mask)
+            // exposes `load` with its default "bt" mode, which accepts
+            // precompiled Lua bytecode strings — a known memory-safety hazard
+            // independent of filesystem access. Replace it with a wrapper that
+            // forces text-only ("t") mode, keeping the source-text use that
+            // `caiven_cart::bundle_lua` depends on while rejecting bytecode.
+            // The 4th arg (`env`) sets the loaded chunk's `_ENV` upvalue only
+            // when actually *passed* — real Lua distinguishes "argument
+            // omitted" (chunk inherits the caller's globals) from "argument
+            // is nil" (chunk gets a nil `_ENV`, so any global access inside
+            // it errors). Forward it only when the cart's call actually
+            // supplied one, so callers that omit it (like `bundle_lua`'s
+            // generated `load(src, name)`) keep the normal global env.
+            let base_load: mlua::Function = globals.get("load")?;
+            let text_only_load = lua.create_function(move |_, args: mlua::MultiValue| {
+                let args: Vec<mlua::Value> = args.into_iter().collect();
+                let chunk = args.first().cloned().unwrap_or(mlua::Value::Nil);
+                let chunkname = args.get(1).cloned().unwrap_or(mlua::Value::Nil);
+                match args.get(3) {
+                    Some(env) => {
+                        base_load.call::<mlua::MultiValue>((chunk, chunkname, "t", env.clone()))
+                    }
+                    None => base_load.call::<mlua::MultiValue>((chunk, chunkname, "t")),
+                }
+            })?;
+            globals.set("load", text_only_load)?;
+        }
         let output = Arc::new(Mutex::new(Vec::new()));
         if self.capture_lua_output {
             register_print_sink(&lua, Arc::clone(&output))?;
@@ -1055,6 +1163,7 @@ impl Vm {
         let sfx_player = RefCell::new(&mut self.sfx_player);
         let music_player = RefCell::new(&mut self.music_player);
         let asset_banks = RefCell::new(&mut self.asset_banks);
+        let save_data = RefCell::new(&mut self.save_data);
         let sprite_size = self.config.sprite_size;
         let width = self.config.width;
         let height = self.config.height;
@@ -1072,6 +1181,7 @@ impl Vm {
                 &sfx_player,
                 &music_player,
                 &asset_banks,
+                &save_data,
                 &self.collision_types,
                 input,
                 font,
@@ -1080,6 +1190,10 @@ impl Vm {
                 height,
                 self.frame_count,
             )?;
+
+            for name in ["dofile", "loadfile"] {
+                globals.set(name, mlua::Nil)?;
+            }
 
             lua.load(PRELUDE_SOURCE).set_name("=prelude").exec()?;
             lua.load(src).set_name(CHUNK_SOURCE_NAME).exec()?;
@@ -1132,6 +1246,7 @@ impl Vm {
         let sfx_player = RefCell::new(&mut self.sfx_player);
         let music_player = RefCell::new(&mut self.music_player);
         let asset_banks = RefCell::new(&mut self.asset_banks);
+        let save_data = RefCell::new(&mut self.save_data);
         let sprite_size = self.config.sprite_size;
         let width = self.config.width;
         let height = self.config.height;
@@ -1149,6 +1264,7 @@ impl Vm {
                 &sfx_player,
                 &music_player,
                 &asset_banks,
+                &save_data,
                 &self.collision_types,
                 input,
                 font,
@@ -1209,6 +1325,7 @@ impl Vm {
         let sfx_player = RefCell::new(&mut self.sfx_player);
         let music_player = RefCell::new(&mut self.music_player);
         let asset_banks = RefCell::new(&mut self.asset_banks);
+        let save_data = RefCell::new(&mut self.save_data);
         let sprite_size = self.config.sprite_size;
         let width = self.config.width;
         let height = self.config.height;
@@ -1279,6 +1396,7 @@ impl Vm {
                 &sfx_player,
                 &music_player,
                 &asset_banks,
+                &save_data,
                 &self.collision_types,
                 input,
                 font,
@@ -1426,6 +1544,7 @@ impl Vm {
         let sfx_player = RefCell::new(&mut self.sfx_player);
         let music_player = RefCell::new(&mut self.music_player);
         let asset_banks = RefCell::new(&mut self.asset_banks);
+        let save_data = RefCell::new(&mut self.save_data);
         let sprite_size = self.config.sprite_size;
         let width = self.config.width;
         let height = self.config.height;
@@ -1445,6 +1564,7 @@ impl Vm {
                 &sfx_player,
                 &music_player,
                 &asset_banks,
+                &save_data,
                 collision_types,
                 input,
                 font,

@@ -20,6 +20,7 @@ use crate::platform::window::Display;
 use crate::port_client::{self, PortEntry};
 use crate::shell::input::{ShellInput, cart_button, shell_button, shell_button_from_system};
 use crate::shell::library::{self as cart_library, CartMeta};
+use crate::shell::save_data_io;
 use crate::shell::save_state;
 use crate::shell::screens::chrome::{self, StatusInfo};
 use crate::shell::screens::loading::{self, LoadProgress};
@@ -116,6 +117,16 @@ impl App {
         info!("cart loaded from {}", path.display());
         self.cart_path = path.to_path_buf();
         self.cart_id = cart_library::cart_id(path);
+
+        if let Some(id) = &self.cart_id {
+            let path = save_data_io::save_data_path(&save_data_io::saves_dir(), id);
+            if let Ok(bytes) = std::fs::read(&path)
+                && let Some(data) = caiven_vm::vm::SaveData::decode(&bytes)
+            {
+                *self.core.vm.save_data_mut() = data;
+            }
+        }
+
         Ok(())
     }
 
@@ -869,6 +880,17 @@ pub fn run() -> Result<()> {
             app.core.screen.get_debug_layer().clear();
         }
 
+        if app.core.vm.save_data().is_dirty() {
+            let dir = save_data_io::saves_dir();
+            if let Some(id) = &app.cart_id {
+                let _ = std::fs::create_dir_all(&dir);
+                let path = save_data_io::save_data_path(&dir, id);
+                if std::fs::write(&path, app.core.vm.save_data().encode()).is_ok() {
+                    app.core.vm.save_data_mut().clear_dirty();
+                }
+            }
+        }
+
         fps_frames_in_window += 1;
         let window_elapsed = now.duration_since(fps_window_start);
         if window_elapsed >= Duration::from_secs(1) {
@@ -1040,6 +1062,30 @@ mod tests {
 
         assert_eq!(app.core.vm.peek_memory(0), 42);
         assert_eq!(app.core.vm.get_palette()[0].to_rgb(), [1, 2, 3]);
+    }
+
+    #[test]
+    fn save_data_persists_across_reload_via_disk() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = test_app();
+        app.cart_id = Some("mygame".to_string());
+
+        app.core
+            .vm
+            .save_data_mut()
+            .set_slot(0, 7.0)
+            .expect("slot 0 is in range");
+        let path = crate::shell::save_data_io::save_data_path(dir.path(), "mygame");
+        std::fs::create_dir_all(dir.path()).unwrap();
+        std::fs::write(&path, app.core.vm.save_data().encode()).unwrap();
+
+        let mut app2 = test_app();
+        app2.cart_id = Some("mygame".to_string());
+        let bytes = std::fs::read(&path).unwrap();
+        let data = caiven_vm::vm::SaveData::decode(&bytes).expect("valid save data");
+        *app2.core.vm.save_data_mut() = data;
+
+        assert_eq!(app2.core.vm.save_data().get_slot(0), 7.0);
     }
 
     #[test]
