@@ -598,26 +598,63 @@ fn register_builtins<'scope, 'env>(
 
     globals.set(
         "sprite",
-        scope.create_function_mut(move |_, (sprite_id, x, y): (u8, i64, i64)| {
-            let base = SPRITE_SHEET_RAM_BASE + sprite_id as usize * SPRITE_BYTES;
-            let (cam_x, cam_y) = cam_offset(camera);
-            let ss = sprite_size as i64;
-            let mem = memory.borrow();
-            let mut w = world.borrow_mut();
-            for sy in 0..ss {
-                for sx in 0..ss {
-                    let Ok(pixel) = mem.read(base + (sy * ss + sx) as usize) else {
-                        continue;
-                    };
-                    if pixel == 0 {
-                        continue;
+        scope.create_function_mut(
+            move |_,
+                  (sprite_id, x, y, flip_x, flip_y, rotate): (
+                u8,
+                i64,
+                i64,
+                Option<bool>,
+                Option<bool>,
+                Option<i64>,
+            )| {
+                let rotate_steps = match rotate.unwrap_or(0) {
+                    0 => 0,
+                    90 => 1,
+                    180 => 2,
+                    270 => 3,
+                    other => {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "sprite: rotate must be 0, 90, 180, or 270 (got {other})"
+                        )));
                     }
-                    let color = palette.borrow().get_color(pixel as usize);
-                    plot(&mut w, x + sx - cam_x, y + sy - cam_y, color);
+                };
+                let flip_x = flip_x.unwrap_or(false);
+                let flip_y = flip_y.unwrap_or(false);
+
+                let base = SPRITE_SHEET_RAM_BASE + sprite_id as usize * SPRITE_BYTES;
+                let (cam_x, cam_y) = cam_offset(camera);
+                let ss = sprite_size as i64;
+                let mem = memory.borrow();
+                let mut w = world.borrow_mut();
+                for sy in 0..ss {
+                    for sx in 0..ss {
+                        let Ok(pixel) = mem.read(base + (sy * ss + sx) as usize) else {
+                            continue;
+                        };
+                        if pixel == 0 {
+                            continue;
+                        }
+                        // Rotate (clockwise) about the sprite's own square, then flip.
+                        let (mut rx, mut ry) = match rotate_steps {
+                            0 => (sx, sy),
+                            1 => (ss - 1 - sy, sx),
+                            2 => (ss - 1 - sx, ss - 1 - sy),
+                            _ => (sy, ss - 1 - sx),
+                        };
+                        if flip_x {
+                            rx = ss - 1 - rx;
+                        }
+                        if flip_y {
+                            ry = ss - 1 - ry;
+                        }
+                        let color = palette.borrow().get_color(pixel as usize);
+                        plot(&mut w, x + rx - cam_x, y + ry - cam_y, color);
+                    }
                 }
-            }
-            Ok(())
-        })?,
+                Ok(())
+            },
+        )?,
     )?;
 
     globals.set(

@@ -1,4 +1,4 @@
-use caiven_core::memory::{RTC_RAM_BASE, SFX_RAM_BASE};
+use caiven_core::memory::{RTC_RAM_BASE, SFX_RAM_BASE, SPRITE_SHEET_RAM_BASE};
 use caiven_vm::input::Input;
 use caiven_vm::rendering::font::Font;
 use caiven_vm::{
@@ -832,4 +832,153 @@ fn prelude_particles_spawn_update_expire() {
         &["n0", "n1", "n2"],
     );
     assert_eq!(got, vec!["1", "1", "0"]);
+}
+
+/// Pokes an 8x8 "L" sprite (id 0, palette color 8) into sprite RAM:
+/// a full left column plus a full bottom row. Asymmetric under every
+/// flip/rotate combination, so each transform produces a distinct,
+/// checkable pixel set.
+fn poke_l_sprite(vm: &mut Vm) {
+    let base = SPRITE_SHEET_RAM_BASE;
+    for sy in 0..8usize {
+        for sx in 0..8usize {
+            let lit = sx == 0 || sy == 7;
+            vm.poke_memory(base + sy * 8 + sx, if lit { 8 } else { 0 });
+        }
+    }
+}
+
+/// Returns the set of (x, y) offsets within an 8x8 region at (ox, oy)
+/// that are lit (non-background) after drawing.
+fn lit_offsets(vm: &Vm, ox: u32, oy: u32) -> std::collections::BTreeSet<(u32, u32)> {
+    let mut set = std::collections::BTreeSet::new();
+    for dy in 0..8u32 {
+        for dx in 0..8u32 {
+            if read_rgba(vm, ox + dx, oy + dy) != [0, 0, 0, 0] {
+                set.insert((dx, dy));
+            }
+        }
+    }
+    set
+}
+
+#[test]
+fn lua_sprite_no_optional_args_matches_current_output() {
+    let mut vm = make_vm();
+    let font = Font::empty();
+    poke_l_sprite(&mut vm);
+    vm.load_lua_source(
+        "function _update() end\nfunction _draw() sprite(0, 10, 10) end",
+        &Input::new(),
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&Input::new(), &font);
+
+    assert_eq!(vm.get_fault(), None);
+    let mut expected = std::collections::BTreeSet::new();
+    for sy in 0..8u32 {
+        for sx in 0..8u32 {
+            if sx == 0 || sy == 7 {
+                expected.insert((sx, sy));
+            }
+        }
+    }
+    assert_eq!(lit_offsets(&vm, 10, 10), expected);
+}
+
+#[test]
+fn lua_sprite_flip_x_mirrors_horizontally() {
+    let mut vm = make_vm();
+    let font = Font::empty();
+    poke_l_sprite(&mut vm);
+    vm.load_lua_source(
+        "function _update() end\nfunction _draw() sprite(0, 10, 10, true, false) end",
+        &Input::new(),
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&Input::new(), &font);
+
+    assert_eq!(vm.get_fault(), None);
+    // Left column (sx==0) mirrors to the right column (sx==7); bottom row unchanged.
+    let mut expected = std::collections::BTreeSet::new();
+    for sy in 0..8u32 {
+        for sx in 0..8u32 {
+            if sx == 7 || sy == 7 {
+                expected.insert((sx, sy));
+            }
+        }
+    }
+    assert_eq!(lit_offsets(&vm, 10, 10), expected);
+}
+
+#[test]
+fn lua_sprite_flip_y_mirrors_vertically() {
+    let mut vm = make_vm();
+    let font = Font::empty();
+    poke_l_sprite(&mut vm);
+    vm.load_lua_source(
+        "function _update() end\nfunction _draw() sprite(0, 10, 10, false, true) end",
+        &Input::new(),
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&Input::new(), &font);
+
+    assert_eq!(vm.get_fault(), None);
+    // Bottom row (sy==7) mirrors to the top row (sy==0); left column unchanged.
+    let mut expected = std::collections::BTreeSet::new();
+    for sy in 0..8u32 {
+        for sx in 0..8u32 {
+            if sx == 0 || sy == 0 {
+                expected.insert((sx, sy));
+            }
+        }
+    }
+    assert_eq!(lit_offsets(&vm, 10, 10), expected);
+}
+
+#[test]
+fn lua_sprite_rotate_90_clockwise() {
+    let mut vm = make_vm();
+    let font = Font::empty();
+    poke_l_sprite(&mut vm);
+    vm.load_lua_source(
+        "function _update() end\nfunction _draw() sprite(0, 10, 10, false, false, 90) end",
+        &Input::new(),
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&Input::new(), &font);
+
+    assert_eq!(vm.get_fault(), None);
+    // 90 deg CW: source (sx, sy) -> (7 - sy, sx). Left column (sx==0) -> top row
+    // (dy==0); bottom row (sy==7) -> right column (dx==7).
+    let mut expected = std::collections::BTreeSet::new();
+    for sy in 0..8u32 {
+        for sx in 0..8u32 {
+            if sx == 0 || sy == 7 {
+                let (dx, dy) = (7 - sy, sx);
+                expected.insert((dx, dy));
+            }
+        }
+    }
+    assert_eq!(lit_offsets(&vm, 10, 10), expected);
+}
+
+#[test]
+fn lua_sprite_invalid_rotate_errors() {
+    let mut vm = make_vm();
+    let font = Font::empty();
+    poke_l_sprite(&mut vm);
+    vm.load_lua_source(
+        "function _update() end\nfunction _draw() sprite(0, 10, 10, false, false, 45) end",
+        &Input::new(),
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&Input::new(), &font);
+
+    assert!(vm.get_fault().is_some(), "expected a fault for rotate=45");
 }

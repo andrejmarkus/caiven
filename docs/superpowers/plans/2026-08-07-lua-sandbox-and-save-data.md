@@ -29,7 +29,7 @@
 - Consumes: nothing new — this only changes how the existing `Lua` instance in `Vm::load_lua_source` is constructed.
 - Produces: nothing new is exposed; this task *removes* `io`, `os`, `package`, `dofile`, `loadfile`, `load`, `require` from a loaded cart's Lua globals. Later tasks must not reintroduce a path to any of these.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `crates/caiven-vm/tests/sandbox.rs`:
 
@@ -76,12 +76,12 @@ fn sanctioned_stdlib_still_works() {
 
 Adjust the exact `VmConfig`/`Input`/`Font` construction calls to whatever the existing test helpers in `crates/caiven-vm/tests/` already use (check an existing test file in that directory for the established fixture pattern before finalizing this file, since `Default` may not be implemented for all three types) — keep the three `#[test]` functions and their assertions as written.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test -p caiven-vm --test sandbox`
 Expected: `dangerous_globals_are_absent` FAILS (currently `io`, `os`, etc. are real tables, not `nil`), other two may pass already.
 
-- [ ] **Step 3: Implement the sandbox restriction**
+- [x] **Step 3: Implement the sandbox restriction**
 
 In `crates/caiven-vm/src/vm/lua_exec.rs`, replace line 1044:
 
@@ -110,22 +110,22 @@ for name in ["dofile", "loadfile", "load", "require"] {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cargo test -p caiven-vm --test sandbox`
 Expected: all three tests PASS.
 
-- [ ] **Step 5: Run the full existing VM test suite to check for regressions**
+- [x] **Step 5: Run the full existing VM test suite to check for regressions**
 
 Run: `cargo test -p caiven-vm`
 Expected: PASS — no existing cart, prelude helper, or test uses `os.*`/`io.*`/`dofile`/`loadfile`/`load`/`require` (confirmed by grep across `prelude.lua` and `carts/` during design), so nothing else should break.
 
-- [ ] **Step 6: Format and lint**
+- [x] **Step 6: Format and lint**
 
 Run: `cargo fmt --all -- --check && cargo clippy -p caiven-vm --all-targets -- -D warnings -A unused-imports`
 Expected: clean.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add crates/caiven-vm/src/vm/lua_exec.rs crates/caiven-vm/tests/sandbox.rs
@@ -161,7 +161,7 @@ EOF
   - `pub const SAVE_DATA_BLOB_MAX_BYTES: usize = 4096;`
   - On `Vm`: `pub fn save_data(&self) -> &SaveData;` and `pub fn save_data_mut(&mut self) -> &mut SaveData;` (host crates use these to call `encode()`/replace-with-`decode()`/`is_dirty()`/`clear_dirty()`; the Lua builtins in Task 3 use the same accessors through the existing `RefCell`-scoped-borrow pattern the other builtins use).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `crates/caiven-vm/src/vm/save_data.rs` starting with just the test module (so it fails to compile, which counts as "failing" for a from-scratch module):
 
@@ -397,12 +397,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test -p caiven-vm save_data`
 Expected: fails to compile — `serde_json` isn't a `caiven-vm` dependency yet.
 
-- [ ] **Step 3: Add the dependency and wire the module in**
+- [x] **Step 3: Add the dependency and wire the module in**
 
 In `crates/caiven-vm/Cargo.toml`, next to the existing `serde = { workspace = true }` line, add:
 
@@ -441,22 +441,22 @@ pub fn save_data_mut(&mut self) -> &mut SaveData {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cargo test -p caiven-vm save_data`
 Expected: all 7 tests in `save_data::tests` PASS.
 
-- [ ] **Step 5: Run the full existing VM test suite to check for regressions**
+- [x] **Step 5: Run the full existing VM test suite to check for regressions**
 
 Run: `cargo test -p caiven-vm`
 Expected: PASS.
 
-- [ ] **Step 6: Format and lint**
+- [x] **Step 6: Format and lint**
 
 Run: `cargo fmt --all -- --check && cargo clippy -p caiven-vm --all-targets -- -D warnings -A unused-imports`
 Expected: clean.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add crates/caiven-vm/Cargo.toml crates/caiven-vm/src/vm/save_data.rs crates/caiven-vm/src/vm/mod.rs
@@ -487,7 +487,7 @@ EOF
 
 First, locate the existing `register_builtins` function signature in `lua_exec.rs` (it takes a `save_data: &RefCell<&mut SaveData>`-style parameter for each piece of `Vm` state it exposes — follow the exact same borrowing pattern already used for `memory`/`palette`/`camera` in that function, e.g. `let memory = RefCell::new(&mut self.memory);` at `lua_exec.rs:1052` and its corresponding parameter in `register_builtins`). Add a `save_data: &RefCell<&mut SaveData>` parameter to `register_builtins`, and in `Vm::load_lua_source` add `let save_data = RefCell::new(&mut self.save_data);` alongside the other `RefCell::new(&mut self....)` lines, then pass `&save_data` into the `register_builtins(...)` call.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `crates/caiven-vm/tests/save_data_api.rs` (mirror whatever fixture-construction pattern Task 1's `sandbox.rs` ended up using for `Vm`/`Input`/`Font`):
 
@@ -565,12 +565,12 @@ fn dset_marks_vm_save_data_dirty() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test -p caiven-vm --test save_data_api`
 Expected: fails to compile — `dset`/`dget`/`save_data`/`load_data` aren't registered yet.
 
-- [ ] **Step 3: Implement the builtins**
+- [x] **Step 3: Implement the builtins**
 
 In `crates/caiven-vm/src/vm/lua_exec.rs`, add to `BUILTIN_NAMES` (`lua_exec.rs:36-72`):
 
@@ -636,22 +636,22 @@ globals.set(
 
 `lua.from_value`/`lua.to_value` require the `mlua` `serialize` feature — check `crates/caiven-vm/Cargo.toml`'s existing `mlua` dependency line; if it doesn't already list `"serialize"` in `features`, add it (it comes from the workspace `mlua = { version = "0.10", features = ["lua54", "vendored"] }` — override in `caiven-vm/Cargo.toml` with the full feature list including `"serialize"` if the crate doesn't already do a per-crate override).
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cargo test -p caiven-vm --test save_data_api`
 Expected: all 7 tests PASS.
 
-- [ ] **Step 5: Run the full existing VM test suite to check for regressions**
+- [x] **Step 5: Run the full existing VM test suite to check for regressions**
 
 Run: `cargo test -p caiven-vm`
 Expected: PASS.
 
-- [ ] **Step 6: Format and lint**
+- [x] **Step 6: Format and lint**
 
 Run: `cargo fmt --all -- --check && cargo clippy -p caiven-vm --all-targets -- -D warnings -A unused-imports`
 Expected: clean.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add crates/caiven-vm/src/vm/lua_exec.rs crates/caiven-vm/Cargo.toml crates/caiven-vm/tests/save_data_api.rs
@@ -680,7 +680,7 @@ EOF
 - Consumes: the four builtin names/behaviors from Task 3.
 - Produces: `ApiEntry` records consumed by Studio's autocomplete/hover and the syntax highlighter's builtin list (`all_names`, referenced in the file's module doc comment).
 
-- [ ] **Step 1: Add entries**
+- [x] **Step 1: Add entries**
 
 In `crates/caiven-vm/src/vm/api_registry.rs`, in the `BUILTINS` array (after the `load_music_bank`/`play_sfx`/etc. entries, before the `math.*`/`string.*`/`table.*` entries), add:
 
@@ -711,17 +711,17 @@ ApiEntry {
 },
 ```
 
-- [ ] **Step 2: Verify it compiles**
+- [x] **Step 2: Verify it compiles**
 
 Run: `cargo build -p caiven-vm`
 Expected: succeeds.
 
-- [ ] **Step 3: Format and lint**
+- [x] **Step 3: Format and lint**
 
 Run: `cargo fmt --all -- --check && cargo clippy -p caiven-vm --all-targets -- -D warnings -A unused-imports`
 Expected: clean.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add crates/caiven-vm/src/vm/api_registry.rs
@@ -742,7 +742,7 @@ EOF
 **Files:**
 - Modify: `docs/api-reference.md`
 
-- [ ] **Step 1: Add a "Persistent Data" section**
+- [x] **Step 1: Add a "Persistent Data" section**
 
 In `docs/api-reference.md`, after the `## Audio` section and before `## System`, add:
 
@@ -761,7 +761,7 @@ System Specifications below) and is written to disk by the host (Machine
 or Studio), not by the Lua sandbox directly.
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/api-reference.md
@@ -786,7 +786,7 @@ EOF
 
 First, find exactly how `save_state` is declared as a module (check the top of `crates/caiven-machine/src/shell/mod.rs` for `pub(crate) mod save_state;` or similar) and mirror that declaration for the new module.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `crates/caiven-machine/src/shell/save_data_io.rs` with its test module written first (following `save_state.rs`'s own test style at `crates/caiven-machine/src/shell/save_state.rs:74-116` as the template):
 
@@ -829,12 +829,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test -p caiven-machine save_data_path`
 Expected: fails to compile until the module is declared in `shell/mod.rs`.
 
-- [ ] **Step 3: Declare the module and wire load/flush into `app.rs`**
+- [x] **Step 3: Declare the module and wire load/flush into `app.rs`**
 
 In `crates/caiven-machine/src/shell/mod.rs`, next to the existing `save_state` module declaration, add:
 
@@ -880,12 +880,12 @@ if app.core.vm.save_data().is_dirty() {
 
 (A failed write is left dirty so the next frame retries — matches the "prefer rejecting/retrying over silently losing data" spirit of the security rules without introducing a new error-reporting path; this is not expected to be a hot per-frame cost since `dset`/`save_data` calls are rare relative to draw calls, but if profiling later shows otherwise, throttling the flush is a follow-up, not part of this task.)
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cargo test -p caiven-machine save_data_path`
 Expected: PASS.
 
-- [ ] **Step 5: Add an integration test mirroring the existing save-state round-trip test**
+- [x] **Step 5: Add an integration test mirroring the existing save-state round-trip test**
 
 In `crates/caiven-machine/src/app.rs`'s existing `#[cfg(test)] mod tests` block (the one containing `save_state_round_trips_ram_and_palette` around line 1024), add:
 
@@ -916,17 +916,17 @@ fn save_data_persists_across_reload_via_disk() {
 Run: `cargo test -p caiven-machine save_data`
 Expected: PASS.
 
-- [ ] **Step 6: Run the full existing machine test suite to check for regressions**
+- [x] **Step 6: Run the full existing machine test suite to check for regressions**
 
 Run: `cargo test -p caiven-machine`
 Expected: PASS.
 
-- [ ] **Step 7: Format and lint**
+- [x] **Step 7: Format and lint**
 
 Run: `cargo fmt --all -- --check && cargo clippy -p caiven-machine --all-targets -- -D warnings -A unused-imports`
 Expected: clean.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add crates/caiven-machine/src/shell/save_data_io.rs crates/caiven-machine/src/shell/mod.rs crates/caiven-machine/src/app.rs
@@ -953,36 +953,36 @@ EOF
 **Interfaces:**
 - Consumes: the same `caiven_vm::vm::SaveData`/`Vm::save_data()`/`save_data_mut()` API as Task 6, and the same `crate::shell::save_data_io`-equivalent path helpers (Studio has no existing `saves/`-style directory convention — reuse `caiven_machine`'s `save_data_io` module if `caiven-studio` can depend on `caiven-machine`'s public items, otherwise duplicate the two small path-helper functions locally under a new `crates/caiven-studio/src/app/save_data_io.rs` following the exact same shape as Task 6's file, keyed on the open project's directory name instead of a `.cav` filename stem).
 
-- [ ] **Step 1: Confirm the integration points**
+- [x] **Step 1: Confirm the integration points**
 
 Read `crates/caiven-studio/src/studio/cart.rs` around the line numbers already identified (`73`, `187`, `205`) to find: (a) the function that runs a cart's Lua source for the first time in a Studio session (analogous to `caiven-machine`'s `load_lua_source` call site), and (b) the function that steps the VM each frame (analogous to `run_frame`). Note their exact names and signatures — this step has no code changes, just confirms where Steps 2-3 attach.
 
-- [ ] **Step 2: Load save data when a project starts running**
+- [x] **Step 2: Load save data when a project starts running**
 
 At the point identified in Step 1(a), after the VM's Lua source is loaded successfully, add the same read-and-decode logic as Task 6's Step 3 load block, keyed on a stable identifier for the open project (use the project directory's folder name, sanitized the same way `cart_library::cart_id` sanitizes a `.cav` filename stem — do not introduce a second, differently-behaved sanitizer; if `cart_id`'s sanitization function can be shared/exposed for reuse here, prefer that over duplicating the rules).
 
-- [ ] **Step 3: Flush save data when dirty after each frame**
+- [x] **Step 3: Flush save data when dirty after each frame**
 
 At the point identified in Step 1(b), after each frame step, add the same dirty-check-then-write logic as Task 6's Step 3 flush block, writing to `<project-dir>/.caiven/saves/<id>.cavdata` (or wherever Studio already keeps generated/derived per-project files — check for an existing convention like a `.caiven/` directory before inventing a new location).
 
-- [ ] **Step 4: Add a test**
+- [x] **Step 4: Add a test**
 
 Add a test in the same file (or its existing test module) mirroring Task 6 Step 5's round-trip test, adapted to however Studio constructs a test `Vm`/project fixture in its existing tests (check for an existing test helper before writing a new one).
 
 Run: `cargo test -p caiven-studio save_data`
 Expected: PASS.
 
-- [ ] **Step 5: Run the full existing studio test suite to check for regressions**
+- [x] **Step 5: Run the full existing studio test suite to check for regressions**
 
 Run: `cargo test -p caiven-studio`
 Expected: PASS.
 
-- [ ] **Step 6: Format and lint**
+- [x] **Step 6: Format and lint**
 
 Run: `cargo fmt --all -- --check && cargo clippy -p caiven-studio --all-targets -- -D warnings -A unused-imports`
 Expected: clean.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add -A crates/caiven-studio
@@ -1002,20 +1002,20 @@ EOF
 **Files:**
 - Modify: the CodeMirror Lua definitions file(s) under `crates/caiven-studio-ui` that currently list builtin names for autocomplete/hover (search for wherever `sprite`, `button_down`, etc. are already listed as completions — likely a `.ts`/`.js` file generated from or mirroring `api_registry.rs`'s `BUILTINS`).
 
-- [ ] **Step 1: Locate the existing builtin completion list**
+- [x] **Step 1: Locate the existing builtin completion list**
 
 Run: `grep -rn "button_pressed" crates/caiven-studio-ui/src` to find the file(s) that need the four new entries.
 
-- [ ] **Step 2: Add the four entries**
+- [x] **Step 2: Add the four entries**
 
 Add `dset`, `dget`, `save_data`, `load_data` to that list using the exact same shape (name, params, doc string) as a neighboring entry like `play_sfx`, copying the parameter/return/doc text from Task 4's `api_registry.rs` entries verbatim so the two stay worded identically.
 
-- [ ] **Step 3: Verify Studio UI type-checks**
+- [x] **Step 3: Verify Studio UI type-checks**
 
 Run: `scripts/claude/check-studio-ui.sh`
 Expected: clean.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add -A crates/caiven-studio-ui
@@ -1032,15 +1032,15 @@ EOF
 **Files:**
 - Modify: `games/carts/stdlib_demo.cav`'s source project (find the loose-source project directory it's built from — check `carts/` for a matching `.lua`/`caiven.toml` pair, per `.claude/rules/cart-format.md`'s description of the human-diffable project format), or create a new small example under `carts/` if `stdlib_demo` doesn't have easy room for this without disrupting its existing easing/particle/tween demo.
 
-- [ ] **Step 1: Add a persisted high-score counter**
+- [x] **Step 1: Add a persisted high-score counter**
 
 Add a few lines to the example's `_init()`/`_update()` that call `dget(0)` on startup to read a stored high score, compare it against a running score each frame, and call `dset(0, score)` when the running score exceeds it — following whatever coordinate/scoring convention the existing demo already uses.
 
-- [ ] **Step 2: Run the demo and confirm it behaves**
+- [x] **Step 2: Run the demo and confirm it behaves**
 
 Run: `cargo run -p caiven-machine -- games/carts/stdlib_demo.cav` (or the equivalent path for a new example cart) and confirm no Lua errors appear in the log and the high-score value persists after quitting and relaunching.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add -A carts/ games/carts/
@@ -1054,11 +1054,11 @@ EOF
 
 ## Task 10: Final full pass
 
-- [ ] **Step 1: Run the full pre-commit gate**
+- [x] **Step 1: Run the full pre-commit gate**
 
 Run: `scripts/claude/pre-commit-gate.sh`
 Expected: clean across the whole workspace.
 
-- [ ] **Step 2: Re-read the design doc against what shipped**
+- [x] **Step 2: Re-read the design doc against what shipped**
 
 Open `docs/superpowers/specs/2026-08-07-lua-sandbox-and-save-data-design.md` and confirm every "Tests" / "Documentation & tooling" bullet in both Part 1 and Part 2 has a corresponding completed task above. Note any gap in a follow-up task rather than leaving it silently unaddressed.
