@@ -26,7 +26,7 @@ use caiven_core::memory::{
     SPRITE_SHEET_RAM_BASE,
 };
 use caiven_core::{Color, Vec2};
-use mlua::{HookTriggers, Lua, MultiValue, Scope, Table, VmState};
+use mlua::{HookTriggers, Lua, MultiValue, Scope, StdLib, Table, VmState};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -1041,7 +1041,28 @@ impl Vm {
     /// exactly like `_update()` can. Subsequent frames call `_update()` via
     /// [`Vm::run_frame`].
     pub fn load_lua_source(&mut self, src: &str, input: &Input, font: &Font) -> mlua::Result<()> {
-        let lua = Lua::new();
+        // Cart Lua must not reach the filesystem/process: mask out io/os at the
+        // StdLib level, then null dofile/loadfile below since they bypass the
+        // StdLib mask entirely. PACKAGE stays enabled (mlua auto-disables
+        // package.loadlib and the C searchers for it — see `disable_c_modules`)
+        // because `require`/`package.preload` back the multi-module bundling
+        // format (`caiven_cart::bundle_lua`); `package.path`/`cpath` are forced
+        // empty below so `require` can only resolve preloaded bundle modules,
+        // never the host filesystem.
+        let lua = Lua::new_with(
+            StdLib::COROUTINE
+                | StdLib::TABLE
+                | StdLib::STRING
+                | StdLib::UTF8
+                | StdLib::MATH
+                | StdLib::PACKAGE,
+            mlua::LuaOptions::default(),
+        )?;
+        {
+            let package: Table = lua.globals().get("package")?;
+            package.set("path", "")?;
+            package.set("cpath", "")?;
+        }
         let output = Arc::new(Mutex::new(Vec::new()));
         if self.capture_lua_output {
             register_print_sink(&lua, Arc::clone(&output))?;
@@ -1080,6 +1101,10 @@ impl Vm {
                 height,
                 self.frame_count,
             )?;
+
+            for name in ["dofile", "loadfile"] {
+                globals.set(name, mlua::Nil)?;
+            }
 
             lua.load(PRELUDE_SOURCE).set_name("=prelude").exec()?;
             lua.load(src).set_name(CHUNK_SOURCE_NAME).exec()?;
