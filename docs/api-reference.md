@@ -47,6 +47,19 @@ returns `false` rather than erroring.
 | `play_music(id)` | Play a music track                    |
 | `stop_music()`   | Stop music                            |
 
+## Persistent Data
+
+| Function                | Description                                                                                          |
+| :------------------------| :----------------------------------------------------------------------------------------------------|
+| `dset(slot, value)`     | Write `value` into save slot `0-63`; errors if `slot` is out of range                                |
+| `dget(slot)`            | Read save slot `0-63`; `0` if never set; errors if `slot` is out of range                             |
+| `save_data(table)`      | Replace the persisted save blob (string/number/bool/nested-table only); errors over 4KiB packed or on an unserializable value |
+| `load_data()`           | Return the persisted save blob, or `{}` if `save_data` has never been called                          |
+
+Save data is per cart (keyed the same way save states already are — see
+System Specifications below) and is written to disk by the host (Machine
+or Studio), not by the Lua sandbox directly.
+
 ## System
 
 | Function        | Description                                                      |
