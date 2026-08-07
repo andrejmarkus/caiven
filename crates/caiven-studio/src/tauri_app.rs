@@ -16,6 +16,7 @@ use caiven_core::memory::{
 };
 use caiven_vm::input::Button;
 use caiven_vm::runtime::ConsoleCore;
+use caiven_vm::vm::SaveData;
 use caiven_vm::vm::api_registry;
 use caiven_vm::{AssetBankKind, LuaBreakpoint, LuaRunOutcome};
 use serde::{Deserialize, Serialize};
@@ -530,6 +531,11 @@ impl StudioCore {
                 .unwrap_or_default()
         };
         self.cart = Some(meta);
+        if let Ok(bytes) = std::fs::read(save_data_path(path))
+            && let Some(data) = SaveData::decode(&bytes)
+        {
+            *self.console.vm.save_data_mut() = data;
+        }
         let entry_source = self.source_name(0);
         self.debugger.set_dbg_path(debug_path(path), entry_source);
         self.diagnostics.clear();
@@ -1446,6 +1452,16 @@ fn debug_path(path: &Path) -> PathBuf {
     }
 }
 
+/// Same sidecar convention as [`debug_path`]: a `.cav` file gets a
+/// same-named sibling, a project directory gets a dotfile inside it.
+fn save_data_path(path: &Path) -> PathBuf {
+    if path.extension().and_then(|value| value.to_str()) == Some("cav") {
+        path.with_extension("cav.data")
+    } else {
+        path.join(".caiven.data")
+    }
+}
+
 fn normalized_module_path(name: &str) -> Result<PathBuf, String> {
     let trimmed = name.trim().trim_start_matches('/');
     if trimmed.is_empty() {
@@ -1848,6 +1864,14 @@ fn spawn_core(initial_path: Option<PathBuf>) -> StudioBridge {
                         fps_frames += 1;
                     } else {
                         studio.console.vm.tick_audio_players();
+                    }
+                }
+                if studio.console.vm.save_data().is_dirty()
+                    && let Some(meta) = studio.cart.as_ref()
+                {
+                    let path = save_data_path(&meta.path);
+                    if std::fs::write(&path, studio.console.vm.save_data().encode()).is_ok() {
+                        studio.console.vm.save_data_mut().clear_dirty();
                     }
                 }
                 if fps_started.elapsed() >= Duration::from_secs(1) {
@@ -2408,7 +2432,7 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
 mod tests {
     use super::{
         Breakpoint, CoreCommand, RunState, StudioCore, debug_path, handle_command,
-        normalized_module_path, parse_hex, trim_output, valid_watch_expression,
+        normalized_module_path, parse_hex, save_data_path, trim_output, valid_watch_expression,
     };
     use caiven_vm::AssetBankKind;
     use std::path::{Path, PathBuf};
@@ -2451,6 +2475,29 @@ mod tests {
         assert!(!valid_watch_expression("player.x + 1"));
         assert!(!valid_watch_expression("player..x"));
         assert!(!valid_watch_expression("2player.x"));
+    }
+
+    #[test]
+    fn save_data_persists_across_reopen_via_disk() {
+        let dir = temp_dir("save-data-round-trip");
+
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+        studio.save().expect("save project to disk");
+        studio
+            .console
+            .vm
+            .save_data_mut()
+            .set_slot(0, 9.0)
+            .expect("slot 0 is in range");
+        let path = save_data_path(&dir);
+        std::fs::write(&path, studio.console.vm.save_data().encode()).expect("write save data");
+
+        let mut studio2 = StudioCore::new(None).expect("studio core");
+        studio2.open(&dir).expect("reopen project");
+        assert_eq!(studio2.console.vm.save_data().get_slot(0), 9.0);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
