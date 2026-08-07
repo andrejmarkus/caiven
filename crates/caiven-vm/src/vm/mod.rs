@@ -8,6 +8,7 @@ mod lua_exec;
 pub mod memory;
 pub mod palette;
 mod rtc;
+pub mod save_data;
 pub mod sfx;
 
 pub use camera::*;
@@ -15,6 +16,7 @@ pub use config::VmConfig;
 pub use fault::VmFault;
 pub use lua_exec::{LuaBreakpoint, LuaRunOutcome, describe_lua_error, describe_lua_error_location};
 pub use palette::*;
+pub use save_data::{SAVE_DATA_BLOB_MAX_BYTES, SAVE_DATA_SLOT_COUNT, SaveData, SaveDataError};
 
 use self::memory::Memory;
 use self::sfx::{MusicPlayer, SfxPlayer};
@@ -197,6 +199,7 @@ pub struct Vm {
     /// `Vm::run_frame_lua_bp` for how these are read via raw FFI.
     locals: Vec<(String, String)>,
     asset_banks: AssetBanks,
+    save_data: SaveData,
     /// Cart-global collision-type table (names/colors/solid flags). Small
     /// metadata, not RAM-backed — see `caiven_core::collision` and
     /// `COLLISION_RAM_BASE`'s doc comment. Seeded with the built-in types
@@ -244,6 +247,7 @@ impl Vm {
             call_stack: Vec::new(),
             locals: Vec::new(),
             asset_banks: AssetBanks::new(),
+            save_data: SaveData::new(),
             collision_types: caiven_core::builtin_collision_types(),
         }
     }
@@ -258,6 +262,14 @@ impl Vm {
     /// commits a full table rather than deltas — see `caiven-studio`).
     pub fn set_collision_types(&mut self, types: Vec<caiven_core::CollisionType>) {
         self.collision_types = types;
+    }
+
+    pub fn save_data(&self) -> &SaveData {
+        &self.save_data
+    }
+
+    pub fn save_data_mut(&mut self) -> &mut SaveData {
+        &mut self.save_data
     }
 
     /// Enables VM-owned `print()` capture for subsequently loaded Lua code.
