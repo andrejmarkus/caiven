@@ -134,7 +134,11 @@ impl SaveData {
 
         let blob_len = u32::from_le_bytes(bytes.get(cursor..cursor + 4)?.try_into().ok()?) as usize;
         cursor += 4;
-        let blob_bytes = bytes.get(cursor..cursor + blob_len)?;
+        let remaining = bytes.len().checked_sub(cursor)?;
+        if blob_len > remaining {
+            return None;
+        }
+        let blob_bytes = &bytes[cursor..cursor + blob_len];
         let blob: serde_json::Value = serde_json::from_slice(blob_bytes).ok()?;
 
         Some(Self {
@@ -227,6 +231,18 @@ mod tests {
         let data = SaveData::new();
         let mut bytes = data.encode();
         bytes[4..6].copy_from_slice(&99u16.to_le_bytes());
+        assert!(SaveData::decode(&bytes).is_none());
+    }
+
+    #[test]
+    fn rejects_absurd_blob_len_without_overflow() {
+        let data = SaveData::new();
+        let mut bytes = data.encode();
+        // cursor is at 522 after magic (4) + version (2) + slots (512) + blob_len (4) reads.
+        // Overwrite the blob_len with u32::MAX, which would overflow cursor+blob_len on 32-bit.
+        let blob_len_offset = 4 + 2 + 512; // magic + version + all 64 slots
+        bytes[blob_len_offset..blob_len_offset + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        // This must return None, not panic with "attempt to add with overflow".
         assert!(SaveData::decode(&bytes).is_none());
     }
 }
