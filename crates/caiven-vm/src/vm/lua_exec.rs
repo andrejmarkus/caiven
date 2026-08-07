@@ -15,6 +15,7 @@
 
 use super::memory::Memory;
 use super::palette::Palette;
+use super::save_data::{SaveData, SaveDataError};
 use super::sfx::{MusicPlayer, SfxPlayer};
 use super::{AssetBankKind, AssetBanks, Camera, Vm, VmFault};
 use crate::input::{Button, Input};
@@ -26,7 +27,7 @@ use caiven_core::memory::{
     SPRITE_SHEET_RAM_BASE,
 };
 use caiven_core::{Color, Vec2};
-use mlua::{HookTriggers, Lua, MultiValue, Scope, StdLib, Table, VmState};
+use mlua::{HookTriggers, Lua, LuaSerdeExt, MultiValue, Scope, StdLib, Table, VmState};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -69,6 +70,10 @@ const BUILTIN_NAMES: &[&str] = &[
     "frame_count",
     "time",
     "SPRITE_SIZE",
+    "dset",
+    "dget",
+    "save_data",
+    "load_data",
 ];
 
 /// Names defined by [`PRELUDE_SOURCE`] — also excluded from
@@ -562,6 +567,7 @@ fn register_builtins<'scope, 'env>(
     sfx_player: &'env RefCell<&'env mut SfxPlayer>,
     music_player: &'env RefCell<&'env mut MusicPlayer>,
     asset_banks: &'env RefCell<&'env mut AssetBanks>,
+    save_data: &'env RefCell<&'env mut SaveData>,
     collision_types: &'env [caiven_core::CollisionType],
     input: &'env Input,
     font: &'env Font,
@@ -1032,6 +1038,48 @@ fn register_builtins<'scope, 'env>(
         scope.create_function(move |_, ()| Ok(frame_count as f64 / TARGET_FPS))?,
     )?;
 
+    globals.set(
+        "dset",
+        scope.create_function(move |_, (slot, value): (i64, f64)| {
+            let slot: u8 = slot.try_into().map_err(|_| {
+                mlua::Error::RuntimeError(SaveDataError::SlotOutOfRange(slot as u8).to_string())
+            })?;
+            save_data
+                .borrow_mut()
+                .set_slot(slot, value)
+                .map_err(|e| mlua::Error::RuntimeError(e.to_string()))
+        })?,
+    )?;
+
+    globals.set(
+        "dget",
+        scope.create_function(move |_, slot: i64| {
+            let slot: u8 = slot.try_into().unwrap_or(u8::MAX);
+            if slot as usize >= crate::vm::SAVE_DATA_SLOT_COUNT {
+                return Err(mlua::Error::RuntimeError(
+                    SaveDataError::SlotOutOfRange(slot).to_string(),
+                ));
+            }
+            Ok(save_data.borrow().get_slot(slot))
+        })?,
+    )?;
+
+    globals.set(
+        "save_data",
+        scope.create_function(move |lua, table: mlua::Table| {
+            let value: serde_json::Value = lua.from_value(mlua::Value::Table(table))?;
+            save_data
+                .borrow_mut()
+                .set_blob(value)
+                .map_err(|e| mlua::Error::RuntimeError(e.to_string()))
+        })?,
+    )?;
+
+    globals.set(
+        "load_data",
+        scope.create_function(move |lua, ()| lua.to_value(save_data.borrow().blob()))?,
+    )?;
+
     Ok(())
 }
 
@@ -1115,6 +1163,7 @@ impl Vm {
         let sfx_player = RefCell::new(&mut self.sfx_player);
         let music_player = RefCell::new(&mut self.music_player);
         let asset_banks = RefCell::new(&mut self.asset_banks);
+        let save_data = RefCell::new(&mut self.save_data);
         let sprite_size = self.config.sprite_size;
         let width = self.config.width;
         let height = self.config.height;
@@ -1132,6 +1181,7 @@ impl Vm {
                 &sfx_player,
                 &music_player,
                 &asset_banks,
+                &save_data,
                 &self.collision_types,
                 input,
                 font,
@@ -1196,6 +1246,7 @@ impl Vm {
         let sfx_player = RefCell::new(&mut self.sfx_player);
         let music_player = RefCell::new(&mut self.music_player);
         let asset_banks = RefCell::new(&mut self.asset_banks);
+        let save_data = RefCell::new(&mut self.save_data);
         let sprite_size = self.config.sprite_size;
         let width = self.config.width;
         let height = self.config.height;
@@ -1213,6 +1264,7 @@ impl Vm {
                 &sfx_player,
                 &music_player,
                 &asset_banks,
+                &save_data,
                 &self.collision_types,
                 input,
                 font,
@@ -1273,6 +1325,7 @@ impl Vm {
         let sfx_player = RefCell::new(&mut self.sfx_player);
         let music_player = RefCell::new(&mut self.music_player);
         let asset_banks = RefCell::new(&mut self.asset_banks);
+        let save_data = RefCell::new(&mut self.save_data);
         let sprite_size = self.config.sprite_size;
         let width = self.config.width;
         let height = self.config.height;
@@ -1343,6 +1396,7 @@ impl Vm {
                 &sfx_player,
                 &music_player,
                 &asset_banks,
+                &save_data,
                 &self.collision_types,
                 input,
                 font,
@@ -1490,6 +1544,7 @@ impl Vm {
         let sfx_player = RefCell::new(&mut self.sfx_player);
         let music_player = RefCell::new(&mut self.music_player);
         let asset_banks = RefCell::new(&mut self.asset_banks);
+        let save_data = RefCell::new(&mut self.save_data);
         let sprite_size = self.config.sprite_size;
         let width = self.config.width;
         let height = self.config.height;
@@ -1509,6 +1564,7 @@ impl Vm {
                 &sfx_player,
                 &music_player,
                 &asset_banks,
+                &save_data,
                 collision_types,
                 input,
                 font,
