@@ -365,7 +365,7 @@ EOF
   autocomplete/hover UI via the existing `ApiEntryPayload` bridge in
   `crates/caiven-studio/src/tauri_app.rs`.
 
-- [ ] **Step 1: Update the entry**
+- [x] **Step 1: Update the entry**
 
 Replace the `sprite` `ApiEntry` (`crates/caiven-vm/src/vm/api_registry.rs:49-58`):
 
@@ -385,13 +385,13 @@ Replace the `sprite` `ApiEntry` (`crates/caiven-vm/src/vm/api_registry.rs:49-58`
     },
 ```
 
-- [ ] **Step 2: Verify it compiles and the registry test (if any) passes**
+- [x] **Step 2: Verify it compiles and the registry test (if any) passes**
 
 Run: `cargo test -p caiven-vm api_registry`
 Expected: PASS (there may be no dedicated test — a clean
 `cargo build -p caiven-vm` is the acceptance bar if not).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add crates/caiven-vm/src/vm/api_registry.rs
@@ -410,7 +410,7 @@ git commit -m "docs(api-registry): document sprite() flip/rotate params"
 - Consumes: the finalized signature and error semantics from Task 1.
 - Produces: nothing — pure documentation.
 
-- [ ] **Step 1: Update the row**
+- [x] **Step 1: Update the row**
 
 Replace line 24 of `docs/api-reference.md`:
 
@@ -430,7 +430,7 @@ before saving — some rows in this table already have uneven padding, so
 match whatever the nearest rows do rather than reformatting the whole
 table).
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/api-reference.md
