@@ -7,15 +7,31 @@ paths:
 
 # Release
 
-- Version consistency matters across `Cargo.toml` workspace members,
-  `crates/caiven-studio/tauri.conf.json`, and any package.json version
-  fields the release workflow checks (`release-check` job in
-  `.github/workflows/rust.yml` verifies Studio version — keep it passing).
-- Release builds run on tag push (`v*`) via `platform-builds`-style jobs in
-  the same workflow file: `machine-artifacts` (Linux/Windows/macOS x64+arm64
-  `caiven-machine` binaries), `machine-artifacts-miyoo` (Miyoo Mini Ports
-  build via `scripts/miyoo/`), and `studio-bundles` (Tauri installers per
-  platform: appimage/deb, nsis/msi, dmg).
+Studio, Machine, and Port release independently — each has its own tag
+prefix, version source, and CI gate. Do not conflate their versions.
+
+- **Studio**: tag `studio-vX.Y.Z`. Version source: `crates/caiven-studio/
+  tauri.conf.json`. `release-check-studio` verifies tag matches that
+  version. `studio-bundles` builds Tauri installers per platform
+  (appimage/deb, nsis/msi, dmg). `release-studio` publishes the GitHub
+  Release with those installers attached.
+- **Machine**: tag `machine-vX.Y.Z`. Version source: `crates/caiven-machine/
+  Cargo.toml`. `release-check-machine` verifies tag matches that version.
+  `machine-artifacts` (Linux/Windows/macOS x64+arm64 binaries) and
+  `machine-artifacts-miyoo` (Miyoo Mini build via `scripts/miyoo/`) build
+  the artifacts. `release-machine` publishes the GitHub Release.
+- **Port**: tag `port-vX.Y.Z`. Version source: `crates/caiven-port/
+  Cargo.toml`. `release-check-port` verifies tag matches that version.
+  `port-image` builds `crates/caiven-port/Dockerfile` and pushes to
+  `ghcr.io/<owner>/caiven-port` (tagged with the stripped version and
+  `latest`). `release-port` publishes a GitHub Release with no attached
+  files — the Docker image *is* the release artifact.
+- Bump only the version(s) that actually changed. A Studio-only change
+  does not require bumping Machine's or Port's `Cargo.toml` — the point of
+  splitting tags was to stop forcing unrelated version bumps.
+- All three tag prefixes share the same `.github/workflows/rust.yml` file
+  and the same `build`/`lint`/`security`/`doc` quality gate before any
+  release job runs.
 - `cargo audit` (with the documented `RUSTSEC-2023-0071` exception for
   unused `rsa` via sqlx-mysql metadata) and `npm audit --omit=dev
   --audit-level=high` for both frontends must pass before a release.

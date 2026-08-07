@@ -3,7 +3,7 @@ name: CI and Release
 on:
   push:
     branches: ["master"]
-    tags: ["v*"]
+    tags: ["studio-v*", "machine-v*", "port-v*"]
   pull_request:
     branches: ["master"]
   workflow_dispatch:
@@ -250,9 +250,9 @@ jobs:
       - name: Build docs
         run: cargo doc --locked --no-deps
 
-  release-check:
-    name: Validate Release
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+  release-check-studio:
+    name: Validate Studio Release
+    if: startsWith(github.ref, 'refs/tags/studio-v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -265,19 +265,51 @@ jobs:
             exit 1
           fi
       - name: Verify tag matches Studio version
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/studio-v')
         shell: bash
         run: |
           APP_VERSION="$(node --print "require('./crates/caiven-studio/tauri.conf.json').version")"
-          if [[ "$GITHUB_REF_NAME" != "v$APP_VERSION" ]]; then
-            echo "::error::Tag $GITHUB_REF_NAME must match Studio version v$APP_VERSION"
+          if [[ "$GITHUB_REF_NAME" != "studio-v$APP_VERSION" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME must match Studio version studio-v$APP_VERSION"
+            exit 1
+          fi
+
+  release-check-machine:
+    name: Validate Machine Release
+    if: startsWith(github.ref, 'refs/tags/machine-v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag matches Machine version
+        if: startsWith(github.ref, 'refs/tags/machine-v')
+        shell: bash
+        run: |
+          PKG_VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="caiven-machine") | .version')"
+          if [[ "$GITHUB_REF_NAME" != "machine-v$PKG_VERSION" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME must match Machine version machine-v$PKG_VERSION"
+            exit 1
+          fi
+
+  release-check-port:
+    name: Validate Port Release
+    if: startsWith(github.ref, 'refs/tags/port-v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag matches Port version
+        if: startsWith(github.ref, 'refs/tags/port-v')
+        shell: bash
+        run: |
+          PKG_VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="caiven-port") | .version')"
+          if [[ "$GITHUB_REF_NAME" != "port-v$PKG_VERSION" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME must match Port version port-v$PKG_VERSION"
             exit 1
           fi
 
   machine-artifacts:
     name: Caiven Machine (${{ matrix.label }})
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    needs: release-check
+    if: startsWith(github.ref, 'refs/tags/machine-v') || github.event_name == 'workflow_dispatch'
+    needs: release-check-machine
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -349,8 +381,8 @@ jobs:
 
   machine-artifacts-miyoo:
     name: Caiven Machine (Miyoo Mini)
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    needs: release-check
+    if: startsWith(github.ref, 'refs/tags/machine-v') || github.event_name == 'workflow_dispatch'
+    needs: release-check-machine
     runs-on: ubuntu-22.04
     env:
       # Must be /opt — see the comment at the top of scripts/miyoo/fetch-toolchain.sh.
@@ -396,8 +428,8 @@ jobs:
 
   studio-bundles:
     name: Caiven Studio (${{ matrix.label }})
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    needs: release-check
+    if: startsWith(github.ref, 'refs/tags/studio-v') || github.event_name == 'workflow_dispatch'
+    needs: release-check-studio
     runs-on: ${{ matrix.os }}
     env:
       HAS_APPLE_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' }}
@@ -471,7 +503,7 @@ jobs:
           workflowArtifactNamePattern: caiven-studio-[platform]-[arch]-[bundle]
       - name: Build signed macOS installers
         if: >-
-          startsWith(github.ref, 'refs/tags/v') &&
+          startsWith(github.ref, 'refs/tags/studio-v') &&
           runner.os == 'macOS' &&
           env.HAS_APPLE_SIGNING == 'true'
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f
@@ -492,7 +524,7 @@ jobs:
           workflowArtifactNamePattern: caiven-studio-[platform]-[arch]-[bundle]
       - name: Build signed Windows installers
         if: >-
-          startsWith(github.ref, 'refs/tags/v') &&
+          startsWith(github.ref, 'refs/tags/studio-v') &&
           runner.os == 'Windows' &&
           env.HAS_WINDOWS_SIGNING == 'true'
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f
@@ -508,10 +540,49 @@ jobs:
           uploadWorkflowArtifacts: true
           workflowArtifactNamePattern: caiven-studio-[platform]-[arch]-[bundle]
 
-  release:
-    name: Publish GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, lint, security, doc, machine-artifacts, machine-artifacts-miyoo, studio-bundles]
+  port-image:
+    name: Caiven Port (Docker image)
+    if: startsWith(github.ref, 'refs/tags/port-v') || github.event_name == 'workflow_dispatch'
+    needs: release-check-port
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.vars.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve image tag
+        id: vars
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_NAME" == port-v* ]]; then
+            echo "tag=${GITHUB_REF_NAME#port-v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=dispatch" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        if: startsWith(github.ref, 'refs/tags/port-v')
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: crates/caiven-port/Dockerfile
+          push: ${{ startsWith(github.ref, 'refs/tags/port-v') }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/caiven-port:${{ steps.vars.outputs.tag }}
+            ghcr.io/${{ github.repository_owner }}/caiven-port:latest
+
+  release-studio:
+    name: Publish Studio GitHub Release
+    if: startsWith(github.ref, 'refs/tags/studio-v')
+    needs: [build, lint, security, doc, studio-bundles]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -519,7 +590,7 @@ jobs:
       - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: caiven-*
+          pattern: caiven-studio-*
           path: release
           merge-multiple: true
       - name: Create release
@@ -528,3 +599,38 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: release/**/*
+
+  release-machine:
+    name: Publish Machine GitHub Release
+    if: startsWith(github.ref, 'refs/tags/machine-v')
+    needs: [build, lint, security, doc, machine-artifacts, machine-artifacts-miyoo]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: caiven-machine-*
+          path: release
+          merge-multiple: true
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: release/**/*
+
+  release-port:
+    name: Publish Port GitHub Release
+    if: startsWith(github.ref, 'refs/tags/port-v')
+    needs: [build, lint, security, doc, port-image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body: "Docker image: `ghcr.io/${{ github.repository_owner }}/caiven-port:${{ needs.port-image.outputs.image_tag }}`"

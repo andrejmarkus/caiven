@@ -37,8 +37,10 @@ See root `CLAUDE.md` "Canonical commands" — verified directly against
   3x-stress + Port live full-stack gate), lint (`fmt --check`, `clippy -D
   warnings -A unused-imports`), `security` job (`cargo audit` with a
   documented `RUSTSEC-2023-0071` exception, `npm audit` both frontends),
-  `doc` (`cargo doc`), `release-check` (Studio version vs. tag), then
-  cross-platform release artifacts.
+  `doc` (`cargo doc`), then per-project release-check jobs
+  (`release-check-studio`, `release-check-machine`, `release-check-port` —
+  each verifies its own version vs. its own tag prefix: `studio-v*`,
+  `machine-v*`, `port-v*`), then cross-platform release artifacts.
 - `.github/workflows/platform-builds.yml`: lighter PR-only "still builds
   everywhere" gate (Linux/Windows/macOS x64+arm64), no release publish.
 - `crates/caiven-ui/scripts/check-boundaries.mjs`: enforces shared-component
