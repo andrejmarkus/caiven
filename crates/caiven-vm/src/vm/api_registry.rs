@@ -283,6 +283,30 @@ pub const BUILTINS: &[ApiEntry] = &[
         doc: "Stop the currently playing music track.",
     },
     ApiEntry {
+        name: "dset",
+        params: &[param!("slot": "u8"), param!("value": "number")],
+        returns: "nil",
+        doc: "Write value into save slot 0-63. Errors if slot is out of range. Persists across sessions once the host flushes it to disk.",
+    },
+    ApiEntry {
+        name: "dget",
+        params: &[param!("slot": "u8")],
+        returns: "number",
+        doc: "Read save slot 0-63; 0 if never set. Errors if slot is out of range.",
+    },
+    ApiEntry {
+        name: "save_data",
+        params: &[param!("data": "table")],
+        returns: "nil",
+        doc: "Replace the persisted save blob with data (string/number/bool/nested-table keys and values only). Errors if the packed size exceeds 4KiB or a value can't be serialized.",
+    },
+    ApiEntry {
+        name: "load_data",
+        params: &[],
+        returns: "table",
+        doc: "Return the persisted save blob, or {} if save_data has never been called.",
+    },
+    ApiEntry {
         name: "real_time",
         params: &[],
         returns: "(u8, u8, u8)",
