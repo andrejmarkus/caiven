@@ -78,7 +78,7 @@ Current closure (for reference — this is what step 3 replaces):
     )?;
 ```
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `crates/caiven-vm/tests/lua_script.rs`. These write a
 distinctive asymmetric sprite (an "L" shape, unambiguous under every
@@ -245,7 +245,7 @@ reading `run_frame`'s body (`globals.get::<mlua::Function>("_draw")`,
 called conditionally). No separate draw-phase method exists or is needed;
 a single `vm.run_frame(&input, &font)` runs both phases.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cargo test -p caiven-vm --test lua_script lua_sprite -- --nocapture`
 Expected: compile error or FAIL — `sprite` doesn't accept a 4th/5th/6th
@@ -255,7 +255,7 @@ which mlua allows, so these calls won't error — they'll just draw the
 unflipped sprite and the assertion will fail). Confirm each new test fails
 for the expected reason before moving on.
 
-- [ ] **Step 3: Implement the transform**
+- [x] **Step 3: Implement the transform**
 
 Replace the `sprite` closure in `crates/caiven-vm/src/vm/lua_exec.rs`
 (lines 599-621) with:
@@ -323,20 +323,20 @@ Replace the `sprite` closure in `crates/caiven-vm/src/vm/lua_exec.rs`
     )?;
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cargo test -p caiven-vm --test lua_script lua_sprite -- --nocapture`
 Expected: PASS for all five new tests, and
 `lua_pset_draws_palette_color`/other pre-existing tests in the file still
 PASS (regression check for the "byte-identical for 3-arg calls" claim).
 
-- [ ] **Step 5: Full crate check**
+- [x] **Step 5: Full crate check**
 
 Run: `scripts/claude/check-rust.sh` (or, narrower:
 `cargo fmt --all -- --check && cargo clippy -p caiven-vm --all-targets -- -D warnings -A unused-imports && cargo test -p caiven-vm`)
 Expected: clean.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add crates/caiven-vm/src/vm/lua_exec.rs crates/caiven-vm/tests/lua_script.rs
