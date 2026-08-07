@@ -1,8 +1,9 @@
 //! Drift guard: the RAM memory map is single-sourced in `src/memory.rs`
-//! (`MemRegion`), but it is also hand-copied into two frontend files and the
-//! README for humans to read. Nothing stops those copies from going stale
-//! when a region in `MemRegion` is resized, so this test parses each copy
-//! and asserts every address it finds still matches `MemRegion`.
+//! (`MemRegion`), but it is also hand-copied into two frontend files and
+//! `docs/api-reference.md` for humans to read. Nothing stops those copies
+//! from going stale when a region in `MemRegion` is resized, so this test
+//! parses each copy and asserts every address it finds still matches
+//! `MemRegion`.
 //!
 //! On failure, the assertion message names the file, the region, the value
 //! found in that file, and the value `MemRegion` actually expects — that's
@@ -13,7 +14,7 @@ use regex::Regex;
 
 const IPC_TS: &str = include_str!("../../caiven-studio-ui/src/lib/ipc.ts");
 const DRAWER_MATH_TS: &str = include_str!("../../caiven-studio-ui/src/lib/drawerMath.ts");
-const README: &str = include_str!("../../../README.md");
+const API_REFERENCE_MD: &str = include_str!("../../../docs/api-reference.md");
 
 fn parse_hex(s: &str) -> usize {
     usize::from_str_radix(s, 16).expect("regex only captures hex digits")
@@ -82,7 +83,7 @@ fn drawer_math_ts_regions_match_layout() {
 }
 
 #[test]
-fn readme_memory_map_table_matches_layout() {
+fn api_reference_memory_map_table_matches_layout() {
     let re =
         Regex::new(r"`0x([0-9A-Fa-f]+).0x([0-9A-Fa-f]+)`\s*\|\s*([^|]+)\|").expect("valid regex");
     // (keyword to find in the row's description, region it names)
@@ -99,20 +100,22 @@ fn readme_memory_map_table_matches_layout() {
 
     for (keyword, region) in cases {
         let row = re
-            .captures_iter(README)
+            .captures_iter(API_REFERENCE_MD)
             .find(|c| c[3].contains(keyword))
-            .unwrap_or_else(|| panic!("README.md: memory-map row for '{keyword}' not found"));
+            .unwrap_or_else(|| {
+                panic!("docs/api-reference.md: memory-map row for '{keyword}' not found")
+            });
         let got_base = parse_hex(&row[1]);
         let got_end = parse_hex(&row[2]);
         let want_base = region.base();
         let want_end = region.base() + region.span() - 1;
         assert_eq!(
             got_base, want_base,
-            "README.md '{keyword}' row: base found 0x{got_base:04X}, expected 0x{want_base:04X} from MemRegion::{region:?}"
+            "docs/api-reference.md '{keyword}' row: base found 0x{got_base:04X}, expected 0x{want_base:04X} from MemRegion::{region:?}"
         );
         assert_eq!(
             got_end, want_end,
-            "README.md '{keyword}' row: end found 0x{got_end:04X}, expected 0x{want_end:04X} from MemRegion::{region:?}"
+            "docs/api-reference.md '{keyword}' row: end found 0x{got_end:04X}, expected 0x{want_end:04X} from MemRegion::{region:?}"
         );
     }
 }
