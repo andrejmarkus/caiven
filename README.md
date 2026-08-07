@@ -3,7 +3,8 @@
 ![Rust](https://img.shields.io/badge/rust-%23E32F26.svg?style=for-the-badge&logo=rust&logoColor=white)
 ![License](https://img.shields.io/badge/license-MPL--2.0-blue.svg?style=for-the-badge)
 [![CI and Release](https://github.com/andrejmarkus/caiven/actions/workflows/rust.yml/badge.svg)](https://github.com/andrejmarkus/caiven/actions/workflows/rust.yml)
-[![Latest Release](https://img.shields.io/github/v/release/andrejmarkus/caiven?style=for-the-badge)](https://github.com/andrejmarkus/caiven/releases/latest)
+[![Studio Release](https://img.shields.io/github/v/tag/andrejmarkus/caiven?filter=studio-v*&label=studio&style=for-the-badge)](https://github.com/andrejmarkus/caiven/releases?q=studio-v)
+[![Machine Release](https://img.shields.io/github/v/tag/andrejmarkus/caiven?filter=machine-v*&label=machine&style=for-the-badge)](https://github.com/andrejmarkus/caiven/releases?q=machine-v)
 
 **Caiven** is a retro-inspired fantasy console: a virtual machine and development environment written in Rust. Real embedded Lua 5.4 for game code, plus a full in-engine editor (Caiven Studio) — no custom bytecode language, every stdlib function just works.
 
@@ -11,10 +12,11 @@
 
 ## 🚀 Quick Start
 
-Grab whichever matches what you want to do, from the [latest release](https://github.com/andrejmarkus/caiven/releases/latest):
+Grab whichever matches what you want to do — Studio and Machine release
+independently, so check both:
 
-- **Caiven Studio** — the editor, to _make_ a game (code, sprites, sound, map). Windows/macOS/Linux installers.
-- **Caiven Machine** — the standalone player, to just _run_ a `.cav` cart someone shared with you. No editor.
+- **[Caiven Studio](https://github.com/andrejmarkus/caiven/releases?q=studio-v)** — the editor, to _make_ a game (code, sprites, sound, map). Windows/macOS/Linux installers.
+- **[Caiven Machine](https://github.com/andrejmarkus/caiven/releases?q=machine-v)** — the standalone player, to just _run_ a `.cav` cart someone shared with you. No editor.
 
 Install like any normal app and launch **Caiven Studio**, or unpack **Caiven Machine** and run:
 

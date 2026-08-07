@@ -17,6 +17,15 @@ on-disk SQLite database under `--data-dir` — zero-setup for local dev.
 `docker compose up` runs the real deploy path: a `postgres` service plus the
 server, wired together via `DATABASE_URL`.
 
+Published images (built from tagged `port-v<version>` releases, see
+[docs/releasing.md](releasing.md)) are at
+`ghcr.io/andrejmarkus/caiven-port` — pull a pinned version or `:latest`
+instead of building from source:
+
+```bash
+docker pull ghcr.io/andrejmarkus/caiven-port:latest
+```
+
 | Flag                                  | Default                       | Description                                                                         |
 | :------------------------------------- | :----------------------------- | :-------------------------------------------------------------------------------------|
 | `--address`                           | `0.0.0.0`                     | Listen address                                                                      |
