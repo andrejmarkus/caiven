@@ -458,7 +458,7 @@ generates the fixture with a throwaway `cargo run --example`, then removes
 the generator — the same pattern already used for the crate's own
 round-trip tests in `crates/caiven-cart/src/project.rs`.
 
-- [ ] **Step 1: Write the generator**
+- [x] **Step 1: Write the generator**
 
 Create `crates/caiven-cart/examples/gen_sprite_flip_rotate_cart.rs`:
 
@@ -528,13 +528,13 @@ fn main() {
 }
 ```
 
-- [ ] **Step 2: Run the generator from the repo root**
+- [x] **Step 2: Run the generator from the repo root**
 
 Run: `cargo run -p caiven-cart --example gen_sprite_flip_rotate_cart`
 Expected: prints `wrote carts/fixtures/sprite_flip_rotate.cav` and the
 file appears on disk.
 
-- [ ] **Step 3: Verify the cart actually runs and looks right**
+- [x] **Step 3: Verify the cart actually runs and looks right**
 
 Run: `cargo run -p caiven-machine -- carts/fixtures/sprite_flip_rotate.cav`
 Expected: the window shows three labeled rows — "flip_x" with two flag
@@ -542,7 +542,7 @@ sprites (one mirrored), "flip_y" with two flag sprites (one mirrored
 vertically), "rotate" with four flag sprites each rotated 90° further.
 Close the window when confirmed (Esc or window close).
 
-- [ ] **Step 4: Delete the generator, keep the generated cart**
+- [x] **Step 4: Delete the generator, keep the generated cart**
 
 ```bash
 git rm crates/caiven-cart/examples/gen_sprite_flip_rotate_cart.rs
@@ -553,7 +553,7 @@ git status
 Confirm `git status` shows the new `.cav` fixture staged and the example
 generator removed (not staged as an addition).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "$(cat <<'EOF'
