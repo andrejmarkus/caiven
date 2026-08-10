@@ -79,6 +79,8 @@ RNG is deterministic by default — `prelude.lua` seeds `math.randomseed(1)` onc
 | `lerp(a, b, t)` / `clamp(v, lo, hi)`                                                             | Linear interpolate / clamp to range                               |
 | `ease_linear/in_quad/out_quad/in_out_quad(t)`                                                    | Easing curves, `t` in `0..1`                                      |
 | `aabb_overlap(x1, y1, w1, h1, x2, y2, w2, h2)`                                                   | Axis-aligned box overlap test                                     |
+| `circle_overlap(x1, y1, r1, x2, y2, r2)`                                                         | Circle overlap test                                               |
+| `point_in_rect(px, py, x, y, w, h)` / `point_in_circle(px, py, cx, cy, r)`                       | Point containment tests                                            |
 | `tile_solid(tx, ty)`                                                                             | Whether the per-cell collision value at `(tx, ty)` is `1` (solid) |
 | `box_touches_solid(x, y, w, h)`                                                                  | Whether a pixel-space box overlaps any solid tile                 |
 | `new_tween(from, to, frames, ease)` / `tween_update(tw)`                                         | Frame-driven value tween; `tw.done` flips true on arrival         |

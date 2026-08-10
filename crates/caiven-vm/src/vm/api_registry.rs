@@ -541,6 +541,44 @@ pub const PRELUDE: &[ApiEntry] = &[
         returns: "table",
         doc: "Fisher-Yates shuffle of t, in place. Returns t.",
     },
+    ApiEntry {
+        name: "circle_overlap",
+        params: &[
+            param!("x1": "number"),
+            param!("y1": "number"),
+            param!("r1": "number"),
+            param!("x2": "number"),
+            param!("y2": "number"),
+            param!("r2": "number"),
+        ],
+        returns: "bool",
+        doc: "Whether two circles overlap. Exactly-tangent circles (distance == sum of radii) count as not overlapping.",
+    },
+    ApiEntry {
+        name: "point_in_rect",
+        params: &[
+            param!("px": "number"),
+            param!("py": "number"),
+            param!("x": "number"),
+            param!("y": "number"),
+            param!("w": "number"),
+            param!("h": "number"),
+        ],
+        returns: "bool",
+        doc: "Whether (px, py) is inside the rect (x, y, w, h). The left/top edges count as inside; the right/bottom edges don't (half-open, matching aabb_overlap's convention).",
+    },
+    ApiEntry {
+        name: "point_in_circle",
+        params: &[
+            param!("px": "number"),
+            param!("py": "number"),
+            param!("cx": "number"),
+            param!("cy": "number"),
+            param!("r": "number"),
+        ],
+        returns: "bool",
+        doc: "Whether (px, py) is inside or exactly on the circle centered at (cx, cy) with radius r.",
+    },
 ];
 
 /// Lua stdlib members this console leans on — never Rust-registered (see

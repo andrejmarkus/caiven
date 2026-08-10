@@ -104,6 +104,9 @@ const PRELUDE_NAMES: &[&str] = &[
     "random_float",
     "choice",
     "shuffle",
+    "circle_overlap",
+    "point_in_rect",
+    "point_in_circle",
 ];
 
 /// Lua's own stdlib globals — also excluded from the snapshot, along with

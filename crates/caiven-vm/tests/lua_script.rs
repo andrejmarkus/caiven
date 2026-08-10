@@ -1195,3 +1195,43 @@ fn prelude_rng_choice_and_shuffle() {
     assert_eq!(get("sum"), "15");
     assert_eq!(get("count"), "5");
 }
+
+#[test]
+fn prelude_circle_overlap() {
+    let got = run_and_get(
+        r#"
+        touching = circle_overlap(0, 0, 5, 8, 0, 5)
+        separate = circle_overlap(0, 0, 5, 20, 0, 5)
+        tangent = circle_overlap(0, 0, 5, 10, 0, 5)
+        "#,
+        &["touching", "separate", "tangent"],
+    );
+    assert_eq!(got, vec!["true", "false", "false"]);
+}
+
+#[test]
+fn prelude_point_in_rect() {
+    let got = run_and_get(
+        r#"
+        inside = point_in_rect(5, 5, 0, 0, 10, 10)
+        outside = point_in_rect(15, 5, 0, 0, 10, 10)
+        on_left_edge = point_in_rect(0, 5, 0, 0, 10, 10)
+        just_past_right_edge = point_in_rect(10, 5, 0, 0, 10, 10)
+        "#,
+        &["inside", "outside", "on_left_edge", "just_past_right_edge"],
+    );
+    assert_eq!(got, vec!["true", "false", "true", "false"]);
+}
+
+#[test]
+fn prelude_point_in_circle() {
+    let got = run_and_get(
+        r#"
+        inside = point_in_circle(2, 0, 0, 0, 5)
+        outside = point_in_circle(10, 0, 0, 0, 5)
+        on_edge = point_in_circle(5, 0, 0, 0, 5)
+        "#,
+        &["inside", "outside", "on_edge"],
+    );
+    assert_eq!(got, vec!["true", "false", "true"]);
+}
