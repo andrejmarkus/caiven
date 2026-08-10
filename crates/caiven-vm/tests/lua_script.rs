@@ -982,3 +982,370 @@ fn lua_sprite_invalid_rotate_errors() {
 
     assert!(vm.get_fault().is_some(), "expected a fault for rotate=45");
 }
+
+#[test]
+fn prelude_vec2_operators() {
+    let got = run_and_get(
+        r#"
+        local a = Vec2.new(1, 2)
+        local b = Vec2.new(3, 4)
+        local sum = a + b
+        local diff = b - a
+        local scaled = a * 2
+        local scaled2 = 2 * a
+        local neg = -a
+        sum_x, sum_y = sum.x, sum.y
+        diff_x, diff_y = diff.x, diff.y
+        scaled_x, scaled_y = scaled.x, scaled.y
+        scaled2_x, scaled2_y = scaled2.x, scaled2.y
+        neg_x, neg_y = neg.x, neg.y
+        eq_same = Vec2.new(1, 2) == Vec2.new(1, 2)
+        eq_diff = Vec2.new(1, 2) == Vec2.new(1, 3)
+        str = tostring(Vec2.new(5, 6))
+        "#,
+        &[
+            "sum_x",
+            "sum_y",
+            "diff_x",
+            "diff_y",
+            "scaled_x",
+            "scaled_y",
+            "scaled2_x",
+            "scaled2_y",
+            "neg_x",
+            "neg_y",
+            "eq_same",
+            "eq_diff",
+            "str",
+        ],
+    );
+    assert_eq!(
+        got,
+        vec![
+            "4",
+            "6",
+            "2",
+            "2",
+            "2",
+            "4",
+            "2",
+            "4",
+            "-1",
+            "-2",
+            "true",
+            "false",
+            "\"(5, 6)\"",
+        ]
+    );
+}
+
+#[test]
+fn prelude_vec2_length_normalize_dot_distance() {
+    let got = run_and_get(
+        r#"
+        local v = Vec2.new(3, 4)
+        len = v:length()
+        len_sq = v:length_squared()
+        local n = v:normalize()
+        norm_x, norm_y = n.x, n.y
+        local z = Vec2.new(0, 0)
+        local zn = z:normalize()
+        zero_x, zero_y = zn.x, zn.y
+        dotp = Vec2.new(1, 0):dot(Vec2.new(0, 1))
+        dist = Vec2.new(0, 0):distance(Vec2.new(3, 4))
+        "#,
+        &[
+            "len", "len_sq", "norm_x", "norm_y", "zero_x", "zero_y", "dotp", "dist",
+        ],
+    );
+    assert_eq!(got, vec!["5", "25", "0.6", "0.8", "0", "0", "0", "5"]);
+}
+
+#[test]
+fn prelude_vec2_operator_type_mismatch_errors() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          local ok = pcall(function() return Vec2.new(1, 2) + 5 end)
+          add_ok = ok
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&input, &font);
+    assert_eq!(vm.get_fault(), None);
+    let globals = vm.lua_globals();
+    let add_ok = globals
+        .iter()
+        .find(|(k, _)| k == "add_ok")
+        .unwrap_or_else(|| panic!("missing global add_ok"))
+        .1
+        .clone();
+    assert_eq!(add_ok, "false");
+}
+
+#[test]
+fn prelude_rng_fresh_loads_are_deterministic() {
+    let got1 = run_and_get(
+        "a = random_range(1, 1000000)\nb = random_float(0, 1)",
+        &["a", "b"],
+    );
+    let got2 = run_and_get(
+        "a = random_range(1, 1000000)\nb = random_float(0, 1)",
+        &["a", "b"],
+    );
+    assert_eq!(
+        got1, got2,
+        "two fresh VMs with no explicit seed should produce identical sequences"
+    );
+}
+
+#[test]
+fn prelude_rng_hot_reload_does_not_reset_stream() {
+    // r1/r2/r3 are assigned by the initial chunk's top-level code (runs
+    // once, right after prelude.lua seeds); r4 by the hot-reloaded chunk's
+    // top-level code (also runs once, on the same live Lua state). Plain
+    // globals rather than a table, since `Vm::lua_watch` only parses dotted
+    // identifiers, not `t[i]` indexing.
+    let input = Input::new();
+    let font = Font::empty();
+    let mut vm = make_vm();
+    vm.load_lua_source(
+        r#"
+        r1 = random_range(1, 1000000000)
+        r2 = random_range(1, 1000000000)
+        r3 = random_range(1, 1000000000)
+        function _update() end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&input, &font);
+
+    vm.hot_reload_lua_source(
+        r#"
+        r4 = random_range(1, 1000000000)
+        function _update() end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("hot reload failed: {e}"));
+    vm.run_frame(&input, &font);
+
+    assert_eq!(vm.get_fault(), None);
+    let globals = vm.lua_globals();
+    let get = |name: &str| {
+        globals
+            .iter()
+            .find(|(k, _)| k == name)
+            .unwrap_or_else(|| panic!("missing global {name}"))
+            .1
+            .clone()
+    };
+    let (r1, r4) = (get("r1"), get("r4"));
+    assert_ne!(
+        r1, r4,
+        "hot reload re-runs prelude.lua; the seeding guard must stop it reseeding \
+         — if it reseeds, r4 restarts the sequence and equals r1"
+    );
+}
+
+#[test]
+fn prelude_rng_choice_and_shuffle() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          local t = {10, 20, 30}
+          picked = choice(t)
+          local ok = pcall(choice, {})
+          empty_ok = ok
+          local s = shuffle({1, 2, 3, 4, 5})
+          sum = 0
+          for _, v in ipairs(s) do sum = sum + v end
+          count = #s
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&input, &font);
+    assert_eq!(vm.get_fault(), None);
+    let globals = vm.lua_globals();
+    let get = |name: &str| {
+        globals
+            .iter()
+            .find(|(k, _)| k == name)
+            .unwrap_or_else(|| panic!("missing global {name}"))
+            .1
+            .clone()
+    };
+    assert!(["10", "20", "30"].contains(&get("picked").as_str()));
+    assert_eq!(get("empty_ok"), "false");
+    assert_eq!(get("sum"), "15");
+    assert_eq!(get("count"), "5");
+}
+
+#[test]
+fn prelude_circle_overlap() {
+    let got = run_and_get(
+        r#"
+        touching = circle_overlap(0, 0, 5, 8, 0, 5)
+        separate = circle_overlap(0, 0, 5, 20, 0, 5)
+        tangent = circle_overlap(0, 0, 5, 10, 0, 5)
+        "#,
+        &["touching", "separate", "tangent"],
+    );
+    assert_eq!(got, vec!["true", "false", "false"]);
+}
+
+#[test]
+fn prelude_point_in_rect() {
+    let got = run_and_get(
+        r#"
+        inside = point_in_rect(5, 5, 0, 0, 10, 10)
+        outside = point_in_rect(15, 5, 0, 0, 10, 10)
+        on_left_edge = point_in_rect(0, 5, 0, 0, 10, 10)
+        just_past_right_edge = point_in_rect(10, 5, 0, 0, 10, 10)
+        "#,
+        &["inside", "outside", "on_left_edge", "just_past_right_edge"],
+    );
+    assert_eq!(got, vec!["true", "false", "true", "false"]);
+}
+
+#[test]
+fn prelude_point_in_circle() {
+    let got = run_and_get(
+        r#"
+        inside = point_in_circle(2, 0, 0, 0, 5)
+        outside = point_in_circle(10, 0, 0, 0, 5)
+        on_edge = point_in_circle(5, 0, 0, 0, 5)
+        "#,
+        &["inside", "outside", "on_edge"],
+    );
+    assert_eq!(got, vec!["true", "false", "true"]);
+}
+
+#[test]
+fn prelude_sprite_wrapper_draws_via_sprite_builtin() {
+    let mut vm = make_vm();
+    let font = Font::empty();
+    poke_l_sprite(&mut vm);
+    vm.load_lua_source(
+        r#"
+        s = Sprite.new{ sprite_id = 0, pos = Vec2.new(10, 10), flip_x = true, flip_y = false, rotate = 0 }
+        function _update() end
+        function _draw() s:draw() end
+        "#,
+        &Input::new(),
+        &Font::empty(),
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&Input::new(), &font);
+
+    assert_eq!(vm.get_fault(), None);
+    // Same expected pixel set as the existing flip_x builtin test: left
+    // column mirrors to the right column, bottom row unchanged.
+    let mut expected = std::collections::BTreeSet::new();
+    for sy in 0..8u32 {
+        for sx in 0..8u32 {
+            if sx == 7 || sy == 7 {
+                expected.insert((sx, sy));
+            }
+        }
+    }
+    assert_eq!(lit_offsets(&vm, 10, 10), expected);
+}
+
+#[test]
+fn prelude_sprite_wrapper_moves_via_pos_mutation() {
+    let mut vm = make_vm();
+    let font = Font::empty();
+    poke_l_sprite(&mut vm);
+    vm.load_lua_source(
+        r#"
+        s = Sprite.new{ sprite_id = 0, pos = Vec2.new(0, 0) }
+        function _update()
+          s.pos = s.pos + Vec2.new(10, 10)
+        end
+        function _draw() s:draw() end
+        "#,
+        &Input::new(),
+        &Font::empty(),
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&Input::new(), &font);
+
+    assert_eq!(vm.get_fault(), None);
+    let mut expected = std::collections::BTreeSet::new();
+    for sy in 0..8u32 {
+        for sx in 0..8u32 {
+            if sx == 0 || sy == 7 {
+                expected.insert((sx, sy));
+            }
+        }
+    }
+    assert_eq!(lit_offsets(&vm, 10, 10), expected);
+}
+
+#[test]
+fn prelude_vec2_rng_collision_sprite_work_together() {
+    // A minimal "spawn a sprite at a random position, then check whether
+    // the player circle touches it" scenario — the kind of code this whole
+    // spec exists to make possible.
+    let mut vm = make_vm();
+    let font = Font::empty();
+    poke_l_sprite(&mut vm);
+    vm.load_lua_source(
+        r#"
+        enemy = Sprite.new{
+          sprite_id = 0,
+          pos = Vec2.new(random_range(0, 50), random_range(0, 50)),
+        }
+        player_pos = Vec2.new(0, 0)
+        player_radius = 100
+
+        function _update()
+          local dx = enemy.pos.x - player_pos.x
+          local dy = enemy.pos.y - player_pos.y
+          touching = circle_overlap(
+            player_pos.x, player_pos.y, player_radius,
+            enemy.pos.x, enemy.pos.y, 4
+          )
+          contained = point_in_rect(enemy.pos.x, enemy.pos.y, 0, 0, 128, 128)
+        end
+        function _draw()
+          enemy:draw()
+        end
+        "#,
+        &Input::new(),
+        &Font::empty(),
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&Input::new(), &font);
+
+    assert_eq!(vm.get_fault(), None);
+    let globals = vm.lua_globals();
+    let get = |name: &str| {
+        globals
+            .iter()
+            .find(|(k, _)| k == name)
+            .unwrap_or_else(|| panic!("missing global {name}"))
+            .1
+            .clone()
+    };
+    // enemy spawns within (0,0)-(50,50), well inside a radius-100 circle at
+    // the origin and inside the 128x128 screen — both true by construction.
+    assert_eq!(get("touching"), "true");
+    assert_eq!(get("contained"), "true");
+}

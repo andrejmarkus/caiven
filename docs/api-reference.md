@@ -72,16 +72,24 @@ or Studio), not by the Lua sandbox directly.
 
 Pure Lua, loaded into every cart's globals automatically (no `require`) — read `crates/caiven-vm/src/vm/prelude.lua` for the source. See it all in action in `games/carts/stdlib_demo.cav` (`cargo run -p caiven-machine -- games/carts/stdlib_demo.cav`): a tiny platformer with tile collision, a coin pickup that bursts particles, a walk-cycle sprite animation, and four side-by-side tweened dots comparing each easing curve.
 
+RNG is deterministic by default — `prelude.lua` seeds `math.randomseed(1)` once per fresh cart load (not on hot reload, so live gameplay isn't disturbed by an editor save). Call `math.randomseed(os.time())` yourself for per-run variety.
+
 | Function                                                                                         | Description                                                       |
 | :--------------------------------------------------------------------------------------------------| :--------------------------------------------------------------- |
 | `lerp(a, b, t)` / `clamp(v, lo, hi)`                                                             | Linear interpolate / clamp to range                               |
 | `ease_linear/in_quad/out_quad/in_out_quad(t)`                                                    | Easing curves, `t` in `0..1`                                      |
 | `aabb_overlap(x1, y1, w1, h1, x2, y2, w2, h2)`                                                   | Axis-aligned box overlap test                                     |
+| `circle_overlap(x1, y1, r1, x2, y2, r2)`                                                         | Circle overlap test                                               |
+| `point_in_rect(px, py, x, y, w, h)` / `point_in_circle(px, py, cx, cy, r)`                       | Point containment tests                                            |
 | `tile_solid(tx, ty)`                                                                             | Whether the per-cell collision value at `(tx, ty)` is `1` (solid) |
 | `box_touches_solid(x, y, w, h)`                                                                  | Whether a pixel-space box overlaps any solid tile                 |
 | `new_tween(from, to, frames, ease)` / `tween_update(tw)`                                         | Frame-driven value tween; `tw.done` flips true on arrival         |
 | `new_anim(frames, frame_len)` / `anim_update(anim)` / `anim_sprite(anim)`                        | Frame-based sprite animation cycling through a sprite-id list     |
 | `Particles.spawn(x, y, vx, vy, color, life)` / `.update()` / `.draw()` / `.clear()` / `.count()` | Simple velocity + lifetime particle system                        |
+| `Vec2.new(x, y)`                                                                                 | 2D vector with `+`/`-`/unary `-`/`*` (scalar)/`==`; `v:length()`, `v:length_squared()`, `v:normalize()`, `v:dot(other)`, `v:distance(other)` |
+| `random_range(lo, hi)` / `random_float(lo, hi)`                                                  | Deterministic-by-default RNG (see above) — int inclusive / float `[lo, hi)`       |
+| `choice(t)` / `shuffle(t)`                                                                       | Random element of a non-empty table / in-place Fisher-Yates shuffle              |
+| `Sprite.new{sprite_id, pos, flip_x, flip_y, rotate}` / `s:draw()`                                | Bundles a sprite_id + Vec2 pos (+ optional orientation) into a drawable object    |
 
 ## System Specifications
 

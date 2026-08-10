@@ -1,3 +1,123 @@
+-- Deterministic by default: a fresh Lua VM has RTK_SEEDED unset, so this
+-- seeds once. Hot reload re-runs prelude.lua on the *same* live VM, where
+-- RTK_SEEDED is already true, so a hot reload during dev doesn't reset the
+-- live RNG stream mid-game. Carts opt out via their own math.randomseed(x).
+if not RTK_SEEDED then
+  math.randomseed(1)
+  RTK_SEEDED = true
+end
+
+function random_range(lo, hi)
+  return math.random(lo, hi)
+end
+
+function random_float(lo, hi)
+  return lo + math.random() * (hi - lo)
+end
+
+function choice(t)
+  local n = #t
+  if n == 0 then
+    error("choice() requires a non-empty table", 2)
+  end
+  return t[math.random(n)]
+end
+
+function shuffle(t)
+  for i = #t, 2, -1 do
+    local j = math.random(i)
+    t[i], t[j] = t[j], t[i]
+  end
+  return t
+end
+
+Vec2 = {}
+Vec2.__index = Vec2
+
+local function is_vec2(v)
+  return type(v) == "table" and getmetatable(v) == Vec2
+end
+
+function Vec2.new(x, y)
+  return setmetatable({ x = x, y = y }, Vec2)
+end
+
+function Vec2.__add(a, b)
+  if not (is_vec2(a) and is_vec2(b)) then
+    error("Vec2 '+' requires two Vec2 operands", 2)
+  end
+  return Vec2.new(a.x + b.x, a.y + b.y)
+end
+
+function Vec2.__sub(a, b)
+  if not (is_vec2(a) and is_vec2(b)) then
+    error("Vec2 '-' requires two Vec2 operands", 2)
+  end
+  return Vec2.new(a.x - b.x, a.y - b.y)
+end
+
+function Vec2.__mul(a, b)
+  if is_vec2(a) and type(b) == "number" then
+    return Vec2.new(a.x * b, a.y * b)
+  elseif type(a) == "number" and is_vec2(b) then
+    return Vec2.new(b.x * a, b.y * a)
+  end
+  error("Vec2 '*' requires a Vec2 and a number", 2)
+end
+
+function Vec2.__unm(v)
+  return Vec2.new(-v.x, -v.y)
+end
+
+function Vec2.__eq(a, b)
+  return a.x == b.x and a.y == b.y
+end
+
+function Vec2.__tostring(v)
+  return "(" .. v.x .. ", " .. v.y .. ")"
+end
+
+function Vec2:length_squared()
+  return self.x * self.x + self.y * self.y
+end
+
+function Vec2:length()
+  return math.sqrt(self:length_squared())
+end
+
+function Vec2:normalize()
+  local len = self:length()
+  if len == 0 then
+    return Vec2.new(0, 0)
+  end
+  return Vec2.new(self.x / len, self.y / len)
+end
+
+function Vec2:dot(other)
+  return self.x * other.x + self.y * other.y
+end
+
+function Vec2:distance(other)
+  return (self - other):length()
+end
+
+Sprite = {}
+Sprite.__index = Sprite
+
+function Sprite.new(opts)
+  return setmetatable({
+    sprite_id = opts.sprite_id,
+    pos = opts.pos,
+    flip_x = opts.flip_x or false,
+    flip_y = opts.flip_y or false,
+    rotate = opts.rotate or 0,
+  }, Sprite)
+end
+
+function Sprite:draw()
+  sprite(self.sprite_id, self.pos.x, self.pos.y, self.flip_x, self.flip_y, self.rotate)
+end
+
 function lerp(a, b, t)
   return a + (b - a) * t
 end
@@ -18,6 +138,23 @@ end
 
 function aabb_overlap(x1, y1, w1, h1, x2, y2, w2, h2)
   return x1 < x2 + w2 and x2 < x1 + w1 and y1 < y2 + h2 and y2 < y1 + h1
+end
+
+function circle_overlap(x1, y1, r1, x2, y2, r2)
+  local dx = x2 - x1
+  local dy = y2 - y1
+  local r = r1 + r2
+  return dx * dx + dy * dy < r * r
+end
+
+function point_in_rect(px, py, x, y, w, h)
+  return px >= x and px < x + w and py >= y and py < y + h
+end
+
+function point_in_circle(px, py, cx, cy, r)
+  local dx = px - cx
+  local dy = py - cy
+  return dx * dx + dy * dy <= r * r
 end
 
 function tile_solid(tx, ty)

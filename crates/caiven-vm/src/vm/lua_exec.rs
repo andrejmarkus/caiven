@@ -98,6 +98,16 @@ const PRELUDE_NAMES: &[&str] = &[
     "anim_update",
     "anim_sprite",
     "Particles",
+    "Vec2",
+    "RTK_SEEDED",
+    "random_range",
+    "random_float",
+    "choice",
+    "shuffle",
+    "circle_overlap",
+    "point_in_rect",
+    "point_in_circle",
+    "Sprite",
 ];
 
 /// Lua's own stdlib globals — also excluded from the snapshot, along with
