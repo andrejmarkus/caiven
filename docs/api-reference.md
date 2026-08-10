@@ -82,6 +82,7 @@ Pure Lua, loaded into every cart's globals automatically (no `require`) — read
 | `new_tween(from, to, frames, ease)` / `tween_update(tw)`                                         | Frame-driven value tween; `tw.done` flips true on arrival         |
 | `new_anim(frames, frame_len)` / `anim_update(anim)` / `anim_sprite(anim)`                        | Frame-based sprite animation cycling through a sprite-id list     |
 | `Particles.spawn(x, y, vx, vy, color, life)` / `.update()` / `.draw()` / `.clear()` / `.count()` | Simple velocity + lifetime particle system                        |
+| `Vec2.new(x, y)`                                                                                 | 2D vector with `+`/`-`/unary `-`/`*` (scalar)/`==`; `v:length()`, `v:length_squared()`, `v:normalize()`, `v:dot(other)`, `v:distance(other)` |
 
 ## System Specifications
 

@@ -982,3 +982,109 @@ fn lua_sprite_invalid_rotate_errors() {
 
     assert!(vm.get_fault().is_some(), "expected a fault for rotate=45");
 }
+
+#[test]
+fn prelude_vec2_operators() {
+    let got = run_and_get(
+        r#"
+        local a = Vec2.new(1, 2)
+        local b = Vec2.new(3, 4)
+        local sum = a + b
+        local diff = b - a
+        local scaled = a * 2
+        local scaled2 = 2 * a
+        local neg = -a
+        sum_x, sum_y = sum.x, sum.y
+        diff_x, diff_y = diff.x, diff.y
+        scaled_x, scaled_y = scaled.x, scaled.y
+        scaled2_x, scaled2_y = scaled2.x, scaled2.y
+        neg_x, neg_y = neg.x, neg.y
+        eq_same = Vec2.new(1, 2) == Vec2.new(1, 2)
+        eq_diff = Vec2.new(1, 2) == Vec2.new(1, 3)
+        str = tostring(Vec2.new(5, 6))
+        "#,
+        &[
+            "sum_x",
+            "sum_y",
+            "diff_x",
+            "diff_y",
+            "scaled_x",
+            "scaled_y",
+            "scaled2_x",
+            "scaled2_y",
+            "neg_x",
+            "neg_y",
+            "eq_same",
+            "eq_diff",
+            "str",
+        ],
+    );
+    assert_eq!(
+        got,
+        vec![
+            "4",
+            "6",
+            "2",
+            "2",
+            "2",
+            "4",
+            "2",
+            "4",
+            "-1",
+            "-2",
+            "true",
+            "false",
+            "\"(5, 6)\"",
+        ]
+    );
+}
+
+#[test]
+fn prelude_vec2_length_normalize_dot_distance() {
+    let got = run_and_get(
+        r#"
+        local v = Vec2.new(3, 4)
+        len = v:length()
+        len_sq = v:length_squared()
+        local n = v:normalize()
+        norm_x, norm_y = n.x, n.y
+        local z = Vec2.new(0, 0)
+        local zn = z:normalize()
+        zero_x, zero_y = zn.x, zn.y
+        dotp = Vec2.new(1, 0):dot(Vec2.new(0, 1))
+        dist = Vec2.new(0, 0):distance(Vec2.new(3, 4))
+        "#,
+        &[
+            "len", "len_sq", "norm_x", "norm_y", "zero_x", "zero_y", "dotp", "dist",
+        ],
+    );
+    assert_eq!(got, vec!["5", "25", "0.6", "0.8", "0", "0", "0", "5"]);
+}
+
+#[test]
+fn prelude_vec2_operator_type_mismatch_errors() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          local ok = pcall(function() return Vec2.new(1, 2) + 5 end)
+          add_ok = ok
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&input, &font);
+    assert_eq!(vm.get_fault(), None);
+    let globals = vm.lua_globals();
+    let add_ok = globals
+        .iter()
+        .find(|(k, _)| k == "add_ok")
+        .unwrap_or_else(|| panic!("missing global add_ok"))
+        .1
+        .clone();
+    assert_eq!(add_ok, "false");
+}

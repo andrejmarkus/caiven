@@ -98,6 +98,7 @@ const PRELUDE_NAMES: &[&str] = &[
     "anim_update",
     "anim_sprite",
     "Particles",
+    "Vec2",
 ];
 
 /// Lua's own stdlib globals — also excluded from the snapshot, along with

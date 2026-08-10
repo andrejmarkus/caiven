@@ -481,6 +481,42 @@ pub const PRELUDE: &[ApiEntry] = &[
         returns: "number",
         doc: "Number of live particles.",
     },
+    ApiEntry {
+        name: "Vec2.new",
+        params: &[param!("x": "number"), param!("y": "number")],
+        returns: "Vec2",
+        doc: "Construct a 2D vector. Supports +, -, unary -, * (Vec2 * number or number * Vec2), and == (component equality). tostring(v) gives \"(x, y)\".",
+    },
+    ApiEntry {
+        name: "Vec2:length",
+        params: &[],
+        returns: "number",
+        doc: "Magnitude of the vector.",
+    },
+    ApiEntry {
+        name: "Vec2:length_squared",
+        params: &[],
+        returns: "number",
+        doc: "Squared magnitude — avoids a sqrt when only comparing magnitudes.",
+    },
+    ApiEntry {
+        name: "Vec2:normalize",
+        params: &[],
+        returns: "Vec2",
+        doc: "Unit-length copy of the vector. A zero-length vector returns Vec2.new(0, 0), not an error.",
+    },
+    ApiEntry {
+        name: "Vec2:dot",
+        params: &[param!("other": "Vec2")],
+        returns: "number",
+        doc: "Dot product with another Vec2.",
+    },
+    ApiEntry {
+        name: "Vec2:distance",
+        params: &[param!("other": "Vec2")],
+        returns: "number",
+        doc: "Distance to another Vec2.",
+    },
 ];
 
 /// Lua stdlib members this console leans on — never Rust-registered (see
