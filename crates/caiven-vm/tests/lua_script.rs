@@ -1297,3 +1297,55 @@ fn prelude_sprite_wrapper_moves_via_pos_mutation() {
     }
     assert_eq!(lit_offsets(&vm, 10, 10), expected);
 }
+
+#[test]
+fn prelude_vec2_rng_collision_sprite_work_together() {
+    // A minimal "spawn a sprite at a random position, then check whether
+    // the player circle touches it" scenario — the kind of code this whole
+    // spec exists to make possible.
+    let mut vm = make_vm();
+    let font = Font::empty();
+    poke_l_sprite(&mut vm);
+    vm.load_lua_source(
+        r#"
+        enemy = Sprite.new{
+          sprite_id = 0,
+          pos = Vec2.new(random_range(0, 50), random_range(0, 50)),
+        }
+        player_pos = Vec2.new(0, 0)
+        player_radius = 100
+
+        function _update()
+          local dx = enemy.pos.x - player_pos.x
+          local dy = enemy.pos.y - player_pos.y
+          touching = circle_overlap(
+            player_pos.x, player_pos.y, player_radius,
+            enemy.pos.x, enemy.pos.y, 4
+          )
+          contained = point_in_rect(enemy.pos.x, enemy.pos.y, 0, 0, 128, 128)
+        end
+        function _draw()
+          enemy:draw()
+        end
+        "#,
+        &Input::new(),
+        &Font::empty(),
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&Input::new(), &font);
+
+    assert_eq!(vm.get_fault(), None);
+    let globals = vm.lua_globals();
+    let get = |name: &str| {
+        globals
+            .iter()
+            .find(|(k, _)| k == name)
+            .unwrap_or_else(|| panic!("missing global {name}"))
+            .1
+            .clone()
+    };
+    // enemy spawns within (0,0)-(50,50), well inside a radius-100 circle at
+    // the origin and inside the 128x128 screen — both true by construction.
+    assert_eq!(get("touching"), "true");
+    assert_eq!(get("contained"), "true");
+}
