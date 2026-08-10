@@ -517,6 +517,30 @@ pub const PRELUDE: &[ApiEntry] = &[
         returns: "number",
         doc: "Distance to another Vec2.",
     },
+    ApiEntry {
+        name: "random_range",
+        params: &[param!("lo": "number"), param!("hi": "number")],
+        returns: "number",
+        doc: "Random integer in [lo, hi], inclusive. Deterministic per cart run unless the cart calls math.randomseed().",
+    },
+    ApiEntry {
+        name: "random_float",
+        params: &[param!("lo": "number"), param!("hi": "number")],
+        returns: "number",
+        doc: "Random float in [lo, hi).",
+    },
+    ApiEntry {
+        name: "choice",
+        params: &[param!("t": "table")],
+        returns: "any",
+        doc: "Random element of a non-empty array-like table. Errors on an empty table.",
+    },
+    ApiEntry {
+        name: "shuffle",
+        params: &[param!("t": "table")],
+        returns: "table",
+        doc: "Fisher-Yates shuffle of t, in place. Returns t.",
+    },
 ];
 
 /// Lua stdlib members this console leans on — never Rust-registered (see

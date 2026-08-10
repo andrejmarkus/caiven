@@ -1088,3 +1088,110 @@ fn prelude_vec2_operator_type_mismatch_errors() {
         .clone();
     assert_eq!(add_ok, "false");
 }
+
+#[test]
+fn prelude_rng_fresh_loads_are_deterministic() {
+    let got1 = run_and_get(
+        "a = random_range(1, 1000000)\nb = random_float(0, 1)",
+        &["a", "b"],
+    );
+    let got2 = run_and_get(
+        "a = random_range(1, 1000000)\nb = random_float(0, 1)",
+        &["a", "b"],
+    );
+    assert_eq!(
+        got1, got2,
+        "two fresh VMs with no explicit seed should produce identical sequences"
+    );
+}
+
+#[test]
+fn prelude_rng_hot_reload_does_not_reset_stream() {
+    // r1/r2/r3 are assigned by the initial chunk's top-level code (runs
+    // once, right after prelude.lua seeds); r4 by the hot-reloaded chunk's
+    // top-level code (also runs once, on the same live Lua state). Plain
+    // globals rather than a table, since `Vm::lua_watch` only parses dotted
+    // identifiers, not `t[i]` indexing.
+    let input = Input::new();
+    let font = Font::empty();
+    let mut vm = make_vm();
+    vm.load_lua_source(
+        r#"
+        r1 = random_range(1, 1000000000)
+        r2 = random_range(1, 1000000000)
+        r3 = random_range(1, 1000000000)
+        function _update() end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&input, &font);
+
+    vm.hot_reload_lua_source(
+        r#"
+        r4 = random_range(1, 1000000000)
+        function _update() end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("hot reload failed: {e}"));
+    vm.run_frame(&input, &font);
+
+    assert_eq!(vm.get_fault(), None);
+    let globals = vm.lua_globals();
+    let get = |name: &str| {
+        globals
+            .iter()
+            .find(|(k, _)| k == name)
+            .unwrap_or_else(|| panic!("missing global {name}"))
+            .1
+            .clone()
+    };
+    let (r1, r4) = (get("r1"), get("r4"));
+    assert_ne!(
+        r1, r4,
+        "hot reload re-runs prelude.lua; the seeding guard must stop it reseeding \
+         — if it reseeds, r4 restarts the sequence and equals r1"
+    );
+}
+
+#[test]
+fn prelude_rng_choice_and_shuffle() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          local t = {10, 20, 30}
+          picked = choice(t)
+          local ok = pcall(choice, {})
+          empty_ok = ok
+          local s = shuffle({1, 2, 3, 4, 5})
+          sum = 0
+          for _, v in ipairs(s) do sum = sum + v end
+          count = #s
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&input, &font);
+    assert_eq!(vm.get_fault(), None);
+    let globals = vm.lua_globals();
+    let get = |name: &str| {
+        globals
+            .iter()
+            .find(|(k, _)| k == name)
+            .unwrap_or_else(|| panic!("missing global {name}"))
+            .1
+            .clone()
+    };
+    assert!(["10", "20", "30"].contains(&get("picked").as_str()));
+    assert_eq!(get("empty_ok"), "false");
+    assert_eq!(get("sum"), "15");
+    assert_eq!(get("count"), "5");
+}
