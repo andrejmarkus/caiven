@@ -1235,3 +1235,65 @@ fn prelude_point_in_circle() {
     );
     assert_eq!(got, vec!["true", "false", "true"]);
 }
+
+#[test]
+fn prelude_sprite_wrapper_draws_via_sprite_builtin() {
+    let mut vm = make_vm();
+    let font = Font::empty();
+    poke_l_sprite(&mut vm);
+    vm.load_lua_source(
+        r#"
+        s = Sprite.new{ sprite_id = 0, pos = Vec2.new(10, 10), flip_x = true, flip_y = false, rotate = 0 }
+        function _update() end
+        function _draw() s:draw() end
+        "#,
+        &Input::new(),
+        &Font::empty(),
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&Input::new(), &font);
+
+    assert_eq!(vm.get_fault(), None);
+    // Same expected pixel set as the existing flip_x builtin test: left
+    // column mirrors to the right column, bottom row unchanged.
+    let mut expected = std::collections::BTreeSet::new();
+    for sy in 0..8u32 {
+        for sx in 0..8u32 {
+            if sx == 7 || sy == 7 {
+                expected.insert((sx, sy));
+            }
+        }
+    }
+    assert_eq!(lit_offsets(&vm, 10, 10), expected);
+}
+
+#[test]
+fn prelude_sprite_wrapper_moves_via_pos_mutation() {
+    let mut vm = make_vm();
+    let font = Font::empty();
+    poke_l_sprite(&mut vm);
+    vm.load_lua_source(
+        r#"
+        s = Sprite.new{ sprite_id = 0, pos = Vec2.new(0, 0) }
+        function _update()
+          s.pos = s.pos + Vec2.new(10, 10)
+        end
+        function _draw() s:draw() end
+        "#,
+        &Input::new(),
+        &Font::empty(),
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&Input::new(), &font);
+
+    assert_eq!(vm.get_fault(), None);
+    let mut expected = std::collections::BTreeSet::new();
+    for sy in 0..8u32 {
+        for sx in 0..8u32 {
+            if sx == 0 || sy == 7 {
+                expected.insert((sx, sy));
+            }
+        }
+    }
+    assert_eq!(lit_offsets(&vm, 10, 10), expected);
+}

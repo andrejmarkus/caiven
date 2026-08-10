@@ -579,6 +579,18 @@ pub const PRELUDE: &[ApiEntry] = &[
         returns: "bool",
         doc: "Whether (px, py) is inside or exactly on the circle centered at (cx, cy) with radius r.",
     },
+    ApiEntry {
+        name: "Sprite.new",
+        params: &[param!("opts": "table")],
+        returns: "Sprite",
+        doc: "Bundle a sprite_id, Vec2 pos, and optional flip_x/flip_y/rotate (defaults false/false/0) into one drawable object. opts = { sprite_id, pos, flip_x, flip_y, rotate }.",
+    },
+    ApiEntry {
+        name: "Sprite:draw",
+        params: &[],
+        returns: "nil",
+        doc: "Draw the sprite at its current pos via the sprite() builtin. Move it by reassigning .pos (e.g. s.pos = s.pos + v).",
+    },
 ];
 
 /// Lua stdlib members this console leans on — never Rust-registered (see

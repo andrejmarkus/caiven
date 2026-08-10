@@ -89,6 +89,7 @@ RNG is deterministic by default — `prelude.lua` seeds `math.randomseed(1)` onc
 | `Vec2.new(x, y)`                                                                                 | 2D vector with `+`/`-`/unary `-`/`*` (scalar)/`==`; `v:length()`, `v:length_squared()`, `v:normalize()`, `v:dot(other)`, `v:distance(other)` |
 | `random_range(lo, hi)` / `random_float(lo, hi)`                                                  | Deterministic-by-default RNG (see above) — int inclusive / float `[lo, hi)`       |
 | `choice(t)` / `shuffle(t)`                                                                       | Random element of a non-empty table / in-place Fisher-Yates shuffle              |
+| `Sprite.new{sprite_id, pos, flip_x, flip_y, rotate}` / `s:draw()`                                | Bundles a sprite_id + Vec2 pos (+ optional orientation) into a drawable object    |
 
 ## System Specifications
 
