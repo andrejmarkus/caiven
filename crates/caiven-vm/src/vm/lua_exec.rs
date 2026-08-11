@@ -215,6 +215,23 @@ const PRELUDE_MODULES: &[PreludeModule] = &[
     },
 ];
 
+/// Always-on prelude-core global names — exposed for `api_registry`'s
+/// `PRELUDE`-vs-registry drift test; nothing outside that test needs this.
+#[cfg(test)]
+pub(super) fn core_prelude_names() -> &'static [&'static str] {
+    CORE_PRELUDE_NAMES
+}
+
+/// Each opt-in prelude module's manifest name and the globals it defines —
+/// same purpose as [`core_prelude_names`], for the modules rather than core.
+#[cfg(test)]
+pub(super) fn prelude_module_globals() -> Vec<(&'static str, &'static [&'static str])> {
+    PRELUDE_MODULES
+        .iter()
+        .map(|module| (module.name, module.globals))
+        .collect()
+}
+
 /// Frames per second `time()` assumes when converting `frame_count`.
 const TARGET_FPS: f64 = 60.0;
 const MAX_CAPTURED_OUTPUT_LINES: usize = 200;

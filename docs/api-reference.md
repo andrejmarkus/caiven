@@ -101,6 +101,11 @@ screen, a play scene with a camera-followed player and two entities, and a
 game-over screen — declares `[stdlib] modules = ["vec2", "scenes",
 "entities", "camera"]`.
 
+Two more minimal carts show the two ends of the opt-in range:
+`carts/fixtures/stdlib_core_only.cav` declares `[stdlib] modules = []`
+explicitly (core-only, same as omitting `[stdlib]` entirely) and
+`carts/fixtures/stdlib_all_modules.cav` declares every module at once.
+
 ### `core` (always on, no declaration needed)
 
 RNG is deterministic by default — the prelude core seeds `math.randomseed(1)` once per fresh cart load (not on hot reload, so live gameplay isn't disturbed by an editor save). Call `math.randomseed(os.time())` yourself for per-run variety.

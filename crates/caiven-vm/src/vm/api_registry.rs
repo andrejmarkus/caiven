@@ -874,3 +874,69 @@ pub fn all_names() -> impl Iterator<Item = &'static str> {
         .chain(STDLIB.iter())
         .map(|e| e.name)
 }
+
+#[cfg(test)]
+mod prelude_consistency_tests {
+    use super::*;
+
+    /// `PRELUDE` entries name members (`"Vec2.new"`, `"Camera:shake"`) rather
+    /// than bare globals; the owning global is whatever precedes the first
+    /// `.`/`:`.
+    fn root_identifier(entry_name: &str) -> &str {
+        entry_name.split(['.', ':']).next().unwrap_or(entry_name)
+    }
+
+    /// Every `PRELUDE` entry must name a global that some current prelude
+    /// source (core or a module) actually defines — an entry left behind
+    /// after a rename/removal in `lua_exec.rs` would otherwise document a
+    /// name that no longer exists.
+    #[test]
+    fn every_prelude_entry_names_a_global_that_still_exists() {
+        let core = super::super::lua_exec::core_prelude_names();
+        let modules = super::super::lua_exec::prelude_module_globals();
+        for entry in PRELUDE {
+            let root = root_identifier(entry.name);
+            let known =
+                core.contains(&root) || modules.iter().any(|(_, globals)| globals.contains(&root));
+            assert!(
+                known,
+                "PRELUDE entry \"{}\" names global \"{root}\", which no core or \
+                 module source in lua_exec::PRELUDE_MODULES defines anymore",
+                entry.name
+            );
+        }
+    }
+
+    /// Every global a prelude module (or core) actually defines must have at
+    /// least one `PRELUDE` entry — a new/renamed global with no matching
+    /// entry would otherwise go undocumented in Studio's autocomplete.
+    #[test]
+    fn every_prelude_global_has_at_least_one_entry() {
+        let core = super::super::lua_exec::core_prelude_names();
+        let modules = super::super::lua_exec::prelude_module_globals();
+        let documented_roots: std::collections::HashSet<&str> = PRELUDE
+            .iter()
+            .map(|entry| root_identifier(entry.name))
+            .collect();
+
+        for &name in core {
+            // Internal bookkeeping flag, not a name a cart is meant to call —
+            // deliberately undocumented, unlike every other core global.
+            if name == "RTK_SEEDED" {
+                continue;
+            }
+            assert!(
+                documented_roots.contains(name),
+                "core prelude global \"{name}\" has no PRELUDE entry"
+            );
+        }
+        for (module_name, globals) in &modules {
+            for &name in *globals {
+                assert!(
+                    documented_roots.contains(name),
+                    "module \"{module_name}\"'s global \"{name}\" has no PRELUDE entry"
+                );
+            }
+        }
+    }
+}
