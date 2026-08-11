@@ -39,3 +39,4 @@ tauri-plugin-opener = "2"
 tauri-plugin-webdriver-automation = { version = "0.1", optional = true }
 toml = { workspace = true }
 ureq = { workspace = true }
+zip = { workspace = true }

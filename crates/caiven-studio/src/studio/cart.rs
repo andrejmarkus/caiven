@@ -288,6 +288,17 @@ pub(crate) fn temp_cav_path() -> std::path::PathBuf {
     std::env::temp_dir().join(format!("caiven-pack-{}-{unique}.cav", std::process::id()))
 }
 
+/// A unique directory path under the OS temp dir for writing a project's
+/// current live buffers before zipping them, without touching the project's
+/// own save location.
+pub(crate) fn temp_project_dir_path() -> std::path::PathBuf {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!("caiven-src-{}-{unique}", std::process::id()))
+}
+
 pub(crate) fn unpack_cart(cart: &Path, out: &Path) -> Result<()> {
     ensure_empty_unpack_destination(out)?;
     let loaded = caiven_cart::load(cart)

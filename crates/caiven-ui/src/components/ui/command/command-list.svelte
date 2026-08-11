@@ -5,6 +5,7 @@
 	let {
 		ref = $bindable(null),
 		class: className,
+		children,
 		...restProps
 	}: CommandPrimitive.ListProps = $props();
 </script>
@@ -14,4 +15,8 @@
 	data-slot="command-list"
 	class={cn("no-scrollbar max-h-72 scroll-py-1 outline-none overflow-x-hidden overflow-y-auto", className)}
 	{...restProps}
-/>
+>
+	<CommandPrimitive.Viewport>
+		{@render children?.()}
+	</CommandPrimitive.Viewport>
+</CommandPrimitive.List>

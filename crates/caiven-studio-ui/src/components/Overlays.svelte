@@ -23,6 +23,10 @@
     onRun: () => void;
     onExport: () => void;
     onExportWeb: () => void;
+    onExportScreenshot: () => void;
+    onExportSourceZip: () => void;
+    /** Whether the open cart is a project directory (vs. a binary `.cav`) — source export is only meaningful for the former. */
+    isProjectDir: boolean;
     onPublish: () => void;
     title: string;
     author: string;
@@ -56,7 +60,7 @@
     onOpenControls: () => void;
   }
 
-  let { overlay, running, palette, onClose, onNavigate, onRun, onExport, onExportWeb, onPublish,
+  let { overlay, running, palette, onClose, onNavigate, onRun, onExport, onExportWeb, onExportScreenshot, onExportSourceZip, isProjectDir, onPublish,
     title, author, meta, portAccount, publishProgress, publishError, publishDone,
     onStartPublish, onLinkPort, onTourDone, onOpenProject, onNewProject, onCloseProject,
     templates, onCreateProject, frameData, api, onInsertBuiltin, onCreateModule,
@@ -101,6 +105,8 @@
     { group: 'Suggested', name: 'Controls', detail: 'rebind keys', keys: '', icon: Gamepad2, action: onOpenControls },
     { group: 'Suggested', name: 'Pack cartridge (.cav)', detail: 'distribution build', keys: '', icon: Package, action: onExport },
     { group: 'Suggested', name: 'Export to web (.html)', detail: 'plays offline, no server needed', keys: '', icon: Globe, action: onExportWeb },
+    { group: 'Suggested', name: 'Export Screenshot (.png)', detail: '30-frame headless capture', keys: '', icon: Image, action: onExportScreenshot },
+    ...(isProjectDir ? [{ group: 'Suggested', name: 'Export Source (.zip)', detail: 'project files: code, sprites, sound', keys: '', icon: Package, action: onExportSourceZip }] : []),
     { group: 'Suggested', name: 'Open project', detail: 'folder or cart', keys: '', icon: Package, action: onOpenProject },
     { group: 'Suggested', name: 'New cart', detail: 'choose a starting template', keys: '', icon: Sparkles, action: onNewProject },
     { group: 'Suggested', name: 'Close cart', detail: title, keys: '', icon: X, action: onCloseProject },

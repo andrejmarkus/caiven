@@ -53,3 +53,4 @@ tauri-runtime = "=2.10.1"
 ureq = "2"
 uuid = { version = "1", features = ["v4"] }
 webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }

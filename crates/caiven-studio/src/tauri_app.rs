@@ -352,6 +352,14 @@ enum CoreCommand {
         path: PathBuf,
         reply: mpsc::Sender<Result<(), String>>,
     },
+    ExportScreenshot {
+        path: PathBuf,
+        reply: mpsc::Sender<Result<(), String>>,
+    },
+    ExportSourceZip {
+        path: PathBuf,
+        reply: mpsc::Sender<Result<(), String>>,
+    },
     Transport {
         action: String,
         reply: mpsc::Sender<Result<TickPayload, String>>,
@@ -1404,6 +1412,32 @@ impl StudioCore {
         cart_io::export_web(&self.console.vm, meta, path, &modules)
             .map_err(|error| format!("{error:#}"))
     }
+
+    fn export_screenshot(&mut self, path: &Path) -> Result<(), String> {
+        let modules = self.modules();
+        let entry = self.sources.first().map(|source| source.text.clone());
+        let Some(meta) = self.cart.as_mut() else {
+            return Err("Nothing to export".to_string());
+        };
+        if let Some(entry) = entry {
+            meta.lua_source = Some(entry);
+        }
+        cart_io::export_screenshot(&self.console.vm, meta, path, &modules)
+            .map_err(|error| format!("{error:#}"))
+    }
+
+    fn export_source_zip(&mut self, path: &Path) -> Result<(), String> {
+        let modules = self.modules();
+        let entry = self.sources.first().map(|source| source.text.clone());
+        let Some(meta) = self.cart.as_mut() else {
+            return Err("Nothing to export".to_string());
+        };
+        if let Some(entry) = entry {
+            meta.lua_source = Some(entry);
+        }
+        cart_io::export_source_zip(&self.console.vm, meta, path, &modules)
+            .map_err(|error| format!("{error:#}"))
+    }
 }
 
 /// The additional-bank `SectionKind` (id != 0 wrapper) that round-trips a
@@ -1564,6 +1598,12 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
         }
         CoreCommand::ExportWeb { path, reply } => {
             let _ = reply.send(studio.export_web(&path));
+        }
+        CoreCommand::ExportScreenshot { path, reply } => {
+            let _ = reply.send(studio.export_screenshot(&path));
+        }
+        CoreCommand::ExportSourceZip { path, reply } => {
+            let _ = reply.send(studio.export_source_zip(&path));
         }
         CoreCommand::Transport { action, reply } => {
             let _ = reply.send(studio.transport(&action));
@@ -1975,6 +2015,21 @@ fn studio_export_web(path: PathBuf, state: State<'_, StudioBridge>) -> Result<()
     state.request(|reply| CoreCommand::ExportWeb { path, reply })
 }
 
+/// Runs the current project headlessly for a fixed frame count and writes a
+/// PNG screenshot to `path`, same trust boundary as `studio_export` (V9).
+#[tauri::command]
+fn studio_export_screenshot(path: PathBuf, state: State<'_, StudioBridge>) -> Result<(), String> {
+    state.request(|reply| CoreCommand::ExportScreenshot { path, reply })
+}
+
+/// Zips the current project's `caiven.toml` + Lua source + assets to `path`;
+/// errors for binary `.cav` carts, which have no source tree. Same trust
+/// boundary as `studio_export` (V9).
+#[tauri::command]
+fn studio_export_source_zip(path: PathBuf, state: State<'_, StudioBridge>) -> Result<(), String> {
+    state.request(|reply| CoreCommand::ExportSourceZip { path, reply })
+}
+
 #[tauri::command]
 fn studio_transport(action: String, state: State<'_, StudioBridge>) -> Result<TickPayload, String> {
     state.request(|reply| CoreCommand::Transport { action, reply })
@@ -2278,6 +2333,27 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         true,
         None::<&str>,
     )?;
+    let export_web_item = MenuItem::with_id(
+        app,
+        "file_export_web",
+        "Export to Web (.html)...",
+        true,
+        None::<&str>,
+    )?;
+    let export_screenshot_item = MenuItem::with_id(
+        app,
+        "file_export_screenshot",
+        "Export Screenshot (.png)...",
+        true,
+        None::<&str>,
+    )?;
+    let export_source_zip_item = MenuItem::with_id(
+        app,
+        "file_export_source_zip",
+        "Export Source (.zip)...",
+        true,
+        None::<&str>,
+    )?;
     let close_item = MenuItem::with_id(app, "file_close", "Close", true, None::<&str>)?;
     let file_menu = Submenu::with_items(
         app,
@@ -2289,6 +2365,9 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
             &PredefinedMenuItem::separator(app)?,
             &save_item,
             &export_item,
+            &export_web_item,
+            &export_screenshot_item,
+            &export_source_zip_item,
             &PredefinedMenuItem::separator(app)?,
             &close_item,
             &PredefinedMenuItem::close_window(app, None)?,
@@ -2358,6 +2437,9 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
                 "file_open" => "open",
                 "file_save" => "save",
                 "file_export" => "export",
+                "file_export_web" => "export_web",
+                "file_export_screenshot" => "export_screenshot",
+                "file_export_source_zip" => "export_source_zip",
                 "file_close" => "close",
                 "run_toggle" => "run_toggle",
                 "command_palette" => "palette",
@@ -2390,6 +2472,8 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
             studio_save,
             studio_export,
             studio_export_web,
+            studio_export_screenshot,
+            studio_export_source_zip,
             studio_transport,
             studio_set_input,
             studio_write_sprite,

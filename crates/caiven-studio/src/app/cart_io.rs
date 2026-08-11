@@ -164,6 +164,96 @@ pub(crate) fn export_web(
         .with_context(|| format!("failed to write web export to {}", dest.display()))
 }
 
+/// Frames to run headlessly before capturing a screenshot — matches the
+/// publish flow's cover-capture default (`app/cli.rs` `Publish::frames`).
+const SCREENSHOT_FRAMES: u32 = 30;
+
+/// Captures a PNG of the VM's current RAM sections run headlessly from
+/// `_init()`, reusing the same pack-to-temp-file step as `export_web` and
+/// the screenshot primitive already shared by publish (`port_client.rs`).
+pub(crate) fn export_screenshot(
+    vm: &Vm,
+    meta: &CartMeta,
+    dest: &Path,
+    modules: &[(PathBuf, String)],
+) -> Result<()> {
+    let extra = gather_sections(vm, meta);
+    let (program, extra) = distribution_content(&extra, meta, meta.lua_source.as_deref(), modules);
+
+    let temp = crate::studio::cart::temp_cav_path();
+    caiven_cart::write(&temp, &meta.header, &program, &extra)
+        .with_context(|| format!("failed to pack cart to {}", temp.display()))?;
+    let cart = caiven_cart::load(&temp)
+        .with_context(|| format!("failed to reload packed cart from {}", temp.display()));
+    let _ = std::fs::remove_file(&temp);
+    let cart = cart?;
+
+    let png_bytes = crate::port_client::capture_screenshot(
+        &cart,
+        caiven_vm::VmConfig::default(),
+        SCREENSHOT_FRAMES,
+    )
+    .context("failed to capture screenshot")?;
+    std::fs::write(dest, png_bytes)
+        .with_context(|| format!("failed to write screenshot to {}", dest.display()))
+}
+
+/// Packages a project-dir cart's `caiven.toml` + Lua source + assets as a
+/// zip at `dest`. Writes current live buffers to a throwaway temp project
+/// dir first (same shape as `save()`'s project branch) rather than zipping
+/// the live project dir in place, so unsaved edits are included and no
+/// stray non-project files leak in. Binary `.cav` carts have no source tree
+/// to export.
+pub(crate) fn export_source_zip(
+    vm: &Vm,
+    meta: &CartMeta,
+    dest: &Path,
+    modules: &[(PathBuf, String)],
+) -> Result<()> {
+    if meta.path.extension().and_then(|e| e.to_str()) == Some("cav") {
+        anyhow::bail!("Export Source is only available for project-directory carts");
+    }
+
+    let extra = gather_sections(vm, meta);
+    let lua = meta.lua_source.as_deref().unwrap_or_default();
+    let temp_dir = crate::studio::cart::temp_project_dir_path();
+    let write_result = caiven_cart::save_project(&temp_dir, &meta.header, lua, modules, &extra)
+        .with_context(|| format!("failed to write project to {}", temp_dir.display()));
+    let zip_result = write_result.and_then(|()| zip_dir(&temp_dir, dest));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    zip_result
+}
+
+fn zip_dir(dir: &Path, dest: &Path) -> Result<()> {
+    let file = std::fs::File::create(dest)
+        .with_context(|| format!("failed to create zip at {}", dest.display()))?;
+    let mut writer = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    let entries = std::fs::read_dir(dir)
+        .with_context(|| format!("failed to read project dir {}", dir.display()))?;
+    for entry in entries {
+        let entry = entry.with_context(|| format!("failed to read entry in {}", dir.display()))?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        writer
+            .start_file(name, options)
+            .with_context(|| format!("failed to add {name} to zip"))?;
+        let bytes =
+            std::fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
+        std::io::Write::write_all(&mut writer, &bytes)
+            .with_context(|| format!("failed to write {name} to zip"))?;
+    }
+    writer.finish().context("failed to finalize zip")?;
+    Ok(())
+}
+
 fn write_binary(
     extra: &[(SectionKind, Vec<u8>)],
     meta: &CartMeta,

@@ -212,6 +212,32 @@ export async function exportCartridgeWeb(path: string): Promise<void> {
   await invoke('studio_export_web', { path });
 }
 
+export async function chooseExportScreenshotPath(title: string): Promise<string | null> {
+  if (!isTauri()) return null;
+  return saveDialog({
+    title: 'Export screenshot',
+    defaultPath: `${title || 'cart'}.png`,
+    filters: [{ name: 'PNG image', extensions: ['png'] }],
+  });
+}
+
+export async function exportCartridgeScreenshot(path: string): Promise<void> {
+  await invoke('studio_export_screenshot', { path });
+}
+
+export async function chooseExportSourceZipPath(title: string): Promise<string | null> {
+  if (!isTauri()) return null;
+  return saveDialog({
+    title: 'Export source',
+    defaultPath: `${title || 'cart'}.zip`,
+    filters: [{ name: 'Zip archive', extensions: ['zip'] }],
+  });
+}
+
+export async function exportCartridgeSourceZip(path: string): Promise<void> {
+  await invoke('studio_export_source_zip', { path });
+}
+
 export async function transport(action: 'run' | 'pause' | 'reset' | 'step'): Promise<TickSnapshot> {
   if (!isTauri()) {
     fallback.runState = action === 'pause' || action === 'step' ? 'paused' : 'running';

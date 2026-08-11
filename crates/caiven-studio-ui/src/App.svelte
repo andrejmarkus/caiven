@@ -16,7 +16,7 @@
     PublishProgress, Screen, StudioBootstrap, TickSnapshot,
   } from './types';
   import {
-    bootstrap, chooseExportPath, chooseExportWebPath, chooseProject, exportCartridge, exportCartridgeWeb, fallbackExamples, fallbackTemplates, isTauri, listExamples, listTemplates, newProject,
+    bootstrap, chooseExportPath, chooseExportWebPath, chooseExportScreenshotPath, chooseExportSourceZipPath, chooseProject, exportCartridge, exportCartridgeWeb, exportCartridgeScreenshot, exportCartridgeSourceZip, fallbackExamples, fallbackTemplates, isTauri, listExamples, listTemplates, newProject,
     openProject, readAssetIndex, readCartSize, readFrame, readMemory, readTick, remixExample, saveProject, setInput, transport,
     addWatch, assetBank, audioTransport, clearOutput, closeProject, COLLISION_LEN, createModule, MEMORY, portDownload, portLinkCancel, portLinkPoll, portLinkStart, portListCarts,
     portLogout, portPublish, portSession, portSetUrl, scanLibrary, toggleBreakpoint, writeBuffer,
@@ -794,6 +794,34 @@
     }
   }
 
+  async function doExportScreenshot() {
+    try {
+      const path = await chooseExportScreenshotPath(studio.title);
+      if (!path) return;
+      clearTimeout(writeTimer);
+      await Promise.all(studio.sources.filter((source) => source.dirty).map((source) => writeBuffer(source.path, source.text)));
+      await exportCartridgeScreenshot(path);
+      status = `Exported screenshot ${tidyPath(path)}`;
+      showToast(`Exported ${path}`);
+    } catch (error) {
+      showToast(`Screenshot export failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async function doExportSourceZip() {
+    try {
+      const path = await chooseExportSourceZipPath(studio.title);
+      if (!path) return;
+      clearTimeout(writeTimer);
+      await Promise.all(studio.sources.filter((source) => source.dirty).map((source) => writeBuffer(source.path, source.text)));
+      await exportCartridgeSourceZip(path);
+      status = `Exported source ${tidyPath(path)}`;
+      showToast(`Exported ${path}`);
+    } catch (error) {
+      showToast(`Source export failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   function handleKeys(event: KeyboardEvent) {
     const target = event.target as HTMLElement | null;
     const editing = target?.matches('input, textarea, [contenteditable="true"]');
@@ -881,6 +909,9 @@
           case 'open': void doOpen(); break;
           case 'save': void doSave(); break;
           case 'export': void doExport(); break;
+          case 'export_web': void doExportWeb(); break;
+          case 'export_screenshot': void doExportScreenshot(); break;
+          case 'export_source_zip': void doExportSourceZip(); break;
           case 'close': void doClose(); break;
           case 'run_toggle': void doTransport(running ? 'pause' : 'run'); break;
           case 'palette': overlay = overlay === 'palette' ? null : 'palette'; break;
@@ -1140,6 +1171,9 @@
     onRun={() => void doTransport(running ? 'pause' : 'run')}
     onExport={doExport}
     onExportWeb={doExportWeb}
+    onExportScreenshot={doExportScreenshot}
+    onExportSourceZip={doExportSourceZip}
+    isProjectDir={!studio.path.toLowerCase().endsWith('.cav')}
     onPublish={showPublish}
     title={studio.title}
     author={studio.author}
