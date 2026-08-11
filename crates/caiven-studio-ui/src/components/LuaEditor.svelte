@@ -14,7 +14,7 @@
   import { lua } from '@codemirror/legacy-modes/mode/lua';
   import { tags as t } from '@lezer/highlight';
   import type {
-    ApiEntry, Breakpoint, Diagnostic, EditorInsertRequest, EditorRevealRequest,
+    ApiEntry, Breakpoint, Diagnostic, EditorInsertRequest, EditorRevealRequest, PreludeModule,
   } from '../types';
   import { sourceOffset } from '../lib/editorMath';
 
@@ -39,6 +39,7 @@
     path: string;
     initialCursor: number;
     api: ApiEntry[];
+    preludeModules: PreludeModule[];
     diagnostics: Diagnostic[];
     breakpoints: Breakpoint[];
     insertRequest: EditorInsertRequest | null;
@@ -48,11 +49,12 @@
     onChange: (value: string) => void;
     onCursor: (source: string, offset: number) => void;
     onToggleBreakpoint: (source: string, line: number) => void;
+    onEnableModule: (module: string) => void;
   }
 
   let {
-    value, path, initialCursor, api, diagnostics, breakpoints, insertRequest, revealRequest,
-    onInsertHandled, onRevealHandled, onChange, onCursor, onToggleBreakpoint,
+    value, path, initialCursor, api, preludeModules, diagnostics, breakpoints, insertRequest, revealRequest,
+    onInsertHandled, onRevealHandled, onChange, onCursor, onToggleBreakpoint, onEnableModule,
   }: Props = $props();
   let host: HTMLDivElement;
   let view: EditorView | undefined;
@@ -155,6 +157,44 @@
     onRevealHandled(revealRequest.id);
   }
 
+  /** Best-effort lexical scan (not a parser) for references to a disabled
+   * prelude module's globals, so the editor can offer a quick-fix that
+   * enables the module — not a completion, since the module isn't active.
+   * Skips `.`/`:` member access (`foo.Vec2`) and `--` comment tails; false
+   * positives on string literals containing the same text are acceptable. */
+  function disabledModuleDiagnostics(): CmDiagnostic[] {
+    if (!view) return [];
+    const disabledGlobals = new Map<string, string>();
+    for (const module of preludeModules) {
+      if (module.enabled) continue;
+      for (const global of module.globals) disabledGlobals.set(global, module.name);
+    }
+    if (disabledGlobals.size === 0) return [];
+
+    const text = view.state.doc.toString();
+    const items: CmDiagnostic[] = [];
+    const wordPattern = /[A-Za-z_][A-Za-z0-9_]*/g;
+    let match: RegExpExecArray | null;
+    while ((match = wordPattern.exec(text))) {
+      const word = match[0];
+      const moduleName = disabledGlobals.get(word);
+      if (!moduleName) continue;
+      const start = match.index;
+      const prevChar = start > 0 ? text[start - 1] : '';
+      if (prevChar === '.' || prevChar === ':') continue;
+      const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+      if (text.slice(lineStart, start).includes('--')) continue;
+      items.push({
+        from: start,
+        to: start + word.length,
+        severity: 'warning',
+        message: `${word} not available — module '${moduleName}' not enabled`,
+        actions: [{ name: `Enable '${moduleName}'`, apply: () => onEnableModule(moduleName) }],
+      });
+    }
+    return items;
+  }
+
   function syncDiagnostics() {
     if (!view) return;
     const items: CmDiagnostic[] = diagnostics
@@ -168,7 +208,7 @@
           message: `${item.title}: ${item.detail}`,
         };
       });
-    view.dispatch(setDiagnostics(view.state, items));
+    view.dispatch(setDiagnostics(view.state, [...items, ...disabledModuleDiagnostics()]));
   }
 
   onMount(() => {
@@ -201,6 +241,7 @@
               onChange(update.state.doc.toString());
             }
             if (update.selectionSet || update.docChanged) onCursor(path, update.state.selection.main.head);
+            if (update.docChanged) syncDiagnostics();
           }),
           EditorView.theme({
             '&': { height: '100%', backgroundColor: 'var(--color-void-900)', color: 'var(--color-ink)', fontSize: '13px' },
@@ -230,6 +271,7 @@
   });
   $effect(() => { breakpoints; path; syncBreakpoints(); });
   $effect(() => { diagnostics; path; syncDiagnostics(); });
+  $effect(() => { preludeModules; syncDiagnostics(); });
   $effect(() => { insertRequest; applyInsert(); });
   $effect(() => { revealRequest; applyReveal(); });
 </script>

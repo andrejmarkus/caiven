@@ -13,7 +13,7 @@
   import * as Dialog from '@caiven/ui/dialog';
   import type {
     ApiEntry, AssetIndex, AssetRef, AudioState, Breakpoint, CartMeta, CartSize, CollisionType, Diagnostic, EditorInsertRequest,
-    EditorRevealRequest, ExampleSummary, LocalCart, PortCart, PortSession, Screen, SourceBuffer,
+    EditorRevealRequest, ExampleSummary, LocalCart, PortCart, PortSession, PreludeModule, Screen, SourceBuffer,
   } from '../types';
   import {
     dragPanScroll, MAP_ZOOM_LEVELS, nextMapZoom,
@@ -62,6 +62,7 @@
     recent: string[];
     examples: ExampleSummary[];
     api: ApiEntry[];
+    preludeModules: PreludeModule[];
     frameData: Uint8Array | null;
     insertRequest: EditorInsertRequest | null;
     revealRequest: EditorRevealRequest | null;
@@ -82,6 +83,7 @@
     onAudio: (kind: 'sfx' | 'music', id: number, action: 'play' | 'stop') => void;
     onBreakpoint: (source: string, line: number) => void;
     onMeta: (title: string, author: string, meta: CartMeta) => void;
+    onSetStdlibModule: (module: string, enabled: boolean) => void;
     onCreateModule: () => void;
     onPalette: (slot: number, hex: string) => void;
     onTour: () => void;
@@ -114,10 +116,10 @@
   let {
     screen, sources, activeSource, palette, spriteSheet, map, spriteBanks, mapBanks, activeSpriteBank, activeMapBank, collision, collisionTypes, sfx, music,
     paletteBanks, sfxBanks, musicBanks, activePaletteBank, activeSfxBank, activeMusicBank, cartSize,
-    audio, assetIndex, diagnostics, breakpoints, title, author, path, meta, dirty, tourDone, recent, examples, api, frameData, insertRequest, revealRequest, onInsertHandled, onRevealHandled,
+    audio, assetIndex, diagnostics, breakpoints, title, author, path, meta, dirty, tourDone, recent, examples, api, preludeModules, frameData, insertRequest, revealRequest, onInsertHandled, onRevealHandled,
     soundSelection,
     onNavigate, onSource, onCode, onSprite, onCollision, onCollisionTypes, onMap, onAssetBank, onSfx, onMusic, onAudio,
-    onBreakpoint, onMeta, onCreateModule, onPalette, onTour, onOpen, onNew, onRemix,
+    onBreakpoint, onMeta, onSetStdlibModule, onCreateModule, onPalette, onTour, onOpen, onNew, onRemix,
     localCarts, portCarts, portAccount, portBusy, portError, portLinkPending, portLinkExpiresAt, onScanLibrary,
     onSearchPort, onOpenLocal, onRemoveRecent, onDownloadPort, onOpenPortAccount, onPortLink, onPortLinkCancel, onPortLogout,
     onInsertBuiltin, onOpenSource, onHistoryStatus, onSetServerUrl,
@@ -1123,6 +1125,7 @@
               path={active?.name ?? ''}
               initialCursor={sourceCursor[active?.name ?? ''] ?? 0}
               {api}
+              {preludeModules}
               {diagnostics}
               {breakpoints}
               {insertRequest}
@@ -1132,6 +1135,7 @@
               onChange={onCode}
               onCursor={(source, offset) => sourceCursor[source] = offset}
               onToggleBreakpoint={onBreakpoint}
+              onEnableModule={(module) => onSetStdlibModule(module, true)}
             />
           {/key}
         </div>
@@ -1651,7 +1655,19 @@
           <label>Description<Textarea maxlength={240} value={meta.description} onblur={(event) => onMeta(title, author, { ...meta, description: event.currentTarget.value })}></Textarea><small>{meta.description.length} / 240</small></label>
           <label>Tags<div class="tag-input">{#each meta.tags as tag}<button onclick={() => onMeta(title, author, { ...meta, tags: meta.tags.filter((value) => value !== tag) })}>{tag} ×</button>{/each}<input placeholder="Add tag…" onkeydown={(event) => { if (event.key === 'Enter' && event.currentTarget.value.trim()) { event.preventDefault(); onMeta(title, author, { ...meta, tags: [...meta.tags, event.currentTarget.value.trim()] }); event.currentTarget.value = ''; } }} /></div></label>
           <div class="cart-facts">{#each [['Format',path.endsWith('.cav') ? '.cav' : 'project dir'],['Packed size',`${(cartSize.packedBytes / 1024).toFixed(1)} KiB`],['Sources',`${sources.length} module${sources.length === 1 ? '' : 's'}`],['Port',portAccount.authenticated ? portAccount.username : 'not signed in']] as fact}<span><small>{fact[0]}</small><code>{fact[1]}</code></span>{/each}</div>
-          {#if !portAccount.authenticated}<Button variant="outline" onclick={onOpenPortAccount}>Open Port account</Button>{/if}
+          {#if !portAccount.authenticated}<Button class="cart-port-cta" onclick={onOpenPortAccount}>Open Port account</Button>{/if}
+          <div class="stdlib-modules">
+            <div class="stdlib-modules-heading">Stdlib modules<small>Enabling a module here makes its globals available to the cart's Lua source. The editor also offers a quick-fix to enable a module when you reference it in code.</small></div>
+            <div class="stdlib-modules-list">
+              {#each preludeModules as module (module.name)}
+                <label class="stdlib-module-row">
+                  <input type="checkbox" checked={module.enabled} onchange={(event) => onSetStdlibModule(module.name, event.currentTarget.checked)} />
+                  <span class="stdlib-module-name">{module.name}</span>
+                  <small class="stdlib-module-globals">{module.globals.join(', ')}</small>
+                </label>
+              {/each}
+            </div>
+          </div>
         </div>
         <aside class="cart-preview">
           <span class="eyebrow">Port preview</span>

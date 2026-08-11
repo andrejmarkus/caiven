@@ -59,6 +59,28 @@ struct ApiEntryPayload {
     category: String,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PreludeModulePayload {
+    name: String,
+    globals: Vec<String>,
+    enabled: bool,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StdlibModulesPayload {
+    api: Vec<ApiEntryPayload>,
+    prelude_modules: Vec<PreludeModulePayload>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveResult {
+    output: Vec<String>,
+    unused_modules: Vec<String>,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct MetaPayload {
@@ -256,6 +278,7 @@ struct BootstrapPayload {
     audio: AudioPayload,
     recent: Vec<String>,
     api: Vec<ApiEntryPayload>,
+    prelude_modules: Vec<PreludeModulePayload>,
 }
 
 #[derive(Clone, Serialize)]
@@ -343,7 +366,7 @@ enum CoreCommand {
         text: String,
         reply: mpsc::Sender<Result<(), String>>,
     },
-    Save(mpsc::Sender<Result<Vec<String>, String>>),
+    Save(mpsc::Sender<Result<SaveResult, String>>),
     Export {
         path: PathBuf,
         reply: mpsc::Sender<Result<(), String>>,
@@ -432,6 +455,11 @@ enum CoreCommand {
         author: String,
         meta: MetaPayload,
         reply: mpsc::Sender<Result<(), String>>,
+    },
+    SetStdlibModule {
+        module: String,
+        enabled: bool,
+        reply: mpsc::Sender<Result<StdlibModulesPayload, String>>,
     },
     CreateModule {
         name: String,
@@ -812,28 +840,8 @@ impl StudioCore {
                 .into_iter()
                 .map(|path| path.display().to_string())
                 .collect(),
-            api: [
-                (api_registry::BUILTINS, "Console builtins"),
-                (api_registry::PRELUDE, "Gameplay stdlib"),
-                (api_registry::STDLIB, "Lua standard library"),
-            ]
-            .into_iter()
-            .flat_map(|(entries, category)| entries.iter().map(move |entry| (entry, category)))
-            .map(|(entry, category)| ApiEntryPayload {
-                name: entry.name.to_string(),
-                params: entry
-                    .params
-                    .iter()
-                    .map(|param| ApiParamPayload {
-                        name: param.name.to_string(),
-                        ty: param.ty.to_string(),
-                    })
-                    .collect(),
-                returns: entry.returns.to_string(),
-                doc: entry.doc.to_string(),
-                category: category.to_string(),
-            })
-            .collect(),
+            api: self.api_payload(),
+            prelude_modules: self.prelude_modules_payload(),
         }
     }
 
@@ -1241,6 +1249,114 @@ impl StudioCore {
         Ok(())
     }
 
+    /// Enables or disables one opt-in prelude module (`[stdlib] modules` in
+    /// `caiven.toml`) for the open cart. Validates the resulting set against
+    /// the VM's registry *before* touching cart state, applies it to the
+    /// live VM immediately (so autocomplete/hover reflect it without a
+    /// reopen), and flags a recompile so a hot-reload can pick up any newly
+    /// available globals. Once a cart's `[stdlib]` has been written once, it
+    /// stays an explicit table even if every module is later disabled
+    /// (`modules = []`), rather than reverting to "undeclared".
+    fn set_stdlib_module(&mut self, module: &str, enabled: bool) -> Result<(), String> {
+        let Some(cart) = self.cart.as_mut() else {
+            return Err("No cart open".to_string());
+        };
+        let mut modules: Vec<String> = cart
+            .sections
+            .iter()
+            .find(|section| section.kind == SectionKind::PreludeModules)
+            .and_then(|section| section.preserved_data.as_deref())
+            .map(|data| {
+                String::from_utf8_lossy(data)
+                    .lines()
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        if enabled {
+            if !modules.iter().any(|existing| existing == module) {
+                modules.push(module.to_string());
+            }
+        } else {
+            modules.retain(|existing| existing != module);
+        }
+
+        let refs: Vec<&str> = modules.iter().map(String::as_str).collect();
+        self.console.vm.set_prelude_modules(&refs)?;
+
+        let bytes = modules.join("\n").into_bytes();
+        if let Some(section) = cart
+            .sections
+            .iter_mut()
+            .find(|section| section.kind == SectionKind::PreludeModules)
+        {
+            section.len = bytes.len();
+            section.preserved_data = Some(bytes);
+        } else {
+            cart.sections.push(crate::app::cart_io::SectionLayout {
+                kind: SectionKind::PreludeModules,
+                ram_base: 0,
+                len: bytes.len(),
+                preserved_data: Some(bytes),
+            });
+        }
+        self.needs_compile = true;
+        Ok(())
+    }
+
+    /// The API entries available in the Studio editor, scoped to the open
+    /// cart's enabled `[stdlib]` modules: `BUILTINS`/`STDLIB` and the
+    /// always-on prelude core are unconditional, but an opt-in prelude
+    /// module's entries only appear once that module is enabled.
+    fn api_payload(&self) -> Vec<ApiEntryPayload> {
+        let active = self.console.vm.active_prelude_modules();
+        [
+            (api_registry::BUILTINS, "Console builtins"),
+            (api_registry::PRELUDE, "Gameplay stdlib"),
+            (api_registry::STDLIB, "Lua standard library"),
+        ]
+        .into_iter()
+        .flat_map(|(entries, category)| entries.iter().map(move |entry| (entry, category)))
+        .filter(|(entry, category)| {
+            *category != "Gameplay stdlib"
+                || api_registry::prelude_entry_module(entry)
+                    .is_none_or(|module| active.contains(&module))
+        })
+        .map(|(entry, category)| ApiEntryPayload {
+            name: entry.name.to_string(),
+            params: entry
+                .params
+                .iter()
+                .map(|param| ApiParamPayload {
+                    name: param.name.to_string(),
+                    ty: param.ty.to_string(),
+                })
+                .collect(),
+            returns: entry.returns.to_string(),
+            doc: entry.doc.to_string(),
+            category: category.to_string(),
+        })
+        .collect()
+    }
+
+    /// The full opt-in prelude module catalog, tagged with whether each is
+    /// currently enabled for the open cart — drives both the Cart screen's
+    /// module list and the editor's disabled-module diagnostic.
+    fn prelude_modules_payload(&self) -> Vec<PreludeModulePayload> {
+        let active = self.console.vm.active_prelude_modules();
+        caiven_vm::prelude_module_catalog()
+            .into_iter()
+            .map(|(name, globals)| PreludeModulePayload {
+                name: name.to_string(),
+                globals: globals.iter().map(|g| g.to_string()).collect(),
+                enabled: active.contains(&name),
+            })
+            .collect()
+    }
+
     fn create_module(&mut self, name: &str) -> Result<SourcePayload, String> {
         let Some(dir) = self.project_dir().map(Path::to_path_buf) else {
             return Err("Modules require a project folder".to_string());
@@ -1305,7 +1421,7 @@ impl StudioCore {
         Ok(self.audio_payload())
     }
 
-    fn save(&mut self) -> Result<Vec<String>, String> {
+    fn save(&mut self) -> Result<SaveResult, String> {
         let modules = self.modules();
         let entry = self.sources.first().map(|source| source.text.clone());
         let Some(meta) = self.cart.as_mut() else {
@@ -1330,12 +1446,40 @@ impl StudioCore {
             let _ = self.hot_reload();
         }
 
-        Ok(self
+        let output = self
             .sources
             .iter()
             .enumerate()
             .map(|(index, _)| self.source_name(index))
-            .collect())
+            .collect();
+        Ok(SaveResult {
+            output,
+            unused_modules: self.unused_active_modules(),
+        })
+    }
+
+    /// Enabled `[stdlib]` modules whose globals appear nowhere across the
+    /// cart's Lua sources — a best-effort lexical whole-word check (splits
+    /// on non-identifier characters), not a parser. Comments and string
+    /// literals containing a module's global name count as "used" too, so
+    /// this only ever under-suggests disabling, never silently disables
+    /// something actually referenced.
+    fn unused_active_modules(&self) -> Vec<String> {
+        let mut identifiers = std::collections::HashSet::new();
+        for source in &self.sources {
+            identifiers.extend(
+                source
+                    .text
+                    .split(|c: char| !c.is_alphanumeric() && c != '_')
+                    .filter(|token| !token.is_empty()),
+            );
+        }
+        caiven_vm::prelude_module_catalog()
+            .into_iter()
+            .filter(|(name, _)| self.console.vm.active_prelude_modules().contains(name))
+            .filter(|(_, globals)| !globals.iter().any(|global| identifiers.contains(global)))
+            .map(|(name, _)| name.to_string())
+            .collect()
     }
 
     /// Hot-reloads the running script in place, preserving state — see
@@ -1806,6 +1950,20 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
         } => {
             let _ = reply.send(studio.write_meta(title, author, meta));
         }
+        CoreCommand::SetStdlibModule {
+            module,
+            enabled,
+            reply,
+        } => {
+            let result =
+                studio
+                    .set_stdlib_module(&module, enabled)
+                    .map(|()| StdlibModulesPayload {
+                        api: studio.api_payload(),
+                        prelude_modules: studio.prelude_modules_payload(),
+                    });
+            let _ = reply.send(result);
+        }
         CoreCommand::CreateModule { name, reply } => {
             let _ = reply.send(studio.create_module(&name));
         }
@@ -1994,7 +2152,7 @@ fn studio_write_buffer(
 }
 
 #[tauri::command]
-fn studio_save(state: State<'_, StudioBridge>) -> Result<Vec<String>, String> {
+fn studio_save(state: State<'_, StudioBridge>) -> Result<SaveResult, String> {
     state.request(CoreCommand::Save)
 }
 
@@ -2180,6 +2338,19 @@ fn studio_write_meta(
         title,
         author,
         meta,
+        reply,
+    })
+}
+
+#[tauri::command]
+fn studio_set_stdlib_module(
+    module: String,
+    enabled: bool,
+    state: State<'_, StudioBridge>,
+) -> Result<StdlibModulesPayload, String> {
+    state.request(|reply| CoreCommand::SetStdlibModule {
+        module,
+        enabled,
         reply,
     })
 }
@@ -2490,6 +2661,7 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
             studio_read_collision_types,
             studio_write_collision_types,
             studio_write_meta,
+            studio_set_stdlib_module,
             studio_create_module,
             studio_close_project,
             studio_audio_transport,
@@ -3159,6 +3331,116 @@ mod tests {
         studio.new_project(&dir, "blank").expect("new project");
 
         assert!(studio.create_module("../escape").is_err());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn set_stdlib_module_materializes_stdlib_table_from_none() {
+        let dir = temp_dir("stdlib-module-enable");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+
+        assert!(!studio.api_payload().iter().any(|e| e.name == "Vec2.new"));
+
+        studio.set_stdlib_module("vec2", true).expect("enable vec2");
+        assert_eq!(studio.console.vm.active_prelude_modules(), &["vec2"]);
+        assert!(studio.api_payload().iter().any(|e| e.name == "Vec2.new"));
+
+        studio.save().expect("save project to disk");
+        let toml = std::fs::read_to_string(dir.join("caiven.toml")).expect("read caiven.toml");
+        assert!(
+            toml.contains("[stdlib]") && toml.contains("modules") && toml.contains("vec2"),
+            "expected [stdlib] modules = [\"vec2\"] in caiven.toml, got:\n{toml}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn set_stdlib_module_disable_leaves_explicit_empty_table() {
+        let dir = temp_dir("stdlib-module-disable");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+
+        studio.set_stdlib_module("vec2", true).expect("enable vec2");
+        studio
+            .set_stdlib_module("vec2", false)
+            .expect("disable vec2");
+        assert!(studio.console.vm.active_prelude_modules().is_empty());
+
+        studio.save().expect("save project to disk");
+        let toml = std::fs::read_to_string(dir.join("caiven.toml")).expect("read caiven.toml");
+        assert!(
+            toml.contains("[stdlib]"),
+            "expected an explicit (possibly empty) [stdlib] table to survive disable, got:\n{toml}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn set_stdlib_module_rejects_unknown_name() {
+        let dir = temp_dir("stdlib-module-unknown");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+
+        let sections_before = studio.cart.as_ref().unwrap().sections.len();
+        assert!(studio.set_stdlib_module("physics", true).is_err());
+        assert_eq!(
+            studio.cart.as_ref().unwrap().sections.len(),
+            sections_before
+        );
+        assert!(studio.console.vm.active_prelude_modules().is_empty());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn api_payload_excludes_disabled_prelude_modules() {
+        let dir = temp_dir("stdlib-api-payload");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+
+        let before = studio.api_payload();
+        assert!(!before.iter().any(|e| e.name == "new_tween"));
+        assert!(
+            before.iter().any(|e| e.name == "lerp"),
+            "always-on core entries should be present regardless of module selection"
+        );
+
+        studio
+            .set_stdlib_module("tween", true)
+            .expect("enable tween");
+        let after = studio.api_payload();
+        assert!(after.iter().any(|e| e.name == "new_tween"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn save_reports_enabled_module_unused_when_globals_absent_from_sources() {
+        let dir = temp_dir("stdlib-save-unused");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+
+        studio.set_stdlib_module("vec2", true).expect("enable vec2");
+        let result = studio.save().expect("save project to disk");
+        assert_eq!(result.unused_modules, vec!["vec2".to_string()]);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn save_does_not_report_module_referenced_in_source() {
+        let dir = temp_dir("stdlib-save-used");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+
+        studio.set_stdlib_module("vec2", true).expect("enable vec2");
+        studio.sources[0].text = "local p = Vec2.new(0, 0)\nfunction _update() end\n".to_string();
+        let result = studio.save().expect("save project to disk");
+        assert!(result.unused_modules.is_empty());
 
         std::fs::remove_dir_all(&dir).ok();
     }

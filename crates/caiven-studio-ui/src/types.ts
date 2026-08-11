@@ -86,6 +86,12 @@ export interface ApiEntry {
   category: string;
 }
 
+export interface PreludeModule {
+  name: string;
+  globals: string[];
+  enabled: boolean;
+}
+
 export interface CollisionType {
   id: number;
   name: string;
@@ -134,6 +140,7 @@ export interface StudioBootstrap {
   audio: AudioState;
   recent: string[];
   api: ApiEntry[];
+  preludeModules: PreludeModule[];
 }
 
 export interface TickSnapshot {

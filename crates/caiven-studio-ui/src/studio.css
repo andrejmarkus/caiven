@@ -742,7 +742,7 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .cart-layout { max-width: 980px; margin: auto; display: grid; grid-template-columns: 1fr 300px; gap: 24px; }
 .cart-form { padding: 20px; border: 1px solid var(--color-void-600); border-radius: 8px; background: var(--color-void-800); }
 .cart-form > label { margin-bottom: 16px; display: flex; flex-direction: column; gap: 6px; color: var(--color-ink-dim); font-size: 11px; }
-.cart-form input, .cart-form textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--color-void-600); border-radius: 7px; color: var(--color-ink); background: var(--color-void-900); user-select: text; }
+.cart-form input:not([type="checkbox"]), .cart-form textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--color-void-600); border-radius: 7px; color: var(--color-ink); background: var(--color-void-900); user-select: text; }
 .cart-form textarea { height: 84px; resize: vertical; }
 .cart-form label > small { margin-top: -24px; margin-right: 8px; align-self: flex-end; color: var(--color-ink-faint); font-family: var(--font-mono); font-size: 9px; }
 .tag-input { min-height: 40px; padding: 5px; display: flex; flex-wrap: wrap; gap: 4px; border: 1px solid var(--color-void-600); border-radius: 7px; background: var(--color-void-900); }
@@ -752,6 +752,15 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .cart-facts span { display: flex; flex-direction: column; }
 .cart-facts small { color: var(--color-ink-faint); font-size: 9.5px; }
 .cart-facts code { margin-top: 2px; font-size: 10.5px; }
+.cart-port-cta { margin: 14px 0; }
+.stdlib-modules { padding-top: 12px; border-top: 1px solid var(--border-subtle); }
+.stdlib-modules-heading { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; color: var(--color-ink-dim); font-size: 11px; }
+.stdlib-modules-heading small { color: var(--color-ink-faint); font-size: 9.5px; font-weight: 400; }
+.stdlib-modules-list { display: flex; flex-direction: column; gap: 10px; }
+.stdlib-module-row { display: grid; grid-template-columns: 16px 90px 1fr; align-items: start; gap: 10px; cursor: pointer; }
+.stdlib-module-row input[type="checkbox"] { flex-shrink: 0; width: 14px; height: 14px; margin: 2px 0 0; }
+.stdlib-module-name { color: var(--color-ink); font-family: var(--font-mono); font-size: 11px; }
+.stdlib-module-globals { color: var(--color-ink-faint); font-size: 9px; line-height: 1.5; }
 .account-card { width: 100%; max-width: 380px; margin: 40px auto 0; padding: 32px 28px; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; border: 1px solid var(--color-void-600); border-radius: 10px; background: var(--color-void-800); box-shadow: var(--shadow-sm); }
 .account-avatar { width: 56px; height: 56px; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; border-radius: 999px; color: var(--color-ink-dim); background: var(--color-void-700); }
 .account-avatar.linked { color: var(--color-sheen-bright); background: var(--color-sheen-wash); }

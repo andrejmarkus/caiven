@@ -17,7 +17,7 @@
   } from './types';
   import {
     bootstrap, chooseExportPath, chooseExportWebPath, chooseExportScreenshotPath, chooseExportSourceZipPath, chooseProject, exportCartridge, exportCartridgeWeb, exportCartridgeScreenshot, exportCartridgeSourceZip, fallbackExamples, fallbackTemplates, isTauri, listExamples, listTemplates, newProject,
-    openProject, readAssetIndex, readCartSize, readFrame, readMemory, readTick, remixExample, saveProject, setInput, transport,
+    openProject, readAssetIndex, readCartSize, readFrame, readMemory, readTick, remixExample, saveProject, setInput, setStdlibModule, transport,
     addWatch, assetBank, audioTransport, clearOutput, closeProject, COLLISION_LEN, createModule, MEMORY, portDownload, portLinkCancel, portLinkPoll, portLinkStart, portListCarts,
     portLogout, portPublish, portSession, portSetUrl, scanLibrary, toggleBreakpoint, writeBuffer,
     removeRecent, removeWatch, writeCollisionCells, writeCollisionTypes, writeMapCells, writeMemory, writeMeta, writePalette, writeSprite,
@@ -31,7 +31,7 @@
     sfx: [], music: [], paletteBanks: [0], activePaletteBank: 0, sfxBanks: [0], activeSfxBank: 0, musicBanks: [0], activeMusicBank: 0, ram: [], globals: [], watches: [], callStack: [], locals: [], breakpoints: [], pauseReason: null, diagnostics: [], output: [],
     meta: { description: '', tags: [] }, assetIndex: { entries: [], computedRefs: 0 },
     audio: { sfxActive: false, sfxId: 0, sfxStep: 0, musicActive: false, musicPattern: 0, musicRow: 0, musicLoop: true },
-    recent: [], api: [],
+    recent: [], api: [], preludeModules: [],
   });
   let screen = $state<Screen>('code');
   let activeSource = $state(0);
@@ -361,11 +361,16 @@
     try {
       clearTimeout(writeTimer);
       await Promise.all(studio.sources.filter((source) => source.dirty).map((source) => writeBuffer(source.path, source.text)));
-      const files = await saveProject();
+      const { output, unusedModules } = await saveProject();
       for (const source of studio.sources) source.dirty = false;
       metaDirty = false;
-      status = `Saved ${plural(files.length, 'file')} · ${tidyPath(studio.path)}`;
-      showToast(`Saved ${plural(files.length, 'file')} to ${tidyPath(studio.path)}`);
+      status = `Saved ${plural(output.length, 'file')} · ${tidyPath(studio.path)}`;
+      showToast(`Saved ${plural(output.length, 'file')} to ${tidyPath(studio.path)}`);
+      for (const module of unusedModules) {
+        if (window.confirm(`Module '${module}' looks unused — disable it?`)) {
+          await doSetStdlibModule(module, false);
+        }
+      }
     } catch (error) {
       showToast(`Save failed: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -513,6 +518,16 @@
       studio.meta = previous.meta;
       metaDirty = previous.dirty;
       showToast(`Metadata failed: ${errorText(error)}`);
+    }
+  }
+
+  async function doSetStdlibModule(module: string, enabled: boolean) {
+    try {
+      const result = await setStdlibModule(module, enabled);
+      studio.api = result.api;
+      studio.preludeModules = result.preludeModules;
+    } catch (error) {
+      showToast(`Couldn't ${enabled ? 'enable' : 'disable'} module '${module}': ${errorText(error)}`);
     }
   }
 
@@ -1064,6 +1079,7 @@
           recent={studio.recent}
           {examples}
           api={studio.api}
+          preludeModules={studio.preludeModules}
           {frameData}
           {insertRequest}
           {revealRequest}
@@ -1083,6 +1099,7 @@
           onAudio={(kind, id, action) => void doAudio(kind, id, action)}
           onBreakpoint={(source, line) => void doBreakpoint(source, line)}
           onMeta={(title, author, meta) => void doMeta(title, author, meta)}
+          onSetStdlibModule={(module, enabled) => void doSetStdlibModule(module, enabled)}
           onCreateModule={() => overlay = 'module'}
           onPalette={updatePalette}
           onTour={() => overlay = 'tour'}

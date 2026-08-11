@@ -105,6 +105,15 @@ fn lua_globals_only_excludes_currently_selected_module_names() {
 }
 
 #[test]
+fn active_prelude_modules_reflects_set_prelude_modules() {
+    let mut vm = make_vm();
+    assert!(vm.active_prelude_modules().is_empty());
+    vm.set_prelude_modules(&["vec2", "camera"])
+        .unwrap_or_else(|e| panic!("set_prelude_modules failed: {e}"));
+    assert_eq!(vm.active_prelude_modules(), &["vec2", "camera"]);
+}
+
+#[test]
 fn hot_reload_preserves_prelude_module_selection() {
     let mut vm = make_vm();
     vm.set_prelude_modules(&["vec2"])

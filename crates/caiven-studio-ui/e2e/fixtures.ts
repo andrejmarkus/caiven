@@ -80,6 +80,15 @@ function installBridge() {
   let recent = ['/carts/test', '/carts/other'];
   let breakpoints: { source: string; line: number }[] = [];
   let watches: { name: string; value: string }[] = [];
+  let preludeModules = [
+    { name: 'vec2', globals: ['Vec2', 'Sprite'], enabled: false },
+    { name: 'collision', globals: ['aabb_overlap', 'circle_overlap', 'point_in_rect', 'point_in_circle', 'tile_solid', 'box_touches_solid'], enabled: false },
+    { name: 'tween', globals: ['new_tween', 'tween_update', 'new_anim', 'anim_update', 'anim_sprite'], enabled: false },
+    { name: 'particles', globals: ['Particles'], enabled: false },
+    { name: 'scenes', globals: ['Scenes'], enabled: false },
+    { name: 'entities', globals: ['Entities'], enabled: false },
+    { name: 'camera', globals: ['Camera'], enabled: false },
+  ];
   let port = { authenticated: false, username: '', portUrl: 'http://port.test' };
   let assetIndexReads = 0;
   let cartSizeReads = 0;
@@ -118,6 +127,7 @@ function installBridge() {
     pauseReason: null, diagnostics: [], output: ['mock runtime ready'], meta: { description: 'Test cartridge', tags: ['e2e'] },
     assetIndex: index(), audio: audio(), recent: [...recent],
     api: [{ name: 'sprite', params: [{ name: 'id', ty: 'int' }], returns: 'nil', doc: 'Draw sprite.', category: 'Graphics' }],
+    preludeModules: structuredClone(preludeModules),
   });
 
   function requestKeys(command: string, args: Record<string, unknown>) {
@@ -207,7 +217,12 @@ function installBridge() {
       return result;
     }
     if (command === 'studio_write_buffer') { const source = sources.find((item) => item.path === args.path); if (source) { source.text = String(args.text); source.dirty = true; persistSources(); } return null; }
-    if (command === 'studio_save') { for (const source of sources) source.dirty = false; persistSources(); return sources.map((source) => source.name); }
+    if (command === 'studio_save') { for (const source of sources) source.dirty = false; persistSources(); return { output: sources.map((source) => source.name), unusedModules: [] }; }
+    if (command === 'studio_set_stdlib_module') {
+      const entry = preludeModules.find((item) => item.name === args.module);
+      if (entry) entry.enabled = Boolean(args.enabled);
+      return { api: bootstrap().api, preludeModules: structuredClone(preludeModules) };
+    }
     if (command === 'studio_transport') { const action = String(args.action); runState = action === 'pause' || action === 'step' ? 'paused' : 'running'; if (action === 'step') frame += 1; return { ...(await invoke('studio_tick')), runState }; }
     if (command === 'studio_set_input') return null;
     if (command === 'studio_write_sprite') { const at = Number(args.sprite) * 64; banks.sprites.get(active.sprites)!.splice(at, 64, ...args.pixels as number[]); sync('sprites'); return null; }

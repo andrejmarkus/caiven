@@ -14,7 +14,10 @@ pub mod sfx;
 pub use camera::*;
 pub use config::VmConfig;
 pub use fault::VmFault;
-pub use lua_exec::{LuaBreakpoint, LuaRunOutcome, describe_lua_error, describe_lua_error_location};
+pub use lua_exec::{
+    LuaBreakpoint, LuaRunOutcome, describe_lua_error, describe_lua_error_location,
+    prelude_module_catalog,
+};
 pub use palette::*;
 pub use save_data::{SAVE_DATA_BLOB_MAX_BYTES, SAVE_DATA_SLOT_COUNT, SaveData, SaveDataError};
 

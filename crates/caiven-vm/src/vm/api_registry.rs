@@ -875,16 +875,29 @@ pub fn all_names() -> impl Iterator<Item = &'static str> {
         .map(|e| e.name)
 }
 
+/// `PRELUDE` entries name members (`"Vec2.new"`, `"Camera:shake"`) rather
+/// than bare globals; the owning global is whatever precedes the first
+/// `.`/`:`.
+fn root_identifier(entry_name: &str) -> &str {
+    entry_name.split(['.', ':']).next().unwrap_or(entry_name)
+}
+
+/// Which opt-in prelude module a `PRELUDE` entry belongs to, or `None` for
+/// the always-on core (`lerp`, `clamp`, `ease_*`) or for `BUILTINS`/`STDLIB`
+/// entries (meaningless for those, but harmless to call). Used by Studio to
+/// scope the API payload and diagnostics to a cart's enabled `[stdlib]`
+/// modules.
+pub fn prelude_entry_module(entry: &ApiEntry) -> Option<&'static str> {
+    let root = root_identifier(entry.name);
+    super::lua_exec::prelude_module_globals()
+        .into_iter()
+        .find(|(_, globals)| globals.contains(&root))
+        .map(|(name, _)| name)
+}
+
 #[cfg(test)]
 mod prelude_consistency_tests {
     use super::*;
-
-    /// `PRELUDE` entries name members (`"Vec2.new"`, `"Camera:shake"`) rather
-    /// than bare globals; the owning global is whatever precedes the first
-    /// `.`/`:`.
-    fn root_identifier(entry_name: &str) -> &str {
-        entry_name.split(['.', ':']).next().unwrap_or(entry_name)
-    }
 
     /// Every `PRELUDE` entry must name a global that some current prelude
     /// source (core or a module) actually defines — an entry left behind
@@ -937,6 +950,34 @@ mod prelude_consistency_tests {
                     "module \"{module_name}\"'s global \"{name}\" has no PRELUDE entry"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn prelude_entry_module_maps_representative_entries() {
+        let vec2_new = lookup("Vec2.new").expect("Vec2.new should be a documented entry");
+        assert_eq!(prelude_entry_module(vec2_new), Some("vec2"));
+
+        let aabb = lookup("aabb_overlap").expect("aabb_overlap should be a documented entry");
+        assert_eq!(prelude_entry_module(aabb), Some("collision"));
+
+        let lerp = lookup("lerp").expect("lerp should be a documented core entry");
+        assert_eq!(prelude_entry_module(lerp), None);
+    }
+
+    #[test]
+    fn every_non_core_prelude_entry_maps_to_some_module() {
+        let core = super::super::lua_exec::core_prelude_names();
+        for entry in PRELUDE {
+            let root = root_identifier(entry.name);
+            if core.contains(&root) {
+                continue;
+            }
+            assert!(
+                prelude_entry_module(entry).is_some(),
+                "PRELUDE entry \"{}\" (root \"{root}\") doesn't map to any opt-in module",
+                entry.name
+            );
         }
     }
 }

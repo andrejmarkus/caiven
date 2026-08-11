@@ -1,6 +1,6 @@
 import type {
-  AssetBankState, AssetIndex, AudioState, Breakpoint, CartMeta, CartSize, CartTemplateSummary, CollisionType, ExampleSummary, GlobalValue, LocalCart, PortCartList, PortSession,
-  PublishResult, SourceBuffer, StudioBootstrap, TickSnapshot,
+  ApiEntry, AssetBankState, AssetIndex, AudioState, Breakpoint, CartMeta, CartSize, CartTemplateSummary, CollisionType, ExampleSummary, GlobalValue, LocalCart, PortCartList, PortSession,
+  PreludeModule, PublishResult, SourceBuffer, StudioBootstrap, TickSnapshot,
 } from '../types';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 
@@ -138,6 +138,15 @@ const fallback: StudioBootstrap = {
     { name: 'draw_text', params: [{ name: 'text', ty: 'string' }, { name: 'x', ty: 'number' }, { name: 'y', ty: 'number' }, { name: 'color', ty: 'int' }], returns: 'nil', doc: 'Draw string on UI layer.', category: 'Console builtins' },
     { name: 'set_palette_color', params: [{ name: 'index', ty: 'int' }, { name: 'r', ty: 'u8' }, { name: 'g', ty: 'u8' }, { name: 'b', ty: 'u8' }], returns: 'nil', doc: 'Replace one palette entry at runtime.', category: 'Console builtins' },
   ],
+  preludeModules: [
+    { name: 'vec2', globals: ['Vec2', 'Sprite'], enabled: false },
+    { name: 'collision', globals: ['aabb_overlap', 'circle_overlap', 'point_in_rect', 'point_in_circle', 'tile_solid', 'box_touches_solid'], enabled: false },
+    { name: 'tween', globals: ['new_tween', 'tween_update', 'new_anim', 'anim_update', 'anim_sprite'], enabled: false },
+    { name: 'particles', globals: ['Particles'], enabled: false },
+    { name: 'scenes', globals: ['Scenes'], enabled: false },
+    { name: 'entities', globals: ['Entities'], enabled: false },
+    { name: 'camera', globals: ['Camera'], enabled: false },
+  ],
 };
 
 export const isTauri = () => Boolean(window.__TAURI_INTERNALS__);
@@ -250,8 +259,9 @@ export async function transport(action: 'run' | 'pause' | 'reset' | 'step'): Pro
   return invoke<TickSnapshot>('studio_transport', { action });
 }
 
-export async function saveProject(): Promise<string[]> {
-  return isTauri() ? invoke<string[]>('studio_save') : ['main.lua', 'enemy.lua', 'ui/hud.lua'];
+export async function saveProject(): Promise<{ output: string[]; unusedModules: string[] }> {
+  if (isTauri()) return invoke('studio_save');
+  return { output: ['main.lua', 'enemy.lua', 'ui/hud.lua'], unusedModules: [] };
 }
 
 export async function writeBuffer(path: string, text: string): Promise<void> {
@@ -287,6 +297,13 @@ export async function toggleBreakpoint(source: string, line: number): Promise<Br
   if (match >= 0) fallback.breakpoints.splice(match, 1);
   else fallback.breakpoints.push({ source, line });
   return structuredClone(fallback.breakpoints);
+}
+
+export async function setStdlibModule(module: string, enabled: boolean): Promise<{ api: ApiEntry[]; preludeModules: PreludeModule[] }> {
+  if (isTauri()) return invoke('studio_set_stdlib_module', { module, enabled });
+  const entry = fallback.preludeModules.find((item) => item.name === module);
+  if (entry) entry.enabled = enabled;
+  return { api: structuredClone(fallback.api), preludeModules: structuredClone(fallback.preludeModules) };
 }
 
 export async function addWatch(expression: string): Promise<GlobalValue[]> {

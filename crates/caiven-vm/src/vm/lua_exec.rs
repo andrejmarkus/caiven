@@ -216,7 +216,7 @@ const PRELUDE_MODULES: &[PreludeModule] = &[
 ];
 
 /// Always-on prelude-core global names — exposed for `api_registry`'s
-/// `PRELUDE`-vs-registry drift test; nothing outside that test needs this.
+/// `PRELUDE`-vs-registry drift test; nothing outside tests needs this.
 #[cfg(test)]
 pub(super) fn core_prelude_names() -> &'static [&'static str] {
     CORE_PRELUDE_NAMES
@@ -224,12 +224,18 @@ pub(super) fn core_prelude_names() -> &'static [&'static str] {
 
 /// Each opt-in prelude module's manifest name and the globals it defines —
 /// same purpose as [`core_prelude_names`], for the modules rather than core.
-#[cfg(test)]
 pub(super) fn prelude_module_globals() -> Vec<(&'static str, &'static [&'static str])> {
     PRELUDE_MODULES
         .iter()
         .map(|module| (module.name, module.globals))
         .collect()
+}
+
+/// Manifest-facing catalog of opt-in prelude modules and the globals each
+/// defines — what Studio uses to build the enable/disable UI and the
+/// disabled-module editor diagnostic.
+pub fn prelude_module_catalog() -> Vec<(&'static str, &'static [&'static str])> {
+    prelude_module_globals()
 }
 
 /// Frames per second `time()` assumes when converting `frame_count`.
@@ -1220,6 +1226,12 @@ impl Vm {
         }
         self.active_prelude_modules = resolved;
         Ok(())
+    }
+
+    /// The cart's currently enabled `[stdlib]` module names, as last set by
+    /// [`Vm::set_prelude_modules`].
+    pub fn active_prelude_modules(&self) -> &[&'static str] {
+        &self.active_prelude_modules
     }
 
     /// The cart's currently selected [`PRELUDE_MODULES`] entries, in table
