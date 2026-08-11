@@ -74,6 +74,8 @@ Pure Lua, loaded into every cart's globals automatically (no `require`) — read
 
 RNG is deterministic by default — `prelude.lua` seeds `math.randomseed(1)` once per fresh cart load (not on hot reload, so live gameplay isn't disturbed by an editor save). Call `math.randomseed(os.time())` yourself for per-run variety.
 
+The `Scenes`/`Entities`/`Camera` trio has its own example: `carts/fixtures/scenes_demo.cav` (`cargo run -p caiven-machine -- carts/fixtures/scenes_demo.cav`) — a title screen, a play scene with a camera-followed player and two entities, and a game-over screen.
+
 | Function                                                                                         | Description                                                       |
 | :--------------------------------------------------------------------------------------------------| :--------------------------------------------------------------- |
 | `lerp(a, b, t)` / `clamp(v, lo, hi)`                                                             | Linear interpolate / clamp to range                               |
