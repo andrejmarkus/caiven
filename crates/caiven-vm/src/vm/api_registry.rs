@@ -663,6 +663,30 @@ pub const PRELUDE: &[ApiEntry] = &[
         returns: "table",
         doc: "Returns a fresh, independent entity list with its own add/update_all/draw_all/clear/count methods, for carts that want one list per scene instead of the shared default list.",
     },
+    ApiEntry {
+        name: "Camera.follow",
+        params: &[param!("entity": "table"), param!("opts": "table?")],
+        returns: "nil",
+        doc: "Tracks entity's position (entity.pos, a Vec2, or entity.x/entity.y) on every Camera.update() call. opts = { lerp, deadzone_x, deadzone_y }, all optional: lerp defaults to 1 (instant snap), deadzone_x/deadzone_y default to 0 (camera moves on any target movement). Errors immediately if entity has neither .pos nor .x/.y.",
+    },
+    ApiEntry {
+        name: "Camera.unfollow",
+        params: &[],
+        returns: "nil",
+        doc: "Stops following the current target. Camera.update() then holds its last position.",
+    },
+    ApiEntry {
+        name: "Camera.shake",
+        params: &[param!("amount": "number"), param!("duration": "number")],
+        returns: "nil",
+        doc: "Adds random jitter (up to +/- amount per axis) on top of the followed position for duration frames, linearly decaying to 0.",
+    },
+    ApiEntry {
+        name: "Camera.update",
+        params: &[],
+        returns: "nil",
+        doc: "Advances follow smoothing and shake decay by one frame, then calls set_camera() with the result. A no-op position-wise if Camera.follow() was never called. The computed position is clamped to >= 0 before calling set_camera (which takes unsigned coordinates).",
+    },
 ];
 
 /// Lua stdlib members this console leans on — never Rust-registered (see

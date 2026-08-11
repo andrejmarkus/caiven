@@ -1462,3 +1462,70 @@ fn prelude_entities_add_non_table_errors() {
     );
     assert_eq!(got, vec!["false"]);
 }
+
+#[test]
+fn prelude_camera_follow_converges_toward_target_by_lerp_factor() {
+    let got = run_and_get(
+        r#"
+        local player = { pos = Vec2.new(100, 50) }
+        Camera.follow(player, { lerp = 0.5 })
+        Camera.update()
+        x1 = Camera.x
+        Camera.update()
+        x2 = Camera.x
+        "#,
+        &["x1", "x2"],
+    );
+    assert_eq!(got, vec!["50", "75"]);
+}
+
+#[test]
+fn prelude_camera_shake_timer_decays_to_zero_over_duration() {
+    let got = run_and_get(
+        r#"
+        Camera.shake(10, 3)
+        Camera.update()
+        t1 = Camera.shake_timer
+        Camera.update()
+        t2 = Camera.shake_timer
+        Camera.update()
+        t3 = Camera.shake_timer
+        "#,
+        &["t1", "t2", "t3"],
+    );
+    assert_eq!(got, vec!["2", "1", "0"]);
+}
+
+#[test]
+fn prelude_camera_follow_errors_without_pos_or_xy() {
+    let got = run_and_get(
+        r#"
+        result = pcall(function() Camera.follow({}) end)
+        "#,
+        &["result"],
+    );
+    assert_eq!(got, vec!["false"]);
+}
+
+#[test]
+fn prelude_camera_update_clamps_negative_target_without_faulting() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        local enemy = { pos = Vec2.new(-9999, -9999) }
+        Camera.follow(enemy, { lerp = 1 })
+        function _update()
+          Camera.update()
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&input, &font);
+    // Without the >= 0 clamp, set_camera's u32 params would reject a
+    // negative computed position and this would fault instead.
+    assert_eq!(vm.get_fault(), None);
+}
