@@ -301,6 +301,12 @@ pub fn load_project(path: &Path) -> Result<Cart, CartError> {
         if kind == SectionKind::Palette {
             palette = data.clone();
         }
+        // Binary sections are zero-padded back to full length on load
+        // (`AssetBanks::normalized`), so trimming here — like the .hex
+        // export path already does — keeps a project's built .cav the same
+        // size a hand-packed cart would be instead of always writing a
+        // full uncompressed sheet/bank.
+        let data = trim_trailing_zeros(&data).to_vec();
         if !data.is_empty() {
             sections.push(CartSection { kind, data });
         }
@@ -329,7 +335,7 @@ pub fn load_project(path: &Path) -> Result<Cart, CartError> {
             };
             sections.push(CartSection {
                 kind,
-                data: encode_asset_bank(id, &data),
+                data: encode_asset_bank(id, trim_trailing_zeros(&data)),
             });
         }
     }
@@ -971,7 +977,10 @@ mod tests {
             .unwrap();
         let (id, pixels) = decode_asset_bank(&loaded.data).unwrap();
         assert_eq!(id, 1);
-        assert_eq!(&pixels[..3], &[3, 4, 0]);
+        // Trailing zero trimmed on the way back to a binary section (the
+        // VM zero-pads on load, so this is lossless) — [3, 4, 0] round
+        // trips as [3, 4].
+        assert_eq!(pixels, &[3, 4]);
 
         save_project(dir.path(), &header, "-- code\n", &[], &[]).unwrap();
         assert!(!dir.path().join("sprites_1.png").exists());
