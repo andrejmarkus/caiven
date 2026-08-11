@@ -3,6 +3,7 @@ paths:
   - "crates/caiven-vm/src/vm/**"
   - "crates/caiven-vm/src/vm/prelude/**"
   - "carts/**"
+  - "projects/**"
 ---
 
 # Public Lua API
@@ -16,7 +17,8 @@ Any public Lua API change (new/changed function in `api_registry.rs`,
 4. Studio autocomplete / language-support updates
    (`crates/caiven-studio-ui` — codemirror Lua definitions) so the editor
    doesn't silently drift from the runtime.
-5. An example cartridge or example project under `carts/` exercising it.
+5. An example cartridge or example project under `projects/dev/` exercising
+   it.
 6. A compatibility analysis: does this change behavior for any existing
    cart? If yes, that's a breaking change — call it out explicitly, don't
    let it happen quietly.

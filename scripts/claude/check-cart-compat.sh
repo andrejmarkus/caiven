@@ -14,7 +14,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 fail=0
-for cart in carts/*.cav; do
+for cart in carts/dev/*.cav; do
   name=$(basename "$cart" .cav)
   out="$tmp/$name"
   echo "+ unpack/inspect roundtrip: $cart"

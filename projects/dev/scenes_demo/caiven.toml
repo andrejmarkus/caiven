@@ -1,0 +1,18 @@
+[cart]
+title = "Scenes Demo"
+author = "Caiven"
+entry = "main.lua"
+entry_point = 0
+flags = 0
+version = 1
+
+[mods]
+require = []
+
+[stdlib]
+modules = [
+    "vec2",
+    "scenes",
+    "entities",
+    "camera",
+]

@@ -87,24 +87,24 @@ missing name otherwise resolves to Lua `nil` and errors on first use (a
 regular Lua runtime error, not a silent no-op). An unknown module name in
 that list is a hard error at cart load, naming the bad entry.
 
-See it all in action in `carts/fixtures/stdlib_demo.cav`
-(`cargo run -p caiven-machine -- carts/fixtures/stdlib_demo.cav`): a tiny
+See it all in action in `carts/dev/stdlib_demo.cav`
+(`cargo run -p caiven-machine -- carts/dev/stdlib_demo.cav`): a tiny
 platformer with tile collision, a coin pickup that bursts particles, a
 walk-cycle sprite animation, and four side-by-side tweened dots comparing
 each easing curve — declares `[stdlib] modules = ["collision", "tween",
 "particles"]`.
 
 The `Scenes`/`Entities`/`Camera` trio has its own example:
-`carts/fixtures/scenes_demo.cav`
-(`cargo run -p caiven-machine -- carts/fixtures/scenes_demo.cav`) — a title
+`carts/dev/scenes_demo.cav`
+(`cargo run -p caiven-machine -- carts/dev/scenes_demo.cav`) — a title
 screen, a play scene with a camera-followed player and two entities, and a
 game-over screen — declares `[stdlib] modules = ["vec2", "scenes",
 "entities", "camera"]`.
 
 Two more minimal carts show the two ends of the opt-in range:
-`carts/fixtures/stdlib_core_only.cav` declares `[stdlib] modules = []`
+`carts/dev/stdlib_core_only.cav` declares `[stdlib] modules = []`
 explicitly (core-only, same as omitting `[stdlib]` entirely) and
-`carts/fixtures/stdlib_all_modules.cav` declares every module at once.
+`carts/dev/stdlib_all_modules.cav` declares every module at once.
 
 ### `core` (always on, no declaration needed)
 

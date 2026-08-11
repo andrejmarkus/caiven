@@ -1,0 +1,21 @@
+[cart]
+title = "All Stdlib Modules"
+author = "caiven"
+entry = "main.lua"
+entry_point = 0
+flags = 0
+version = 1
+
+[mods]
+require = []
+
+[stdlib]
+modules = [
+    "vec2",
+    "collision",
+    "tween",
+    "particles",
+    "scenes",
+    "entities",
+    "camera",
+]

@@ -210,7 +210,7 @@ matters on device; the keyboard bindings are for desktop.
 For CI or a smoke test with no display:
 
 ```bash
-SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy cargo run -p caiven-machine -- carts/demo_smoke.cav
+SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy cargo run -p caiven-machine -- carts/dev/smoke.cav
 ```
 
 This also exercises the software-renderer fallback path, since the dummy

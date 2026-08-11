@@ -49,7 +49,7 @@ test('real SQLite contracts: auth, bytes, community, security, Studio link, pass
   });
   const adminUser = await register(page, admin);
   expect(adminUser).toMatchObject({ username: admin.username, is_admin: true, email_verified: true });
-  const cav = await readFile('../../../carts/demo_smoke.cav');
+  const cav = await readFile('../../../carts/dev/smoke.cav');
   const upload = await ok(await page.request.post('/api/v2/carts', {
     headers: await csrf(page),
     multipart: {

@@ -42,7 +42,7 @@ split.
   this release.
 - **Supported platforms** — matches what's actually built/tested, not
   aspirational.
-- **Example cartridges** — `carts/*.cav` still load correctly under the
+- **Example cartridges** — `carts/dev/*.cav` still load correctly under the
   release build.
 - **Known issues** — carry forward anything unresolved from
   `docs/development/claude-code-audit.md`'s gaps section that's relevant

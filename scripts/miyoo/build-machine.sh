@@ -112,7 +112,7 @@ chmod +x "$out/launch.sh" "$out/caiven-machine"
 # `cart_library::default_dir()` scans exe-relative `carts/`, not the exe's
 # own directory — the demo cart has to live there for the library to find it.
 mkdir -p "$out/carts"
-cp carts/fixtures/catch.cav "$out/carts/"
+cp carts/dev/catch.cav "$out/carts/"
 
 echo "Packaged Miyoo Mini build in $out:"
 ls -la "$out"

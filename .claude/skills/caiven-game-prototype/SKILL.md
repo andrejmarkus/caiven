@@ -1,6 +1,6 @@
 ---
 name: caiven-game-prototype
-description: Build a tiny playable cartridge under carts/ to validate an engine or Studio feature end-to-end. Use when you need to exercise a new capability through a real cart rather than only unit tests — not for building a full example game.
+description: Build a tiny playable cartridge under projects/dev/ to validate an engine or Studio feature end-to-end. Use when you need to exercise a new capability through a real cart rather than only unit tests — not for building a full example game.
 ---
 
 # caiven-game-prototype
@@ -20,13 +20,14 @@ description: Build a tiny playable cartridge under carts/ to validate an engine 
 
 ## Where it lives
 
-Existing examples (`carts/audio_test.cav`, `catch.cav`, `demo_smoke.cav`,
-`demo_string.cav`, `demo_table.cav`, `movement.cav`, `sprite.cav`,
-`stdlib_demo.cav`, `tiles.cav`) show the naming/scope convention — one cart,
-one thing being tested. Author as a project dir first (`caiven.toml` +
-`.lua`, diffable), build to `.cav` with `caiven-studio build` only if a
-binary artifact is actually needed (e.g. for a `caiven-lua-api` example or
-Port-upload testing).
+Existing examples (`projects/dev/audio_test/`, `catch/`, `smoke/`,
+`demo_string/`, `demo_table/`, `movement/`, `sprite/`, `stdlib_demo/`,
+`tiles/`) show the naming/scope convention — one project, one thing being
+tested. Author as a project dir first (`caiven.toml` + `.lua`, diffable),
+build to `.cav` with `caiven-studio build` (or `scripts/demo-carts/build.sh`
+for the checked-in set) only if a binary artifact is actually needed (e.g.
+for a `caiven-lua-api` example or Port-upload testing). Built binaries for
+this set live at `carts/dev/<name>.cav`.
 
 ## Run it
 

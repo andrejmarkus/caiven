@@ -21,7 +21,7 @@ pub struct ExampleSummary {
     pub description: &'static str,
 }
 
-pub const EXAMPLES: [Example; 4] = [
+pub const EXAMPLES: [Example; 5] = [
     Example {
         id: "movement",
         name: "Movement",
@@ -45,6 +45,12 @@ pub const EXAMPLES: [Example; 4] = [
         name: "Stdlib demo",
         description: "Tour of tweens, particles, and animation from the gameplay stdlib",
         bytes: include_bytes!("../../resources/examples/stdlib_demo.cav"),
+    },
+    Example {
+        id: "scenes-demo",
+        name: "Scenes demo",
+        description: "Scenes, entities, and camera: a title screen that transitions into play",
+        bytes: include_bytes!("../../resources/examples/scenes_demo.cav"),
     },
 ];
 
@@ -76,7 +82,10 @@ mod tests {
             .iter()
             .map(|example| example.id)
             .collect::<Vec<_>>();
-        assert_eq!(ids, ["movement", "catch", "tiles", "stdlib-demo"]);
+        assert_eq!(
+            ids,
+            ["movement", "catch", "tiles", "stdlib-demo", "scenes-demo"]
+        );
         assert_eq!(ids.iter().copied().collect::<HashSet<_>>().len(), ids.len());
     }
 

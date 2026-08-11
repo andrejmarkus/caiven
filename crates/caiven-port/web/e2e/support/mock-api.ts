@@ -118,7 +118,7 @@ export class MockApi {
   }
 
   async install(): Promise<void> {
-    this.cartBytes = await readFile('../../../carts/demo_smoke.cav');
+    this.cartBytes = await readFile('../../../carts/dev/smoke.cav');
     await this.page.addInitScript(() => {
       Object.defineProperty(window, '__CAIVEN_PORT_E2E__', {
         value: Object.freeze({ mode: 'mock' }), configurable: false, enumerable: false, writable: false,

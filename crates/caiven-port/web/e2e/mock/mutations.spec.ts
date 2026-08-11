@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 test.beforeEach(async ({ mock }) => { await mock.loginAs('admin'); });
 
 test('publish cart and version sends multipart plus CSRF', async ({ page, mock }) => {
-  const bytes = await readFile('../../../carts/demo_smoke.cav');
+  const bytes = await readFile('../../../carts/dev/smoke.cav');
   await page.goto('/upload');
   await page.locator('input[type=file]').setInputFiles({ name: 'smoke.cav', mimeType: 'application/octet-stream', buffer: bytes });
   await page.getByLabel('Title').fill('Published Smoke');
