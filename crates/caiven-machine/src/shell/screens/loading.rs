@@ -44,6 +44,7 @@ fn stage_label(kind: SectionKind) -> &'static str {
         }
         SectionKind::Meta => "meta",
         SectionKind::ModManifest => "mods",
+        SectionKind::PreludeModules => "stdlib",
         SectionKind::Custom(_) => "data",
     }
 }

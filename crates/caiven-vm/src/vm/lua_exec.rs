@@ -93,27 +93,6 @@ const CORE_PRELUDE_NAMES: &[&str] = &[
     "ease_in_out_quad",
 ];
 
-/// Names defined by each entry of [`PRELUDE_MODULES`], unioned with
-/// [`CORE_PRELUDE_NAMES`] for [`Vm::lua_globals`]'s exclusion set. `Particles`
-/// is a table, not a function; it's still excluded wholesale rather than
-/// snapshotted, since its `list` field churns every frame and isn't useful in
-/// a "what does the script think" debugger view.
-///
-/// Computed once and cached — every entry here is a `&'static str` so the
-/// union is just pointer/len copies, but re-walking [`PRELUDE_MODULES`] on
-/// every debugger-panel refresh or hot reload is needless work for a value
-/// that never changes for the process's lifetime.
-fn prelude_names() -> &'static [&'static str] {
-    static NAMES: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
-    NAMES.get_or_init(|| {
-        let mut names: Vec<&'static str> = CORE_PRELUDE_NAMES.to_vec();
-        for module in PRELUDE_MODULES {
-            names.extend_from_slice(module.globals);
-        }
-        names
-    })
-}
-
 /// Lua's own stdlib globals — also excluded from the snapshot, along with
 /// the two script entry points.
 const STDLIB_NAMES: &[&str] = &[
@@ -461,9 +440,13 @@ pub fn describe_lua_error_location(err: &mlua::Error) -> (Option<LuaBreakpoint>,
 /// Whether a global name is script-defined state rather than API surface —
 /// used by [`Vm::lua_globals`] (debugger inspector), which deliberately
 /// excludes `_init`/`_update`/`_draw` since they're entry points, not state.
-fn is_script_defined_name(name: &str) -> bool {
+/// `active_prelude_names` is the cart's *currently selected* prelude module
+/// globals (see [`Vm::active_prelude_names`]), not the full static set — a
+/// cart that excludes `camera` must not have a cart-defined global also
+/// named `Camera` hidden from the inspector.
+fn is_script_defined_name(name: &str, active_prelude_names: &[&str]) -> bool {
     !BUILTIN_NAMES.contains(&name)
-        && !prelude_names().contains(&name)
+        && !active_prelude_names.contains(&name)
         && !STDLIB_NAMES.contains(&name)
 }
 
@@ -472,8 +455,8 @@ fn is_script_defined_name(name: &str) -> bool {
 /// [`is_script_defined_name`], except `_init`/`_update`/`_draw` are kept in —
 /// they aren't "state" for the debugger's purposes, but they're exactly the
 /// closures whose captured locals need joining across a reload.
-fn is_reload_join_candidate(name: &str) -> bool {
-    if BUILTIN_NAMES.contains(&name) || prelude_names().contains(&name) {
+fn is_reload_join_candidate(name: &str, active_prelude_names: &[&str]) -> bool {
+    if BUILTIN_NAMES.contains(&name) || active_prelude_names.contains(&name) {
         return false;
     }
     matches!(name, "_init" | "_update" | "_draw") || !STDLIB_NAMES.contains(&name)
@@ -1202,6 +1185,49 @@ fn register_builtins<'scope, 'env>(
 }
 
 impl Vm {
+    /// Sets the cart's opt-in gameplay-stdlib module selection (`[stdlib]
+    /// modules` in `caiven.toml`), validated against [`PRELUDE_MODULES`].
+    /// Errors by name on any unknown module rather than silently dropping it
+    /// — a typo'd module name should fail cart load, not quietly leave
+    /// globals missing. Takes effect on the next [`Vm::load_lua_source`] or
+    /// [`Vm::hot_reload_lua_source`]; the resolved set is stored on the `Vm`
+    /// so hot-reload doesn't need it re-supplied.
+    pub fn set_prelude_modules(&mut self, modules: &[&str]) -> Result<(), String> {
+        let mut resolved = Vec::with_capacity(modules.len());
+        for &name in modules {
+            let module = PRELUDE_MODULES
+                .iter()
+                .find(|candidate| candidate.name == name)
+                .ok_or_else(|| format!("unknown stdlib module: \"{name}\""))?;
+            resolved.push(module.name);
+        }
+        self.active_prelude_modules = resolved;
+        Ok(())
+    }
+
+    /// The cart's currently selected [`PRELUDE_MODULES`] entries, in table
+    /// order (not manifest order, so load order is deterministic regardless
+    /// of how a cart lists them).
+    fn selected_prelude_modules(&self) -> impl Iterator<Item = &'static PreludeModule> + '_ {
+        PRELUDE_MODULES
+            .iter()
+            .filter(move |module| self.active_prelude_modules.contains(&module.name))
+    }
+
+    /// Union of [`CORE_PRELUDE_NAMES`] and the currently selected modules'
+    /// globals — the debugger/hot-reload exclusion set for *this* cart, as
+    /// opposed to the full static list. See [`is_script_defined_name`].
+    /// `Particles` is a table, not a function; it's still excluded wholesale
+    /// rather than snapshotted, since its `list` field churns every frame
+    /// and isn't useful in a "what does the script think" debugger view.
+    fn active_prelude_names(&self) -> Vec<&'static str> {
+        let mut names: Vec<&'static str> = CORE_PRELUDE_NAMES.to_vec();
+        for module in self.selected_prelude_modules() {
+            names.extend_from_slice(module.globals);
+        }
+        names
+    }
+
     /// Loads Lua source, registering the full builtin API first so top-level
     /// script code and `_init()` (called once here, if present) can use it
     /// exactly like `_update()` can. Subsequent frames call `_update()` via
@@ -1273,6 +1299,8 @@ impl Vm {
             register_print_sink(&lua, Arc::clone(&output))?;
         }
 
+        let selected_modules: Vec<&'static PreludeModule> =
+            self.selected_prelude_modules().collect();
         let world = RefCell::new(&mut self.world);
         let ui = RefCell::new(&mut self.ui);
         let memory = RefCell::new(&mut self.memory);
@@ -1314,7 +1342,7 @@ impl Vm {
             }
 
             lua.load(PRELUDE_CORE).set_name("=prelude:core").exec()?;
-            for module in PRELUDE_MODULES {
+            for module in &selected_modules {
                 lua.load(module.source)
                     .set_name(format!("=prelude:{}", module.name))
                     .exec()?;
@@ -1583,11 +1611,12 @@ impl Vm {
         let Some(script) = self.script.as_ref() else {
             return Vec::new();
         };
+        let active_prelude_names = self.active_prelude_names();
         let globals = script.lua.globals();
         let mut out: Vec<(String, String)> = globals
             .pairs::<String, mlua::Value>()
             .filter_map(|pair| pair.ok())
-            .filter(|(k, _)| is_script_defined_name(k))
+            .filter(|(k, _)| is_script_defined_name(k, &active_prelude_names))
             .map(|(k, v)| (k, describe_lua_value(&v)))
             .collect();
         out.sort_by(|a, b| a.0.cmp(&b.0));
@@ -1645,12 +1674,13 @@ impl Vm {
 
         // Snapshot old script-defined top-level functions by name, to join
         // upvalues against once the new chunk has executed.
+        let active_prelude_names = self.active_prelude_names();
         let old_functions: Vec<(String, mlua::Function)> = {
             let globals = script.lua.globals();
             globals
                 .pairs::<String, mlua::Value>()
                 .filter_map(|pair| pair.ok())
-                .filter(|(name, _)| is_reload_join_candidate(name))
+                .filter(|(name, _)| is_reload_join_candidate(name, &active_prelude_names))
                 .filter_map(|(name, value)| match value {
                     mlua::Value::Function(f) => Some((name, f)),
                     _ => None,
@@ -1658,6 +1688,8 @@ impl Vm {
                 .collect()
         };
         let lua = &script.lua;
+        let selected_modules: Vec<&'static PreludeModule> =
+            self.selected_prelude_modules().collect();
 
         let world = RefCell::new(&mut self.world);
         let ui = RefCell::new(&mut self.ui);
@@ -1698,7 +1730,7 @@ impl Vm {
             )?;
 
             lua.load(PRELUDE_CORE).set_name("=prelude:core").exec()?;
-            for module in PRELUDE_MODULES {
+            for module in &selected_modules {
                 lua.load(module.source)
                     .set_name(format!("=prelude:{}", module.name))
                     .exec()?;

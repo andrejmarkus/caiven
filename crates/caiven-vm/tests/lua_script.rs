@@ -6,8 +6,23 @@ use caiven_vm::{
     describe_lua_error_location,
 };
 
+/// Most existing tests predate the opt-in `[stdlib] modules` split and
+/// exercise the full gameplay stdlib, so the shared helper opts every cart
+/// into every module. The core-only default (no `[stdlib]` declared) has its
+/// own dedicated coverage in `prelude_modules.rs`.
 fn make_vm() -> Vm {
-    Vm::new(VmConfig::default())
+    let mut vm = Vm::new(VmConfig::default());
+    vm.set_prelude_modules(&[
+        "vec2",
+        "collision",
+        "tween",
+        "particles",
+        "scenes",
+        "entities",
+        "camera",
+    ])
+    .unwrap_or_else(|e| panic!("set_prelude_modules failed: {e}"));
+    vm
 }
 
 fn read_rgba(vm: &Vm, x: u32, y: u32) -> [u8; 4] {

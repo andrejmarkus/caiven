@@ -70,31 +70,95 @@ or Studio), not by the Lua sandbox directly.
 
 ## Gameplay stdlib
 
-Pure Lua, loaded into every cart's globals automatically (no `require`) — read `crates/caiven-vm/src/vm/prelude/` for the source. See it all in action in `games/carts/stdlib_demo.cav` (`cargo run -p caiven-machine -- games/carts/stdlib_demo.cav`): a tiny platformer with tile collision, a coin pickup that bursts particles, a walk-cycle sprite animation, and four side-by-side tweened dots comparing each easing curve.
+Pure Lua — read `crates/caiven-vm/src/vm/prelude/` for the source. Split into an
+always-on **core** plus opt-in **modules** a cart declares in `caiven.toml`:
+
+```toml
+[stdlib]
+modules = ["vec2", "scenes", "entities", "camera"]
+```
+
+**Breaking change:** a cart with no `[stdlib]` table gets **core only** — no
+`Vec2`, `Scenes`, `Entities`, `Camera`, collision helpers, tweens, or
+`Particles`. This replaced an old behavior where every cart got the entire
+stdlib unconditionally. If your cart uses any non-core name from the tables
+below, add `[stdlib] modules = [...]` listing every module it uses — the
+missing name otherwise resolves to Lua `nil` and errors on first use (a
+regular Lua runtime error, not a silent no-op). An unknown module name in
+that list is a hard error at cart load, naming the bad entry.
+
+See it all in action in `carts/fixtures/stdlib_demo.cav`
+(`cargo run -p caiven-machine -- carts/fixtures/stdlib_demo.cav`): a tiny
+platformer with tile collision, a coin pickup that bursts particles, a
+walk-cycle sprite animation, and four side-by-side tweened dots comparing
+each easing curve — declares `[stdlib] modules = ["collision", "tween",
+"particles"]`.
+
+The `Scenes`/`Entities`/`Camera` trio has its own example:
+`carts/fixtures/scenes_demo.cav`
+(`cargo run -p caiven-machine -- carts/fixtures/scenes_demo.cav`) — a title
+screen, a play scene with a camera-followed player and two entities, and a
+game-over screen — declares `[stdlib] modules = ["vec2", "scenes",
+"entities", "camera"]`.
+
+### `core` (always on, no declaration needed)
 
 RNG is deterministic by default — the prelude core seeds `math.randomseed(1)` once per fresh cart load (not on hot reload, so live gameplay isn't disturbed by an editor save). Call `math.randomseed(os.time())` yourself for per-run variety.
 
-The `Scenes`/`Entities`/`Camera` trio has its own example: `carts/fixtures/scenes_demo.cav` (`cargo run -p caiven-machine -- carts/fixtures/scenes_demo.cav`) — a title screen, a play scene with a camera-followed player and two entities, and a game-over screen.
+| Function                                                   | Description                                                                  |
+| :---------------------------------------------------------- | :------------------------------------------------------------------------- |
+| `lerp(a, b, t)` / `clamp(v, lo, hi)`                       | Linear interpolate / clamp to range                                        |
+| `ease_linear/in_quad/out_quad/in_out_quad(t)`              | Easing curves, `t` in `0..1`                                               |
+| `random_range(lo, hi)` / `random_float(lo, hi)`            | Deterministic-by-default RNG (see above) — int inclusive / float `[lo, hi)` |
+| `choice(t)` / `shuffle(t)`                                 | Random element of a non-empty table / in-place Fisher-Yates shuffle        |
 
-| Function                                                                                         | Description                                                       |
-| :--------------------------------------------------------------------------------------------------| :--------------------------------------------------------------- |
-| `lerp(a, b, t)` / `clamp(v, lo, hi)`                                                             | Linear interpolate / clamp to range                               |
-| `ease_linear/in_quad/out_quad/in_out_quad(t)`                                                    | Easing curves, `t` in `0..1`                                      |
-| `aabb_overlap(x1, y1, w1, h1, x2, y2, w2, h2)`                                                   | Axis-aligned box overlap test                                     |
-| `circle_overlap(x1, y1, r1, x2, y2, r2)`                                                         | Circle overlap test                                               |
-| `point_in_rect(px, py, x, y, w, h)` / `point_in_circle(px, py, cx, cy, r)`                       | Point containment tests                                            |
-| `tile_solid(tx, ty)`                                                                             | Whether the per-cell collision value at `(tx, ty)` is `1` (solid) |
-| `box_touches_solid(x, y, w, h)`                                                                  | Whether a pixel-space box overlaps any solid tile                 |
-| `new_tween(from, to, frames, ease)` / `tween_update(tw)`                                         | Frame-driven value tween; `tw.done` flips true on arrival         |
-| `new_anim(frames, frame_len)` / `anim_update(anim)` / `anim_sprite(anim)`                        | Frame-based sprite animation cycling through a sprite-id list     |
-| `Particles.spawn(x, y, vx, vy, color, life)` / `.update()` / `.draw()` / `.clear()` / `.count()` | Simple velocity + lifetime particle system                        |
-| `Vec2.new(x, y)`                                                                                 | 2D vector with `+`/`-`/unary `-`/`*` (scalar)/`==`; `v:length()`, `v:length_squared()`, `v:normalize()`, `v:dot(other)`, `v:distance(other)` |
-| `random_range(lo, hi)` / `random_float(lo, hi)`                                                  | Deterministic-by-default RNG (see above) — int inclusive / float `[lo, hi)`       |
-| `choice(t)` / `shuffle(t)`                                                                       | Random element of a non-empty table / in-place Fisher-Yates shuffle              |
-| `Sprite.new{sprite_id, pos, flip_x, flip_y, rotate}` / `s:draw()`                                | Bundles a sprite_id + Vec2 pos (+ optional orientation) into a drawable object    |
+### `vec2` — `Vec2`, `Sprite`
+
+| Function                                            | Description                                                                                                                                   |
+| :---------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Vec2.new(x, y)`                                    | 2D vector with `+`/`-`/unary `-`/`*` (scalar)/`==`; `v:length()`, `v:length_squared()`, `v:normalize()`, `v:dot(other)`, `v:distance(other)` |
+| `Sprite.new{sprite_id, pos, flip_x, flip_y, rotate}` / `s:draw()` | Bundles a sprite_id + Vec2 pos (+ optional orientation) into a drawable object                                                     |
+
+### `collision` — AABB/circle/point/tile helpers
+
+| Function                                                                   | Description                                                       |
+| :---------------------------------------------------------------------------| :----------------------------------------------------------------|
+| `aabb_overlap(x1, y1, w1, h1, x2, y2, w2, h2)`                             | Axis-aligned box overlap test                                     |
+| `circle_overlap(x1, y1, r1, x2, y2, r2)`                                   | Circle overlap test                                               |
+| `point_in_rect(px, py, x, y, w, h)` / `point_in_circle(px, py, cx, cy, r)` | Point containment tests                                           |
+| `tile_solid(tx, ty)`                                                       | Whether the per-cell collision value at `(tx, ty)` is `1` (solid) |
+| `box_touches_solid(x, y, w, h)`                                            | Whether a pixel-space box overlaps any solid tile                 |
+
+### `tween` — value tweens and sprite animation
+
+| Function                                                    | Description                                                    |
+| :-------------------------------------------------------------| :----------------------------------------------------------|
+| `new_tween(from, to, frames, ease)` / `tween_update(tw)`    | Frame-driven value tween; `tw.done` flips true on arrival      |
+| `new_anim(frames, frame_len)` / `anim_update(anim)` / `anim_sprite(anim)` | Frame-based sprite animation cycling through a sprite-id list |
+
+### `particles` — `Particles`
+
+| Function                                                                                          | Description                                 |
+| :----------------------------------------------------------------------------------------------------| :------------------------------------------ |
+| `Particles.spawn(x, y, vx, vy, color, life)` / `.update()` / `.draw()` / `.clear()` / `.count()` | Simple velocity + lifetime particle system |
+
+### `scenes` — `Scenes`
+
+| Function                                                                                     | Description                                                                    |
+| :------------------------------------------------------------------------------------------------| :---------------------------------------------------------------------------- |
 | `Scenes.push(scene)` / `.pop()` / `.switch(scene)` / `.update()` / `.draw()` / `.current()` | Stack-based scene manager; scene = table with optional enter/exit/update/draw |
-| `Entities.add(e)` / `.update_all()` / `.draw_all()` / `.clear()` / `.count()` / `.new()`     | Entity list with lifecycle (e.dead removes on next update_all); .new() gives an independent list |
-| `Camera.follow(entity, opts)` / `.unfollow()` / `.shake(amount, duration)` / `.update()`     | Wraps set_camera() with smoothed follow (opts.lerp, default 1) and decaying shake |
+
+### `entities` — `Entities`
+
+| Function                                                                                  | Description                                                                                       |
+| :----------------------------------------------------------------------------------------------| :------------------------------------------------------------------------------------------------ |
+| `Entities.add(e)` / `.update_all()` / `.draw_all()` / `.clear()` / `.count()` / `.new()` | Entity list with lifecycle (e.dead removes on next update_all); .new() gives an independent list |
+
+### `camera` — `Camera`
+
+| Function                                                                                | Description                                                                        |
+| :-------------------------------------------------------------------------------------------| :---------------------------------------------------------------------------- |
+| `Camera.follow(entity, opts)` / `.unfollow()` / `.shake(amount, duration)` / `.update()` | Wraps set_camera() with smoothed follow (opts.lerp, default 1) and decaying shake |
 
 ## System Specifications
 

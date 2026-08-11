@@ -95,6 +95,29 @@ impl App {
             }
         }
 
+        // No `[stdlib]` section means the cart never declared one — core-only
+        // is the default (`Vm` already starts with no modules selected), so
+        // there's nothing to call here in that case.
+        if let Some(section) = cart
+            .sections
+            .iter()
+            .find(|s| s.kind == SectionKind::PreludeModules)
+        {
+            let manifest = String::from_utf8_lossy(&section.data);
+            let modules: Vec<&str> = manifest
+                .lines()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .collect();
+            self.core
+                .vm
+                .set_prelude_modules(&modules)
+                .map_err(|e| anyhow!("{e}"))
+                .with_context(|| {
+                    format!("cart {} declares an invalid stdlib module", path.display())
+                })?;
+        }
+
         // Asset RAM must be in place before the Lua load, since it runs
         // `_init()` immediately.
         let lua_source =

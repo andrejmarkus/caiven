@@ -39,6 +39,27 @@ pub fn load_cart(vm: &mut Vm, path: &Path, input: &Input, font: &Font) -> Result
         }
     }
 
+    // No `[stdlib]` section means the cart never declared one — core-only is
+    // the default (`Vm` starts with no modules selected), so nothing to call
+    // here in that case.
+    if let Some(section) = cart
+        .sections
+        .iter()
+        .find(|s| s.kind == SectionKind::PreludeModules)
+    {
+        let manifest = String::from_utf8_lossy(&section.data);
+        let modules: Vec<&str> = manifest
+            .lines()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+        vm.set_prelude_modules(&modules)
+            .map_err(|e| anyhow::anyhow!("{e}"))
+            .with_context(|| {
+                format!("cart {} declares an invalid stdlib module", path.display())
+            })?;
+    }
+
     let lua_source = vm.load_cart_sections(&cart.sections);
 
     let mut sections: Vec<SectionLayout> = Vec::new();

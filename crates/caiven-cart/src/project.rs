@@ -149,6 +149,14 @@ struct CaivenToml {
     cart: CartTable,
     #[serde(default)]
     mods: ModsTable,
+    /// Absent when the cart has never declared `[stdlib]` — distinct from
+    /// `Some(StdlibTable { modules: vec![] })`, an explicit "core only"
+    /// declaration. Absence resolves to core-only too (see
+    /// `caiven_vm::vm::Vm::set_prelude_modules`'s default), but the
+    /// distinction round-trips through `SectionKind::PreludeModules` so a
+    /// cart that explicitly opted into zero extra modules stays
+    /// distinguishable from one that predates this field entirely.
+    stdlib: Option<StdlibTable>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -181,6 +189,15 @@ fn default_manifest_version() -> u16 {
 struct ModsTable {
     #[serde(default)]
     require: Vec<String>,
+}
+
+/// `[stdlib] modules = [...]` — the cart's opt-in gameplay-stdlib selection.
+/// See `caiven_vm::vm::Vm::set_prelude_modules` for valid module names and
+/// what an empty/absent selection resolves to.
+#[derive(Serialize, Deserialize, Default)]
+struct StdlibTable {
+    #[serde(default)]
+    modules: Vec<String>,
 }
 
 /// Returns `true` if `path` looks like a project (a directory containing
@@ -339,6 +356,13 @@ pub fn load_project(path: &Path) -> Result<Cart, CartError> {
         });
     }
 
+    if let Some(stdlib) = &manifest.stdlib {
+        sections.push(CartSection {
+            kind: SectionKind::PreludeModules,
+            data: stdlib.modules.join("\n").into_bytes(),
+        });
+    }
+
     Ok(Cart {
         header,
         program: Vec::new(),
@@ -366,6 +390,7 @@ pub fn save_project(
     std::fs::create_dir_all(dir)?;
 
     let mut require = Vec::new();
+    let mut stdlib = None;
     for (kind, data) in sections {
         if *kind == SectionKind::ModManifest {
             let text = String::from_utf8_lossy(data);
@@ -375,6 +400,16 @@ pub fn save_project(
                     .filter(|s| !s.is_empty())
                     .map(str::to_string),
             );
+        }
+        if *kind == SectionKind::PreludeModules {
+            let text = String::from_utf8_lossy(data);
+            let modules = text
+                .lines()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect();
+            stdlib = Some(StdlibTable { modules });
         }
     }
 
@@ -388,6 +423,7 @@ pub fn save_project(
             version: CURRENT_MANIFEST_VERSION,
         },
         mods: ModsTable { require },
+        stdlib,
     };
     let manifest_text =
         toml::to_string_pretty(&manifest).map_err(|e| CartError::MissingEntry(e.to_string()))?;
@@ -585,6 +621,79 @@ mod tests {
             .find(|s| s.kind == SectionKind::ModManifest)
             .unwrap();
         assert_eq!(String::from_utf8_lossy(&manifest.data), "rtc\ninput");
+    }
+
+    #[test]
+    fn stdlib_modules_round_trip_through_save_and_load_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let header = CartHeader::new("My Game", "andrej");
+        let sections = vec![(
+            SectionKind::PreludeModules,
+            b"vec2\nscenes\nentities\ncamera".to_vec(),
+        )];
+
+        save_project(
+            dir.path(),
+            &header,
+            "function _update() end\n",
+            &[],
+            &sections,
+        )
+        .unwrap();
+
+        // The manifest itself carries the declared modules, independent of
+        // load_project's section reconstruction.
+        let manifest_text = std::fs::read_to_string(dir.path().join(MANIFEST_FILE)).unwrap();
+        assert!(manifest_text.contains("[stdlib]"));
+        assert!(manifest_text.contains("modules"));
+
+        let cart = load_project(dir.path()).unwrap();
+        let stdlib = cart
+            .sections
+            .iter()
+            .find(|s| s.kind == SectionKind::PreludeModules)
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&stdlib.data),
+            "vec2\nscenes\nentities\ncamera"
+        );
+    }
+
+    #[test]
+    fn absent_stdlib_table_round_trips_distinctly_from_an_empty_module_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let header = CartHeader::new("Blank", "");
+
+        // No PreludeModules section at all: caiven.toml gets no [stdlib]
+        // table, and re-loading produces no PreludeModules section either —
+        // this is the "cart predates [stdlib]" case, distinct from a cart
+        // that explicitly declared zero extra modules.
+        save_project(dir.path(), &header, "-- empty\n", &[], &[]).unwrap();
+        let manifest_text = std::fs::read_to_string(dir.path().join(MANIFEST_FILE)).unwrap();
+        assert!(!manifest_text.contains("[stdlib]"));
+
+        let cart = load_project(dir.path()).unwrap();
+        assert!(
+            !cart
+                .sections
+                .iter()
+                .any(|s| s.kind == SectionKind::PreludeModules)
+        );
+
+        // An explicit empty declaration does write a (empty-payload) section,
+        // so it survives a second round trip instead of collapsing back to
+        // "absent".
+        let explicit_empty = vec![(SectionKind::PreludeModules, Vec::new())];
+        save_project(dir.path(), &header, "-- empty\n", &[], &explicit_empty).unwrap();
+        let manifest_text = std::fs::read_to_string(dir.path().join(MANIFEST_FILE)).unwrap();
+        assert!(manifest_text.contains("[stdlib]"));
+
+        let cart = load_project(dir.path()).unwrap();
+        assert!(
+            cart.sections
+                .iter()
+                .any(|s| s.kind == SectionKind::PreludeModules)
+        );
     }
 
     #[test]

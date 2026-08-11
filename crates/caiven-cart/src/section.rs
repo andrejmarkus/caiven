@@ -27,6 +27,11 @@ pub enum SectionKind {
     /// Cart-global collision-type table (names/colors/solid flags). Small
     /// metadata, not RAM-backed — see `encode_collision_types`.
     CollisionTypes,
+    /// Cart's opt-in gameplay-stdlib selection (`[stdlib] modules` in
+    /// `caiven.toml`), newline-joined module names, mirroring `ModManifest`.
+    /// Presence (even with empty data) distinguishes "explicitly declared
+    /// `[stdlib]`" from "no `[stdlib]` table at all" — see `project.rs`.
+    PreludeModules,
     Custom(u16),
 }
 
@@ -50,6 +55,7 @@ impl SectionKind {
             Self::Collision => 0x0011,
             Self::CollisionBank => 0x0012,
             Self::CollisionTypes => 0x0013,
+            Self::PreludeModules => 0x0014,
             Self::Custom(n) => n,
         }
     }
@@ -73,6 +79,7 @@ impl SectionKind {
             0x0011 => Self::Collision,
             0x0012 => Self::CollisionBank,
             0x0013 => Self::CollisionTypes,
+            0x0014 => Self::PreludeModules,
             n => Self::Custom(n),
         }
     }
@@ -96,6 +103,7 @@ impl SectionKind {
             Self::Collision => "Collision",
             Self::CollisionBank => "CollisionBank",
             Self::CollisionTypes => "CollisionTypes",
+            Self::PreludeModules => "PreludeModules",
             Self::Custom(_) => "Custom",
         }
     }
