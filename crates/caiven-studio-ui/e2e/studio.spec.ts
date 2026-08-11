@@ -43,6 +43,14 @@ test('code, runtime, shortcuts, watches, module, drawer, and console flow', asyn
   await page.locator('form.add-watch').evaluate((form) => (form as HTMLFormElement).requestSubmit());
   await expect.poll(async () => (await e2e.calls()).some((call) => call.command === 'studio_add_watch')).toBeTruthy();
   await expect(page.getByText('score', { exact: true }).first()).toBeVisible();
+  await page.getByRole('tab', { name: 'Globals' }).click();
+  await expect(page.getByRole('button', { name: 'Expand player' })).toBeVisible();
+  await page.getByRole('button', { name: 'Expand player' }).click();
+  await expect.poll(async () => (await e2e.calls()).some((call) => call.command === 'studio_expand_debug_value')).toBeTruthy();
+  await expect(page.getByText('x', { exact: true })).toBeVisible();
+  await expect(page.getByText('y', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Watches' }).click();
+
   await page.keyboard.press('Control+S');
   await expect(page.getByTitle('Unsaved changes')).toHaveCount(0);
 

@@ -15,7 +15,7 @@ pub use camera::*;
 pub use config::VmConfig;
 pub use fault::VmFault;
 pub use lua_exec::{
-    LuaBreakpoint, LuaRunOutcome, describe_lua_error, describe_lua_error_location,
+    DebugValue, LuaBreakpoint, LuaRunOutcome, describe_lua_error, describe_lua_error_location,
     prelude_module_catalog,
 };
 pub use palette::*;
@@ -200,7 +200,12 @@ pub struct Vm {
     /// last breakpoint hit — cleared once execution resumes past a
     /// breakpoint, same lifecycle as `call_stack`. See
     /// `Vm::run_frame_lua_bp` for how these are read via raw FFI.
-    locals: Vec<(String, String)>,
+    locals: Vec<lua_exec::RawLocal>,
+    /// Table/function values rooted for the debugger's expand-on-demand
+    /// inspector, keyed by node id (see [`lua_exec::DebugValue`]). Cleared
+    /// once per tick via [`Vm::clear_debug_roots`] so ids from a prior
+    /// pause never stay valid across a step/resume.
+    debug_roots: std::collections::HashMap<String, mlua::Value>,
     asset_banks: AssetBanks,
     save_data: SaveData,
     /// Cart-global collision-type table (names/colors/solid flags). Small
@@ -254,6 +259,7 @@ impl Vm {
             capture_lua_output: false,
             call_stack: Vec::new(),
             locals: Vec::new(),
+            debug_roots: std::collections::HashMap::new(),
             asset_banks: AssetBanks::new(),
             save_data: SaveData::new(),
             collision_types: caiven_core::builtin_collision_types(),

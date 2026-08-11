@@ -402,6 +402,9 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .watch-row.stack-frame { width: 100%; border: 0; color: inherit; background: transparent; text-align: left; }
 .watch-row small { margin-left: auto; color: var(--color-ember); font-family: var(--font-mono); }
 .watch-row small.negative { color: var(--destructive); }
+.watch-row .expand-toggle, .watch-row .expand-spacer { width: 14px; height: 14px; margin-left: 0; flex: none; display: grid; place-items: center; border: 0; border-radius: 3px; padding: 0; color: var(--color-ink-faint); background: transparent; }
+.watch-row .expand-toggle:hover { color: var(--color-ink); background: var(--color-void-900); }
+.watch-empty-inline { color: var(--color-ink-faint); font-size: 10.5px; font-style: italic; }
 .watch-empty { padding: 12px 14px; color: var(--color-ink-faint); font-size: 10.5px; }
 .watch-error { padding: 5px 14px; color: var(--destructive); border-top: 1px solid var(--border-subtle); font-size: 9.5px; }
 .add-watch { height: 34px; padding: 0 8px 0 14px; display: flex; align-items: center; gap: 6px; border-top: 1px solid var(--border-subtle); color: var(--color-ink-dim); background: transparent; font-size: 11px; }

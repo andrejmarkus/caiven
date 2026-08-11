@@ -40,7 +40,8 @@ export interface Diagnostic {
   line: number | null;
 }
 
-export interface GlobalValue { name: string; value: string; }
+export interface GlobalValue { name: string; value: string; nodeId?: string | null; }
+export interface DebugChild { key: string; value: string; nodeId?: string | null; }
 export interface CallFrame { label: string; location: string; }
 export interface CartMeta { description: string; tags: string[]; }
 export interface CartSize { packedBytes: number; maxBytes: number; }

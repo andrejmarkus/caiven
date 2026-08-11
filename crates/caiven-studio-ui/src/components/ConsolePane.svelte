@@ -1,10 +1,11 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Maximize2, PanelRightClose, Plus, X } from '@lucide/svelte';
+  import { Maximize2, PanelRightClose, Plus } from '@lucide/svelte';
   import { Button } from '@caiven/ui/button';
   import { Input } from '@caiven/ui/input';
   import * as Tabs from '@caiven/ui/tabs';
-  import type { CallFrame, Diagnostic, GlobalValue, PauseReason, RunState } from '../types';
+  import DebugValueRow from './DebugValueRow.svelte';
+  import type { CallFrame, DebugChild, Diagnostic, GlobalValue, PauseReason, RunState } from '../types';
 
   interface Props {
     runState: RunState;
@@ -27,10 +28,11 @@
     onJumpToLocation: (source: string, line: number | null) => void;
     onAddWatch: (expression: string) => Promise<string | null>;
     onRemoveWatch: (expression: string) => void;
+    onExpandDebugValue: (nodeId: string) => Promise<DebugChild[]>;
     onClose: () => void;
   }
 
-  let { runState, frame, fps, frameTime, frameData, onFocus, held, onInput, globals, watches, callStack, locals, breakpointCount, diagnostics, pauseReason, onJumpToError, onJumpToLocation, onAddWatch, onRemoveWatch, onClose }: Props = $props();
+  let { runState, frame, fps, frameTime, frameData, onFocus, held, onInput, globals, watches, callStack, locals, breakpointCount, diagnostics, pauseReason, onJumpToError, onJumpToLocation, onAddWatch, onRemoveWatch, onExpandDebugValue, onClose }: Props = $props();
   let canvas: HTMLCanvasElement;
   let debugTab = $state<'watches' | 'globals' | 'locals' | 'stack'>('watches');
   let watchExpression = $state('');
@@ -40,7 +42,6 @@
   let frameBars = $state<number[]>(Array(frameBarWindow).fill(4));
 
   const running = $derived(runState === 'running');
-  const watchRows = $derived(watches.map((item) => [item.name, item.value]));
 
   $effect(() => {
     frameTime;
@@ -154,26 +155,24 @@
     </Tabs.List>
     {#if debugTab === 'watches'}
       <div class="watch-list">
-        {#each watchRows as watch}
-          <div class="watch-row">
-            <code>{watch[0]}</code><i>=</i><strong>{watch[1]}</strong><Button variant="ghost" size="icon-xs" title={`Remove ${watch[0]}`} onclick={() => onRemoveWatch(watch[0])}><X size={12} /></Button>
-          </div>
+        {#each watches as watch (watch.name)}
+          <DebugValueRow label={watch.name} value={watch.value} nodeId={watch.nodeId} onExpand={onExpandDebugValue} onRemove={onRemoveWatch} />
         {/each}
-        {#if !watchRows.length}<div class="watch-empty">No watches. Add Lua expression below.</div>{/if}
+        {#if !watches.length}<div class="watch-empty">No watches. Add Lua expression below.</div>{/if}
       </div>
       {#if watchError}<div class="watch-error" role="alert">{watchError}</div>{/if}
       <form class="add-watch" onsubmit={(event) => { event.preventDefault(); void submitWatch(); }}><Plus size={13} /><Input bind:value={watchExpression} placeholder="player.x" aria-label="Watch expression" oninput={() => watchError = ''} /><Button variant="outline" size="xs" disabled={watchBusy || !watchExpression.trim()}>{watchBusy ? '…' : 'Add'}</Button></form>
     {:else if debugTab === 'globals'}
       <div class="watch-list">
-        {#each globals as global}
-          <div class="watch-row"><code>{global.name}</code><i>=</i><strong>{global.value}</strong></div>
+        {#each globals as global (global.name)}
+          <DebugValueRow label={global.name} value={global.value} nodeId={global.nodeId} onExpand={onExpandDebugValue} />
         {/each}
         {#if !globals.length}<div class="watch-empty">Pause cart to inspect globals.</div>{/if}
       </div>
     {:else if debugTab === 'locals'}
       <div class="watch-list">
-        {#each locals as local}
-          <div class="watch-row"><code>{local.name}</code><i>=</i><strong>{local.value}</strong></div>
+        {#each locals as local (local.name)}
+          <DebugValueRow label={local.name} value={local.value} nodeId={local.nodeId} onExpand={onExpandDebugValue} />
         {/each}
         {#if !locals.length}<div class="watch-empty">Pause at a breakpoint to see local variables.</div>{/if}
       </div>

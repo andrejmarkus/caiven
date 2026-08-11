@@ -204,11 +204,11 @@ fn lua_run_frame_bp_exposes_locals_at_breakpoint() {
     }
     let locals = vm.lua_debug_locals();
     assert!(
-        locals.contains(&("answer".to_string(), "42".to_string())),
+        locals.iter().any(|(n, v)| n == "answer" && v == "42"),
         "expected local `answer` = 42, got {locals:?}"
     );
     assert!(
-        locals.contains(&("label".to_string(), "\"hi\"".to_string())),
+        locals.iter().any(|(n, v)| n == "label" && v == "\"hi\""),
         "expected local `label` = \"hi\", got {locals:?}"
     );
 
@@ -251,15 +251,15 @@ fn lua_run_frame_bp_locals_reflect_shadowing_and_loop_scope() {
     }
     let locals = vm.lua_debug_locals();
     assert!(
-        locals.contains(&("shadow".to_string(), "2".to_string())),
+        locals.iter().any(|(n, v)| n == "shadow" && v == "2"),
         "expected shadowed inner `shadow` = 2 (not outer's 1), got {locals:?}"
     );
     assert!(
-        locals.contains(&("i".to_string(), "1".to_string())),
+        locals.iter().any(|(n, v)| n == "i" && v == "1"),
         "expected loop control var `i` = 1, got {locals:?}"
     );
     assert!(
-        locals.contains(&("loopvar".to_string(), "10".to_string())),
+        locals.iter().any(|(n, v)| n == "loopvar" && v == "10"),
         "expected loop-body local `loopvar` = 10, got {locals:?}"
     );
     // Only one `shadow` entry: the innermost visible binding wins, the
@@ -300,7 +300,7 @@ fn lua_run_frame_bp_locals_exclude_captured_upvalues() {
     }
     let locals = vm.lua_debug_locals();
     assert!(
-        locals.contains(&("innerlocal".to_string(), "5".to_string())),
+        locals.iter().any(|(n, v)| n == "innerlocal" && v == "5"),
         "expected innermost frame's own local `innerlocal` = 5, got {locals:?}"
     );
     assert!(
@@ -309,6 +309,164 @@ fn lua_run_frame_bp_locals_exclude_captured_upvalues() {
          report it (V23 documents this as read-only-current-frame, not \
          full-scope-chain), got {locals:?}"
     );
+}
+
+#[test]
+fn expand_debug_node_walks_a_local_table_recursively() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          local t = { x = 1, nested = { y = 2 } }
+          x = t.x
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    match vm.run_frame_lua_bp(&input, &font, &[LuaBreakpoint::new("*", 4)]) {
+        LuaRunOutcome::Breakpoint(breakpoint) => assert_eq!(breakpoint.line, 4),
+        other => panic!("expected a breakpoint stop, got {other:?}"),
+    }
+    let locals = vm.lua_debug_locals();
+    let (_, t) = locals
+        .iter()
+        .find(|(name, _)| name == "t")
+        .expect("local `t` should be present");
+    assert_eq!(t.text, "{table}");
+    let node_id = t.node_id.clone().expect("table local should be rooted");
+
+    let children = vm
+        .expand_debug_node(&node_id)
+        .expect("expanding a freshly rooted table should succeed");
+    let (_, x_value) = children
+        .iter()
+        .find(|(key, _)| key == "x")
+        .expect("expanded table should have field `x`");
+    assert_eq!(x_value.text, "1");
+    assert!(x_value.node_id.is_none(), "scalar entries aren't rooted");
+
+    let (_, nested) = children
+        .iter()
+        .find(|(key, _)| key == "nested")
+        .expect("expanded table should have field `nested`");
+    assert_eq!(nested.text, "{table}");
+    let nested_id = nested
+        .node_id
+        .clone()
+        .expect("nested table should be rooted for further expansion");
+    let grandchildren = vm
+        .expand_debug_node(&nested_id)
+        .expect("expanding a nested table should succeed");
+    assert!(
+        grandchildren
+            .iter()
+            .any(|(key, value)| key == "y" && value == "2"),
+        "expected nested.y = 2, got {grandchildren:?}"
+    );
+}
+
+#[test]
+fn expand_debug_node_lists_function_upvalues() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        local counter = 41
+        function bump()
+          counter = counter + 1
+          return counter
+        end
+        function _update()
+          x = bump()
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    let globals = vm.lua_globals();
+    let (_, bump) = globals
+        .iter()
+        .find(|(name, _)| name == "bump")
+        .expect("global `bump` should be present");
+    assert_eq!(bump.text, "{function}");
+    let node_id = bump.node_id.clone().expect("function should be rooted");
+
+    let upvalues = vm
+        .expand_debug_node(&node_id)
+        .expect("expanding a function's upvalues should succeed");
+    assert!(
+        upvalues
+            .iter()
+            .any(|(name, value)| name == "counter" && value == "41"),
+        "expected upvalue `counter` = 41, got {upvalues:?}"
+    );
+}
+
+#[test]
+fn expand_debug_node_rejects_unknown_and_stale_ids() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source("player = { x = 1 }\nfunction _update() end", &input, &font)
+        .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    assert!(vm.expand_debug_node("bogus").is_err());
+
+    let globals = vm.lua_globals();
+    let node_id = globals
+        .iter()
+        .find(|(name, _)| name == "player")
+        .and_then(|(_, v)| v.node_id.clone())
+        .expect("global table should be rooted");
+    assert!(vm.expand_debug_node(&node_id).is_ok());
+
+    // A new tick's worth of gathering invalidates ids from the previous one.
+    vm.clear_debug_roots();
+    assert!(
+        vm.expand_debug_node(&node_id).is_err(),
+        "node id must not survive clear_debug_roots"
+    );
+}
+
+#[test]
+fn expand_debug_node_truncates_large_tables() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    let mut src =
+        String::from("big = {}\nfor i = 1, 250 do big[i] = i end\nfunction _update() end\n");
+    // Keep the fixture obviously oversized relative to the 200-entry cap.
+    src.push_str("");
+    vm.load_lua_source(&src, &input, &font)
+        .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    let globals = vm.lua_globals();
+    let node_id = globals
+        .iter()
+        .find(|(name, _)| name == "big")
+        .and_then(|(_, v)| v.node_id.clone())
+        .expect("global table should be rooted");
+
+    let children = vm
+        .expand_debug_node(&node_id)
+        .expect("expanding a large table should not panic");
+    assert_eq!(
+        children.len(),
+        201,
+        "expected 200 entries plus a truncation marker"
+    );
+    let last = children
+        .last()
+        .expect("truncated result should be non-empty");
+    assert_eq!(last.1.node_id, None);
 }
 
 #[test]
@@ -709,6 +867,7 @@ fn run_and_get(src_update_body: &str, snapshot_vars: &[&str]) -> Vec<String> {
                 .find(|(k, _)| k == name)
                 .unwrap_or_else(|| panic!("missing global {name}"))
                 .1
+                .text
                 .clone()
         })
         .collect()

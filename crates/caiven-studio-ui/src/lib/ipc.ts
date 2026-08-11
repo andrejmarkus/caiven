@@ -1,5 +1,5 @@
 import type {
-  ApiEntry, AssetBankState, AssetIndex, AudioState, Breakpoint, CartMeta, CartSize, CartTemplateSummary, CollisionType, ExampleSummary, GlobalValue, LocalCart, PortCartList, PortSession,
+  ApiEntry, AssetBankState, AssetIndex, AudioState, Breakpoint, CartMeta, CartSize, CartTemplateSummary, CollisionType, DebugChild, ExampleSummary, GlobalValue, LocalCart, PortCartList, PortSession,
   PreludeModule, PublishResult, SourceBuffer, StudioBootstrap, TickSnapshot,
 } from '../types';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
@@ -316,6 +316,11 @@ export async function removeWatch(expression: string): Promise<GlobalValue[]> {
   if (isTauri()) return invoke<GlobalValue[]>('studio_remove_watch', { expression });
   fallback.watches = fallback.watches.filter((item) => item.name !== expression);
   return structuredClone(fallback.watches);
+}
+
+export async function expandDebugValue(nodeId: string): Promise<DebugChild[]> {
+  if (isTauri()) return invoke<DebugChild[]>('studio_expand_debug_value', { nodeId });
+  return []; // browser/dev fallback — no live VM to expand against
 }
 
 export async function clearOutput(): Promise<void> {

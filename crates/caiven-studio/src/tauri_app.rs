@@ -103,6 +103,25 @@ struct DiagnosticPayload {
 struct GlobalPayload {
     name: String,
     value: String,
+    node_id: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DebugChildPayload {
+    key: String,
+    value: String,
+    node_id: Option<String>,
+}
+
+impl From<(String, caiven_vm::DebugValue)> for DebugChildPayload {
+    fn from((key, value): (String, caiven_vm::DebugValue)) -> Self {
+        Self {
+            key,
+            value: value.text,
+            node_id: value.node_id,
+        }
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -414,6 +433,10 @@ enum CoreCommand {
     RemoveWatch {
         expression: String,
         reply: mpsc::Sender<Result<Vec<GlobalPayload>, String>>,
+    },
+    ExpandDebugValue {
+        node_id: String,
+        reply: mpsc::Sender<Result<Vec<DebugChildPayload>, String>>,
     },
     ClearOutput {
         reply: mpsc::Sender<Result<(), String>>,
@@ -764,7 +787,8 @@ impl StudioCore {
         name.replace('\\', "/")
     }
 
-    fn bootstrap(&self) -> BootstrapPayload {
+    fn bootstrap(&mut self) -> BootstrapPayload {
+        self.console.vm.clear_debug_roots();
         let (title, path, author) = self
             .cart
             .as_ref()
@@ -857,7 +881,8 @@ impl StudioCore {
         }
     }
 
-    fn tick_payload(&self) -> TickPayload {
+    fn tick_payload(&mut self) -> TickPayload {
+        self.console.vm.clear_debug_roots();
         TickPayload {
             run_state: self.run_state,
             frame: self.frame,
@@ -904,21 +929,29 @@ impl StudioCore {
             .collect()
     }
 
-    fn globals(&self) -> Vec<GlobalPayload> {
+    fn globals(&mut self) -> Vec<GlobalPayload> {
         self.console
             .vm
             .lua_globals()
             .into_iter()
-            .map(|(name, value)| GlobalPayload { name, value })
+            .map(|(name, value)| GlobalPayload {
+                name,
+                value: value.text,
+                node_id: value.node_id,
+            })
             .collect()
     }
 
-    fn locals(&self) -> Vec<GlobalPayload> {
+    fn locals(&mut self) -> Vec<GlobalPayload> {
         self.console
             .vm
             .lua_debug_locals()
             .into_iter()
-            .map(|(name, value)| GlobalPayload { name, value })
+            .map(|(name, value)| GlobalPayload {
+                name,
+                value: value.text,
+                node_id: value.node_id,
+            })
             .collect()
     }
 
@@ -1034,19 +1067,36 @@ impl StudioCore {
         })
     }
 
-    fn watches(&self) -> Vec<GlobalPayload> {
-        self.debugger
-            .watches()
-            .iter()
-            .map(|expression| GlobalPayload {
-                name: expression.clone(),
-                value: self
-                    .console
-                    .vm
-                    .lua_watch(expression)
-                    .unwrap_or_else(|error| format!("<{error}>")),
+    fn watches(&mut self) -> Vec<GlobalPayload> {
+        let expressions = self.debugger.watches().to_vec();
+        expressions
+            .into_iter()
+            .map(|expression| {
+                let watch = self.console.vm.lua_watch(&expression);
+                match watch {
+                    Ok(value) => GlobalPayload {
+                        name: expression,
+                        value: value.text,
+                        node_id: value.node_id,
+                    },
+                    Err(error) => GlobalPayload {
+                        name: expression,
+                        value: format!("<{error}>"),
+                        node_id: None,
+                    },
+                }
             })
             .collect()
+    }
+
+    /// Returns a previously rooted table/function's immediate children —
+    /// read-only, same posture as `lua_watch`: never evaluates cart Lua,
+    /// only walks an already-captured value (see `Vm::expand_debug_node`).
+    fn expand_debug_value(&mut self, node_id: &str) -> Result<Vec<DebugChildPayload>, String> {
+        self.console
+            .vm
+            .expand_debug_node(node_id)
+            .map(|children| children.into_iter().map(DebugChildPayload::from).collect())
     }
 
     fn audio_payload(&self) -> AudioPayload {
@@ -1671,7 +1721,7 @@ fn trim_output(output: &mut Vec<String>) {
     }
 }
 
-fn write_shared_snapshot(studio: &StudioCore, snapshot: &Arc<RwLock<SharedSnapshot>>) {
+fn write_shared_snapshot(studio: &mut StudioCore, snapshot: &Arc<RwLock<SharedSnapshot>>) {
     let mut frame = vec![0; 128 * 128 * 4];
     studio.console.screen.construct(
         &mut frame,
@@ -1839,6 +1889,9 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
                 Err(format!("Unknown watch: {expression}"))
             };
             let _ = reply.send(result);
+        }
+        CoreCommand::ExpandDebugValue { node_id, reply } => {
+            let _ = reply.send(studio.expand_debug_value(&node_id));
         }
         CoreCommand::ClearOutput { reply } => {
             studio.output.clear();
@@ -2078,7 +2131,7 @@ fn spawn_core(initial_path: Option<PathBuf>) -> StudioBridge {
                     fps_started = Instant::now();
                 }
                 if last_snapshot.elapsed() >= Duration::from_millis(16) {
-                    write_shared_snapshot(&studio, &actor_snapshot);
+                    write_shared_snapshot(&mut studio, &actor_snapshot);
                     last_snapshot = Instant::now();
                 }
             }
@@ -2255,6 +2308,14 @@ fn studio_remove_watch(
     state: State<'_, StudioBridge>,
 ) -> Result<Vec<GlobalPayload>, String> {
     state.request(|reply| CoreCommand::RemoveWatch { expression, reply })
+}
+
+#[tauri::command]
+fn studio_expand_debug_value(
+    node_id: String,
+    state: State<'_, StudioBridge>,
+) -> Result<Vec<DebugChildPayload>, String> {
+    state.request(|reply| CoreCommand::ExpandDebugValue { node_id, reply })
 }
 
 #[tauri::command]
@@ -2652,6 +2713,7 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
             studio_toggle_breakpoint,
             studio_add_watch,
             studio_remove_watch,
+            studio_expand_debug_value,
             studio_clear_output,
             studio_remove_recent,
             studio_read_memory,

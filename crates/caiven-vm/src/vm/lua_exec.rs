@@ -275,6 +275,52 @@ impl LuaBreakpoint {
     }
 }
 
+/// A displayed value in the Studio debugger's Locals/Globals/Watches/expand
+/// panels. `node_id` is `Some` only for a table or function — the
+/// expandable value is rooted under that id in [`Vm`]'s `debug_roots` map
+/// (see [`Vm::expand_debug_node`]) so a later expand request can find it;
+/// scalars have no children and are never rooted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DebugValue {
+    pub text: String,
+    pub node_id: Option<String>,
+}
+
+/// One raw local: display name, display text, and — for a table/function —
+/// the owned value rooted for [`Vm::expand_debug_node`]. See
+/// [`read_active_locals`].
+pub(super) type RawLocal = (String, String, Option<mlua::Value>);
+
+impl DebugValue {
+    pub fn as_str(&self) -> &str {
+        &self.text
+    }
+}
+
+// Lets call sites and tests compare a `DebugValue` against its display
+// text directly, without a `.text` projection at every assertion.
+impl PartialEq<str> for DebugValue {
+    fn eq(&self, other: &str) -> bool {
+        self.text == other
+    }
+}
+
+impl PartialEq<&str> for DebugValue {
+    fn eq(&self, other: &&str) -> bool {
+        self.text == *other
+    }
+}
+
+impl PartialEq<String> for DebugValue {
+    fn eq(&self, other: &String) -> bool {
+        &self.text == other
+    }
+}
+
+/// Maximum table entries [`Vm::expand_debug_node`] returns for one expand —
+/// keeps a single click bounded regardless of cart-authored table size.
+const MAX_EXPAND_ENTRIES: usize = 200;
+
 fn normalized_debug_source(source: &str) -> String {
     source.trim_start_matches(['@', '=']).replace('\\', "/")
 }
@@ -324,7 +370,13 @@ fn capture_call_stack(lua: &Lua) -> Vec<(String, String)> {
 /// declarations come later in the `n` enumeration, so overwriting on a name
 /// collision keeps the innermost (currently visible) binding. Names starting
 /// with `(` are compiler-internal (e.g. `(for state)`) and are skipped.
-fn read_active_locals(state: *mut mlua_sys::lua_State) -> Vec<(String, String)> {
+///
+/// Table/function locals additionally get an owned [`mlua::Value`] fetched
+/// via [`fetch_local_value`], so the Studio debugger's expand-on-demand
+/// inspector has something to root — a raw stack index doesn't survive past
+/// this hook returning, but a value round-tripped through `exec_raw` does
+/// (see that function's doc comment).
+fn read_active_locals(lua: &Lua, state: *mut mlua_sys::lua_State) -> Vec<RawLocal> {
     use std::ffi::CStr;
     use std::os::raw::c_int;
 
@@ -335,7 +387,7 @@ fn read_active_locals(state: *mut mlua_sys::lua_State) -> Vec<(String, String)> 
     // is level 1.
     const CALLER_FRAME_LEVEL: std::os::raw::c_int = 1;
 
-    let mut locals: Vec<(String, String)> = Vec::new();
+    let mut locals: Vec<RawLocal> = Vec::new();
     unsafe {
         let mut ar: mlua_sys::lua_Debug = std::mem::zeroed();
         if mlua_sys::lua_getstack(state, CALLER_FRAME_LEVEL, &mut ar) == 0 {
@@ -347,21 +399,56 @@ fn read_active_locals(state: *mut mlua_sys::lua_State) -> Vec<(String, String)> 
             if name_ptr.is_null() {
                 break;
             }
+            let local_index = n;
             n += 1;
             let name = CStr::from_ptr(name_ptr).to_string_lossy().into_owned();
             if name.starts_with('(') {
                 mlua_sys::lua_pop(state, 1);
                 continue;
             }
+            let raw_type = mlua_sys::lua_type(state, -1);
             let value = describe_raw_stack_value(state, -1);
             mlua_sys::lua_pop(state, 1);
-            match locals.iter_mut().find(|(existing, _)| *existing == name) {
-                Some(existing) => existing.1 = value,
-                None => locals.push((name, value)),
+            let owned = if matches!(raw_type, mlua_sys::LUA_TTABLE | mlua_sys::LUA_TFUNCTION) {
+                fetch_local_value(lua, &ar, local_index)
+            } else {
+                None
+            };
+            match locals.iter_mut().find(|(existing, _, _)| *existing == name) {
+                Some(existing) => {
+                    existing.1 = value;
+                    existing.2 = owned;
+                }
+                None => locals.push((name, value, owned)),
             }
         }
     }
     locals
+}
+
+/// Re-fetches local slot `n` at `ar` (already known live — called
+/// immediately after the same slot was read by [`read_active_locals`]) as
+/// an owned [`mlua::Value`]. `lua_getlocal` can be called more than once
+/// for the same slot while the frame is still active, so this is just a
+/// second, cheap fetch. Reentrant `exec_raw` call from inside the
+/// already-active hook (same pattern already proven safe for the outer
+/// `read_active_locals` call — mlua's per-`Lua` lock is a reentrant mutex).
+/// The value `exec_raw`'s closure leaves on the stack is converted via
+/// `FromLuaMulti`, which for a table/function creates a real
+/// registry-backed reference — unlike a raw stack index, that reference
+/// stays valid after this hook (and the `_update` frame) unwinds.
+unsafe fn fetch_local_value(
+    lua: &Lua,
+    ar: &mlua_sys::lua_Debug,
+    n: std::os::raw::c_int,
+) -> Option<mlua::Value> {
+    let ar_ptr = ar as *const mlua_sys::lua_Debug;
+    unsafe {
+        lua.exec_raw::<mlua::Value>((), move |state| {
+            mlua_sys::lua_getlocal(state, ar_ptr, n);
+        })
+        .ok()
+    }
 }
 
 /// Describes the value at a raw Lua stack index — the `lua_getlocal`
@@ -538,6 +625,55 @@ fn join_matching_upvalues(
     }
 }
 
+/// Lists a function's upvalues by name with their current values, for the
+/// Studio debugger's expand-on-demand inspector — same raw `lua_getupvalue`
+/// walk [`join_matching_upvalues`] already uses to enumerate upvalues by
+/// name, but here to read rather than rebind them. Two passes: first
+/// collects `(index, name)` pairs cheaply (popping each value immediately),
+/// then re-fetches each by index via its own `exec_raw` call so the value
+/// left on the stack converts into an owned, registry-backed
+/// [`mlua::Value`] — the same technique [`fetch_local_value`] uses for
+/// locals. Unknown-index fetches are skipped rather than erroring; this is
+/// a best-effort debugger view, not a correctness-critical path.
+fn list_function_upvalues(lua: &Lua, function: &mlua::Function) -> Vec<(String, mlua::Value)> {
+    use std::ffi::CStr;
+    use std::os::raw::c_int;
+
+    let mut names: Vec<(c_int, String)> = Vec::new();
+    let _: mlua::Result<()> = unsafe {
+        lua.exec_raw::<()>((function.clone(),), |state| {
+            let mut i: c_int = 1;
+            loop {
+                let name = mlua::ffi::lua_getupvalue(state, 1, i);
+                if name.is_null() {
+                    break;
+                }
+                mlua::ffi::lua_pop(state, 1);
+                names.push((i, CStr::from_ptr(name).to_string_lossy().into_owned()));
+                i += 1;
+            }
+        })
+    };
+
+    names
+        .into_iter()
+        .filter_map(|(i, name)| {
+            let value = unsafe {
+                lua.exec_raw::<mlua::Value>((function.clone(),), move |state| {
+                    mlua::ffi::lua_getupvalue(state, 1, i);
+                    // Leave only the fetched value on the stack — otherwise
+                    // `exec_raw`'s single-value `FromLuaMulti` picks up the
+                    // bottommost of the two (the function argument, at
+                    // index 1) instead of the value `lua_getupvalue` just
+                    // pushed on top.
+                    mlua::ffi::lua_remove(state, 1);
+                })
+            };
+            value.ok().map(|value| (name, value))
+        })
+        .collect()
+}
+
 fn describe_lua_value(value: &mlua::Value) -> String {
     match value {
         mlua::Value::Nil => "nil".to_string(),
@@ -549,6 +685,35 @@ fn describe_lua_value(value: &mlua::Value) -> String {
         mlua::Value::Function(_) => "{function}".to_string(),
         other => format!("{other:?}"),
     }
+}
+
+/// Formats a table key for [`Vm::expand_debug_node`]'s child rows — a
+/// bare field name for string keys that read like a Lua identifier (so
+/// `t.x` shows as `x`, matching dotted-watch syntax), `[i]` for integer
+/// keys (array-like tables), and [`describe_lua_value`]'s generic
+/// representation for everything else.
+fn describe_table_key(key: &mlua::Value) -> String {
+    match key {
+        mlua::Value::String(s) => {
+            let text = s.to_string_lossy();
+            if is_lua_identifier(&text) {
+                text
+            } else {
+                describe_lua_value(key)
+            }
+        }
+        mlua::Value::Integer(i) => format!("[{i}]"),
+        other => describe_lua_value(other),
+    }
+}
+
+fn is_lua_identifier(text: &str) -> bool {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(c) if c == '_' || c.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    chars.all(|c| c == '_' || c.is_ascii_alphanumeric())
 }
 
 /// Replaces Lua's stdout-backed `print` with a VM-owned line buffer. Frontends
@@ -1512,7 +1677,7 @@ impl Vm {
 
         let hit: Rc<RefCell<Option<LuaBreakpoint>>> = Rc::new(RefCell::new(None));
         let stack: Rc<RefCell<Vec<(String, String)>>> = Rc::new(RefCell::new(Vec::new()));
-        let locals: Rc<RefCell<Vec<(String, String)>>> = Rc::new(RefCell::new(Vec::new()));
+        let locals: Rc<RefCell<Vec<RawLocal>>> = Rc::new(RefCell::new(Vec::new()));
         // EVERY_LINE fires a Rust callback per Lua instruction executed —
         // real overhead on any script with loops. Only pay for it when
         // there's actually something to break on.
@@ -1554,7 +1719,7 @@ impl Vm {
                     // via the captured cell instead.
                     let mut read_locals = Vec::new();
                     let _: mlua::Result<()> = unsafe {
-                        lua.exec_raw((), |state| read_locals = read_active_locals(state))
+                        lua.exec_raw((), |state| read_locals = read_active_locals(lua, state))
                     };
                     *locals_hook.borrow_mut() = read_locals;
                     return Err(mlua::Error::runtime("breakpoint"));
@@ -1626,30 +1791,130 @@ impl Vm {
     /// Local variables at the innermost frame, captured at the moment the
     /// last breakpoint was hit — cleared once execution resumes past a
     /// breakpoint. Read via raw FFI from inside the `EVERY_LINE` hook (see
-    /// [`read_active_locals`]); empty if no breakpoint has fired yet.
-    pub fn lua_debug_locals(&self) -> Vec<(String, String)> {
-        self.locals.clone()
+    /// [`read_active_locals`]); empty if no breakpoint has fired yet. Table
+    /// and function values are rooted for [`Vm::expand_debug_node`] — see
+    /// [`Vm::root_debug_value`].
+    pub fn lua_debug_locals(&mut self) -> Vec<(String, DebugValue)> {
+        let locals = self.locals.clone();
+        locals
+            .into_iter()
+            .map(|(name, text, owned)| {
+                let debug_value = match owned {
+                    Some(value) => self.root_debug_value(format!("local:{name}"), value),
+                    None => DebugValue {
+                        text,
+                        node_id: None,
+                    },
+                };
+                (name, debug_value)
+            })
+            .collect()
     }
 
     /// Snapshot of the script's global variables, for the Studio debugger's
     /// state inspector. Excludes registered builtins, the gameplay prelude,
     /// and Lua's own stdlib — see [`BUILTIN_NAMES`]/[`prelude_names`]/
     /// [`STDLIB_NAMES`] — so only script-defined state shows up. For locals
-    /// at a breakpoint, see [`Vm::lua_debug_locals`].
-    pub fn lua_globals(&self) -> Vec<(String, String)> {
+    /// at a breakpoint, see [`Vm::lua_debug_locals`]. Table and function
+    /// values are rooted for [`Vm::expand_debug_node`].
+    pub fn lua_globals(&mut self) -> Vec<(String, DebugValue)> {
         let Some(script) = self.script.as_ref() else {
             return Vec::new();
         };
         let active_prelude_names = self.active_prelude_names();
         let globals = script.lua.globals();
-        let mut out: Vec<(String, String)> = globals
+        let mut out: Vec<(String, mlua::Value)> = globals
             .pairs::<String, mlua::Value>()
             .filter_map(|pair| pair.ok())
             .filter(|(k, _)| is_script_defined_name(k, &active_prelude_names))
-            .map(|(k, v)| (k, describe_lua_value(&v)))
             .collect();
         out.sort_by(|a, b| a.0.cmp(&b.0));
-        out
+        out.into_iter()
+            .map(|(name, value)| {
+                let id = format!("global:{name}");
+                let debug_value = self.root_debug_value(id, value);
+                (name, debug_value)
+            })
+            .collect()
+    }
+
+    /// Roots `value` under `id` in [`Vm::debug_roots`] when it's a table or
+    /// function (so [`Vm::expand_debug_node`] can find it later), and
+    /// returns the display `DebugValue` for it. Scalars are never rooted —
+    /// they have no children.
+    fn root_debug_value(&mut self, id: String, value: mlua::Value) -> DebugValue {
+        let text = describe_lua_value(&value);
+        let node_id = match &value {
+            mlua::Value::Table(_) | mlua::Value::Function(_) => {
+                self.debug_roots.insert(id.clone(), value);
+                Some(id)
+            }
+            _ => None,
+        };
+        DebugValue { text, node_id }
+    }
+
+    /// Drops every table/function value rooted for the debugger's
+    /// expand-on-demand inspector — call once per tick, before re-gathering
+    /// locals/globals/watches, so a node id handed to the frontend never
+    /// stays valid past the pause/step it was captured in.
+    pub fn clear_debug_roots(&mut self) {
+        self.debug_roots.clear();
+    }
+
+    /// Returns the immediate children of a table/function previously
+    /// rooted by [`Vm::lua_globals`], [`Vm::lua_debug_locals`],
+    /// [`Vm::lua_watch`], or a prior call to this method. Read-only: never
+    /// evaluates Lua, only walks an already-captured value — same posture
+    /// as [`Vm::lua_watch`]. Returns `Err` (never panics) for an unknown or
+    /// stale id, e.g. after [`Vm::clear_debug_roots`] ran.
+    pub fn expand_debug_node(
+        &mut self,
+        node_id: &str,
+    ) -> Result<Vec<(String, DebugValue)>, String> {
+        let value = self
+            .debug_roots
+            .get(node_id)
+            .cloned()
+            .ok_or_else(|| "Value is no longer available".to_string())?;
+        match value {
+            mlua::Value::Table(table) => {
+                let mut out = Vec::new();
+                for (index, pair) in table.pairs::<mlua::Value, mlua::Value>().enumerate() {
+                    let Ok((key, entry)) = pair else { continue };
+                    if index >= MAX_EXPAND_ENTRIES {
+                        out.push((
+                            "…".to_string(),
+                            DebugValue {
+                                text: "entries truncated".to_string(),
+                                node_id: None,
+                            },
+                        ));
+                        break;
+                    }
+                    let key_text = describe_table_key(&key);
+                    let child_id = format!("{node_id}/{key_text}");
+                    let debug_value = self.root_debug_value(child_id, entry);
+                    out.push((key_text, debug_value));
+                }
+                Ok(out)
+            }
+            mlua::Value::Function(function) => {
+                let Some(script) = self.script.as_ref() else {
+                    return Ok(Vec::new());
+                };
+                let upvalues = list_function_upvalues(&script.lua, &function);
+                Ok(upvalues
+                    .into_iter()
+                    .map(|(name, value)| {
+                        let child_id = format!("{node_id}/upvalue:{name}");
+                        let debug_value = self.root_debug_value(child_id, value);
+                        (name, debug_value)
+                    })
+                    .collect())
+            }
+            _ => Ok(Vec::new()),
+        }
     }
 
     /// Hot-reloads Lua source onto the *already running* script instance,
@@ -1786,7 +2051,9 @@ impl Vm {
 
     /// Reads a dotted global/table path without executing Lua. Studio uses
     /// this for debugger watches, so expressions cannot mutate cart state.
-    pub fn lua_watch(&self, expression: &str) -> Result<String, String> {
+    /// A table/function result is rooted under `"watch:<expression>"` for
+    /// [`Vm::expand_debug_node`].
+    pub fn lua_watch(&mut self, expression: &str) -> Result<DebugValue, String> {
         let parts: Vec<_> = expression.split('.').collect();
         if parts.is_empty()
             || parts.iter().any(|part| {
@@ -1820,7 +2087,7 @@ impl Vm {
         if matches!(value, mlua::Value::Nil) {
             Err("nil".to_string())
         } else {
-            Ok(describe_lua_value(&value))
+            Ok(self.root_debug_value(format!("watch:{expression}"), value))
         }
     }
 }
@@ -1840,8 +2107,14 @@ mod watch_tests {
             &Font::empty(),
         )
         .expect("watch fixture should load");
-        assert_eq!(vm.lua_watch("player.x"), Ok("72".to_string()));
-        assert_eq!(vm.lua_watch("player.nested.alive"), Ok("true".to_string()));
+        assert_eq!(
+            vm.lua_watch("player.x").map(|v| v.text),
+            Ok("72".to_string())
+        );
+        assert_eq!(
+            vm.lua_watch("player.nested.alive").map(|v| v.text),
+            Ok("true".to_string())
+        );
         assert!(vm.lua_watch("player.x + 1").is_err());
         assert!(!vm.lua_globals().iter().any(|(name, _)| name == "warn"));
     }

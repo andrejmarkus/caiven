@@ -7,6 +7,6 @@ pub mod timing;
 pub mod vm;
 
 pub use vm::{
-    AssetBankKind, LuaBreakpoint, LuaRunOutcome, Vm, VmConfig, VmFault, describe_lua_error,
-    describe_lua_error_location, prelude_module_catalog,
+    AssetBankKind, DebugValue, LuaBreakpoint, LuaRunOutcome, Vm, VmConfig, VmFault,
+    describe_lua_error, describe_lua_error_location, prelude_module_catalog,
 };

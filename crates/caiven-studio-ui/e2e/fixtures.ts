@@ -123,7 +123,7 @@ function installBridge() {
     sfx: [...banks.sfx.get(active.sfx)!], music: [...banks.music.get(active.music)!],
     paletteBanks: [...banks.palette.keys()], activePaletteBank: active.palette,
     sfxBanks: [...banks.sfx.keys()], activeSfxBank: active.sfx, musicBanks: [...banks.music.keys()], activeMusicBank: active.music,
-    ram: [...ram], globals: [{ name: 'score', value: '7' }], watches: structuredClone(watches), callStack: [], breakpoints: structuredClone(breakpoints),
+    ram: [...ram], globals: [{ name: 'score', value: '7' }, { name: 'player', value: '{table}', nodeId: 'global:player' }], watches: structuredClone(watches), callStack: [], breakpoints: structuredClone(breakpoints),
     pauseReason: null, diagnostics: [], output: ['mock runtime ready'], meta: { description: 'Test cartridge', tags: ['e2e'] },
     assetIndex: index(), audio: audio(), recent: [...recent],
     api: [{ name: 'sprite', params: [{ name: 'id', ty: 'int' }], returns: 'nil', doc: 'Draw sprite.', category: 'Graphics' }],
@@ -188,7 +188,7 @@ function installBridge() {
     ];
     if (command === 'studio_cart_size') return { packedBytes: 8192 + ++cartSizeReads, maxBytes: 131072 };
     if (command === 'studio_asset_index') { assetIndexReads += 1; return index(); }
-    if (command === 'studio_tick') return { runState, frame: frame++, fps: 60, frameTimeMs: 4.2, globals: [{ name: 'score', value: '7' }], watches, callStack: [], pauseReason: null, audio: audio(), diagnostics: [], output: ['mock runtime ready'], activeSpriteBank: tickActive.sprites, activeMapBank: tickActive.map, activePaletteBank: tickActive.palette, activeSfxBank: tickActive.sfx, activeMusicBank: tickActive.music };
+    if (command === 'studio_tick') return { runState, frame: frame++, fps: 60, frameTimeMs: 4.2, globals: [{ name: 'score', value: '7' }, { name: 'player', value: '{table}', nodeId: 'global:player' }], watches, callStack: [], pauseReason: null, audio: audio(), diagnostics: [], output: ['mock runtime ready'], activeSpriteBank: tickActive.sprites, activeMapBank: tickActive.map, activePaletteBank: tickActive.palette, activeSfxBank: tickActive.sfx, activeMusicBank: tickActive.music };
     if (command === 'studio_frame') return Array(128 * 128).fill(0);
     if (command === 'studio_read_memory') return ram.slice(Number(args.address), Number(args.address) + Number(args.len));
     if (command === 'studio_asset_bank') {
@@ -242,6 +242,10 @@ function installBridge() {
     if (command === 'studio_toggle_breakpoint') { const row = { source: String(args.source), line: Number(args.line) }; const found = breakpoints.findIndex((item) => item.source === row.source && item.line === row.line); found >= 0 ? breakpoints.splice(found, 1) : breakpoints.push(row); return structuredClone(breakpoints); }
     if (command === 'studio_add_watch') { const name = String(args.expression); if (!watches.some((item) => item.name === name)) watches.push({ name, value: '7' }); return structuredClone(watches); }
     if (command === 'studio_remove_watch') { watches = watches.filter((item) => item.name !== args.expression); return structuredClone(watches); }
+    if (command === 'studio_expand_debug_value') {
+      if (args.nodeId === 'global:player') return [{ key: 'x', value: '60', nodeId: null }, { key: 'y', value: '60', nodeId: null }];
+      return [];
+    }
     if (command === 'studio_clear_output') return null;
     if (command === 'studio_remove_recent') { recent = recent.filter((path) => path !== args.path); return [...recent]; }
     if (command === 'studio_write_meta') return null;
