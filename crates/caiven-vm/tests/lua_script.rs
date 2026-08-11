@@ -1412,3 +1412,53 @@ fn prelude_scenes_empty_stack_pop_and_switch_error() {
     );
     assert_eq!(got, vec!["false", "false"]);
 }
+
+#[test]
+fn prelude_entities_update_all_sweeps_dead_and_preserves_order() {
+    let got = run_and_get(
+        r#"
+        survived = ""
+        local function make(name, dies)
+          return {
+            update = function(e) if dies then e.dead = true end end,
+            draw = function(e) survived = survived .. name end,
+          }
+        end
+        Entities.add(make("a", false))
+        Entities.add(make("b", true))
+        Entities.add(make("c", false))
+        Entities.update_all()
+        count_after = Entities.count()
+        Entities.draw_all()
+        "#,
+        &["count_after", "survived"],
+    );
+    assert_eq!(got, vec!["2", "\"ac\""]);
+}
+
+#[test]
+fn prelude_entities_new_creates_an_independent_list() {
+    let got = run_and_get(
+        r#"
+        local other = Entities.new()
+        Entities.add({})
+        other.add({})
+        other.add({})
+        default_count = Entities.count()
+        other_count = other.count()
+        "#,
+        &["default_count", "other_count"],
+    );
+    assert_eq!(got, vec!["1", "2"]);
+}
+
+#[test]
+fn prelude_entities_add_non_table_errors() {
+    let got = run_and_get(
+        r#"
+        result = pcall(function() Entities.add(5) end)
+        "#,
+        &["result"],
+    );
+    assert_eq!(got, vec!["false"]);
+}

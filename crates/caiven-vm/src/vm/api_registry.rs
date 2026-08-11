@@ -627,6 +627,42 @@ pub const PRELUDE: &[ApiEntry] = &[
         returns: "table?",
         doc: "The scene table on top of the stack, or nil if the stack is empty.",
     },
+    ApiEntry {
+        name: "Entities.add",
+        params: &[param!("e": "table")],
+        returns: "nil",
+        doc: "Adds e to the entity list. e.update(e) and e.draw(e) are called if present; e.dead = true removes it on the next update_all(). Errors if e is not a table.",
+    },
+    ApiEntry {
+        name: "Entities.update_all",
+        params: &[],
+        returns: "nil",
+        doc: "Calls e.update(e) on every live entity (if present), then removes any entity with e.dead == true.",
+    },
+    ApiEntry {
+        name: "Entities.draw_all",
+        params: &[],
+        returns: "nil",
+        doc: "Calls e.draw(e) on every live entity (if present), in the order they were added.",
+    },
+    ApiEntry {
+        name: "Entities.clear",
+        params: &[],
+        returns: "nil",
+        doc: "Removes all entities.",
+    },
+    ApiEntry {
+        name: "Entities.count",
+        params: &[],
+        returns: "number",
+        doc: "Number of live entities.",
+    },
+    ApiEntry {
+        name: "Entities.new",
+        params: &[],
+        returns: "table",
+        doc: "Returns a fresh, independent entity list with its own add/update_all/draw_all/clear/count methods, for carts that want one list per scene instead of the shared default list.",
+    },
 ];
 
 /// Lua stdlib members this console leans on — never Rust-registered (see
