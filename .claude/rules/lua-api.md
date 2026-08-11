@@ -1,14 +1,14 @@
 ---
 paths:
   - "crates/caiven-vm/src/vm/**"
-  - "crates/caiven-vm/src/vm/prelude.lua"
+  - "crates/caiven-vm/src/vm/prelude/**"
   - "carts/**"
 ---
 
 # Public Lua API
 
 Any public Lua API change (new/changed function in `api_registry.rs`,
-`lua_exec.rs`, or `prelude.lua`) must ship together with:
+`lua_exec.rs`, or `prelude/*.lua`) must ship together with:
 
 1. The implementation.
 2. Tests (VM-level, in `crates/caiven-vm/tests/`).

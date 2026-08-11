@@ -1,6 +1,6 @@
 //! Structured metadata for every name a Lua cart script can call — the
 //! console's own builtins (registered in [`super::lua_exec::register_builtins`]),
-//! the pure-Lua gameplay stdlib (`lua_exec.rs`'s `prelude.lua`), plus the Lua
+//! the pure-Lua gameplay stdlib (`lua_exec.rs`'s `prelude/*.lua`), plus the Lua
 //! stdlib members this console leans on. Single source of truth for editor
 //! tooling (autocomplete, hover docs, signature help); the
 //! syntax-highlighter's builtin list in `caiven-studio`'s code panel is
@@ -329,7 +329,7 @@ pub const BUILTINS: &[ApiEntry] = &[
     },
 ];
 
-/// Gameplay-facing stdlib — pure Lua (`lua_exec.rs`'s `prelude.lua`), not
+/// Gameplay-facing stdlib — pure Lua (`lua_exec.rs`'s `prelude/*.lua`), not
 /// Rust-registered, so hand-authored here like `STDLIB` below rather than
 /// derived from anything.
 pub const PRELUDE: &[ApiEntry] = &[

@@ -76,42 +76,43 @@ const BUILTIN_NAMES: &[&str] = &[
     "load_data",
 ];
 
-/// Names defined by [`PRELUDE_SOURCE`] — also excluded from
-/// [`Vm::lua_globals`]'s snapshot, same reasoning as `BUILTIN_NAMES`: API
-/// surface, not script state. `Particles` is a table, not a function; it's
-/// still excluded wholesale rather than snapshotted, since its `list` field
-/// churns every frame and isn't useful in a "what does the script think"
-/// debugger view.
-const PRELUDE_NAMES: &[&str] = &[
+/// Names defined by the always-on prelude core ([`PRELUDE_CORE`]) — also
+/// excluded from [`Vm::lua_globals`]'s snapshot, same reasoning as
+/// `BUILTIN_NAMES`: API surface, not script state.
+const CORE_PRELUDE_NAMES: &[&str] = &[
+    "RTK_SEEDED",
+    "random_range",
+    "random_float",
+    "choice",
+    "shuffle",
     "lerp",
     "clamp",
     "ease_linear",
     "ease_in_quad",
     "ease_out_quad",
     "ease_in_out_quad",
-    "aabb_overlap",
-    "tile_solid",
-    "box_touches_solid",
-    "new_tween",
-    "tween_update",
-    "new_anim",
-    "anim_update",
-    "anim_sprite",
-    "Particles",
-    "Vec2",
-    "RTK_SEEDED",
-    "random_range",
-    "random_float",
-    "choice",
-    "shuffle",
-    "circle_overlap",
-    "point_in_rect",
-    "point_in_circle",
-    "Sprite",
-    "Scenes",
-    "Entities",
-    "Camera",
 ];
+
+/// Names defined by each entry of [`PRELUDE_MODULES`], unioned with
+/// [`CORE_PRELUDE_NAMES`] for [`Vm::lua_globals`]'s exclusion set. `Particles`
+/// is a table, not a function; it's still excluded wholesale rather than
+/// snapshotted, since its `list` field churns every frame and isn't useful in
+/// a "what does the script think" debugger view.
+///
+/// Computed once and cached — every entry here is a `&'static str` so the
+/// union is just pointer/len copies, but re-walking [`PRELUDE_MODULES`] on
+/// every debugger-panel refresh or hot reload is needless work for a value
+/// that never changes for the process's lifetime.
+fn prelude_names() -> &'static [&'static str] {
+    static NAMES: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
+    NAMES.get_or_init(|| {
+        let mut names: Vec<&'static str> = CORE_PRELUDE_NAMES.to_vec();
+        for module in PRELUDE_MODULES {
+            names.extend_from_slice(module.globals);
+        }
+        names
+    })
+}
 
 /// Lua's own stdlib globals — also excluded from the snapshot, along with
 /// the two script entry points.
@@ -163,10 +164,77 @@ const STDLIB_NAMES: &[&str] = &[
 const CHUNK_NAME: &str = "cart";
 const CHUNK_SOURCE_NAME: &str = "=cart";
 
-/// Gameplay-facing stdlib (easing, AABB/tile collision, tweens, particles) —
-/// pure Lua, loaded into globals once before the cart's own source so it's
-/// available from `_init()` onward like any builtin.
-const PRELUDE_SOURCE: &str = include_str!("prelude.lua");
+/// Always-on prelude core (RNG, lerp/clamp/easing) — pure Lua, loaded into
+/// globals before every module and the cart's own source, so it's available
+/// from `_init()` onward like any builtin. Every cart gets this regardless of
+/// which [`PRELUDE_MODULES`] it selects.
+const PRELUDE_CORE: &str = include_str!("prelude/core.lua");
+
+/// One opt-in gameplay-stdlib module: a pure-Lua source chunk plus the global
+/// names it defines (used to keep [`Vm::lua_globals`]'s exclusion set and
+/// hot-reload's upvalue-join filter in sync with whichever modules are
+/// actually loaded for a cart).
+struct PreludeModule {
+    /// Manifest-facing id — what a cart's `caiven.toml` `[stdlib] modules`
+    /// entry names to opt in.
+    name: &'static str,
+    source: &'static str,
+    globals: &'static [&'static str],
+}
+
+/// Opt-in gameplay-facing stdlib (Vec2/Sprite, AABB/tile collision, tweens,
+/// particles, Scenes, Entities, Camera). Loaded in this order after
+/// [`PRELUDE_CORE`] and before the cart's own source.
+const PRELUDE_MODULES: &[PreludeModule] = &[
+    PreludeModule {
+        name: "vec2",
+        source: include_str!("prelude/vec2.lua"),
+        globals: &["Vec2", "Sprite"],
+    },
+    PreludeModule {
+        name: "collision",
+        source: include_str!("prelude/collision.lua"),
+        globals: &[
+            "aabb_overlap",
+            "circle_overlap",
+            "point_in_rect",
+            "point_in_circle",
+            "tile_solid",
+            "box_touches_solid",
+        ],
+    },
+    PreludeModule {
+        name: "tween",
+        source: include_str!("prelude/tween.lua"),
+        globals: &[
+            "new_tween",
+            "tween_update",
+            "new_anim",
+            "anim_update",
+            "anim_sprite",
+        ],
+    },
+    PreludeModule {
+        name: "particles",
+        source: include_str!("prelude/particles.lua"),
+        globals: &["Particles"],
+    },
+    PreludeModule {
+        name: "scenes",
+        source: include_str!("prelude/scenes.lua"),
+        globals: &["Scenes"],
+    },
+    PreludeModule {
+        name: "entities",
+        source: include_str!("prelude/entities.lua"),
+        globals: &["Entities"],
+    },
+    PreludeModule {
+        name: "camera",
+        source: include_str!("prelude/camera.lua"),
+        globals: &["Camera"],
+    },
+];
 
 /// Frames per second `time()` assumes when converting `frame_count`.
 const TARGET_FPS: f64 = 60.0;
@@ -395,7 +463,7 @@ pub fn describe_lua_error_location(err: &mlua::Error) -> (Option<LuaBreakpoint>,
 /// excludes `_init`/`_update`/`_draw` since they're entry points, not state.
 fn is_script_defined_name(name: &str) -> bool {
     !BUILTIN_NAMES.contains(&name)
-        && !PRELUDE_NAMES.contains(&name)
+        && !prelude_names().contains(&name)
         && !STDLIB_NAMES.contains(&name)
 }
 
@@ -405,7 +473,7 @@ fn is_script_defined_name(name: &str) -> bool {
 /// they aren't "state" for the debugger's purposes, but they're exactly the
 /// closures whose captured locals need joining across a reload.
 fn is_reload_join_candidate(name: &str) -> bool {
-    if BUILTIN_NAMES.contains(&name) || PRELUDE_NAMES.contains(&name) {
+    if BUILTIN_NAMES.contains(&name) || prelude_names().contains(&name) {
         return false;
     }
     matches!(name, "_init" | "_update" | "_draw") || !STDLIB_NAMES.contains(&name)
@@ -1245,7 +1313,12 @@ impl Vm {
                 globals.set(name, mlua::Nil)?;
             }
 
-            lua.load(PRELUDE_SOURCE).set_name("=prelude").exec()?;
+            lua.load(PRELUDE_CORE).set_name("=prelude:core").exec()?;
+            for module in PRELUDE_MODULES {
+                lua.load(module.source)
+                    .set_name(format!("=prelude:{}", module.name))
+                    .exec()?;
+            }
             lua.load(src).set_name(CHUNK_SOURCE_NAME).exec()?;
             if let Ok(init) = globals.get::<mlua::Function>("_init") {
                 init.call::<()>(())?;
@@ -1503,7 +1576,7 @@ impl Vm {
 
     /// Snapshot of the script's global variables, for the Studio debugger's
     /// state inspector. Excludes registered builtins, the gameplay prelude,
-    /// and Lua's own stdlib — see [`BUILTIN_NAMES`]/[`PRELUDE_NAMES`]/
+    /// and Lua's own stdlib — see [`BUILTIN_NAMES`]/[`prelude_names`]/
     /// [`STDLIB_NAMES`] — so only script-defined state shows up. For locals
     /// at a breakpoint, see [`Vm::lua_debug_locals`].
     pub fn lua_globals(&self) -> Vec<(String, String)> {
@@ -1624,7 +1697,12 @@ impl Vm {
                 frame_count,
             )?;
 
-            lua.load(PRELUDE_SOURCE).set_name("=prelude").exec()?;
+            lua.load(PRELUDE_CORE).set_name("=prelude:core").exec()?;
+            for module in PRELUDE_MODULES {
+                lua.load(module.source)
+                    .set_name(format!("=prelude:{}", module.name))
+                    .exec()?;
+            }
             lua.load(src).set_name(CHUNK_SOURCE_NAME).exec()?;
             // Deliberately not calling `_init()` — that's what makes this a
             // reload rather than a reset.

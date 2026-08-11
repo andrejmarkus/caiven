@@ -70,9 +70,9 @@ or Studio), not by the Lua sandbox directly.
 
 ## Gameplay stdlib
 
-Pure Lua, loaded into every cart's globals automatically (no `require`) — read `crates/caiven-vm/src/vm/prelude.lua` for the source. See it all in action in `games/carts/stdlib_demo.cav` (`cargo run -p caiven-machine -- games/carts/stdlib_demo.cav`): a tiny platformer with tile collision, a coin pickup that bursts particles, a walk-cycle sprite animation, and four side-by-side tweened dots comparing each easing curve.
+Pure Lua, loaded into every cart's globals automatically (no `require`) — read `crates/caiven-vm/src/vm/prelude/` for the source. See it all in action in `games/carts/stdlib_demo.cav` (`cargo run -p caiven-machine -- games/carts/stdlib_demo.cav`): a tiny platformer with tile collision, a coin pickup that bursts particles, a walk-cycle sprite animation, and four side-by-side tweened dots comparing each easing curve.
 
-RNG is deterministic by default — `prelude.lua` seeds `math.randomseed(1)` once per fresh cart load (not on hot reload, so live gameplay isn't disturbed by an editor save). Call `math.randomseed(os.time())` yourself for per-run variety.
+RNG is deterministic by default — the prelude core seeds `math.randomseed(1)` once per fresh cart load (not on hot reload, so live gameplay isn't disturbed by an editor save). Call `math.randomseed(os.time())` yourself for per-run variety.
 
 The `Scenes`/`Entities`/`Camera` trio has its own example: `carts/fixtures/scenes_demo.cav` (`cargo run -p caiven-machine -- carts/fixtures/scenes_demo.cav`) — a title screen, a play scene with a camera-followed player and two entities, and a game-over screen.
 
