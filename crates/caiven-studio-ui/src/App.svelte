@@ -1182,6 +1182,7 @@
   <Overlays
     {overlay}
     {running}
+    pauseReason={studio.pauseReason}
     palette={studio.palette}
     onClose={() => { const closingFocus = overlay === 'focus'; overlay = null; if (closingFocus) releaseInputs(); }}
     onNavigate={navigate}

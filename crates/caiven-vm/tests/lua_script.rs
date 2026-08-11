@@ -1544,3 +1544,30 @@ fn prelude_camera_update_clamps_negative_target_without_faulting() {
     // negative computed position and this would fault instead.
     assert_eq!(vm.get_fault(), None);
 }
+
+#[test]
+fn lua_run_frame_bp_stops_with_named_cart_source() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          x = 1
+          x = 2
+          x = 3
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    match vm.run_frame_lua_bp(&input, &font, &[LuaBreakpoint::new("cart", 4)]) {
+        LuaRunOutcome::Breakpoint(breakpoint) => {
+            assert_eq!(breakpoint.line, 4);
+            assert_eq!(breakpoint.source, "cart");
+        }
+        other => panic!("expected a breakpoint stop, got {other:?}"),
+    }
+}

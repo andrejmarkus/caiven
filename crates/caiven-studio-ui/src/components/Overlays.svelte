@@ -11,12 +11,13 @@
   import * as Command from '@caiven/ui/command';
   import * as Dialog from '@caiven/ui/dialog';
   import { Progress } from '@caiven/ui/progress';
-  import type { ApiEntry, CartMeta, CartTemplateSummary, PortSession, PublishProgress, Screen } from '../types';
+  import type { ApiEntry, CartMeta, CartTemplateSummary, PauseReason, PortSession, PublishProgress, Screen } from '../types';
   import { TOUR_STEPS, moveTourStep } from '../lib/tour';
 
   interface Props {
     overlay: 'palette' | 'publish' | 'tour' | 'focus' | 'module' | 'new-cart' | 'controls' | null;
     running: boolean;
+    pauseReason: PauseReason | null;
     palette: string[];
     onClose: () => void;
     onNavigate: (screen: Screen) => void;
@@ -60,7 +61,7 @@
     onOpenControls: () => void;
   }
 
-  let { overlay, running, palette, onClose, onNavigate, onRun, onExport, onExportWeb, onExportScreenshot, onExportSourceZip, isProjectDir, onPublish,
+  let { overlay, running, pauseReason, palette, onClose, onNavigate, onRun, onExport, onExportWeb, onExportScreenshot, onExportSourceZip, isProjectDir, onPublish,
     title, author, meta, portAccount, publishProgress, publishError, publishDone,
     onStartPublish, onLinkPort, onTourDone, onOpenProject, onNewProject, onCloseProject,
     templates, onCreateProject, frameData, api, onInsertBuiltin, onCreateModule,
@@ -455,6 +456,11 @@
         <div class="focus-screen">
           <canvas class="focus-pixels" bind:this={focusCanvas} width="128" height="128" aria-label="Cart framebuffer"></canvas>
           <div class="scanline-overlay"></div><div class="crt-vignette"></div>
+          {#if pauseReason?.kind === 'breakpoint'}
+            <div class="focus-breakpoint-banner">
+              Breakpoint <strong>{pauseReason.source}:{pauseReason.line ?? '?'}</strong>
+            </div>
+          {/if}
         </div>
         <div class="focus-controls">
           <Button onclick={onRun}>{#if running}<Pause size={15} />Pause{:else}<Play size={15} />Run{/if}</Button>
