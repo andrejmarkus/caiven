@@ -591,6 +591,42 @@ pub const PRELUDE: &[ApiEntry] = &[
         returns: "nil",
         doc: "Draw the sprite at its current pos via the sprite() builtin. Move it by reassigning .pos (e.g. s.pos = s.pos + v).",
     },
+    ApiEntry {
+        name: "Scenes.push",
+        params: &[param!("scene": "table")],
+        returns: "nil",
+        doc: "Calls scene.enter(scene) if present, then pushes scene onto the top of the stack.",
+    },
+    ApiEntry {
+        name: "Scenes.pop",
+        params: &[],
+        returns: "nil",
+        doc: "Calls the top scene's exit(scene) if present, then removes it. Errors if the stack is empty.",
+    },
+    ApiEntry {
+        name: "Scenes.switch",
+        params: &[param!("scene": "table")],
+        returns: "nil",
+        doc: "Pops the current top scene (calling its exit) and pushes scene (calling its enter) in its place. Errors if the stack is empty.",
+    },
+    ApiEntry {
+        name: "Scenes.update",
+        params: &[],
+        returns: "nil",
+        doc: "Calls the top scene's update(scene) if present. A no-op on an empty stack.",
+    },
+    ApiEntry {
+        name: "Scenes.draw",
+        params: &[],
+        returns: "nil",
+        doc: "Calls the top scene's draw(scene) if present. A no-op on an empty stack.",
+    },
+    ApiEntry {
+        name: "Scenes.current",
+        params: &[],
+        returns: "table?",
+        doc: "The scene table on top of the stack, or nil if the stack is empty.",
+    },
 ];
 
 /// Lua stdlib members this console leans on — never Rust-registered (see

@@ -108,6 +108,7 @@ const PRELUDE_NAMES: &[&str] = &[
     "point_in_rect",
     "point_in_circle",
     "Sprite",
+    "Scenes",
 ];
 
 /// Lua's own stdlib globals — also excluded from the snapshot, along with

@@ -1349,3 +1349,66 @@ fn prelude_vec2_rng_collision_sprite_work_together() {
     assert_eq!(get("touching"), "true");
     assert_eq!(get("contained"), "true");
 }
+
+#[test]
+fn prelude_scenes_push_pop_call_enter_and_exit_in_order() {
+    let got = run_and_get(
+        r#"
+        local log = {}
+        local menu = {
+          enter = function(s) table.insert(log, "menu_enter") end,
+          exit = function(s) table.insert(log, "menu_exit") end,
+        }
+        local game = {
+          enter = function(s) table.insert(log, "game_enter") end,
+          exit = function(s) table.insert(log, "game_exit") end,
+        }
+        Scenes.push(menu)
+        Scenes.push(game)
+        Scenes.pop()
+        Scenes.pop()
+        result = table.concat(log, ",")
+        "#,
+        &["result"],
+    );
+    assert_eq!(got, vec!["\"menu_enter,game_enter,game_exit,menu_exit\""]);
+}
+
+#[test]
+fn prelude_scenes_current_reflects_top_of_stack() {
+    let got = run_and_get(
+        r#"
+        local a, b = {}, {}
+        Scenes.push(a)
+        c1 = (Scenes.current() == a)
+        Scenes.push(b)
+        c2 = (Scenes.current() == b)
+        "#,
+        &["c1", "c2"],
+    );
+    assert_eq!(got, vec!["true", "true"]);
+}
+
+#[test]
+fn prelude_scenes_empty_stack_update_and_draw_are_noops() {
+    let got = run_and_get(
+        r#"
+        ok_update = pcall(function() Scenes.update() end)
+        ok_draw = pcall(function() Scenes.draw() end)
+        "#,
+        &["ok_update", "ok_draw"],
+    );
+    assert_eq!(got, vec!["true", "true"]);
+}
+
+#[test]
+fn prelude_scenes_empty_stack_pop_and_switch_error() {
+    let got = run_and_get(
+        r#"
+        ok_pop = pcall(function() Scenes.pop() end)
+        ok_switch = pcall(function() Scenes.switch({}) end)
+        "#,
+        &["ok_pop", "ok_switch"],
+    );
+    assert_eq!(got, vec!["false", "false"]);
+}
