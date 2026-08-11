@@ -90,6 +90,9 @@ RNG is deterministic by default — `prelude.lua` seeds `math.randomseed(1)` onc
 | `random_range(lo, hi)` / `random_float(lo, hi)`                                                  | Deterministic-by-default RNG (see above) — int inclusive / float `[lo, hi)`       |
 | `choice(t)` / `shuffle(t)`                                                                       | Random element of a non-empty table / in-place Fisher-Yates shuffle              |
 | `Sprite.new{sprite_id, pos, flip_x, flip_y, rotate}` / `s:draw()`                                | Bundles a sprite_id + Vec2 pos (+ optional orientation) into a drawable object    |
+| `Scenes.push(scene)` / `.pop()` / `.switch(scene)` / `.update()` / `.draw()` / `.current()` | Stack-based scene manager; scene = table with optional enter/exit/update/draw |
+| `Entities.add(e)` / `.update_all()` / `.draw_all()` / `.clear()` / `.count()` / `.new()`     | Entity list with lifecycle (e.dead removes on next update_all); .new() gives an independent list |
+| `Camera.follow(entity, opts)` / `.unfollow()` / `.shake(amount, duration)` / `.update()`     | Wraps set_camera() with smoothed follow (opts.lerp, default 1) and decaying shake |
 
 ## System Specifications
 
