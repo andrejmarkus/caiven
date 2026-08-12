@@ -1,11 +1,18 @@
-/// Bitset of engine-affecting collision behaviors. Only `SOLID` is defined
-/// today; the representation is a plain `u8` so new bits can be added later
-/// without changing the on-disk format (unknown bits round-trip untouched).
+/// Bitset of engine-affecting collision behaviors: `SOLID`, `ONE_WAY`,
+/// `SLOPE_LEFT`, `SLOPE_RIGHT`. A type is meant to be flat-solid, one-way,
+/// or exactly one slope direction — mutually exclusive by convention, not
+/// enforced here (see `move_and_collide`'s fixed priority order: solid,
+/// then one-way, then slope). The representation is a plain `u8` so new
+/// bits can be added later without changing the on-disk format (unknown
+/// bits round-trip untouched).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CollisionTypeFlags(u8);
 
 impl CollisionTypeFlags {
     pub const SOLID: u8 = 0b0000_0001;
+    pub const ONE_WAY: u8 = 0b0000_0010;
+    pub const SLOPE_LEFT: u8 = 0b0000_0100;
+    pub const SLOPE_RIGHT: u8 = 0b0000_1000;
 
     pub const fn from_bits(bits: u8) -> Self {
         Self(bits)
@@ -17,6 +24,18 @@ impl CollisionTypeFlags {
 
     pub const fn is_solid(self) -> bool {
         self.0 & Self::SOLID != 0
+    }
+
+    pub const fn is_one_way(self) -> bool {
+        self.0 & Self::ONE_WAY != 0
+    }
+
+    pub const fn is_slope_left(self) -> bool {
+        self.0 & Self::SLOPE_LEFT != 0
+    }
+
+    pub const fn is_slope_right(self) -> bool {
+        self.0 & Self::SLOPE_RIGHT != 0
     }
 }
 
@@ -117,5 +136,32 @@ mod tests {
         let flags = CollisionTypeFlags::from_bits(0b1000_0011);
         assert!(flags.is_solid());
         assert_eq!(flags.bits(), 0b1000_0011);
+    }
+
+    #[test]
+    fn one_way_and_slope_flags_are_independently_readable() {
+        let one_way = CollisionTypeFlags::from_bits(CollisionTypeFlags::ONE_WAY);
+        assert!(one_way.is_one_way());
+        assert!(!one_way.is_slope_left());
+        assert!(!one_way.is_slope_right());
+        assert!(!one_way.is_solid());
+
+        let slope_left = CollisionTypeFlags::from_bits(CollisionTypeFlags::SLOPE_LEFT);
+        assert!(slope_left.is_slope_left());
+        assert!(!slope_left.is_one_way());
+        assert!(!slope_left.is_slope_right());
+
+        let slope_right = CollisionTypeFlags::from_bits(CollisionTypeFlags::SLOPE_RIGHT);
+        assert!(slope_right.is_slope_right());
+        assert!(!slope_right.is_one_way());
+        assert!(!slope_right.is_slope_left());
+    }
+
+    #[test]
+    fn undefined_flags_default_to_false_for_new_shapes() {
+        let flags = CollisionTypeFlags::default();
+        assert!(!flags.is_one_way());
+        assert!(!flags.is_slope_left());
+        assert!(!flags.is_slope_right());
     }
 }
