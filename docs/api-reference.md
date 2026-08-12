@@ -26,6 +26,9 @@ Math (`sin`/`cos`/`abs`/`floor`/`sqrt`/`max`/`min`/`random`), strings (`..`, `su
 | `get_tile(x, y)` / `set_tile(x, y, tile)` | Read / write a map cell                                        |
 | `load_sprite_bank(id)`                    | Copy sprite bank into sprite RAM; returns `false` when missing |
 | `load_map_bank(id)`                       | Copy map bank into map RAM; returns `false` when missing       |
+| `get_collision(tx, ty)` / `set_collision(tx, ty, value)` | Read / write the collision-type id at a map cell; `0`/no-op if out of bounds |
+| `collision_type_id(name)` / `collision_type_name(id)`    | Look up a collision type's id by name (`0` if unknown) / name by id (`""` if undefined) |
+| `collision_is_solid(id)` / `collision_is_one_way(id)` / `collision_is_slope_left(id)` / `collision_is_slope_right(id)` | Whether a collision type is flagged solid / one-way / a left or right 45° slope; undefined ids are always `false` for every check |
 
 ## Input
 
@@ -142,6 +145,7 @@ RNG is deterministic by default — the prelude core seeds `math.randomseed(1)` 
 | `point_in_rect(px, py, x, y, w, h)` / `point_in_circle(px, py, cx, cy, r)` | Point containment tests                                           |
 | `tile_solid(tx, ty)`                                                       | Whether the per-cell collision value at `(tx, ty)` is `1` (solid) |
 | `box_touches_solid(x, y, w, h)`                                            | Whether a pixel-space box overlaps any solid tile                 |
+| `move_and_collide(x, y, w, h, dx, dy)`                                     | Axis-separated swept move against SOLID (both axes), ONE_WAY (vertical, landing only when descending from above), and slope tiles (vertical, per-column floor sampling); returns `nx, ny, touch = {ground, ceiling, left, right}` |
 
 ### `tween` — value tweens and sprite animation
 
@@ -166,7 +170,7 @@ RNG is deterministic by default — the prelude core seeds `math.randomseed(1)` 
 
 | Function                                                                                  | Description                                                                                       |
 | :----------------------------------------------------------------------------------------------| :------------------------------------------------------------------------------------------------ |
-| `Entities.add(e)` / `.update_all()` / `.draw_all()` / `.clear()` / `.count()` / `.new()` | Entity list with lifecycle (e.dead removes on next update_all); .new() gives an independent list |
+| `Entities.add(e)` / `.update_all()` / `.draw_all()` / `.clear()` / `.count()` / `.overlapping(x,y,w,h)` / `.new()` | Entity list with lifecycle (e.dead removes on next update_all()); overlapping() returns entries whose .pos(Vec2)+.w/.h box overlaps the query box (requires the collision module too, for aabb_overlap); .new() gives an independent list |
 
 ### `camera` — `Camera`
 

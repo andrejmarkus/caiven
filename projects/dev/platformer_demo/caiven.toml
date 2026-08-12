@@ -1,0 +1,18 @@
+[cart]
+title = "platformer_demo"
+author = ""
+entry = "main.lua"
+entry_point = 0
+flags = 0
+version = 1
+
+[mods]
+require = []
+
+[stdlib]
+modules = [
+    "vec2",
+    "collision",
+    "entities",
+    "camera",
+]
