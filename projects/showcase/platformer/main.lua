@@ -59,7 +59,11 @@ ROOMS = {
       rect(0, 14, 15, 15, "solid", SPR_GROUND),
       rect(6, 4, 6, 13, "solid", SPR_GROUND),
       rect(9, 4, 9, 13, "solid", SPR_GROUND),
-      rect(7, 3, 8, 3, "solid", SPR_GROUND), -- shaft-top ledge, berry sits here
+      -- "platform" (one-way) not "solid": a solid tile spanning both corridor
+      -- columns would seal the wall-jump shaft shut with no gap to pass
+      -- through on the way up; one-way only blocks descending, so the climb
+      -- passes through it and the player lands on top on the way back down.
+      rect(7, 3, 8, 3, "platform", SPR_PLATFORM),
     },
     spawn = { x = 1 * TILE, y = 13 * TILE },
     berry = { x = 7 * TILE, y = 2 * TILE },
