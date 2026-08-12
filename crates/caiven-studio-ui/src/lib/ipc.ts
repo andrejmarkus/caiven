@@ -71,9 +71,9 @@ export const COLLISION_LEN = 64 * 64;
 
 /** Mirrors `caiven_core::builtin_collision_types()` for the browser fallback. */
 export const defaultCollisionTypes: CollisionType[] = [
-  { id: 0, name: 'walkable', color: [0, 0, 0], solid: false },
-  { id: 1, name: 'solid', color: [255, 176, 0], solid: true },
-  { id: 2, name: 'hazard', color: [224, 32, 32], solid: false },
+  { id: 0, name: 'walkable', color: [0, 0, 0], shape: 'none' },
+  { id: 1, name: 'solid', color: [255, 176, 0], shape: 'solid' },
+  { id: 2, name: 'hazard', color: [224, 32, 32], shape: 'none' },
 ];
 
 /** Flattens `#RRGGBB` palette slots into the raw RGB byte layout a palette bank stores. */

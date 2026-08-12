@@ -224,26 +224,39 @@ struct CollisionTypePayload {
     id: u8,
     name: String,
     color: [u8; 3],
-    solid: bool,
+    shape: String,
 }
 
 impl From<&caiven_core::CollisionType> for CollisionTypePayload {
     fn from(t: &caiven_core::CollisionType) -> Self {
+        let shape = if t.flags.is_solid() {
+            "solid"
+        } else if t.flags.is_one_way() {
+            "one_way"
+        } else if t.flags.is_slope_left() {
+            "slope_left"
+        } else if t.flags.is_slope_right() {
+            "slope_right"
+        } else {
+            "none"
+        };
         Self {
             id: t.id,
             name: t.name.clone(),
             color: t.color,
-            solid: t.flags.is_solid(),
+            shape: shape.to_string(),
         }
     }
 }
 
 impl From<CollisionTypePayload> for caiven_core::CollisionType {
     fn from(p: CollisionTypePayload) -> Self {
-        let bits = if p.solid {
-            caiven_core::CollisionTypeFlags::SOLID
-        } else {
-            0
+        let bits = match p.shape.as_str() {
+            "solid" => caiven_core::CollisionTypeFlags::SOLID,
+            "one_way" => caiven_core::CollisionTypeFlags::ONE_WAY,
+            "slope_left" => caiven_core::CollisionTypeFlags::SLOPE_LEFT,
+            "slope_right" => caiven_core::CollisionTypeFlags::SLOPE_RIGHT,
+            _ => 0,
         };
         Self {
             id: p.id,

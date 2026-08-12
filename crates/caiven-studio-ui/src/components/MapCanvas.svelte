@@ -94,7 +94,7 @@
       const ctype = value !== 0 ? collisionTypes.find((t) => t.id === value) : undefined;
       if (showCollision && ctype) {
         const tint = ctype.color;
-        const hatch = !ctype.solid;
+        const hatch = ctype.shape === 'none';
         for (let pixelY = 0; pixelY < 8; pixelY += 1) for (let pixelX = 0; pixelX < 8; pixelX += 1) {
           const border = pixelX <= 1 || pixelX >= 6 || pixelY <= 1 || pixelY >= 6;
           const dot = hatch && (pixelX + pixelY) % 4 === 0;

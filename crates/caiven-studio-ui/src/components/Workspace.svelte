@@ -12,7 +12,7 @@
   import { Textarea } from '@caiven/ui/textarea';
   import * as Dialog from '@caiven/ui/dialog';
   import type {
-    ApiEntry, AssetIndex, AssetRef, AudioState, Breakpoint, CartMeta, CartSize, CollisionType, Diagnostic, EditorInsertRequest,
+    ApiEntry, AssetIndex, AssetRef, AudioState, Breakpoint, CartMeta, CartSize, CollisionShape, CollisionType, Diagnostic, EditorInsertRequest,
     EditorRevealRequest, ExampleSummary, LocalCart, PortCart, PortSession, PreludeModule, Screen, SourceBuffer,
   } from '../types';
   import {
@@ -505,7 +505,7 @@
 
   function addCollisionType() {
     const id = nextCollisionTypeId();
-    onCollisionTypes([...collisionTypes, { id, name: `type_${id}`, color: [128, 128, 128], solid: false }]);
+    onCollisionTypes([...collisionTypes, { id, name: `type_${id}`, color: [128, 128, 128], shape: 'none' }]);
   }
 
   function updateCollisionType(id: number, patch: Partial<CollisionType>) {
@@ -1385,14 +1385,20 @@
                   disabled={isBuiltinCollisionType(ctype.id)}
                   oninput={(event) => updateCollisionType(ctype.id, { name: (event.target as HTMLInputElement).value })}
                 />
-                <label class="collision-types-solid">
-                  <input
-                    type="checkbox"
-                    checked={ctype.solid}
-                    disabled={isBuiltinCollisionType(ctype.id)}
-                    onchange={(event) => updateCollisionType(ctype.id, { solid: (event.target as HTMLInputElement).checked })}
-                  />Solid
-                </label>
+                <div class="collision-types-shape" role="radiogroup" aria-label={`${ctype.name} shape`}>
+                  {#each [['none', 'None'], ['solid', 'Solid'], ['one_way', 'One-way'], ['slope_left', 'Slope L'], ['slope_right', 'Slope R']] as [value, label] (value)}
+                    <label>
+                      <input
+                        type="radio"
+                        name={`collision-shape-${ctype.id}`}
+                        value={value}
+                        checked={ctype.shape === value}
+                        disabled={isBuiltinCollisionType(ctype.id)}
+                        onchange={() => updateCollisionType(ctype.id, { shape: value as CollisionShape })}
+                      />{label}
+                    </label>
+                  {/each}
+                </div>
                 <code>{ctype.id.toString().padStart(2,'0')}</code>
                 <button
                   class="danger"

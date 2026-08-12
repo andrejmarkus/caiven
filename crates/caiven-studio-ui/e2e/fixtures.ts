@@ -56,10 +56,10 @@ function installBridge() {
   const COLLISION_OFFSET = 0x9703;
   const COLLISION_LEN = 4096;
   const collision = new Map([[0, make(COLLISION_LEN, 0)], [1, make(COLLISION_LEN, 0)]]);
-  let collisionTypes: { id: number; name: string; color: [number, number, number]; solid: boolean }[] = [
-    { id: 0, name: 'walkable', color: [0, 0, 0], solid: false },
-    { id: 1, name: 'solid', color: [255, 176, 0], solid: true },
-    { id: 2, name: 'hazard', color: [224, 32, 32], solid: false },
+  let collisionTypes: { id: number; name: string; color: [number, number, number]; shape: 'none' | 'solid' | 'one_way' | 'slope_left' | 'slope_right' }[] = [
+    { id: 0, name: 'walkable', color: [0, 0, 0], shape: 'none' },
+    { id: 1, name: 'solid', color: [255, 176, 0], shape: 'solid' },
+    { id: 2, name: 'hazard', color: [224, 32, 32], shape: 'none' },
   ];
   const active: Record<Kind, number> = { sprites: 0, map: 0, palette: 0, sfx: 0, music: 0 };
   const tickActive: Record<Kind, number> = { ...active };

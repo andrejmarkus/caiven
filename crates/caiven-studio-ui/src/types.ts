@@ -93,11 +93,13 @@ export interface PreludeModule {
   enabled: boolean;
 }
 
+export type CollisionShape = 'none' | 'solid' | 'one_way' | 'slope_left' | 'slope_right';
+
 export interface CollisionType {
   id: number;
   name: string;
   color: [number, number, number];
-  solid: boolean;
+  shape: CollisionShape;
 }
 
 export interface StudioBootstrap {
