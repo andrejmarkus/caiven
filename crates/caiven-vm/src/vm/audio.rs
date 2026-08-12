@@ -1,5 +1,3 @@
-use crate::peripheral::Peripheral;
-use crate::vm::memory::Memory;
 use anyhow::Result;
 use std::sync::{Arc, Mutex};
 
@@ -14,13 +12,102 @@ const CHANNEL_HEADROOM: f32 = 0.5;
 /// much louder than typical game audio at the same numeric volume.
 const MASTER_GAIN: f32 = 0.35;
 
-/// Square+noise synth, one sample at a time. Portable (no cpal) so both the
-/// native `Audio` stream callback and the web player's `AudioWorklet` fill
-/// export can share the exact same waveform math.
+pub const VOICE_COUNT: usize = 8;
+/// Voice 0/1 are hard-assigned to music channels ch0/ch1, matching the
+/// pre-existing `tick_music_player` assignment.
+pub const MUSIC_VOICE_CH0: usize = 0;
+pub const MUSIC_VOICE_CH1: usize = 1;
+/// Reserved for `Vm::start_sfx`/`stop_sfx`/`sfx_player()` — the
+/// pre-existing single-slot preview player Studio's SFX editor drives.
+/// Kept separate from the new Lua-facing pool below so Studio's preview
+/// code needs no changes.
+pub const LEGACY_SFX_VOICE: usize = 2;
+/// Round-robin/steal pool backing the new polyphonic `play_sfx`/`stop_sfx`
+/// Lua API.
+pub const SFX_POOL_START: usize = 3;
+pub const SFX_POOL_LEN: usize = VOICE_COUNT - SFX_POOL_START;
+
+/// Fixed pan positions selected by the low 4 bits of an SFX step's byte3.
+/// Index 0 is deliberately center — a step that never set byte3 (every
+/// cart before this change) decodes to center, matching today's output.
+pub const PAN_TABLE: [f32; 16] = [
+    0.0, -0.125, 0.125, -0.25, 0.25, -0.375, 0.375, -0.5, 0.5, -0.625, 0.625, -0.75, 0.75, -0.875,
+    0.875, -1.0,
+];
+
+/// Attack/release ramp lengths selected by byte3's 2-bit level fields.
+/// Level 0 is instant, matching today's on/off behavior.
+pub const ENVELOPE_MS: [f32; 4] = [0.0, 15.0, 50.0, 150.0];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VoiceKind {
+    Square,
+    Noise,
+}
+
+/// One synth voice's target parameters, written by the frame thread and
+/// read every audio sample by [`Synth::next_sample`]. `epoch` is bumped on
+/// every (re)trigger so the audio thread can tell a stolen/reused voice
+/// apart from one still sustaining the same note, even though both look
+/// like `gate == true` from the outside.
+#[derive(Debug, Clone, Copy)]
+pub struct Voice {
+    pub kind: VoiceKind,
+    pub gate: bool,
+    pub frequency: f32,
+    pub volume: f32,
+    pub pan: f32,
+    pub attack_ms: f32,
+    pub release_ms: f32,
+    pub epoch: u32,
+}
+
+impl Voice {
+    pub fn silent() -> Self {
+        Self {
+            kind: VoiceKind::Square,
+            gate: false,
+            frequency: 440.0,
+            volume: 0.0,
+            pan: 0.0,
+            attack_ms: 0.0,
+            release_ms: 0.0,
+            epoch: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Sound {
+    pub voices: [Voice; VOICE_COUNT],
+    /// Runtime-only multiplier layered on top of authored per-step
+    /// volume, clamped to `[0, 1]` by whoever writes it. Not persisted to
+    /// cart data.
+    pub master_volume: f32,
+    pub music_volume: f32,
+    pub sfx_volume: f32,
+}
+
+impl Default for Sound {
+    fn default() -> Self {
+        Self {
+            voices: [Voice::silent(); VOICE_COUNT],
+            master_volume: 1.0,
+            music_volume: 1.0,
+            sfx_volume: 1.0,
+        }
+    }
+}
+
+/// Per-voice waveform + envelope synth, one output sample at a time.
+/// Portable (no cpal) so both the native `Audio` stream callback and the
+/// web player's `AudioWorklet` fill export can share the exact same
+/// waveform math.
 pub struct Synth {
-    square_phase: f32,
-    noise_phase: f32,
-    lfsr: u16,
+    phase: [f32; VOICE_COUNT],
+    lfsr: [u16; VOICE_COUNT],
+    env_level: [f32; VOICE_COUNT],
+    env_epoch: [u32; VOICE_COUNT],
 }
 
 impl Default for Synth {
@@ -32,57 +119,92 @@ impl Default for Synth {
 impl Synth {
     pub fn new() -> Self {
         Self {
-            square_phase: 0.0,
-            noise_phase: 0.0,
-            lfsr: 0xACE1,
+            phase: [0.0; VOICE_COUNT],
+            lfsr: [0xACE1; VOICE_COUNT],
+            env_level: [0.0; VOICE_COUNT],
+            env_epoch: [0; VOICE_COUNT],
         }
     }
 
-    /// Advances the synth by one output sample and returns it in `[-1, 1]`.
-    pub fn next_sample(&mut self, sound: &Sound, sample_rate: f32) -> f32 {
-        let mut mix = 0.0f32;
+    /// Advances every voice by one output sample and returns the mixed
+    /// stereo pair, each in `[-1, 1]`.
+    pub fn next_sample(&mut self, sound: &Sound, sample_rate: f32) -> (f32, f32) {
+        let mut left = 0.0f32;
+        let mut right = 0.0f32;
 
-        if sound.square.enabled && sound.square.volume > 0.0 {
-            let v = if self.square_phase < 0.5 { 1.0 } else { -1.0 };
-            self.square_phase = (self.square_phase + sound.square.frequency / sample_rate) % 1.0;
-            mix += v * sound.square.volume * CHANNEL_HEADROOM;
-        }
+        for i in 0..VOICE_COUNT {
+            let voice = &sound.voices[i];
 
-        if sound.noise.enabled && sound.noise.volume > 0.0 {
-            self.noise_phase += sound.noise.rate / sample_rate;
-            if self.noise_phase >= 1.0 {
-                self.noise_phase -= 1.0;
-                let bit = (self.lfsr ^ (self.lfsr >> 2) ^ (self.lfsr >> 3) ^ (self.lfsr >> 5)) & 1;
-                self.lfsr = (self.lfsr >> 1) | (bit << 15);
+            // A changed epoch means this voice was (re)triggered since the
+            // last sample — reset phase/envelope even if `gate` still
+            // reads the same as before (e.g. a stolen voice retriggered
+            // mid-note).
+            if voice.epoch != self.env_epoch[i] {
+                self.env_epoch[i] = voice.epoch;
+                self.env_level[i] = 0.0;
+                self.phase[i] = 0.0;
             }
-            let v = if (self.lfsr & 1) == 0 { 1.0 } else { -1.0 };
-            mix += v * sound.noise.volume * CHANNEL_HEADROOM;
+
+            if voice.gate {
+                let step = if voice.attack_ms <= 0.0 {
+                    1.0
+                } else {
+                    1000.0 / (voice.attack_ms * sample_rate)
+                };
+                self.env_level[i] = (self.env_level[i] + step).min(1.0);
+            } else {
+                let step = if voice.release_ms <= 0.0 {
+                    1.0
+                } else {
+                    1000.0 / (voice.release_ms * sample_rate)
+                };
+                self.env_level[i] = (self.env_level[i] - step).max(0.0);
+            }
+
+            if voice.volume <= 0.0 || (self.env_level[i] <= 0.0 && !voice.gate) {
+                continue;
+            }
+
+            let raw = match voice.kind {
+                VoiceKind::Square => {
+                    let v = if self.phase[i] < 0.5 { 1.0 } else { -1.0 };
+                    self.phase[i] = (self.phase[i] + voice.frequency / sample_rate) % 1.0;
+                    v
+                }
+                VoiceKind::Noise => {
+                    self.phase[i] += voice.frequency / sample_rate;
+                    if self.phase[i] >= 1.0 {
+                        self.phase[i] -= 1.0;
+                        let bit = (self.lfsr[i]
+                            ^ (self.lfsr[i] >> 2)
+                            ^ (self.lfsr[i] >> 3)
+                            ^ (self.lfsr[i] >> 5))
+                            & 1;
+                        self.lfsr[i] = (self.lfsr[i] >> 1) | (bit << 15);
+                    }
+                    if (self.lfsr[i] & 1) == 0 { 1.0 } else { -1.0 }
+                }
+            };
+
+            // Voices 0/1 are the music channels; everything else (legacy
+            // preview + the SFX pool) is grouped under sfx_volume.
+            let group_volume = if i < 2 {
+                sound.music_volume
+            } else {
+                sound.sfx_volume
+            };
+            let amp = raw * voice.volume * self.env_level[i] * CHANNEL_HEADROOM * group_volume;
+
+            let pan = voice.pan;
+            left += amp * (1.0 - pan.max(0.0));
+            right += amp * (1.0 + pan.min(0.0));
         }
 
-        (mix * MASTER_GAIN).clamp(-1.0, 1.0)
+        (
+            (left * MASTER_GAIN * sound.master_volume).clamp(-1.0, 1.0),
+            (right * MASTER_GAIN * sound.master_volume).clamp(-1.0, 1.0),
+        )
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct SquareChannel {
-    pub enabled: bool,
-    pub frequency: f32,
-    pub volume: f32,
-    pub duration: u16,
-}
-
-#[derive(Debug, Clone)]
-pub struct NoiseChannel {
-    pub enabled: bool,
-    pub volume: f32,
-    pub rate: f32,
-    pub duration: u16,
-}
-
-#[derive(Debug, Clone)]
-pub struct Sound {
-    pub square: SquareChannel,
-    pub noise: NoiseChannel,
 }
 
 /// An open audio output owned by the front-end.
@@ -156,10 +278,18 @@ impl AudioCallback for ConsoleCallback {
         };
 
         for frame in out.chunks_mut(self.channels) {
-            let sample = self.synth.next_sample(&sound, self.sample_rate);
-            let value = to_i16(sample);
-            for slot in frame.iter_mut() {
-                *slot = value;
+            let (l, r) = self.synth.next_sample(&sound, self.sample_rate);
+            if self.channels <= 1 {
+                let mono = to_i16((l + r) * 0.5);
+                for slot in frame.iter_mut() {
+                    *slot = mono;
+                }
+            } else {
+                frame[0] = to_i16(l);
+                frame[1] = to_i16(r);
+                for slot in frame.iter_mut().skip(2) {
+                    *slot = to_i16(l);
+                }
             }
         }
     }
@@ -257,42 +387,6 @@ pub fn sdl_default_audio_factory() -> AudioFactory {
     })
 }
 
-pub struct AudioPeripheral {
-    sound: Arc<Mutex<Sound>>,
-}
-
-impl AudioPeripheral {
-    pub fn new(sound: Arc<Mutex<Sound>>) -> Self {
-        Self { sound }
-    }
-}
-
-impl Peripheral for AudioPeripheral {
-    fn name(&self) -> &'static str {
-        "audio"
-    }
-
-    fn init(&mut self, _mem: &mut Memory) {}
-
-    fn tick(&mut self, _mem: &mut Memory, _frame: u32) {
-        let Ok(mut s) = self.sound.try_lock() else {
-            return;
-        };
-        if s.square.enabled && s.square.duration > 0 {
-            s.square.duration -= 1;
-            if s.square.duration == 0 {
-                s.square.enabled = false;
-            }
-        }
-        if s.noise.enabled && s.noise.duration > 0 {
-            s.noise.duration -= 1;
-            if s.noise.duration == 0 {
-                s.noise.enabled = false;
-            }
-        }
-    }
-}
-
 #[cfg(all(test, any(feature = "sdl2-bundled", feature = "sdl2-dynamic")))]
 mod sdl_audio_tests {
     use super::to_i16;
@@ -316,5 +410,138 @@ mod sdl_audio_tests {
     fn midscale_sample_is_proportional() {
         let half = to_i16(0.5);
         assert!((half - i16::MAX / 2).abs() <= 1, "got {half}");
+    }
+}
+
+#[cfg(test)]
+mod voice_tests {
+    use super::*;
+
+    #[test]
+    fn pan_table_index_zero_is_center() {
+        assert_eq!(PAN_TABLE[0], 0.0);
+    }
+
+    #[test]
+    fn pan_table_alternates_left_right_growing_outward() {
+        assert_eq!(PAN_TABLE[1], -0.125);
+        assert_eq!(PAN_TABLE[2], 0.125);
+        assert_eq!(PAN_TABLE[15], -1.0);
+    }
+
+    #[test]
+    fn envelope_levels_map_to_documented_ramp_lengths() {
+        assert_eq!(ENVELOPE_MS, [0.0, 15.0, 50.0, 150.0]);
+    }
+
+    #[test]
+    fn instant_envelope_reaches_full_volume_within_one_sample() {
+        let mut sound = Sound::default();
+        sound.voices[SFX_POOL_START] = Voice {
+            kind: VoiceKind::Square,
+            gate: true,
+            frequency: 440.0,
+            volume: 1.0,
+            pan: 0.0,
+            attack_ms: 0.0,
+            release_ms: 0.0,
+            epoch: 1,
+        };
+        let mut synth = Synth::new();
+        let (l, _r) = synth.next_sample(&sound, 44_100.0);
+        assert!(
+            l.abs() > 0.0,
+            "expected audible output on first sample, got {l}"
+        );
+    }
+
+    #[test]
+    fn center_pan_matches_todays_equal_channel_output() {
+        // byte3 == 0 decodes to pan 0.0; equal-gain center must reproduce
+        // the old mono-duplicated-to-both-channels behavior exactly.
+        let mut sound = Sound::default();
+        sound.voices[SFX_POOL_START] = Voice {
+            kind: VoiceKind::Square,
+            gate: true,
+            frequency: 440.0,
+            volume: 1.0,
+            pan: 0.0,
+            attack_ms: 0.0,
+            release_ms: 0.0,
+            epoch: 1,
+        };
+        let mut synth = Synth::new();
+        let (l, r) = synth.next_sample(&sound, 44_100.0);
+        assert_eq!(l, r);
+    }
+
+    #[test]
+    fn hard_left_pan_silences_right_channel() {
+        let mut sound = Sound::default();
+        sound.voices[SFX_POOL_START] = Voice {
+            kind: VoiceKind::Square,
+            gate: true,
+            frequency: 440.0,
+            volume: 1.0,
+            pan: -1.0,
+            attack_ms: 0.0,
+            release_ms: 0.0,
+            epoch: 1,
+        };
+        let mut synth = Synth::new();
+        let (_l, r) = synth.next_sample(&sound, 44_100.0);
+        assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn released_voice_fades_to_silence_over_release_samples() {
+        let mut sound = Sound::default();
+        sound.voices[SFX_POOL_START] = Voice {
+            kind: VoiceKind::Square,
+            gate: false,
+            frequency: 440.0,
+            volume: 1.0,
+            pan: 0.0,
+            attack_ms: 0.0,
+            release_ms: 150.0,
+            epoch: 1,
+        };
+        let mut synth = Synth::new();
+        // Force env_level to 1.0 as if the note had just been playing.
+        synth.env_level[SFX_POOL_START] = 1.0;
+        synth.env_epoch[SFX_POOL_START] = 1;
+        let sample_rate = 44_100.0;
+        // +1 sample of headroom: (0.150 * sample_rate) can truncate below the
+        // exact sample count needed due to floating-point rounding.
+        let release_samples = (0.150 * sample_rate) as usize + 1;
+        for _ in 0..release_samples {
+            synth.next_sample(&sound, sample_rate);
+        }
+        assert!(synth.env_level[SFX_POOL_START] <= 0.0);
+    }
+
+    #[test]
+    fn retrigger_via_epoch_resets_envelope_even_while_gated() {
+        let mut sound = Sound::default();
+        sound.voices[SFX_POOL_START] = Voice {
+            kind: VoiceKind::Square,
+            gate: true,
+            frequency: 440.0,
+            volume: 1.0,
+            pan: 0.0,
+            attack_ms: 150.0,
+            release_ms: 0.0,
+            epoch: 1,
+        };
+        let mut synth = Synth::new();
+        synth.env_level[SFX_POOL_START] = 1.0;
+        synth.env_epoch[SFX_POOL_START] = 1;
+        // Same epoch: envelope must NOT reset.
+        synth.next_sample(&sound, 44_100.0);
+        assert!(synth.env_level[SFX_POOL_START] > 0.9);
+        // New epoch (retrigger/steal): envelope must reset to a fresh attack ramp.
+        sound.voices[SFX_POOL_START].epoch = 2;
+        synth.next_sample(&sound, 44_100.0);
+        assert!(synth.env_level[SFX_POOL_START] < 0.9);
     }
 }

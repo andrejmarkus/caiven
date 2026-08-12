@@ -9,7 +9,7 @@ use crate::input::{Input, InputMap};
 use crate::rendering::font::Font;
 use crate::rendering::screen::Screen;
 use crate::timing::FixedTimestep;
-use crate::vm::audio::{AudioFactory, AudioOut, AudioPeripheral};
+use crate::vm::audio::{AudioFactory, AudioOut};
 use crate::{Vm, VmConfig};
 use anyhow::{Context, Result};
 use log::{error, info};
@@ -80,11 +80,9 @@ impl ConsoleCore {
         .context("failed to initialize embedded font")?;
 
         let config = VmConfig::default();
-        let mut vm = Vm::new(config);
+        let vm = Vm::new(config);
 
         let audio = open_audio(&audio_factory, vm.get_sound_shared());
-
-        vm.register_peripheral(AudioPeripheral::new(vm.get_sound_shared()));
 
         info!("fantasy console initialized");
 
@@ -113,7 +111,6 @@ impl ConsoleCore {
         // allow a single stream on the default device.
         self.audio = None;
         let audio = open_audio(&self.audio_factory, vm.get_sound_shared());
-        vm.register_peripheral(AudioPeripheral::new(vm.get_sound_shared()));
         self.vm = vm;
         self.audio = audio;
     }

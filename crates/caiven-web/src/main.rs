@@ -10,7 +10,7 @@ use caiven_core::memory::RGBA_BYTES;
 use caiven_vm::input::{Button, Input};
 use caiven_vm::rendering::font::Font;
 use caiven_vm::rendering::screen::Screen;
-use caiven_vm::vm::audio::{AudioPeripheral, Sound, Synth};
+use caiven_vm::vm::audio::{Sound, Synth};
 use caiven_vm::{LuaRunOutcome, Vm, VmConfig};
 use std::cell::RefCell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -55,9 +55,8 @@ impl Player {
     fn new() -> anyhow::Result<Self> {
         let font = Font::from_bytes(FONT_BYTES, FONT_GLYPHS, 3, 5)?;
         let config = VmConfig::default();
-        let mut vm = Vm::new(config);
+        let vm = Vm::new(config);
         let sound = vm.get_sound_shared();
-        vm.register_peripheral(AudioPeripheral::new(sound.clone()));
 
         Ok(Self {
             screen: Screen::new(config.width, config.height),
@@ -133,7 +132,8 @@ impl Player {
         match self.sound.try_lock() {
             Ok(s) => {
                 for sample in self.audio_buf[..num_frames].iter_mut() {
-                    *sample = self.synth.next_sample(&s, sample_rate);
+                    let (l, r) = self.synth.next_sample(&s, sample_rate);
+                    *sample = (l + r) * 0.5;
                 }
             }
             Err(_) => {
