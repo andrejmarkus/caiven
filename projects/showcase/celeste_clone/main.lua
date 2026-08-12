@@ -209,6 +209,8 @@ WALL_SLIDE_MAX = 1.0
 WALLJUMP_VX = 2.2
 WALLJUMP_VY = -4.6
 WALLJUMP_LOCK = 10
+DASH_SPEED = 3.5
+DASH_FRAMES = 10
 
 function spawn_player(spawn)
   player = {
@@ -221,6 +223,7 @@ function spawn_player(spawn)
     jump_buffer = 0,
     wall_dir = 0,
     walljump_lock = 0,
+    dashes = 1, dash_timer = 0, dashing = false, dash_vx = 0, dash_vy = 0,
     anim = new_anim({ SPR_PLAYER_RUN1, SPR_PLAYER_IDLE, SPR_PLAYER_RUN2, SPR_PLAYER_IDLE }, 8),
   }
 end
@@ -293,17 +296,51 @@ local function player_move_and_collide()
   end
 end
 
+local function try_start_dash(input)
+  if not input.dash_pressed or player.dashes <= 0 or player.dashing then return end
+  local dx, dy = 0, 0
+  if input.left then dx = -1 elseif input.right then dx = 1 end
+  if input.up then dy = -1 elseif input.down then dy = 1 end
+  if dx == 0 and dy == 0 then dx = player.facing end
+  local len = math.sqrt(dx * dx + dy * dy)
+  player.dashing = true
+  player.dash_timer = DASH_FRAMES
+  player.dash_vx = (dx / len) * DASH_SPEED
+  player.dash_vy = (dy / len) * DASH_SPEED
+  player.dashes = player.dashes - 1
+  play_sfx(SFX_DASH)
+end
+
 function physics_update(input)
-  player_horizontal(input)
-  player_vertical(input)
+  try_start_dash(input)
+
+  if player.dashing then
+    player.vx, player.vy = player.dash_vx, player.dash_vy
+    Particles.spawn(player.pos.x + player.w / 2, player.pos.y + player.h / 2,
+      -player.dash_vx * 0.3, -player.dash_vy * 0.3, 13, 12)
+    player.dash_timer = player.dash_timer - 1
+    if player.dash_timer <= 0 then
+      player.dashing = false
+      player.vx = player.dash_vx * 0.5
+      player.vy = math.min(player.dash_vy, 0)
+    end
+  else
+    player_horizontal(input)
+    player_vertical(input)
+  end
+
   player_move_and_collide()
+  if player.on_ground or player.wall_dir ~= 0 then player.dashes = 1 end
   anim_update(player.anim)
+  Particles.update()
 end
 
 local function read_input()
   return {
     left = button_down(2), right = button_down(3),
+    up = button_down(0), down = button_down(1),
     jump_pressed = button_pressed(4), jump_released = button_released(4),
+    dash_pressed = button_pressed(5),
   }
 end
 
@@ -327,6 +364,7 @@ function _draw()
   local room = room_at(player.pos.x, player.pos.y)
   local ox, oy = room.col * ROOM_TILES, room.row * ROOM_TILES
   draw_map(ox, oy, ox * TILE, oy * TILE, ROOM_TILES, ROOM_TILES)
+  Particles.draw()
   local frame = player.on_ground and math.abs(player.vx) > 0.1 and anim_sprite(player.anim) or SPR_PLAYER_IDLE
   sprite(frame, math.floor(player.pos.x), math.floor(player.pos.y), player.facing < 0)
   if room.berry then
