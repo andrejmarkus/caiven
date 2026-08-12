@@ -1,0 +1,8 @@
+[
+  {"id": 0, "name": "walkable", "color": [0, 0, 0], "shape": "none"},
+  {"id": 1, "name": "solid", "color": [255, 176, 0], "shape": "solid"},
+  {"id": 2, "name": "hazard", "color": [224, 32, 32], "shape": "none"},
+  {"id": 3, "name": "platform", "color": [0, 200, 0], "shape": "one_way"},
+  {"id": 4, "name": "ramp_right", "color": [0, 200, 200], "shape": "slope_right"},
+  {"id": 5, "name": "ramp_left", "color": [200, 200, 0], "shape": "slope_left"}
+]
