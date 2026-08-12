@@ -832,6 +832,12 @@ pub const STDLIB: &[ApiEntry] = &[
         doc: "Random number: [0,1) with no args, [1,m] with one, [m,n] with two.",
     },
     ApiEntry {
+        name: "math.randomseed",
+        params: &[param!("x": "number")],
+        returns: "nil",
+        doc: "Set the RNG seed. The console seeds to 1 by default at cart load, so runs are deterministic unless a cart calls this itself (e.g. math.randomseed(os.time()) for per-run variety).",
+    },
+    ApiEntry {
         name: "math.huge",
         params: &[],
         returns: "number",
