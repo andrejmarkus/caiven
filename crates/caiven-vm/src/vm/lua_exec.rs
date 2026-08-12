@@ -20,7 +20,7 @@ use super::save_data::{SaveData, SaveDataError};
 use super::sfx::MusicPlayer;
 use super::{
     AssetBankKind, AssetBanks, Camera, PooledSfx, Vm, VmFault, allocate_sfx_voice,
-    release_sfx_voice,
+    release_sfx_voice, unpack_sfx_handle,
 };
 use crate::input::{Button, Input};
 use crate::rendering::font::Font;
@@ -73,8 +73,10 @@ const BUILTIN_NAMES: &[&str] = &[
     "load_music_bank",
     "play_sfx",
     "stop_sfx",
+    "is_sfx_playing",
     "play_music",
     "stop_music",
+    "is_music_playing",
     "set_master_volume",
     "set_music_volume",
     "set_sfx_volume",
@@ -1357,6 +1359,16 @@ fn register_builtins<'scope, 'env>(
     )?;
 
     globals.set(
+        "is_sfx_playing",
+        scope.create_function(move |_, handle: u32| {
+            let (slot, epoch) = unpack_sfx_handle(handle);
+            let slot = slot as usize;
+            let pool = sfx_pool.borrow();
+            Ok(slot < pool.len() && pool[slot].epoch == epoch && pool[slot].player.active)
+        })?,
+    )?;
+
+    globals.set(
         "play_music",
         scope.create_function_mut(|_, id: u8| {
             music_player.borrow_mut().start(id);
@@ -1370,6 +1382,11 @@ fn register_builtins<'scope, 'env>(
             music_player.borrow_mut().stop();
             Ok(())
         })?,
+    )?;
+
+    globals.set(
+        "is_music_playing",
+        scope.create_function(move |_, ()| Ok(music_player.borrow().active))?,
     )?;
 
     let sound_for_master_volume = sound.clone();

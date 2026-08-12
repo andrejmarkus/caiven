@@ -304,6 +304,12 @@ pub const BUILTINS: &[ApiEntry] = &[
         doc: "Stops the voice handle refers to (release ramp, not an instant cut). Silent no-op if that voice already finished or was reused by a later play_sfx call.",
     },
     ApiEntry {
+        name: "is_sfx_playing",
+        params: &[param!("handle": "integer")],
+        returns: "bool",
+        doc: "True if handle refers to a voice that is still actively playing. A stale handle (finished naturally, or its voice reused by a later play_sfx call) returns false, not an error.",
+    },
+    ApiEntry {
         name: "play_music",
         params: &[param!("id": "u8")],
         returns: "nil",
@@ -314,6 +320,12 @@ pub const BUILTINS: &[ApiEntry] = &[
         params: &[],
         returns: "nil",
         doc: "Stop the currently playing music track.",
+    },
+    ApiEntry {
+        name: "is_music_playing",
+        params: &[],
+        returns: "bool",
+        doc: "True while a music track is playing.",
     },
     ApiEntry {
         name: "set_master_volume",

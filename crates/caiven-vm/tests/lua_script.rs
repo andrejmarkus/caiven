@@ -791,6 +791,152 @@ fn play_sfx_does_not_disturb_concurrent_music_playback() {
 }
 
 #[test]
+fn is_sfx_playing_true_while_active_false_after_stop() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_section_to_ram(SFX_RAM_BASE, &[49, 12, 0, 0]);
+    vm.load_lua_source(
+        r#"
+        handle = 0
+        before_stop = false
+        after_stop = true
+        function _init()
+          handle = play_sfx(0)
+        end
+        function _update()
+          before_stop = is_sfx_playing(handle)
+          stop_sfx(handle)
+          after_stop = is_sfx_playing(handle)
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    vm.run_frame(&input, &font);
+
+    assert_eq!(vm.get_fault(), None);
+    let before = vm
+        .lua_watch("before_stop")
+        .unwrap_or_else(|e| panic!("lua_watch failed: {e}"))
+        .text;
+    let after = vm
+        .lua_watch("after_stop")
+        .unwrap_or_else(|e| panic!("lua_watch failed: {e}"))
+        .text;
+    assert_eq!(before, "true");
+    assert_eq!(after, "false");
+}
+
+#[test]
+fn is_sfx_playing_false_for_stale_handle_after_voice_stolen() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_section_to_ram(SFX_RAM_BASE, &[49, 12, 0, 0]);
+    // Fill the pool, then trigger one more so the oldest voice (whose
+    // handle we captured first) gets stolen and its epoch bumped.
+    let fill_calls: String = (0..SFX_POOL_LEN)
+        .map(|_| "play_sfx(0)\n".to_string())
+        .collect();
+    vm.load_lua_source(
+        &format!(
+            r#"
+            first_handle = 0
+            stale_result = true
+            function _init()
+              first_handle = play_sfx(0)
+              {fill_calls}
+              -- one more call than the pool has slots: steals the oldest,
+              -- which is first_handle's voice.
+              play_sfx(0)
+              stale_result = is_sfx_playing(first_handle)
+            end
+            "#
+        ),
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    assert_eq!(vm.get_fault(), None);
+    let stale_result = vm
+        .lua_watch("stale_result")
+        .unwrap_or_else(|e| panic!("lua_watch failed: {e}"))
+        .text;
+    assert_eq!(stale_result, "false");
+}
+
+#[test]
+fn is_music_playing_true_after_play_false_after_stop() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_section_to_ram(SFX_RAM_BASE, &[49, 12, 0, 0]);
+    vm.load_section_to_ram(MUSIC_RAM_BASE, &[1, 0]);
+    vm.load_lua_source(
+        r#"
+        before_stop = false
+        after_stop = true
+        function _init()
+          play_music(0)
+        end
+        function _update()
+          before_stop = is_music_playing()
+          stop_music()
+          after_stop = is_music_playing()
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    vm.run_frame(&input, &font);
+
+    assert_eq!(vm.get_fault(), None);
+    let before = vm
+        .lua_watch("before_stop")
+        .unwrap_or_else(|e| panic!("lua_watch failed: {e}"))
+        .text;
+    let after = vm
+        .lua_watch("after_stop")
+        .unwrap_or_else(|e| panic!("lua_watch failed: {e}"))
+        .text;
+    assert_eq!(before, "true");
+    assert_eq!(after, "false");
+}
+
+#[test]
+fn is_music_playing_false_when_never_started() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        result = true
+        function _update()
+          result = is_music_playing()
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    vm.run_frame(&input, &font);
+
+    assert_eq!(vm.get_fault(), None);
+    let result = vm
+        .lua_watch("result")
+        .unwrap_or_else(|e| panic!("lua_watch failed: {e}"))
+        .text;
+    assert_eq!(result, "false");
+}
+
+#[test]
 fn stop_sfx_on_an_active_handle_releases_it() {
     let mut vm = make_vm();
     let input = Input::new();
