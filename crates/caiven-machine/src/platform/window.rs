@@ -30,6 +30,26 @@ fn probe_max_texture_size(accelerated: bool) -> Option<(u32, u32)> {
         .map(|d| (d.max_texture_width, d.max_texture_height))
 }
 
+/// The display scale factor (1.0 = 96 DPI) SDL would apply automatically on
+/// macOS via `allow_highdpi` alone. Windows has no such auto-scaling of the
+/// requested window size — a per-monitor-DPI-aware process (see the hint set
+/// in `app::run`) gets exactly the pixel size it asks for — so the desired
+/// physical footprint has to be scaled up explicitly here, or the window
+/// ends up correctly sharp but visibly smaller than before DPI-awareness was
+/// enabled.
+#[cfg(windows)]
+fn display_scale(video: &sdl2::VideoSubsystem) -> f32 {
+    match video.display_dpi(0) {
+        Ok((_, hdpi, _)) if hdpi > 0.0 => hdpi / 96.0,
+        _ => 1.0,
+    }
+}
+
+#[cfg(not(windows))]
+fn display_scale(_video: &sdl2::VideoSubsystem) -> f32 {
+    1.0
+}
+
 /// Builds a window and its renderer.
 ///
 /// `accelerated` asks for a GPU-backed, vsynced renderer. `max_texture_size`
@@ -45,7 +65,12 @@ fn build_canvas(
     accelerated: bool,
     max_texture_size: Option<(u32, u32)>,
 ) -> Result<WindowCanvas> {
-    let (default_w, default_h) = (config.width * WINDOW_SCALE, config.height * WINDOW_SCALE);
+    let scale = display_scale(video);
+    let (default_w, default_h) = (
+        (config.width * WINDOW_SCALE) as f32 * scale,
+        (config.height * WINDOW_SCALE) as f32 * scale,
+    );
+    let (default_w, default_h) = (default_w.round() as u32, default_h.round() as u32);
     let (width, height) = match max_texture_size {
         Some((max_w, max_h)) => (default_w.min(max_w), default_h.min(max_h)),
         None => (default_w, default_h),

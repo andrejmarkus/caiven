@@ -605,6 +605,14 @@ pub fn run() -> Result<()> {
 
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
+    // Must be set before `sdl2::init()`: on Windows, SDL only marks the
+    // process per-monitor-DPI-aware if this hint is present at video
+    // subsystem init. Without it, `allow_highdpi()` (platform/window.rs) is
+    // a no-op there — unlike macOS, where it alone is enough — and Windows
+    // silently bitmap-stretches the window to fit instead, rendering
+    // everything soft/blurry on any scaled display.
+    sdl2::hint::set("SDL_WINDOWS_DPI_AWARENESS", "permonitorv2");
+
     let sdl = sdl2::init().map_err(|e| anyhow!("failed to initialize SDL: {e}"))?;
     let video = sdl
         .video()
