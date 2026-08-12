@@ -30,9 +30,15 @@ async fn backfill_blob_hashes(manager: &SchemaManager<'_>) -> Result<(), DbErr> 
     for row in rows {
         let id: String = row.try_get("", "id")?;
         let cart_data: Vec<u8> = row.try_get("", "cart_data")?;
-        let content_hash = caiven_cart::content_hash(&cart_data).map_err(|error| {
-            DbErr::Custom(format!("cannot hash existing cart version {id}: {error}"))
-        })?;
+        let content_hash = match caiven_cart::content_hash(&cart_data) {
+            Ok(hash) => hash,
+            Err(error) => {
+                // Corrupt/unparseable blob data must not block startup; leave
+                // the hash NULL so it can be repaired later (see db.rs backfill).
+                eprintln!("cannot hash existing cart version {id}: {error}");
+                continue;
+            }
+        };
         let sql = match backend {
             sea_orm_migration::sea_orm::DatabaseBackend::Postgres => {
                 "UPDATE cart_versions SET content_hash = $1 WHERE id = $2"
