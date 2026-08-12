@@ -205,6 +205,10 @@ JUMP_CUT_MULT = 0.5
 COYOTE_MAX = 6
 BUFFER_MAX = 4
 PLAYER_W, PLAYER_H = 6, 8
+WALL_SLIDE_MAX = 1.0
+WALLJUMP_VX = 2.2
+WALLJUMP_VY = -4.6
+WALLJUMP_LOCK = 10
 
 function spawn_player(spawn)
   player = {
@@ -215,11 +219,14 @@ function spawn_player(spawn)
     on_ground = false,
     coyote_timer = 0,
     jump_buffer = 0,
+    wall_dir = 0,
+    walljump_lock = 0,
     anim = new_anim({ SPR_PLAYER_RUN1, SPR_PLAYER_IDLE, SPR_PLAYER_RUN2, SPR_PLAYER_IDLE }, 8),
   }
 end
 
 local function player_horizontal(input)
+  if player.walljump_lock > 0 then return end
   local accel = player.on_ground and RUN_ACCEL_GROUND or RUN_ACCEL_AIR
   if input.left then
     player.vx = math.max(player.vx - accel, -RUN_MAX)
@@ -236,9 +243,12 @@ end
 local function player_vertical(input)
   if player.jump_buffer > 0 then player.jump_buffer = player.jump_buffer - 1 end
   if input.jump_pressed then player.jump_buffer = BUFFER_MAX end
+  if player.walljump_lock > 0 then player.walljump_lock = player.walljump_lock - 1 end
 
+  local sliding = not player.on_ground and player.wall_dir ~= 0 and player.vy > 0
   if not player.on_ground then
-    player.vy = clamp(player.vy + GRAVITY, -99, FALL_MAX)
+    local cap = sliding and WALL_SLIDE_MAX or FALL_MAX
+    player.vy = clamp(player.vy + GRAVITY, -99, cap)
   end
 
   if player.jump_buffer > 0 and (player.on_ground or player.coyote_timer > 0) then
@@ -247,14 +257,24 @@ local function player_vertical(input)
     player.coyote_timer = 0
     player.on_ground = false
     play_sfx(SFX_JUMP)
+  elseif player.jump_buffer > 0 and sliding then
+    player.vy = WALLJUMP_VY
+    player.vx = -player.wall_dir * WALLJUMP_VX
+    player.facing = -player.wall_dir
+    player.walljump_lock = WALLJUMP_LOCK
+    player.jump_buffer = 0
+    play_sfx(SFX_JUMP)
   elseif input.jump_released and player.vy < 0 then
     player.vy = player.vy * JUMP_CUT_MULT
   end
 end
 
 local function player_move_and_collide()
-  local nx = move_and_collide(player.pos.x, player.pos.y, player.w, player.h, player.vx, 0)
+  local nx, _, htouch = move_and_collide(player.pos.x, player.pos.y, player.w, player.h, player.vx, 0)
   player.pos.x = nx
+  if htouch.left then player.wall_dir = -1
+  elseif htouch.right then player.wall_dir = 1
+  else player.wall_dir = 0 end
 
   local _, ny, touch = move_and_collide(player.pos.x, player.pos.y, player.w, player.h, 0, player.vy)
   player.pos.y = ny
