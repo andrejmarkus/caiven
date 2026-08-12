@@ -85,6 +85,22 @@ impl Player {
             }
         }
 
+        if let Some(section) = cart
+            .sections
+            .iter()
+            .find(|s| s.kind == caiven_cart::SectionKind::PreludeModules)
+        {
+            let manifest = String::from_utf8_lossy(&section.data);
+            let modules: Vec<&str> = manifest
+                .lines()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .collect();
+            self.vm
+                .set_prelude_modules(&modules)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+        }
+
         let lua_source = self
             .vm
             .load_cart_sections(&cart.sections)
