@@ -25,11 +25,19 @@ notes switch on/off instantly, which is also why the "duration" field on
 instead of coming from cart data.
 
 The SFX bank step format (`crates/caiven-vm/src/vm/sfx.rs::sfx_bytes_base`)
-is 4 bytes/step: `note, volume, wave, byte3`. `byte3` is read nowhere in the
-codebase today — every existing cart has it implicitly `0`. That gives room
-to add per-instrument pan and envelope without growing `SFX_BANK_LEN`
-(`crates/caiven-core/src/memory.rs`), so no memory-map address shift and no
-cart version bump.
+is 4 bytes/step: `note, volume, wave, byte3`. The VM reads nowhere past
+byte 2 today — `tick_sfx_channel` never touches byte3. Studio's SFX tracker
+UI (`Workspace.svelte`, `sfx-fx` column) does write byte3, as an "effect"
+selector (0=none, 1=slide, 2=vibrato, 3=drop) that has never been wired up
+to any audible behavior (see the tracker's own hint: "stored in the cart,
+but the VM does not apply it yet"). So byte3 is VM-dead but not
+guaranteed-zero in every stored cart — a cart authored with a non-default
+fx pick has non-zero byte3 today. Repurposing it is still the right call:
+nothing audible has ever depended on its value, so there's no runtime
+behavior to preserve, only stored bytes to reinterpret (see Compatibility).
+That gives room to add per-instrument pan and envelope without growing
+`SFX_BANK_LEN` (`crates/caiven-core/src/memory.rs`), so no memory-map
+address shift and no cart version bump.
 
 ## Byte3 encoding
 
@@ -46,8 +54,8 @@ bit:   7 6 5 4 3 2 1 0
   Level 0 = instant (today's behavior).
 - `release` (bits 6-7): same four levels, applied when the note ends
   (duration expiry or explicit stop).
-- `byte3 == 0` (every existing cart) decodes to center pan, instant
-  attack, instant release — bit-for-bit today's behavior. No compat break.
+- `byte3 == 0` decodes to center pan, instant attack, instant release —
+  the common case (a cart that never touched the fx column) is unaffected.
 
 Music rows reference SFX ids (`MusicPlayer::pattern_row_base`), so a note
 played from a music pattern inherits that instrument's byte3 automatically.
@@ -89,10 +97,13 @@ mono device — an unused second channel is harmless).
 
 ## Studio SFX editor
 
-Add pan and attack/release controls to the SFX tracker's per-step row
-(byte3), alongside the existing note/volume/wave columns. Tracker UI change
-only — no asset-bank encode/decode change, since the byte was already part
-of the wire format.
+Remove the `sfx-fx` column (`Workspace.svelte`, `sfxEffects` array and its
+click handler) — it never drove audible behavior and its bit range is being
+reclaimed. Add pan and attack/release controls to the SFX tracker's
+per-step row in its place, alongside the existing note/volume/wave columns,
+using pack/unpack helpers for byte3's three sub-fields (not a raw 0-255
+value like the other columns). Tracker UI change only — no asset-bank
+encode/decode change, since the byte was already part of the wire format.
 
 ## Testing
 
@@ -128,13 +139,20 @@ VM-level tests in `crates/caiven-vm/tests/`:
 
 ## Compatibility
 
-Additive only. Byte3 was dead space read by nothing — every existing cart
-implicitly has it as `0`, which decodes to today's exact behavior (center
-pan, instant on/off). `play_sfx(id)`/`play_music(id)`/`stop_music()`
-signatures are unchanged; `opts` on `play_sfx` is optional. The one
-observable behavior change is the clobbering-bug fix itself (SFX no longer
-interrupts music) — called out explicitly since it changes existing
-runtime behavior even though no cart's stored data changes.
+Additive for runtime behavior: `play_sfx(id)`/`play_music(id)`/
+`stop_music()` signatures are unchanged; `opts` on `play_sfx` is optional.
+The clobbering-bug fix (SFX no longer interrupts music) is an intentional
+observable behavior change, called out explicitly.
+
+Byte3 reinterpretation is a one-time stored-data compat note, not a code
+compat break: the VM has never read byte3, so no cart's *audible* behavior
+depended on its value. A cart authored with the old Studio fx column set to
+non-default (SL/VB/DR) on some steps will, the first time it's loaded after
+this ships, get whatever pan/attack/release that old value happens to
+decode to under the new bit layout — silent reinterpretation of unused
+data, not a regression of anything that used to work. `byte3 == 0` (never
+touched the fx column, the common case) decodes to center pan/instant
+envelope, matching today exactly.
 
 ## Out of scope (future specs)
 
