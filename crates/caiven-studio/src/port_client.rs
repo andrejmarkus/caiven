@@ -4,6 +4,7 @@
 //! screenshot capture used to illustrate a published cart.
 
 use anyhow::{Context, Result};
+use caiven_cart::SectionKind;
 use caiven_vm::input::Input;
 use caiven_vm::rendering::font::Font;
 use caiven_vm::{Vm, VmConfig};
@@ -36,6 +37,22 @@ pub(crate) fn capture_screenshot(
     frames: u32,
 ) -> Result<Vec<u8>> {
     let mut vm = Vm::new(config);
+
+    if let Some(section) = cart
+        .sections
+        .iter()
+        .find(|s| s.kind == SectionKind::PreludeModules)
+    {
+        let manifest = String::from_utf8_lossy(&section.data);
+        let modules: Vec<&str> = manifest
+            .lines()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+        vm.set_prelude_modules(&modules)
+            .map_err(|e| anyhow::anyhow!("{e}"))
+            .context("cart declares an invalid stdlib module")?;
+    }
 
     // Asset RAM must be in place before the Lua load, since it runs
     // `_init()` immediately.
