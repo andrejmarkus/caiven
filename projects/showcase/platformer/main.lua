@@ -155,8 +155,12 @@ function room_at(px, py)
 end
 
 function update_camera(px, py)
-  local col = math.floor(px / ROOM_PX)
-  local row = math.floor(py / ROOM_PX)
+  -- physics_update can push the player past the grid's outer edge for a
+  -- single frame before the nil-room death check (which runs before this,
+  -- on the prior frame's position) catches it next frame — clamp so
+  -- set_camera (u32 args) never sees a negative or out-of-grid coordinate.
+  local col = math.max(0, math.min(3, math.floor(px / ROOM_PX)))
+  local row = math.max(0, math.min(1, math.floor(py / ROOM_PX)))
   set_camera(col * ROOM_PX, row * ROOM_PX)
 end
 
