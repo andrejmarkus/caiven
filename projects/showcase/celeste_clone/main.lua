@@ -191,7 +191,100 @@ function _init()
   paint_world()
 
   GAME = { mode = "title", deaths = 0, berries = 0 }
-  debug_pos = Vec2.new(ROOMS[1].spawn.x, ROOMS[1].spawn.y)
+  spawn_player(ROOMS[1].spawn)
+end
+
+RUN_MAX = 1.2
+RUN_ACCEL_GROUND = 0.4
+RUN_ACCEL_AIR = 0.3
+FRICTION = 0.3
+GRAVITY = 0.35
+FALL_MAX = 4.5
+JUMP_VY = -4.8
+JUMP_CUT_MULT = 0.5
+COYOTE_MAX = 6
+BUFFER_MAX = 4
+PLAYER_W, PLAYER_H = 6, 8
+
+function spawn_player(spawn)
+  player = {
+    pos = Vec2.new(spawn.x, spawn.y),
+    vx = 0, vy = 0,
+    w = PLAYER_W, h = PLAYER_H,
+    facing = 1,
+    on_ground = false,
+    coyote_timer = 0,
+    jump_buffer = 0,
+    anim = new_anim({ SPR_PLAYER_RUN1, SPR_PLAYER_IDLE, SPR_PLAYER_RUN2, SPR_PLAYER_IDLE }, 8),
+  }
+end
+
+local function player_horizontal(input)
+  local accel = player.on_ground and RUN_ACCEL_GROUND or RUN_ACCEL_AIR
+  if input.left then
+    player.vx = math.max(player.vx - accel, -RUN_MAX)
+    player.facing = -1
+  elseif input.right then
+    player.vx = math.min(player.vx + accel, RUN_MAX)
+    player.facing = 1
+  else
+    if player.vx > 0 then player.vx = math.max(0, player.vx - FRICTION)
+    elseif player.vx < 0 then player.vx = math.min(0, player.vx + FRICTION) end
+  end
+end
+
+local function player_vertical(input)
+  if player.jump_buffer > 0 then player.jump_buffer = player.jump_buffer - 1 end
+  if input.jump_pressed then player.jump_buffer = BUFFER_MAX end
+
+  if not player.on_ground then
+    player.vy = clamp(player.vy + GRAVITY, -99, FALL_MAX)
+  end
+
+  if player.jump_buffer > 0 and (player.on_ground or player.coyote_timer > 0) then
+    player.vy = JUMP_VY
+    player.jump_buffer = 0
+    player.coyote_timer = 0
+    player.on_ground = false
+    play_sfx(SFX_JUMP)
+  elseif input.jump_released and player.vy < 0 then
+    player.vy = player.vy * JUMP_CUT_MULT
+  end
+end
+
+local function player_move_and_collide()
+  local nx = move_and_collide(player.pos.x, player.pos.y, player.w, player.h, player.vx, 0)
+  player.pos.x = nx
+
+  local _, ny, touch = move_and_collide(player.pos.x, player.pos.y, player.w, player.h, 0, player.vy)
+  player.pos.y = ny
+
+  if touch.ground then
+    if not player.on_ground then player.coyote_timer = COYOTE_MAX end
+    player.on_ground = true
+    player.vy = 0
+  else
+    if player.on_ground then player.coyote_timer = COYOTE_MAX end
+    player.on_ground = false
+  end
+  if touch.ceiling and player.vy < 0 then player.vy = 0 end
+  if player.coyote_timer > 0 and not player.on_ground then
+    player.coyote_timer = player.coyote_timer - 1
+  end
+end
+
+function physics_update(input)
+  player_horizontal(input)
+  player_vertical(input)
+  player_move_and_collide()
+  anim_update(player.anim)
+end
+
+local function read_input()
+  return {
+    left = button_down(2), right = button_down(3),
+    jump_pressed = button_pressed(4), jump_released = button_released(4),
+  }
 end
 
 function _update()
@@ -200,17 +293,8 @@ function _update()
     return
   end
 
-  -- Placeholder movement for this task only (a fixed-speed walker with no
-  -- gravity/collision) so room painting and camera snapping can be verified
-  -- end to end before Task 4 adds real physics. Replaced in Task 4.
-  local dx, dy = 0, 0
-  if button_down(2) then dx = dx - 2 end
-  if button_down(3) then dx = dx + 2 end
-  if button_down(0) then dy = dy - 2 end
-  if button_down(1) then dy = dy + 2 end
-  debug_pos.x = clamp(debug_pos.x + dx, 0, 4 * ROOM_PX - TILE)
-  debug_pos.y = clamp(debug_pos.y + dy, 0, 2 * ROOM_PX - TILE)
-  update_camera(debug_pos.x, debug_pos.y)
+  physics_update(read_input())
+  update_camera(player.pos.x, player.pos.y)
 end
 
 function _draw()
@@ -220,10 +304,11 @@ function _draw()
     draw_text("PRESS A", 46, 66, 7)
     return
   end
-  local room = room_at(debug_pos.x, debug_pos.y)
+  local room = room_at(player.pos.x, player.pos.y)
   local ox, oy = room.col * ROOM_TILES, room.row * ROOM_TILES
   draw_map(ox, oy, ox * TILE, oy * TILE, ROOM_TILES, ROOM_TILES)
-  sprite(SPR_PLAYER_IDLE, math.floor(debug_pos.x), math.floor(debug_pos.y))
+  local frame = player.on_ground and math.abs(player.vx) > 0.1 and anim_sprite(player.anim) or SPR_PLAYER_IDLE
+  sprite(frame, math.floor(player.pos.x), math.floor(player.pos.y), player.facing < 0)
   if room.berry then
     sprite(SPR_BERRY, room.berry.x, room.berry.y)
   end
