@@ -179,6 +179,14 @@ local function set_palette()
   set_palette_color(15, 40, 40, 40)
 end
 
+-- ROOMS[n].spawn/berry/flag are authored in the same ROOM-LOCAL tile-pixel
+-- space as ROOMS[n].tiles (see paint_world's ox/oy offset) — this converts
+-- one local {x,y} point to absolute world pixel coordinates, the space
+-- player.pos/room_at/update_camera all operate in.
+local function room_point(room, local_pt)
+  return { x = local_pt.x + room.col * ROOM_PX, y = local_pt.y + room.row * ROOM_PX }
+end
+
 function _init()
   COL_WALKABLE = collision_type_id("walkable")
   COL_SOLID = collision_type_id("solid")
@@ -196,13 +204,14 @@ end
 local function player_touches_flag()
   local flag = ROOMS[8].flag
   if not flag then return false end
+  local wp = room_point(ROOMS[8], flag)
   return aabb_overlap(player.pos.x, player.pos.y, player.w, player.h,
-    flag.x, flag.y, 8, 8)
+    wp.x, wp.y, 8, 8)
 end
 
 function reset_game()
   GAME = { mode = "title", deaths = 0, berries = 0, last_room = ROOMS[1] }
-  spawn_player(ROOMS[1].spawn)
+  spawn_player(room_point(ROOMS[1], ROOMS[1].spawn))
   spawn_berries()
   stop_music()
 end
@@ -211,8 +220,9 @@ function spawn_berries()
   Entities.clear()
   for _, room in ipairs(ROOMS) do
     if room.berry then
+      local wp = room_point(room, room.berry)
       Entities.add({
-        pos = Vec2.new(room.berry.x, room.berry.y),
+        pos = Vec2.new(wp.x, wp.y),
         w = 8, h = 8,
         room = room,
         is_berry = true,
@@ -268,7 +278,7 @@ local function handle_dying()
   GAME.dying_timer = GAME.dying_timer - 1
   if GAME.dying_timer <= 0 then
     local room = room_at(player.pos.x, player.pos.y) or GAME.last_room
-    spawn_player(room.spawn)
+    spawn_player(room_point(room, room.spawn))
     GAME.mode = "playing"
   end
 end
@@ -434,7 +444,15 @@ function _update()
 
   if GAME.mode == "playing" then
     local room = room_at(player.pos.x, player.pos.y)
-    if room then GAME.last_room = room end
+    if room then
+      GAME.last_room = room
+    else
+      -- Left the defined 4x2 room grid entirely (e.g. dashed/fell past a
+      -- room's outer edge) — treat like a hazard: die and respawn rather
+      -- than free-falling forever or crashing _draw's room lookup below.
+      start_dying()
+      return
+    end
     physics_update(read_input())
     update_berries()
     update_camera(player.pos.x, player.pos.y)
@@ -471,7 +489,10 @@ function _draw()
     draw_text("PRESS A", 46, 84, 7)
     return
   end
-  local room = room_at(player.pos.x, player.pos.y)
+  -- Falls back to the last known room for one frame if the player is
+  -- momentarily outside every room's bounds (see the "playing" branch in
+  -- _update, which kills and respawns them before the next frame).
+  local room = room_at(player.pos.x, player.pos.y) or GAME.last_room
   local ox, oy = room.col * ROOM_TILES, room.row * ROOM_TILES
   draw_map(ox, oy, ox * TILE, oy * TILE, ROOM_TILES, ROOM_TILES)
   Particles.draw()
@@ -483,7 +504,8 @@ function _draw()
     end
   end
   if room.flag then
-    sprite(SPR_FLAG, room.flag.x, room.flag.y)
+    local wp = room_point(room, room.flag)
+    sprite(SPR_FLAG, wp.x, wp.y)
   end
   if GAME.mode == "playing" or GAME.mode == "dying" then
     draw_text("DEATHS " .. GAME.deaths .. "  BERRIES " .. GAME.berries .. "/8", 2, 2, 14)
