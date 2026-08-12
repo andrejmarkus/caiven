@@ -1193,6 +1193,69 @@ fn custom_solid_collision_type_is_respected_by_tile_solid() {
 }
 
 #[test]
+fn custom_shape_collision_types_are_respected() {
+    let mut vm = make_vm();
+    let mut types = caiven_core::builtin_collision_types();
+    types.push(caiven_core::CollisionType {
+        id: 3,
+        name: "platform".to_string(),
+        color: [0, 200, 0],
+        flags: caiven_core::CollisionTypeFlags::from_bits(caiven_core::CollisionTypeFlags::ONE_WAY),
+    });
+    types.push(caiven_core::CollisionType {
+        id: 4,
+        name: "ramp_left".to_string(),
+        color: [200, 200, 0],
+        flags: caiven_core::CollisionTypeFlags::from_bits(
+            caiven_core::CollisionTypeFlags::SLOPE_LEFT,
+        ),
+    });
+    types.push(caiven_core::CollisionType {
+        id: 5,
+        name: "ramp_right".to_string(),
+        color: [0, 200, 200],
+        flags: caiven_core::CollisionTypeFlags::from_bits(
+            caiven_core::CollisionTypeFlags::SLOPE_RIGHT,
+        ),
+    });
+    vm.set_collision_types(types);
+
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          one_way = collision_is_one_way(3)
+          slope_left = collision_is_slope_left(4)
+          slope_right = collision_is_slope_right(5)
+          not_one_way = collision_is_one_way(4)
+          undefined_is_false = collision_is_one_way(200)
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&input, &font);
+    assert_eq!(vm.get_fault(), None);
+
+    let globals = vm.lua_globals();
+    let get = |name: &str| {
+        globals
+            .iter()
+            .find(|(k, _)| k == name)
+            .unwrap_or_else(|| panic!("missing global {name}"))
+            .1
+            .clone()
+    };
+    assert_eq!(get("one_way"), "true");
+    assert_eq!(get("slope_left"), "true");
+    assert_eq!(get("slope_right"), "true");
+    assert_eq!(get("not_one_way"), "false");
+    assert_eq!(get("undefined_is_false"), "false");
+}
+
+#[test]
 fn prelude_tween_reaches_target_and_marks_done() {
     let got = run_and_get(
         r#"

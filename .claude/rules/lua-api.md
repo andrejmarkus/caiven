@@ -33,3 +33,21 @@ foreign convention. Consider runtime cost for anything called from
 
 Existing API behavior must never change silently — a behavior change with no
 version/compat note is a bug, not a feature.
+
+## Third registry: `BUILTIN_NAMES` in `lua_exec.rs`
+
+A new global registered in `register_builtins` (`lua_exec.rs`) must *also* be
+added to the `BUILTIN_NAMES` const near the top of that same file — a list
+separate from both `api_registry.rs`'s `BUILTINS` and the `globals.set(...)`
+call itself. It marks a name as "API surface, not script state" for
+`Vm::lua_globals` (debugger snapshot) and hot-reload's upvalue-join filter
+(`is_reload_join_candidate`). Omitting it doesn't fail loudly: hot reload
+treats the omitted name as a script-defined closure and calls
+`lua_upvaluejoin` on what is actually a native Rust function, which aborts
+the process (`SIGABRT`, "Lua function expected" assertion in `lapi.c`) the
+next time a cart using that name is hot-reloaded — not a compile error, not
+a normal test failure, just a crash the *next* time you happen to run the
+right test. `cargo test -p caiven-vm` catches it only if you run the
+`hot_reload_tests` (they don't always fail under a parallel run — the
+crash can come and go with test scheduling, so a single flaky-looking abort
+is not safe to dismiss as flakiness without checking this first).

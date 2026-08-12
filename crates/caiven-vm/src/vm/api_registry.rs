@@ -238,6 +238,24 @@ pub const BUILTINS: &[ApiEntry] = &[
         doc: "True if the collision type with this id is flagged solid. Used by tile_solid/box_touches_solid; undefined ids are never solid.",
     },
     ApiEntry {
+        name: "collision_is_one_way",
+        params: &[param!("id": "u8")],
+        returns: "bool",
+        doc: "True if the collision type with this id is flagged one-way (passable from below/the side, landed on only when descending from above). Undefined ids are never one-way.",
+    },
+    ApiEntry {
+        name: "collision_is_slope_left",
+        params: &[param!("id": "u8")],
+        returns: "bool",
+        doc: "True if the collision type with this id is flagged slope-left (floor rises right-to-left; walking left goes uphill). Undefined ids are never a slope.",
+    },
+    ApiEntry {
+        name: "collision_is_slope_right",
+        params: &[param!("id": "u8")],
+        returns: "bool",
+        doc: "True if the collision type with this id is flagged slope-right (floor rises left-to-right; walking right goes uphill). Undefined ids are never a slope.",
+    },
+    ApiEntry {
         name: "load_sprite_bank",
         params: &[param!("id": "u8")],
         returns: "bool",

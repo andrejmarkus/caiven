@@ -62,6 +62,9 @@ const BUILTIN_NAMES: &[&str] = &[
     "collision_type_id",
     "collision_type_name",
     "collision_is_solid",
+    "collision_is_one_way",
+    "collision_is_slope_left",
+    "collision_is_slope_right",
     "load_sprite_bank",
     "load_map_bank",
     "load_palette_bank",
@@ -1220,6 +1223,30 @@ fn register_builtins<'scope, 'env>(
         "collision_is_solid",
         scope
             .create_function(move |_, id: u8| Ok(caiven_core::is_solid_id(collision_types, id)))?,
+    )?;
+
+    globals.set(
+        "collision_is_one_way",
+        scope.create_function(move |_, id: u8| {
+            Ok(caiven_core::collision_type_by_id(collision_types, id)
+                .is_some_and(|t| t.flags.is_one_way()))
+        })?,
+    )?;
+
+    globals.set(
+        "collision_is_slope_left",
+        scope.create_function(move |_, id: u8| {
+            Ok(caiven_core::collision_type_by_id(collision_types, id)
+                .is_some_and(|t| t.flags.is_slope_left()))
+        })?,
+    )?;
+
+    globals.set(
+        "collision_is_slope_right",
+        scope.create_function(move |_, id: u8| {
+            Ok(caiven_core::collision_type_by_id(collision_types, id)
+                .is_some_and(|t| t.flags.is_slope_right()))
+        })?,
     )?;
 
     globals.set(
