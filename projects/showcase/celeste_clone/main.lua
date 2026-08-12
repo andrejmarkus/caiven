@@ -190,8 +190,45 @@ function _init()
   set_palette()
   paint_world()
 
-  GAME = { mode = "title", deaths = 0, berries = 0 }
+  GAME = { mode = "title", deaths = 0, berries = 0, last_room = ROOMS[1] }
   spawn_player(ROOMS[1].spawn)
+end
+
+DYING_FRAMES = 20
+
+local function player_touches_hazard()
+  local tx0 = math.floor(player.pos.x / TILE)
+  local ty0 = math.floor(player.pos.y / TILE)
+  local tx1 = math.floor((player.pos.x + player.w - 1) / TILE)
+  local ty1 = math.floor((player.pos.y + player.h - 1) / TILE)
+  for ty = ty0, ty1 do
+    for tx = tx0, tx1 do
+      if get_collision(tx, ty) == COL_HAZARD then return true end
+    end
+  end
+  return false
+end
+
+local function start_dying()
+  GAME.mode = "dying"
+  GAME.dying_timer = DYING_FRAMES
+  play_sfx(SFX_DEATH)
+  for i = 1, 12 do
+    local a = (i / 12) * 6.28318
+    Particles.spawn(player.pos.x + player.w / 2, player.pos.y + player.h / 2,
+      math.cos(a) * 1.5, math.sin(a) * 1.5, 8, 18)
+  end
+  GAME.deaths = GAME.deaths + 1
+end
+
+local function handle_dying()
+  Particles.update()
+  GAME.dying_timer = GAME.dying_timer - 1
+  if GAME.dying_timer <= 0 then
+    local room = room_at(player.pos.x, player.pos.y) or GAME.last_room
+    spawn_player(room.spawn)
+    GAME.mode = "playing"
+  end
 end
 
 RUN_MAX = 1.2
@@ -350,8 +387,19 @@ function _update()
     return
   end
 
-  physics_update(read_input())
-  update_camera(player.pos.x, player.pos.y)
+  if GAME.mode == "playing" then
+    local room = room_at(player.pos.x, player.pos.y)
+    if room then GAME.last_room = room end
+    physics_update(read_input())
+    update_camera(player.pos.x, player.pos.y)
+    if player_touches_hazard() then start_dying() end
+    return
+  end
+
+  if GAME.mode == "dying" then
+    handle_dying()
+    return
+  end
 end
 
 function _draw()
