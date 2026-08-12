@@ -90,7 +90,14 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             ids,
-            ["movement", "catch", "tiles", "stdlib-demo", "scenes-demo"]
+            [
+                "movement",
+                "catch",
+                "tiles",
+                "stdlib-demo",
+                "scenes-demo",
+                "platformer"
+            ]
         );
         assert_eq!(ids.iter().copied().collect::<HashSet<_>>().len(), ids.len());
     }
