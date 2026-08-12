@@ -38,11 +38,16 @@
   // Renders audio on the main thread (the only place the emscripten module
   // lives) and hands pre-rendered PCM chunks to an AudioWorklet for
   // playback — mirrors AudioEngine in caiven-port/web/src/player.ts, with
-  // the worklet module loaded from an inlined Blob URL instead of a
-  // same-origin path (no network fetch allowed in the exported html).
-  function AudioEngine(module, workletBlobUrl) {
+  // the worklet module loaded from an inlined `data:` URL instead of a
+  // same-origin path (no network fetch allowed in the exported html). A
+  // `blob:` URL (used on caiven-port/web, which is always http(s)) fails
+  // here with "AbortError: Unable to load a worklet's module" when this
+  // exported file is opened via `file://` — Chromium's AudioWorklet module
+  // loader doesn't resolve blob: URLs under a file: document origin. data:
+  // URLs aren't affected, so this export uses one unconditionally.
+  function AudioEngine(module, workletUrl) {
     this.module = module;
-    this.workletBlobUrl = workletBlobUrl;
+    this.workletUrl = workletUrl;
     this.ctx = null;
     this.node = null;
     this.nextChunkTime = 0;
@@ -59,7 +64,7 @@
     const ctx = new AudioCtx();
     this.ctx = ctx;
     const self = this;
-    ctx.audioWorklet.addModule(this.workletBlobUrl).then(function () {
+    ctx.audioWorklet.addModule(this.workletUrl).then(function () {
       const node = new AudioWorkletNode(ctx, "caiven-audio-processor", {
         numberOfInputs: 0,
         numberOfOutputs: 1,
@@ -98,8 +103,7 @@
   function boot() {
     const cartBytes = b64ToBytes(window.__CAIVEN_CART_B64);
     const wasmBytes = b64ToBytes(window.__CAIVEN_WASM_B64);
-    const workletSrc = new TextDecoder().decode(b64ToBytes(window.__CAIVEN_WORKLET_B64));
-    const workletBlobUrl = URL.createObjectURL(new Blob([workletSrc], { type: "application/javascript" }));
+    const workletUrl = "data:application/javascript;base64," + window.__CAIVEN_WORKLET_B64;
 
     const statusEl = document.getElementById("status");
     const setStatus = function (msg) {
@@ -144,7 +148,7 @@
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext("2d");
-        const audio = new AudioEngine(module, workletBlobUrl);
+        const audio = new AudioEngine(module, workletUrl);
 
         function setButton(btn, down) {
           module.ccall("caiven_set_button", null, ["number", "number"], [btn, down ? 1 : 0]);
