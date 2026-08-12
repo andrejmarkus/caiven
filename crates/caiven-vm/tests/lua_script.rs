@@ -1410,6 +1410,41 @@ fn move_and_collide_rejects_non_number_args() {
 }
 
 #[test]
+fn entities_overlapping_returns_matches_and_skips_entities_without_box_fields() {
+    let got = run_and_get(
+        r#"
+        Entities.add({ pos = Vec2.new(0, 0), w = 4, h = 4, name = "a" })
+        Entities.add({ pos = Vec2.new(2, 2), w = 4, h = 4, name = "b" })
+        Entities.add({ pos = Vec2.new(20, 20), w = 4, h = 4, name = "c" })
+        Entities.add({ name = "no_box" })
+
+        hits = Entities.overlapping(0, 0, 4, 4)
+        count = #hits
+        first = hits[1].name
+        second = hits[2].name
+        "#,
+        &["count", "first", "second"],
+    );
+    assert_eq!(got, vec!["2", "\"a\"", "\"b\""]);
+}
+
+#[test]
+fn entities_overlapping_works_on_independent_lists() {
+    let got = run_and_get(
+        r#"
+        local list = Entities.new()
+        list.add({ pos = Vec2.new(0, 0), w = 2, h = 2 })
+        hits_own = list.overlapping(0, 0, 2, 2)
+        hits_shared = Entities.overlapping(0, 0, 2, 2)
+        count_own = #hits_own
+        count_shared = #hits_shared
+        "#,
+        &["count_own", "count_shared"],
+    );
+    assert_eq!(got, vec!["1", "0"]);
+}
+
+#[test]
 fn prelude_tween_reaches_target_and_marks_done() {
     let got = run_and_get(
         r#"

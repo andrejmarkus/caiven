@@ -40,6 +40,16 @@ local function make_entity_list()
     return #self.list
   end
 
+  function self.overlapping(x, y, w, h)
+    local hits = {}
+    for _, e in ipairs(self.list) do
+      if e.pos and e.w and e.h and aabb_overlap(x, y, w, h, e.pos.x, e.pos.y, e.w, e.h) then
+        table.insert(hits, e)
+      end
+    end
+    return hits
+  end
+
   return self
 end
 

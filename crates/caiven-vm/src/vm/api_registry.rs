@@ -713,10 +713,21 @@ pub const PRELUDE: &[ApiEntry] = &[
         doc: "Number of live entities.",
     },
     ApiEntry {
+        name: "Entities.overlapping",
+        params: &[
+            param!("x": "number"),
+            param!("y": "number"),
+            param!("w": "number"),
+            param!("h": "number"),
+        ],
+        returns: "table",
+        doc: "Entities in this list whose .pos (a Vec2) and .w/.h box overlaps (x, y, w, h), via aabb_overlap. Entities missing .pos/.w/.h are silently skipped (not an error) — matches the caller-defined entity shape convention used everywhere else in this module. Requires the collision module (for aabb_overlap) to also be enabled.",
+    },
+    ApiEntry {
         name: "Entities.new",
         params: &[],
         returns: "table",
-        doc: "Returns a fresh, independent entity list with its own add/update_all/draw_all/clear/count methods, for carts that want one list per scene instead of the shared default list.",
+        doc: "Returns a fresh, independent entity list with its own add/update_all/draw_all/clear/count/overlapping methods, for carts that want one list per scene instead of the shared default list.",
     },
     ApiEntry {
         name: "Camera.follow",
