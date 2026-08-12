@@ -63,32 +63,56 @@ const MIN_SUPPORTED_MANIFEST_VERSION: u16 = 1;
 
 /// On-disk DTO for `collision_types.json` — a readable/diffable stand-in
 /// for `caiven_core::CollisionType`, whose `flags` bitset is exposed here
-/// as a plain `solid` bool (the only engine-affecting flag today).
+/// as a `shape` string (mutually-exclusive by convention — see
+/// `caiven_core::CollisionTypeFlags`). `solid` is read-only backward
+/// compatibility for files written before `shape` existed; new/re-saved
+/// files never write it (accept older, never emit the old shape — see
+/// `.claude/rules/cart-format.md`).
 #[derive(Serialize, Deserialize)]
 struct CollisionTypeDto {
     id: u8,
     name: String,
     color: [u8; 3],
-    solid: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    shape: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    solid: Option<bool>,
 }
 
 impl From<&caiven_core::CollisionType> for CollisionTypeDto {
     fn from(t: &caiven_core::CollisionType) -> Self {
+        let shape = if t.flags.is_solid() {
+            "solid"
+        } else if t.flags.is_one_way() {
+            "one_way"
+        } else if t.flags.is_slope_left() {
+            "slope_left"
+        } else if t.flags.is_slope_right() {
+            "slope_right"
+        } else {
+            "none"
+        };
         Self {
             id: t.id,
             name: t.name.clone(),
             color: t.color,
-            solid: t.flags.is_solid(),
+            shape: Some(shape.to_string()),
+            solid: None,
         }
     }
 }
 
 impl From<CollisionTypeDto> for caiven_core::CollisionType {
     fn from(dto: CollisionTypeDto) -> Self {
-        let bits = if dto.solid {
-            caiven_core::CollisionTypeFlags::SOLID
-        } else {
-            0
+        let bits = match dto.shape.as_deref() {
+            Some("solid") => caiven_core::CollisionTypeFlags::SOLID,
+            Some("one_way") => caiven_core::CollisionTypeFlags::ONE_WAY,
+            Some("slope_left") => caiven_core::CollisionTypeFlags::SLOPE_LEFT,
+            Some("slope_right") => caiven_core::CollisionTypeFlags::SLOPE_RIGHT,
+            Some(_) => 0,
+            // No `shape` key at all: pre-shape file, fall back to `solid`.
+            None if dto.solid.unwrap_or(false) => caiven_core::CollisionTypeFlags::SOLID,
+            None => 0,
         };
         Self {
             id: dto.id,
@@ -714,6 +738,88 @@ mod tests {
                 .iter()
                 .all(|s| s.kind == SectionKind::LuaSource)
         );
+    }
+
+    #[test]
+    fn collision_types_json_roundtrips_new_shapes() {
+        let dir = tempfile::tempdir().unwrap();
+        let header = CartHeader::new("Blank", "");
+
+        let mut types = caiven_core::builtin_collision_types();
+        types.push(caiven_core::CollisionType {
+            id: 3,
+            name: "platform".to_string(),
+            color: [0, 200, 0],
+            flags: caiven_core::CollisionTypeFlags::from_bits(
+                caiven_core::CollisionTypeFlags::ONE_WAY,
+            ),
+        });
+        types.push(caiven_core::CollisionType {
+            id: 4,
+            name: "ramp_right".to_string(),
+            color: [0, 200, 200],
+            flags: caiven_core::CollisionTypeFlags::from_bits(
+                caiven_core::CollisionTypeFlags::SLOPE_RIGHT,
+            ),
+        });
+        types.push(caiven_core::CollisionType {
+            id: 5,
+            name: "ramp_left".to_string(),
+            color: [200, 200, 0],
+            flags: caiven_core::CollisionTypeFlags::from_bits(
+                caiven_core::CollisionTypeFlags::SLOPE_LEFT,
+            ),
+        });
+        save_project(
+            dir.path(),
+            &header,
+            "-- empty\n",
+            &[],
+            &[(SectionKind::CollisionTypes, encode_collision_types(&types))],
+        )
+        .unwrap();
+
+        let written = std::fs::read_to_string(dir.path().join(COLLISION_TYPES_FILE)).unwrap();
+        assert!(written.contains("\"shape\":"));
+        assert!(!written.contains("\"solid\":"));
+
+        let cart = load_project(dir.path()).unwrap();
+        let section = cart
+            .sections
+            .iter()
+            .find(|s| s.kind == SectionKind::CollisionTypes)
+            .unwrap();
+        assert_eq!(decode_collision_types(&section.data), types);
+    }
+
+    #[test]
+    fn collision_types_json_with_old_solid_field_still_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let header = CartHeader::new("Blank", "");
+        save_project(dir.path(), &header, "-- empty\n", &[], &[]).unwrap();
+
+        std::fs::write(
+            dir.path().join(COLLISION_TYPES_FILE),
+            r#"[
+                {"id":0,"name":"walkable","color":[0,0,0],"solid":false},
+                {"id":1,"name":"solid","color":[255,176,0],"solid":true},
+                {"id":2,"name":"hazard","color":[224,32,32],"solid":false},
+                {"id":3,"name":"water","color":[0,128,255],"solid":false}
+            ]"#,
+        )
+        .unwrap();
+
+        let cart = load_project(dir.path()).unwrap();
+        let section = cart
+            .sections
+            .iter()
+            .find(|s| s.kind == SectionKind::CollisionTypes)
+            .unwrap();
+        let types = decode_collision_types(&section.data);
+        assert_eq!(types.len(), 4);
+        assert!(types[1].flags.is_solid()); // id 1 ("solid") must be solid
+        assert!(!types[3].flags.is_solid());
+        assert!(!types[3].flags.is_one_way());
     }
 
     #[test]
