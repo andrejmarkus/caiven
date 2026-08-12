@@ -41,11 +41,20 @@ returns `false` rather than erroring.
 
 ## Audio
 
-| Function         | Description                           |
-| :----------------| :---------------------------------------|
-| `play_sfx(id)`   | Play a sound effect from the SFX bank |
-| `play_music(id)` | Play a music track                    |
-| `stop_music()`   | Stop music                            |
+| Function                 | Description                                                                                                                                             |
+| :------------------------| :----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `play_sfx(id, opts)`     | Start SFX `id` on a free (or, if all are busy, oldest) voice. `opts.volume` (0-1, default 1) is optional. Returns a handle. Polyphonic — concurrent calls get independent voices. |
+| `stop_sfx(handle)`       | Stop the voice `handle` refers to. Silent no-op if it already finished or was reused.                                                                   |
+| `play_music(id)`         | Play a music track, looping                                                                                                                              |
+| `stop_music()`           | Stop music                                                                                                                                                |
+| `set_master_volume(v)`   | Runtime-only output multiplier, `v` clamped to `[0, 1]`                                                                                                  |
+| `set_music_volume(v)`    | Runtime-only music-channel multiplier, `v` clamped to `[0, 1]`                                                                                           |
+| `set_sfx_volume(v)`      | Runtime-only SFX-voice multiplier, `v` clamped to `[0, 1]`                                                                                               |
+
+Each SFX step is 4 bytes: `note, volume, wave, byte3`. `byte3` packs pan
+(bits 0-3, index into a 16-position table, 0 = center) and attack/release
+envelope levels (bits 4-5 / 6-7, each 0-3 mapping to instant/~15ms/~50ms/~150ms
+ramps). `byte3 = 0` is center pan with an instant on/off envelope.
 
 ## Persistent Data
 

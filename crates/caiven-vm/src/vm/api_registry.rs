@@ -269,9 +269,15 @@ pub const BUILTINS: &[ApiEntry] = &[
     },
     ApiEntry {
         name: "play_sfx",
-        params: &[param!("id": "u8")],
+        params: &[param!("id": "u8"), param!("opts": "{volume: number}?")],
+        returns: "integer",
+        doc: "Start sound effect id on a free (or, if all are busy, oldest) voice. opts.volume (default 1.0) scales the step's authored volume. Returns a handle for stop_sfx. Multiple concurrent play_sfx calls are independently audible.",
+    },
+    ApiEntry {
+        name: "stop_sfx",
+        params: &[param!("handle": "integer")],
         returns: "nil",
-        doc: "Start sound effect id.",
+        doc: "Stops the voice handle refers to (release ramp, not an instant cut). Silent no-op if that voice already finished or was reused by a later play_sfx call.",
     },
     ApiEntry {
         name: "play_music",
@@ -284,6 +290,24 @@ pub const BUILTINS: &[ApiEntry] = &[
         params: &[],
         returns: "nil",
         doc: "Stop the currently playing music track.",
+    },
+    ApiEntry {
+        name: "set_master_volume",
+        params: &[param!("volume": "number")],
+        returns: "nil",
+        doc: "Runtime-only output multiplier, clamped to [0, 1]. Not persisted to cart data.",
+    },
+    ApiEntry {
+        name: "set_music_volume",
+        params: &[param!("volume": "number")],
+        returns: "nil",
+        doc: "Runtime-only multiplier applied to music channels only, clamped to [0, 1]. Not persisted to cart data.",
+    },
+    ApiEntry {
+        name: "set_sfx_volume",
+        params: &[param!("volume": "number")],
+        returns: "nil",
+        doc: "Runtime-only multiplier applied to all SFX voices, clamped to [0, 1]. Not persisted to cart data.",
     },
     ApiEntry {
         name: "dset",

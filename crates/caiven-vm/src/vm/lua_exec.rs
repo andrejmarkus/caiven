@@ -13,11 +13,15 @@
 //! frame before `_update()` — `register_builtins` is shared between the two
 //! call sites so the API surface can't drift between them.
 
+use super::audio::{SFX_POOL_LEN, Sound};
 use super::memory::Memory;
 use super::palette::Palette;
 use super::save_data::{SaveData, SaveDataError};
-use super::sfx::{MusicPlayer, SfxPlayer};
-use super::{AssetBankKind, AssetBanks, Camera, Vm, VmFault};
+use super::sfx::MusicPlayer;
+use super::{
+    AssetBankKind, AssetBanks, Camera, PooledSfx, Vm, VmFault, allocate_sfx_voice,
+    release_sfx_voice,
+};
 use crate::input::{Button, Input};
 use crate::rendering::font::Font;
 use crate::rendering::screen::ScreenLayer;
@@ -64,8 +68,12 @@ const BUILTIN_NAMES: &[&str] = &[
     "load_sfx_bank",
     "load_music_bank",
     "play_sfx",
+    "stop_sfx",
     "play_music",
     "stop_music",
+    "set_master_volume",
+    "set_music_volume",
+    "set_sfx_volume",
     "real_time",
     "frame_count",
     "time",
@@ -816,8 +824,10 @@ fn register_builtins<'scope, 'env>(
     memory: &'env RefCell<&'env mut Memory>,
     palette: &'env RefCell<&'env mut Palette>,
     camera: &'env RefCell<&'env mut Camera>,
-    sfx_player: &'env RefCell<&'env mut SfxPlayer>,
     music_player: &'env RefCell<&'env mut MusicPlayer>,
+    sfx_pool: &'env RefCell<&'env mut [PooledSfx; SFX_POOL_LEN]>,
+    next_sfx_age: &'env RefCell<&'env mut u64>,
+    sound: Arc<Mutex<Sound>>,
     asset_banks: &'env RefCell<&'env mut AssetBanks>,
     save_data: &'env RefCell<&'env mut SaveData>,
     collision_types: &'env [caiven_core::CollisionType],
@@ -1284,8 +1294,26 @@ fn register_builtins<'scope, 'env>(
 
     globals.set(
         "play_sfx",
-        scope.create_function_mut(|_, id: u8| {
-            sfx_player.borrow_mut().start(id);
+        scope.create_function_mut(move |_, (id, opts): (u8, Option<mlua::Table>)| {
+            let volume = match &opts {
+                Some(t) => t.get::<Option<f64>>("volume")?.unwrap_or(1.0) as f32,
+                None => 1.0,
+            };
+            let handle = allocate_sfx_voice(
+                &mut sfx_pool.borrow_mut(),
+                &mut next_sfx_age.borrow_mut(),
+                id,
+                volume,
+            );
+            Ok(handle)
+        })?,
+    )?;
+
+    let sound_for_stop_sfx = sound.clone();
+    globals.set(
+        "stop_sfx",
+        scope.create_function_mut(move |_, handle: u32| {
+            release_sfx_voice(&mut sfx_pool.borrow_mut(), &sound_for_stop_sfx, handle);
             Ok(())
         })?,
     )?;
@@ -1302,6 +1330,38 @@ fn register_builtins<'scope, 'env>(
         "stop_music",
         scope.create_function_mut(|_, ()| {
             music_player.borrow_mut().stop();
+            Ok(())
+        })?,
+    )?;
+
+    let sound_for_master_volume = sound.clone();
+    globals.set(
+        "set_master_volume",
+        scope.create_function_mut(move |_, v: f64| {
+            if let Ok(mut s) = sound_for_master_volume.try_lock() {
+                s.master_volume = (v as f32).clamp(0.0, 1.0);
+            }
+            Ok(())
+        })?,
+    )?;
+
+    let sound_for_music_volume = sound.clone();
+    globals.set(
+        "set_music_volume",
+        scope.create_function_mut(move |_, v: f64| {
+            if let Ok(mut s) = sound_for_music_volume.try_lock() {
+                s.music_volume = (v as f32).clamp(0.0, 1.0);
+            }
+            Ok(())
+        })?,
+    )?;
+
+    globals.set(
+        "set_sfx_volume",
+        scope.create_function_mut(move |_, v: f64| {
+            if let Ok(mut s) = sound.try_lock() {
+                s.sfx_volume = (v as f32).clamp(0.0, 1.0);
+            }
             Ok(())
         })?,
     )?;
@@ -1500,8 +1560,10 @@ impl Vm {
         let memory = RefCell::new(&mut self.memory);
         let palette = RefCell::new(&mut self.palette);
         let camera = RefCell::new(&mut self.camera);
-        let sfx_player = RefCell::new(&mut self.sfx_player);
         let music_player = RefCell::new(&mut self.music_player);
+        let sfx_pool = RefCell::new(&mut self.sfx_pool);
+        let next_sfx_age = RefCell::new(&mut self.next_sfx_age);
+        let sound = self.sound.clone();
         let asset_banks = RefCell::new(&mut self.asset_banks);
         let save_data = RefCell::new(&mut self.save_data);
         let sprite_size = self.config.sprite_size;
@@ -1518,8 +1580,10 @@ impl Vm {
                 &memory,
                 &palette,
                 &camera,
-                &sfx_player,
                 &music_player,
+                &sfx_pool,
+                &next_sfx_age,
+                sound.clone(),
                 &asset_banks,
                 &save_data,
                 &self.collision_types,
@@ -1588,8 +1652,10 @@ impl Vm {
         let memory = RefCell::new(&mut self.memory);
         let palette = RefCell::new(&mut self.palette);
         let camera = RefCell::new(&mut self.camera);
-        let sfx_player = RefCell::new(&mut self.sfx_player);
         let music_player = RefCell::new(&mut self.music_player);
+        let sfx_pool = RefCell::new(&mut self.sfx_pool);
+        let next_sfx_age = RefCell::new(&mut self.next_sfx_age);
+        let sound = self.sound.clone();
         let asset_banks = RefCell::new(&mut self.asset_banks);
         let save_data = RefCell::new(&mut self.save_data);
         let sprite_size = self.config.sprite_size;
@@ -1606,8 +1672,10 @@ impl Vm {
                 &memory,
                 &palette,
                 &camera,
-                &sfx_player,
                 &music_player,
+                &sfx_pool,
+                &next_sfx_age,
+                sound.clone(),
                 &asset_banks,
                 &save_data,
                 &self.collision_types,
@@ -1667,8 +1735,10 @@ impl Vm {
         let memory = RefCell::new(&mut self.memory);
         let palette = RefCell::new(&mut self.palette);
         let camera = RefCell::new(&mut self.camera);
-        let sfx_player = RefCell::new(&mut self.sfx_player);
         let music_player = RefCell::new(&mut self.music_player);
+        let sfx_pool = RefCell::new(&mut self.sfx_pool);
+        let next_sfx_age = RefCell::new(&mut self.next_sfx_age);
+        let sound = self.sound.clone();
         let asset_banks = RefCell::new(&mut self.asset_banks);
         let save_data = RefCell::new(&mut self.save_data);
         let sprite_size = self.config.sprite_size;
@@ -1738,8 +1808,10 @@ impl Vm {
                 &memory,
                 &palette,
                 &camera,
-                &sfx_player,
                 &music_player,
+                &sfx_pool,
+                &next_sfx_age,
+                sound.clone(),
                 &asset_banks,
                 &save_data,
                 &self.collision_types,
@@ -1990,8 +2062,10 @@ impl Vm {
         let memory = RefCell::new(&mut self.memory);
         let palette = RefCell::new(&mut self.palette);
         let camera = RefCell::new(&mut self.camera);
-        let sfx_player = RefCell::new(&mut self.sfx_player);
         let music_player = RefCell::new(&mut self.music_player);
+        let sfx_pool = RefCell::new(&mut self.sfx_pool);
+        let next_sfx_age = RefCell::new(&mut self.next_sfx_age);
+        let sound = self.sound.clone();
         let asset_banks = RefCell::new(&mut self.asset_banks);
         let save_data = RefCell::new(&mut self.save_data);
         let sprite_size = self.config.sprite_size;
@@ -2010,8 +2084,10 @@ impl Vm {
                 &memory,
                 &palette,
                 &camera,
-                &sfx_player,
                 &music_player,
+                &sfx_pool,
+                &next_sfx_age,
+                sound.clone(),
                 &asset_banks,
                 &save_data,
                 collision_types,

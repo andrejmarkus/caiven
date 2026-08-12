@@ -227,10 +227,17 @@ pub struct Vm {
 /// `play_sfx`/`stop_sfx` Lua API. `age` is a monotonically increasing
 /// counter set on every (re)trigger — the pool steals the slot with the
 /// smallest `age` when all slots are busy, i.e. the one triggered longest
-/// ago.
+/// ago. `epoch` is a separate counter, also bumped on every (re)trigger,
+/// used only to validate a handle returned to Lua — kept distinct from the
+/// shared `Voice.epoch` (bumped independently by `tick_sfx_channel` on
+/// every note-start) so a handle doesn't go stale the instant the pool's
+/// player ticks its first step; those are two different questions ("is
+/// this handle still this call's voice" vs. "has the audio thread's
+/// envelope/phase seen a retrigger").
 struct PooledSfx {
     player: SfxPlayer,
     age: u64,
+    epoch: u32,
     volume_scale: f32,
 }
 
@@ -239,12 +246,13 @@ impl PooledSfx {
         Self {
             player: SfxPlayer::new(),
             age: 0,
+            epoch: 0,
             volume_scale: 1.0,
         }
     }
 }
 
-/// Packs a pool slot index and its voice's current epoch into a single
+/// Packs a pool slot index and its current allocation epoch into a single
 /// handle returned to Lua. `release_sfx_voice` decodes both and only acts
 /// if the epoch still matches — a handle for a voice since stolen by
 /// another `play_sfx` call is a silent no-op instead of stopping the wrong
@@ -267,7 +275,6 @@ fn unpack_sfx_handle(handle: u32) -> (u32, u32) {
 fn allocate_sfx_voice(
     pool: &mut [PooledSfx; SFX_POOL_LEN],
     next_age: &mut u64,
-    sound: &Arc<Mutex<Sound>>,
     id: u8,
     volume: f32,
 ) -> u32 {
@@ -285,17 +292,11 @@ fn allocate_sfx_voice(
 
     *next_age = next_age.wrapping_add(1);
     pool[slot].age = *next_age;
+    pool[slot].epoch = pool[slot].epoch.wrapping_add(1);
     pool[slot].volume_scale = volume;
     pool[slot].player.start(id);
 
-    let epoch = if let Ok(mut s) = sound.try_lock() {
-        let voice = &mut s.voices[audio::SFX_POOL_START + slot];
-        voice.epoch = voice.epoch.wrapping_add(1);
-        voice.epoch
-    } else {
-        0
-    };
-    pack_sfx_handle(slot as u32, epoch)
+    pack_sfx_handle(slot as u32, pool[slot].epoch)
 }
 
 /// Stops the voice `handle` refers to, if it's still the current occupant
@@ -304,24 +305,13 @@ fn allocate_sfx_voice(
 fn release_sfx_voice(pool: &mut [PooledSfx; SFX_POOL_LEN], sound: &Arc<Mutex<Sound>>, handle: u32) {
     let (slot, epoch) = unpack_sfx_handle(handle);
     let slot = slot as usize;
-    if slot >= pool.len() {
+    if slot >= pool.len() || pool[slot].epoch != epoch {
         return;
     }
 
-    let still_current = if let Ok(mut s) = sound.try_lock() {
-        let voice = &mut s.voices[audio::SFX_POOL_START + slot];
-        if voice.epoch == epoch {
-            voice.gate = false;
-            true
-        } else {
-            false
-        }
-    } else {
-        false
-    };
-
-    if still_current {
-        pool[slot].player.stop();
+    pool[slot].player.stop();
+    if let Ok(mut s) = sound.try_lock() {
+        s.voices[audio::SFX_POOL_START + slot].gate = false;
     }
 }
 
@@ -782,13 +772,7 @@ impl Vm {
     /// pool voice. `volume` is a `[0, 1]` multiplier layered on top of the
     /// step's authored volume. Returns a handle for `stop_sfx_voice`.
     pub fn play_sfx_voice(&mut self, id: u8, volume: f32) -> u32 {
-        allocate_sfx_voice(
-            &mut self.sfx_pool,
-            &mut self.next_sfx_age,
-            &self.sound,
-            id,
-            volume,
-        )
+        allocate_sfx_voice(&mut self.sfx_pool, &mut self.next_sfx_age, id, volume)
     }
 
     /// Stops the voice `handle` refers to. Silent no-op if that voice

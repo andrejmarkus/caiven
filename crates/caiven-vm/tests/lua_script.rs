@@ -1,6 +1,7 @@
-use caiven_core::memory::{RTC_RAM_BASE, SFX_RAM_BASE, SPRITE_SHEET_RAM_BASE};
+use caiven_core::memory::{MUSIC_RAM_BASE, RTC_RAM_BASE, SFX_RAM_BASE, SPRITE_SHEET_RAM_BASE};
 use caiven_vm::input::Input;
 use caiven_vm::rendering::font::Font;
+use caiven_vm::vm::audio::{MUSIC_VOICE_CH0, MUSIC_VOICE_CH1, SFX_POOL_LEN, SFX_POOL_START};
 use caiven_vm::{
     LuaBreakpoint, LuaRunOutcome, Vm, VmConfig, VmFault, describe_lua_error,
     describe_lua_error_location,
@@ -533,7 +534,7 @@ fn lua_run_frame_bp_ticks_audio_players() {
     let mut vm = make_vm();
     let input = Input::new();
     let font = Font::empty();
-    // SFX slot 0, step 0: note=49, vol=12, wave=0 (square), fx=0.
+    // SFX slot 0, step 0: note=49, vol=12, wave=0 (square), byte3=0.
     vm.load_section_to_ram(SFX_RAM_BASE, &[49, 12, 0, 0]);
     vm.load_lua_source(
         r#"
@@ -561,8 +562,10 @@ fn lua_run_frame_bp_ticks_audio_players() {
 
     let sound = vm.get_sound_shared();
     let s = sound.lock().unwrap_or_else(|e| e.into_inner());
-    let voice = &s.voices[caiven_vm::vm::audio::LEGACY_SFX_VOICE];
-    assert!(voice.gate, "voice should be gated on");
+    let voice = s.voices[SFX_POOL_START..]
+        .iter()
+        .find(|v| v.gate)
+        .unwrap_or_else(|| panic!("expected a gated pool voice, found none"));
     assert!(voice.volume > 0.0, "volume should be nonzero");
 }
 
@@ -582,8 +585,234 @@ fn stop_audio_silences_players_and_shared_channels() {
     let sound = vm.get_sound_shared();
     let sound = sound.lock().unwrap_or_else(|error| error.into_inner());
     assert!(!sound.voices[caiven_vm::vm::audio::LEGACY_SFX_VOICE].gate);
-    assert!(!sound.voices[caiven_vm::vm::audio::MUSIC_VOICE_CH0].gate);
-    assert!(!sound.voices[caiven_vm::vm::audio::MUSIC_VOICE_CH1].gate);
+    assert!(!sound.voices[MUSIC_VOICE_CH0].gate);
+    assert!(!sound.voices[MUSIC_VOICE_CH1].gate);
+}
+
+#[test]
+fn play_sfx_returns_a_distinct_handle_per_call() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    // SFX slot 0, step 0: note=49, vol=12, wave=0 (square), byte3=0.
+    vm.load_section_to_ram(SFX_RAM_BASE, &[49, 12, 0, 0]);
+    vm.load_lua_source(
+        r#"
+        handle_a = 0
+        handle_b = 0
+        function _init()
+          handle_a = play_sfx(0)
+          handle_b = play_sfx(0)
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    let handle_a = vm
+        .lua_watch("handle_a")
+        .unwrap_or_else(|e| panic!("lua_watch failed: {e}"))
+        .text;
+    let handle_b = vm
+        .lua_watch("handle_b")
+        .unwrap_or_else(|e| panic!("lua_watch failed: {e}"))
+        .text;
+    assert_ne!(handle_a, handle_b);
+}
+
+#[test]
+fn play_sfx_is_polyphonic_two_concurrent_calls_occupy_distinct_voices() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_section_to_ram(SFX_RAM_BASE, &[49, 12, 0, 0]);
+    vm.load_lua_source(
+        r#"
+        function _init()
+          play_sfx(0)
+          play_sfx(0)
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    vm.run_frame(&input, &font);
+
+    let sound = vm.get_sound_shared();
+    let sound = sound.lock().unwrap_or_else(|e| e.into_inner());
+    let gated_pool_voices = sound.voices[SFX_POOL_START..]
+        .iter()
+        .filter(|v| v.gate)
+        .count();
+    assert_eq!(
+        gated_pool_voices, 2,
+        "two concurrent play_sfx calls should occupy two distinct pool voices"
+    );
+}
+
+#[test]
+fn sixth_concurrent_play_sfx_steals_the_oldest_voice() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_section_to_ram(SFX_RAM_BASE, &[49, 12, 0, 0]);
+    // SFX_POOL_LEN (5) voices, so a 6th concurrent call must steal instead
+    // of erroring or being dropped.
+    let calls: String = (0..SFX_POOL_LEN + 1)
+        .map(|_| "play_sfx(0)\n".to_string())
+        .collect();
+    vm.load_lua_source(&format!("function _init()\n{calls}end"), &input, &font)
+        .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    vm.run_frame(&input, &font);
+
+    let sound = vm.get_sound_shared();
+    let sound = sound.lock().unwrap_or_else(|e| e.into_inner());
+    let gated_pool_voices = sound.voices[SFX_POOL_START..]
+        .iter()
+        .filter(|v| v.gate)
+        .count();
+    assert_eq!(
+        gated_pool_voices, SFX_POOL_LEN,
+        "all pool voices should be busy after more concurrent calls than the pool has slots"
+    );
+}
+
+#[test]
+fn play_sfx_does_not_disturb_concurrent_music_playback() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    // SFX slot 0, step 0: note=49, vol=12, wave=0 (square).
+    vm.load_section_to_ram(SFX_RAM_BASE, &[49, 12, 0, 0]);
+    // Music pattern 0, row 0: ch0 references SFX slot 0 (byte value = id+1).
+    vm.load_section_to_ram(MUSIC_RAM_BASE, &[1, 0]);
+    vm.load_lua_source(
+        r#"
+        function _init()
+          play_music(0)
+          play_sfx(0)
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    vm.run_frame(&input, &font);
+
+    let sound = vm.get_sound_shared();
+    let sound = sound.lock().unwrap_or_else(|e| e.into_inner());
+    assert!(
+        sound.voices[MUSIC_VOICE_CH0].gate,
+        "music channel 0 should still be gated on after a concurrent play_sfx call"
+    );
+}
+
+#[test]
+fn stop_sfx_on_an_active_handle_releases_it() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_section_to_ram(SFX_RAM_BASE, &[49, 12, 0, 0]);
+    vm.load_lua_source(
+        r#"
+        handle = 0
+        stopped = false
+        function _init()
+          handle = play_sfx(0)
+        end
+        function _update()
+          if not stopped then
+            stop_sfx(handle)
+            stopped = true
+          end
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    vm.run_frame(&input, &font); // _update() calls stop_sfx(handle)
+    vm.run_frame(&input, &font); // tick applies the release
+
+    let sound = vm.get_sound_shared();
+    let sound = sound.lock().unwrap_or_else(|e| e.into_inner());
+    let gated_pool_voices = sound.voices[SFX_POOL_START..]
+        .iter()
+        .filter(|v| v.gate)
+        .count();
+    assert_eq!(gated_pool_voices, 0, "stop_sfx should release the voice");
+}
+
+#[test]
+fn stop_sfx_on_a_stale_handle_is_a_silent_no_op() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_section_to_ram(SFX_RAM_BASE, &[49, 12, 0, 0]);
+    // Steal the first handle's voice by filling the pool past capacity,
+    // then try to stop the now-stale first handle.
+    let calls: String = (0..SFX_POOL_LEN)
+        .map(|_| "play_sfx(0)\n".to_string())
+        .collect();
+    vm.load_lua_source(
+        &format!(
+            r#"
+            function _init()
+              first_handle = play_sfx(0)
+              {calls}
+              stop_sfx(first_handle)
+            end
+            "#
+        ),
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    // Must not error even though first_handle's voice was already stolen.
+    vm.run_frame(&input, &font);
+
+    let sound = vm.get_sound_shared();
+    let sound = sound.lock().unwrap_or_else(|e| e.into_inner());
+    let gated_pool_voices = sound.voices[SFX_POOL_START..]
+        .iter()
+        .filter(|v| v.gate)
+        .count();
+    assert_eq!(
+        gated_pool_voices, SFX_POOL_LEN,
+        "stopping a stale handle must not touch the voice that stole its slot"
+    );
+}
+
+#[test]
+fn volume_setters_clamp_to_zero_one() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _init()
+          set_master_volume(-1)
+          set_music_volume(5)
+          set_sfx_volume(0.5)
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    let sound = vm.get_sound_shared();
+    let sound = sound.lock().unwrap_or_else(|e| e.into_inner());
+    assert_eq!(sound.master_volume, 0.0);
+    assert_eq!(sound.music_volume, 1.0);
+    assert_eq!(sound.sfx_volume, 0.5);
 }
 
 #[test]
