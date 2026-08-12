@@ -190,9 +190,21 @@ function _init()
   set_palette()
   paint_world()
 
+  reset_game()
+end
+
+local function player_touches_flag()
+  local flag = ROOMS[8].flag
+  if not flag then return false end
+  return aabb_overlap(player.pos.x, player.pos.y, player.w, player.h,
+    flag.x, flag.y, 8, 8)
+end
+
+function reset_game()
   GAME = { mode = "title", deaths = 0, berries = 0, last_room = ROOMS[1] }
   spawn_player(ROOMS[1].spawn)
   spawn_berries()
+  stop_music()
 end
 
 function spawn_berries()
@@ -413,7 +425,10 @@ end
 
 function _update()
   if GAME.mode == "title" then
-    if button_pressed(4) then GAME.mode = "playing" end
+    if button_pressed(4) then
+      GAME.mode = "playing"
+      play_music(MUSIC_MAIN)
+    end
     return
   end
 
@@ -424,11 +439,20 @@ function _update()
     update_berries()
     update_camera(player.pos.x, player.pos.y)
     if player_touches_hazard() then start_dying() end
+    if player_touches_flag() then
+      GAME.mode = "won"
+      stop_music()
+    end
     return
   end
 
   if GAME.mode == "dying" then
     handle_dying()
+    return
+  end
+
+  if GAME.mode == "won" then
+    if button_pressed(4) then reset_game() end
     return
   end
 end
@@ -438,6 +462,13 @@ function _draw()
   if GAME.mode == "title" then
     draw_text("CELESTE CLONE", 36, 50, 14)
     draw_text("PRESS A", 46, 66, 7)
+    return
+  end
+  if GAME.mode == "won" then
+    draw_text("YOU WIN", 44, 40, 14)
+    draw_text("DEATHS " .. GAME.deaths, 40, 56, 7)
+    draw_text("BERRIES " .. GAME.berries .. "/8", 38, 68, 7)
+    draw_text("PRESS A", 46, 84, 7)
     return
   end
   local room = room_at(player.pos.x, player.pos.y)
@@ -453,5 +484,8 @@ function _draw()
   end
   if room.flag then
     sprite(SPR_FLAG, room.flag.x, room.flag.y)
+  end
+  if GAME.mode == "playing" or GAME.mode == "dying" then
+    draw_text("DEATHS " .. GAME.deaths .. "  BERRIES " .. GAME.berries .. "/8", 2, 2, 14)
   end
 end
