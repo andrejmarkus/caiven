@@ -32,10 +32,11 @@ Math (`sin`/`cos`/`abs`/`floor`/`sqrt`/`max`/`min`/`random`), strings (`..`, `su
 
 ## Input
 
-| Function             | Description                                               |
-| :--------------------| :----------------------------------------------------------|
-| `button_down(id)`    | Button held (0=Up 1=Down 2=Left 3=Right 4=A 5=B 6=Select) |
-| `button_pressed(id)` | Button pressed this frame                                  |
+| Function              | Description                                               |
+| :---------------------| :----------------------------------------------------------|
+| `button_down(id)`     | Button held (0=Up 1=Down 2=Left 3=Right 4=A 5=B 6=Select) |
+| `button_pressed(id)`  | Button pressed this frame                                  |
+| `button_released(id)` | Button released this frame                                 |
 
 START is reserved by the console. It opens the pause menu, which on a
 handheld is the player's only way out of a running cart, so it never reaches
@@ -48,8 +49,10 @@ returns `false` rather than erroring.
 | :------------------------| :----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `play_sfx(id, opts)`     | Start SFX `id` on a free (or, if all are busy, oldest) voice. `opts.volume` (0-1, default 1) is optional. Returns a handle. Polyphonic — concurrent calls get independent voices. |
 | `stop_sfx(handle)`       | Stop the voice `handle` refers to. Silent no-op if it already finished or was reused.                                                                   |
+| `is_sfx_playing(handle)` | True if `handle` refers to a voice still actively playing. Stale handle returns `false`, not an error.                                                  |
 | `play_music(id)`         | Play a music track, looping                                                                                                                              |
 | `stop_music()`           | Stop music                                                                                                                                                |
+| `is_music_playing()`     | True while a music track is playing.                                                                                                                     |
 | `set_master_volume(v)`   | Runtime-only output multiplier, `v` clamped to `[0, 1]`                                                                                                  |
 | `set_music_volume(v)`    | Runtime-only music-channel multiplier, `v` clamped to `[0, 1]`                                                                                           |
 | `set_sfx_volume(v)`      | Runtime-only SFX-voice multiplier, `v` clamped to `[0, 1]`                                                                                               |
