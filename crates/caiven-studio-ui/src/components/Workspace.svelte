@@ -722,15 +722,10 @@
   }
 
   // Each sfx slot is 16 steps x 4 bytes: note, volume, wave (0 square / 1 noise),
-  // effect. Note 0 is a rest; notes run 1..96 (C0..B7) via note_to_freq in the VM.
+  // byte3 (pan + attack/release envelope, see PAN_LABELS/ENV_LABELS below).
+  // Note 0 is a rest; notes run 1..96 (C0..B7) via note_to_freq in the VM.
   const SFX_NOTE_MAX = 96;
   const SFX_VOLUME_MAX = 15;
-  const sfxEffects = [
-    { label: '—', hint: 'No effect' },
-    { label: 'SL', hint: 'Slide to next note' },
-    { label: 'VB', hint: 'Vibrato' },
-    { label: 'DR', hint: 'Drop pitch' },
-  ];
   // Octave marks up the pitch axis, positioned by note value.
   const pitchAxis = Array.from({ length: 6 }, (_, i) => {
     const note = (i + 2) * 12 + 1;
@@ -754,6 +749,34 @@
 
   const sfxByte = (step: number, field: number) => sfx[selectedSfx * 64 + step * 4 + field] ?? 0;
   const sfxStepActive = (step: number) => sfxPlaying && audio.sfxStep === step;
+
+  // byte3 packs pan (bits 0-3, 0=center) and attack/release envelope levels
+  // (bits 4-5 / 6-7, each 0-3). Mirrors crates/caiven-vm/src/vm/sfx.rs::decode_byte3.
+  const PAN_LABELS = ['C', 'L1', 'R1', 'L2', 'R2', 'L3', 'R3', 'L4', 'R4', 'L5', 'R5', 'L6', 'R6', 'L7', 'R7', 'HL'];
+  const ENV_LABELS = ['—', 'fast', 'med', 'slow'];
+
+  const sfxPan = (step: number) => sfxByte(step, 3) & 0x0f;
+  const sfxAttack = (step: number) => (sfxByte(step, 3) >> 4) & 0x03;
+  const sfxRelease = (step: number) => (sfxByte(step, 3) >> 6) & 0x03;
+
+  function packByte3(pan: number, attack: number, release: number) {
+    return (pan & 0x0f) | ((attack & 0x03) << 4) | ((release & 0x03) << 6);
+  }
+
+  function setSfxPan(step: number, pan: number) {
+    const current = sfxByte(step, 3);
+    setSfxCells([{ step, field: 3, value: packByte3(pan, (current >> 4) & 0x03, (current >> 6) & 0x03) }]);
+  }
+
+  function setSfxAttack(step: number, attack: number) {
+    const current = sfxByte(step, 3);
+    setSfxCells([{ step, field: 3, value: packByte3(current & 0x0f, attack, (current >> 6) & 0x03) }]);
+  }
+
+  function setSfxRelease(step: number, release: number) {
+    const current = sfxByte(step, 3);
+    setSfxCells([{ step, field: 3, value: packByte3(current & 0x0f, (current >> 4) & 0x03, release) }]);
+  }
 
   function setSfxCells(cells: { step: number; field: number; value: number }[]) {
     const bytes = sfx.slice(selectedSfx * 64, selectedSfx * 64 + 64);
@@ -1457,7 +1480,9 @@
             </div>
             <div class="sfx-label-volume"><span>15</span><span>8</span><span>0</span></div>
             <span class="sfx-label-row">wave</span>
-            <span class="sfx-label-row">fx</span>
+            <span class="sfx-label-row">pan</span>
+            <span class="sfx-label-row">atk</span>
+            <span class="sfx-label-row">rel</span>
           </div>
 
           <div class="sfx-columns">
@@ -1527,14 +1552,42 @@
               {/each}
             </div>
 
-            <div class="sfx-fx">
+            <div class="sfx-pan">
               {#each Array(16) as _, step}
-                {@const fx = sfxByte(step, 3)}
+                {@const empty = sfxByte(step, 0) === 0}
+                {@const pan = sfxPan(step)}
                 <button
-                  class:active={fx > 0}
-                  title={sfxEffects[fx]?.hint ?? 'No effect'}
-                  onclick={() => setSfxCells([{ step, field: 3, value: (fx + 1) % sfxEffects.length }])}
-                >{sfxEffects[fx]?.label ?? '—'}</button>
+                  class:empty
+                  disabled={empty}
+                  title={empty ? 'No note on this step' : `Pan ${PAN_LABELS[pan]}`}
+                  onclick={() => setSfxPan(step, (pan + 1) % 16)}
+                >{empty ? '·' : PAN_LABELS[pan]}</button>
+              {/each}
+            </div>
+
+            <div class="sfx-attack">
+              {#each Array(16) as _, step}
+                {@const empty = sfxByte(step, 0) === 0}
+                {@const attack = sfxAttack(step)}
+                <button
+                  class:empty
+                  disabled={empty}
+                  title={empty ? 'No note on this step' : `Attack ${ENV_LABELS[attack]}`}
+                  onclick={() => setSfxAttack(step, (attack + 1) % 4)}
+                >{empty ? '·' : ENV_LABELS[attack]}</button>
+              {/each}
+            </div>
+
+            <div class="sfx-release">
+              {#each Array(16) as _, step}
+                {@const empty = sfxByte(step, 0) === 0}
+                {@const release = sfxRelease(step)}
+                <button
+                  class:empty
+                  disabled={empty}
+                  title={empty ? 'No note on this step' : `Release ${ENV_LABELS[release]}`}
+                  onclick={() => setSfxRelease(step, (release + 1) % 4)}
+                >{empty ? '·' : ENV_LABELS[release]}</button>
               {/each}
             </div>
           </div>
@@ -1546,7 +1599,6 @@
           <span>Space to preview</span>
           <span><i class="swatch-square"></i>square <i class="swatch-noise"></i>noise</span>
         </p>
-        <p class="sfx-hints subtle">The effect column is stored in the cart, but the VM does not apply it yet.</p>
       </div>
     </section>
 

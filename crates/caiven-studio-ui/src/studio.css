@@ -647,20 +647,20 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .music-grid > div.playhead { background: rgba(254,176,93,.10); box-shadow: inset 3px 0 var(--color-ember); }
 
 /* SFX tracker: a label gutter plus 16 step columns shared by every row, so
-   pitch, volume, wave and fx all line up under the same step. */
+   pitch, volume, wave, pan, attack and release all line up under the same step. */
 .tracker > header { gap: 12px; justify-content: flex-start; }
 .tracker > header .history-controls, .music-grid-wrap > header .history-controls { margin-left: auto; }
 .tracker > header > span { display: flex; flex-direction: column; }
 .tracker > header code { color: var(--color-ink-faint); font-family: var(--font-mono); font-size: 10.5px; }
 .sfx-tracker { max-width: 1040px; display: grid; grid-template-columns: 66px minmax(0, 1fr); gap: 10px; }
-.sfx-labels { display: grid; grid-template-rows: 26px 240px 80px 30px 30px; gap: 6px; text-align: right; color: var(--color-ink-faint); font-family: var(--font-mono); font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em; }
+.sfx-labels { display: grid; grid-template-rows: 26px 240px 80px 30px 30px 30px 30px; gap: 6px; text-align: right; color: var(--color-ink-faint); font-family: var(--font-mono); font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em; }
 .sfx-label-step { align-self: center; }
 .sfx-label-pitch { position: relative; }
 .sfx-label-pitch span { position: absolute; right: 0; transform: translateY(50%); }
 .sfx-label-volume { display: flex; flex-direction: column; justify-content: space-between; }
 .sfx-label-row { align-self: center; }
-.sfx-columns { min-width: 0; display: grid; grid-template-rows: 26px 240px 80px 30px 30px; gap: 6px; }
-.sfx-steps, .sfx-pitch, .sfx-volume, .sfx-wave, .sfx-fx { display: grid; grid-template-columns: repeat(16, 1fr); min-width: 0; }
+.sfx-columns { min-width: 0; display: grid; grid-template-rows: 26px 240px 80px 30px 30px 30px 30px; gap: 6px; }
+.sfx-steps, .sfx-pitch, .sfx-volume, .sfx-wave, .sfx-pan, .sfx-attack, .sfx-release { display: grid; grid-template-columns: repeat(16, 1fr); min-width: 0; }
 .sfx-steps { align-items: center; }
 .sfx-steps code { color: var(--color-ink-faint); font-family: var(--font-mono); font-size: 9.5px; text-align: center; }
 .sfx-steps code.playhead { color: var(--color-ember); background: rgba(254,176,93,.14); border-radius: 4px 4px 0 0; }
@@ -675,16 +675,15 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .sfx-cell i.noise { background: var(--color-sheen-bright); }
 .sfx-cell.playhead i { box-shadow: var(--shadow-glow-ember); }
 .sfx-volume .sfx-cell i { background: rgba(254,176,93,.55); }
-.sfx-wave, .sfx-fx { gap: 2px; }
-.sfx-wave button, .sfx-fx button { display: grid; place-items: center; border: 0; border-radius: 5px; color: var(--color-ink-faint); background: var(--color-void-900); font-family: var(--font-mono); font-size: 9.5px; }
+.sfx-wave, .sfx-pan, .sfx-attack, .sfx-release { gap: 2px; }
+.sfx-wave button, .sfx-pan button, .sfx-attack button, .sfx-release button { display: grid; place-items: center; border: 0; border-radius: 5px; color: var(--color-ink-faint); background: var(--color-void-900); font-family: var(--font-mono); font-size: 9.5px; }
 .sfx-wave button svg { width: 18px; height: 9px; fill: none; stroke: currentColor; stroke-width: 1.5; }
 .sfx-wave button:not(.empty) { color: var(--color-ember); background: rgba(254,176,93,.16); }
 .sfx-wave button.noise { color: var(--color-sheen-bright); background: var(--color-sheen-wash); }
-.sfx-wave button.empty { cursor: default; }
-.sfx-fx button.active { color: var(--color-sheen-bright); background: var(--color-sheen-wash); }
-.sfx-fx button:hover:not(.active) { color: var(--color-ink); background: var(--color-void-700); }
+.sfx-wave button.empty, .sfx-pan button.empty, .sfx-attack button.empty, .sfx-release button.empty { cursor: default; }
+.sfx-pan button:not(.empty), .sfx-attack button:not(.empty), .sfx-release button:not(.empty) { color: var(--color-sheen-bright); background: var(--color-sheen-wash); }
+.sfx-pan button:hover:not(.empty), .sfx-attack button:hover:not(.empty), .sfx-release button:hover:not(.empty) { color: var(--color-ink); background: var(--color-void-700); }
 .sfx-hints { margin: 14px 0 0; display: flex; flex-wrap: wrap; gap: 16px; color: var(--color-ink-faint); font-family: var(--font-mono); font-size: 10.5px; }
-.sfx-hints.subtle { margin-top: 6px; opacity: .75; }
 .sfx-hints span { display: flex; align-items: center; gap: 5px; }
 .sfx-hints i { width: 9px; height: 9px; border-radius: 2px; }
 .swatch-square { background: var(--color-ember); }
