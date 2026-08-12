@@ -11,7 +11,7 @@ BIN=target/debug/caiven-studio
 
 for dir in projects/showcase/*/; do
   name=$(basename "$dir")
-  "$BIN" build "$dir" --out "crates/caiven-studio/resources/examples/${name}.cav"
+  "$BIN" build "$dir" --out "crates/caiven-studio/resources/examples/${name}.cav" --no-minify
 done
 
 mkdir -p carts/dev
