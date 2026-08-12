@@ -26,7 +26,7 @@ use self::sfx::{MusicPlayer, SfxPlayer};
 use crate::peripheral::{Peripheral, PeripheralRegistry};
 use crate::rendering::screen::ScreenLayer;
 use crate::vm::Camera;
-use crate::vm::audio::{NoiseChannel, Sound, SquareChannel};
+use crate::vm::audio::{SFX_POOL_LEN, Sound};
 use caiven_cart::{CartSection, SectionKind, decode_asset_bank};
 use caiven_core::memory::{
     COLLISION_LEN, COLLISION_RAM_BASE, MAP_LEN, MAP_RAM_BASE, MUSIC_BANK_LEN, MUSIC_RAM_BASE,
@@ -186,6 +186,8 @@ pub struct Vm {
     sound: Arc<Mutex<Sound>>,
     sfx_player: SfxPlayer,
     music_player: MusicPlayer,
+    sfx_pool: [PooledSfx; SFX_POOL_LEN],
+    next_sfx_age: u64,
     peripherals: PeripheralRegistry,
     frame_count: u32,
     waiting: bool,
@@ -221,6 +223,108 @@ pub struct Vm {
     active_prelude_modules: Vec<&'static str>,
 }
 
+/// One slot of the round-robin SFX voice pool backing the polyphonic
+/// `play_sfx`/`stop_sfx` Lua API. `age` is a monotonically increasing
+/// counter set on every (re)trigger — the pool steals the slot with the
+/// smallest `age` when all slots are busy, i.e. the one triggered longest
+/// ago.
+struct PooledSfx {
+    player: SfxPlayer,
+    age: u64,
+    volume_scale: f32,
+}
+
+impl PooledSfx {
+    fn new() -> Self {
+        Self {
+            player: SfxPlayer::new(),
+            age: 0,
+            volume_scale: 1.0,
+        }
+    }
+}
+
+/// Packs a pool slot index and its voice's current epoch into a single
+/// handle returned to Lua. `release_sfx_voice` decodes both and only acts
+/// if the epoch still matches — a handle for a voice since stolen by
+/// another `play_sfx` call is a silent no-op instead of stopping the wrong
+/// sound.
+fn pack_sfx_handle(slot: u32, epoch: u32) -> u32 {
+    (epoch << 3) | (slot & 0x7)
+}
+
+fn unpack_sfx_handle(handle: u32) -> (u32, u32) {
+    (handle & 0x7, handle >> 3)
+}
+
+/// Starts sound effect `id` on a free (or, if all are busy, the
+/// least-recently-triggered) pool voice. `volume` is a `[0, 1]` multiplier
+/// layered on top of each step's authored volume. Returns an opaque handle
+/// for `release_sfx_voice`. Free function (not a `Vm` method) so both
+/// `Vm::play_sfx_voice` and the Lua `play_sfx` closure in `lua_exec.rs`
+/// (which can only borrow individual fields, never `&mut Vm`, from inside
+/// `lua.scope`) share one implementation.
+fn allocate_sfx_voice(
+    pool: &mut [PooledSfx; SFX_POOL_LEN],
+    next_age: &mut u64,
+    sound: &Arc<Mutex<Sound>>,
+    id: u8,
+    volume: f32,
+) -> u32 {
+    let volume = volume.clamp(0.0, 1.0);
+    let slot = pool
+        .iter()
+        .position(|p| !p.player.active)
+        .unwrap_or_else(|| {
+            pool.iter()
+                .enumerate()
+                .min_by_key(|(_, p)| p.age)
+                .map(|(i, _)| i)
+                .unwrap_or(0)
+        });
+
+    *next_age = next_age.wrapping_add(1);
+    pool[slot].age = *next_age;
+    pool[slot].volume_scale = volume;
+    pool[slot].player.start(id);
+
+    let epoch = if let Ok(mut s) = sound.try_lock() {
+        let voice = &mut s.voices[audio::SFX_POOL_START + slot];
+        voice.epoch = voice.epoch.wrapping_add(1);
+        voice.epoch
+    } else {
+        0
+    };
+    pack_sfx_handle(slot as u32, epoch)
+}
+
+/// Stops the voice `handle` refers to, if it's still the current occupant
+/// of that pool slot. Silent no-op for a handle whose voice already
+/// finished or was stolen by a later `allocate_sfx_voice` call.
+fn release_sfx_voice(pool: &mut [PooledSfx; SFX_POOL_LEN], sound: &Arc<Mutex<Sound>>, handle: u32) {
+    let (slot, epoch) = unpack_sfx_handle(handle);
+    let slot = slot as usize;
+    if slot >= pool.len() {
+        return;
+    }
+
+    let still_current = if let Ok(mut s) = sound.try_lock() {
+        let voice = &mut s.voices[audio::SFX_POOL_START + slot];
+        if voice.epoch == epoch {
+            voice.gate = false;
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    if still_current {
+        pool[slot].player.stop();
+    }
+}
+
 impl Vm {
     pub fn new(config: VmConfig) -> Self {
         let mut memory = Memory::new(config.memory_size);
@@ -232,22 +336,11 @@ impl Vm {
             memory,
             camera: Camera::new(Vec2::new(0, 0)),
             palette: Palette::new(config.palette_size),
-            sound: Arc::new(Mutex::new(Sound {
-                square: SquareChannel {
-                    enabled: false,
-                    frequency: 440.0,
-                    volume: 0.0,
-                    duration: 0,
-                },
-                noise: NoiseChannel {
-                    enabled: false,
-                    volume: 0.0,
-                    rate: 2000.0,
-                    duration: 0,
-                },
-            })),
+            sound: Arc::new(Mutex::new(Sound::default())),
             sfx_player: SfxPlayer::new(),
             music_player: MusicPlayer::new(),
+            sfx_pool: std::array::from_fn(|_| PooledSfx::new()),
+            next_sfx_age: 0,
             peripherals,
             frame_count: 0,
             waiting: false,
@@ -324,9 +417,14 @@ impl Vm {
     pub fn stop_audio(&mut self) {
         self.sfx_player.stop();
         self.music_player.stop();
+        for pooled in &mut self.sfx_pool {
+            pooled.player.stop();
+        }
         if let Ok(mut sound) = self.sound.lock() {
-            sound.square.enabled = false;
-            sound.noise.enabled = false;
+            for voice in &mut sound.voices {
+                voice.gate = false;
+                voice.epoch = voice.epoch.wrapping_add(1);
+            }
         }
     }
 
@@ -647,8 +745,9 @@ impl Vm {
     pub fn stop_sfx(&mut self) {
         self.sfx_player.stop();
         if let Ok(mut s) = self.sound.try_lock() {
-            s.square.enabled = false;
-            s.noise.enabled = false;
+            let v = &mut s.voices[audio::LEGACY_SFX_VOICE];
+            v.gate = false;
+            v.epoch = v.epoch.wrapping_add(1);
         }
     }
 
@@ -659,8 +758,11 @@ impl Vm {
     pub fn stop_music(&mut self) {
         self.music_player.stop();
         if let Ok(mut s) = self.sound.try_lock() {
-            s.square.enabled = false;
-            s.noise.enabled = false;
+            for idx in [audio::MUSIC_VOICE_CH0, audio::MUSIC_VOICE_CH1] {
+                let v = &mut s.voices[idx];
+                v.gate = false;
+                v.epoch = v.epoch.wrapping_add(1);
+            }
         }
     }
 
@@ -674,6 +776,25 @@ impl Vm {
 
     pub fn set_music_loop(&mut self, on: bool) {
         self.music_player.loop_on = on;
+    }
+
+    /// Starts sound effect `id` on a free (or, if all are busy, oldest)
+    /// pool voice. `volume` is a `[0, 1]` multiplier layered on top of the
+    /// step's authored volume. Returns a handle for `stop_sfx_voice`.
+    pub fn play_sfx_voice(&mut self, id: u8, volume: f32) -> u32 {
+        allocate_sfx_voice(
+            &mut self.sfx_pool,
+            &mut self.next_sfx_age,
+            &self.sound,
+            id,
+            volume,
+        )
+    }
+
+    /// Stops the voice `handle` refers to. Silent no-op if that voice
+    /// already finished or was reused by a later `play_sfx_voice` call.
+    pub fn stop_sfx_voice(&mut self, handle: u32) {
+        release_sfx_voice(&mut self.sfx_pool, &self.sound, handle)
     }
 }
 

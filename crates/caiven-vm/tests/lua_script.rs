@@ -561,8 +561,9 @@ fn lua_run_frame_bp_ticks_audio_players() {
 
     let sound = vm.get_sound_shared();
     let s = sound.lock().unwrap_or_else(|e| e.into_inner());
-    assert!(s.square.enabled, "square channel should be enabled");
-    assert!(s.square.volume > 0.0, "volume should be nonzero");
+    let voice = &s.voices[caiven_vm::vm::audio::LEGACY_SFX_VOICE];
+    assert!(voice.gate, "voice should be gated on");
+    assert!(voice.volume > 0.0, "volume should be nonzero");
 }
 
 #[test]
@@ -580,8 +581,9 @@ fn stop_audio_silences_players_and_shared_channels() {
     assert!(!vm.music_player().active);
     let sound = vm.get_sound_shared();
     let sound = sound.lock().unwrap_or_else(|error| error.into_inner());
-    assert!(!sound.square.enabled);
-    assert!(!sound.noise.enabled);
+    assert!(!sound.voices[caiven_vm::vm::audio::LEGACY_SFX_VOICE].gate);
+    assert!(!sound.voices[caiven_vm::vm::audio::MUSIC_VOICE_CH0].gate);
+    assert!(!sound.voices[caiven_vm::vm::audio::MUSIC_VOICE_CH1].gate);
 }
 
 #[test]
