@@ -44,6 +44,7 @@ const BUILTIN_NAMES: &[&str] = &[
     "sprite",
     "button_down",
     "button_pressed",
+    "button_released",
     "draw_text",
     "draw_number",
     "fill_screen",
@@ -937,6 +938,15 @@ fn register_builtins<'scope, 'env>(
         scope.create_function(|_, button_index: u8| {
             Ok(Button::from_u8(button_index)
                 .map(|b| input.just_pressed(b))
+                .unwrap_or(false))
+        })?,
+    )?;
+
+    globals.set(
+        "button_released",
+        scope.create_function(|_, button_index: u8| {
+            Ok(Button::from_u8(button_index)
+                .map(|b| input.just_released(b))
                 .unwrap_or(false))
         })?,
     )?;

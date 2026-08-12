@@ -118,6 +118,84 @@ fn lua_reads_select_at_index_six_and_nothing_beyond_it() {
 }
 
 #[test]
+fn lua_button_released_fires_on_the_frame_after_release_only() {
+    let mut vm = make_vm();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        frame = 0
+        release_count = 0
+        release_frame = 0
+        function _update()
+          frame = frame + 1
+          if button_released(4) then
+            release_count = release_count + 1
+            release_frame = frame
+          end
+        end
+        "#,
+        &Input::new(),
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    // Frame 1: pressed. Frame 2: still held. Frame 3: released. Frame 4: up.
+    let mut input = Input::new();
+    input.set_button(caiven_vm::input::Button::A, true);
+    vm.run_frame(&input, &font);
+    input.end_frame();
+
+    vm.run_frame(&input, &font);
+    input.end_frame();
+
+    input.set_button(caiven_vm::input::Button::A, false);
+    vm.run_frame(&input, &font);
+    input.end_frame();
+
+    vm.run_frame(&input, &font);
+    input.end_frame();
+
+    assert_eq!(vm.get_fault(), None);
+    let release_count = vm
+        .lua_watch("release_count")
+        .unwrap_or_else(|e| panic!("lua_watch failed: {e}"))
+        .text;
+    let release_frame = vm
+        .lua_watch("release_frame")
+        .unwrap_or_else(|e| panic!("lua_watch failed: {e}"))
+        .text;
+    assert_eq!(release_count, "1", "should fire exactly once");
+    assert_eq!(release_frame, "3", "should fire on frame 3");
+}
+
+#[test]
+fn lua_button_released_out_of_range_index_is_false() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          if button_released(99) then
+            set_pixel(0, 0, 1)
+          else
+            set_pixel(0, 0, 2)
+          end
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    vm.run_frame(&input, &font);
+
+    assert_eq!(vm.get_fault(), None);
+    // color index 2 = dark purple (94, 44, 92) confirms the false branch ran.
+    assert_eq!(read_rgba(&vm, 0, 0), [94, 44, 92, 255]);
+}
+
+#[test]
 fn lua_runtime_error_faults_cleanly() {
     let mut vm = make_vm();
     let input = Input::new();

@@ -72,6 +72,12 @@ pub const BUILTINS: &[ApiEntry] = &[
         doc: "True on the single frame button_index was first pressed. Same indices as button_down; an out-of-range index is always false.",
     },
     ApiEntry {
+        name: "button_released",
+        params: &[param!("button_index": "u8")],
+        returns: "bool",
+        doc: "True on the single frame button_index was released. Same indices as button_down; an out-of-range index is always false.",
+    },
+    ApiEntry {
         name: "draw_text",
         params: &[
             param!("text": "string"),
