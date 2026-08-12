@@ -2,16 +2,18 @@
 
 use super::Vm;
 use super::memory::Memory;
-use super::sfx::{MusicPlayer, SfxPlayer, note_to_freq};
+use super::sfx::{MusicPlayer, SfxPlayer, decode_byte3, note_to_freq};
 use crate::input::Input;
 use crate::rendering::font::Font;
-use crate::vm::audio::{NoiseChannel, Sound, SquareChannel};
+use crate::vm::audio;
+use crate::vm::audio::{Voice, VoiceKind};
 
 fn tick_sfx_channel(
     player: &mut SfxPlayer,
     memory: &Memory,
-    sound: &mut Sound,
-    forced_wave: Option<u8>,
+    voice: &mut Voice,
+    forced_kind: Option<VoiceKind>,
+    volume_scale: f32,
 ) {
     if !player.active {
         return;
@@ -21,44 +23,25 @@ fn tick_sfx_channel(
         let base = SfxPlayer::sfx_bytes_base(player.sfx_id, player.step);
         let note = memory.read(base).unwrap_or(0);
         let volume = memory.read(base + 1).unwrap_or(0);
-        let wave = forced_wave.unwrap_or_else(|| memory.read(base + 2).unwrap_or(0));
-
-        sound.square.duration = 0;
-        sound.noise.duration = 0;
+        let wave = memory.read(base + 2).unwrap_or(0);
+        let byte3 = memory.read(base + 3).unwrap_or(0);
+        let (pan, attack_ms, release_ms) = decode_byte3(byte3);
 
         if note == 0 {
-            match forced_wave {
-                Some(0) => sound.square.enabled = false,
-                Some(1) => sound.noise.enabled = false,
-                _ => {
-                    sound.square.enabled = false;
-                    sound.noise.enabled = false;
-                }
-            }
+            voice.gate = false;
         } else {
-            let freq = note_to_freq(note);
-            let vol = volume as f32 / 15.0;
-            if wave == 0 {
-                sound.square = SquareChannel {
-                    enabled: true,
-                    frequency: freq,
-                    volume: vol,
-                    duration: 0,
-                };
-                if forced_wave.is_none() {
-                    sound.noise.enabled = false;
-                }
+            voice.kind = forced_kind.unwrap_or(if wave == 0 {
+                VoiceKind::Square
             } else {
-                sound.noise = NoiseChannel {
-                    enabled: true,
-                    rate: freq,
-                    volume: vol,
-                    duration: 0,
-                };
-                if forced_wave.is_none() {
-                    sound.square.enabled = false;
-                }
-            }
+                VoiceKind::Noise
+            });
+            voice.frequency = note_to_freq(note);
+            voice.volume = (volume as f32 / 15.0) * volume_scale;
+            voice.pan = pan;
+            voice.attack_ms = attack_ms;
+            voice.release_ms = release_ms;
+            voice.gate = true;
+            voice.epoch = voice.epoch.wrapping_add(1);
         }
     }
 
@@ -68,14 +51,7 @@ fn tick_sfx_channel(
         player.step += 1;
         if player.step >= 16 {
             player.active = false;
-            match forced_wave {
-                Some(0) => sound.square.enabled = false,
-                Some(1) => sound.noise.enabled = false,
-                _ => {
-                    sound.square.enabled = false;
-                    sound.noise.enabled = false;
-                }
-            }
+            voice.gate = false;
         }
     }
 }
@@ -103,7 +79,13 @@ impl Vm {
             return;
         }
         if let Ok(mut s) = self.sound.try_lock() {
-            tick_sfx_channel(&mut self.sfx_player, &self.memory, &mut s, None);
+            tick_sfx_channel(
+                &mut self.sfx_player,
+                &self.memory,
+                &mut s.voices[audio::LEGACY_SFX_VOICE],
+                None,
+                1.0,
+            );
         }
     }
 
@@ -117,15 +99,28 @@ impl Vm {
             self.trigger_music_row();
         }
 
-        // `Sound` has exactly one square slot and one noise slot, so the two
-        // music channels are hard-assigned to one each (ch0 always square,
-        // ch1 always noise) — the per-step `wave` byte the Music tracker UI
-        // lets you set is intentionally ignored here to keep both channels
-        // audible at once instead of one clobbering the other; it only does
-        // something for single-channel SFX preview.
+        // Voice 0 is hard-assigned to ch0 (forced Square) and voice 1 to
+        // ch1 (forced Noise) — the per-step `wave` byte the Music tracker
+        // UI lets you set is intentionally ignored here to keep both
+        // channels audible at once instead of one overriding the other;
+        // it only does something for single-voice SFX playback.
         if let Ok(mut s) = self.sound.try_lock() {
-            tick_sfx_channel(&mut self.music_player.ch0, &self.memory, &mut s, Some(0));
-            tick_sfx_channel(&mut self.music_player.ch1, &self.memory, &mut s, Some(1));
+            let (ch0_voice, rest) = s.voices.split_first_mut().expect("voices is non-empty");
+            let ch1_voice = &mut rest[0];
+            tick_sfx_channel(
+                &mut self.music_player.ch0,
+                &self.memory,
+                ch0_voice,
+                Some(VoiceKind::Square),
+                1.0,
+            );
+            tick_sfx_channel(
+                &mut self.music_player.ch1,
+                &self.memory,
+                ch1_voice,
+                Some(VoiceKind::Noise),
+                1.0,
+            );
         }
 
         self.music_player.tick_count += 1;
@@ -142,17 +137,33 @@ impl Vm {
         }
     }
 
+    fn tick_sfx_pool(&mut self) {
+        if let Ok(mut s) = self.sound.try_lock() {
+            for (i, pooled) in self.sfx_pool.iter_mut().enumerate() {
+                tick_sfx_channel(
+                    &mut pooled.player,
+                    &self.memory,
+                    &mut s.voices[audio::SFX_POOL_START + i],
+                    None,
+                    pooled.volume_scale,
+                );
+            }
+        }
+    }
+
     /// Advances SFX/music playback one frame without running the program —
     /// lets editors preview audio while the game is stopped or paused.
     pub fn tick_audio_players(&mut self) {
         self.tick_music_player();
         self.tick_sfx_player();
+        self.tick_sfx_pool();
     }
 
     pub fn run_frame(&mut self, input: &Input, font: &Font) {
         self.waiting = false;
         self.tick_music_player();
         self.tick_sfx_player();
+        self.tick_sfx_pool();
         self.peripherals
             .tick_all(&mut self.memory, self.frame_count);
         self.frame_count = self.frame_count.wrapping_add(1);

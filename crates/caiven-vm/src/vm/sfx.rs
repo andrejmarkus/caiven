@@ -1,6 +1,18 @@
+use super::audio::{ENVELOPE_MS, PAN_TABLE};
 pub use caiven_core::memory::{MUSIC_RAM_BASE as MUSIC_BANK_BASE, SFX_RAM_BASE as SFX_BANK_BASE};
 const SFX_STEPS: u8 = 16;
 const MUSIC_ROWS: u8 = 16;
+
+/// Unpacks an SFX step's byte3: bits 0-3 select a pan position, bits 4-5
+/// select an attack ramp length, bits 6-7 select a release ramp length.
+/// `byte3 == 0` (every step that never touched the tracker's pan/envelope
+/// controls) decodes to center pan and instant attack/release.
+pub fn decode_byte3(byte3: u8) -> (f32, f32, f32) {
+    let pan = PAN_TABLE[(byte3 & 0x0F) as usize];
+    let attack = ENVELOPE_MS[((byte3 >> 4) & 0x03) as usize];
+    let release = ENVELOPE_MS[((byte3 >> 6) & 0x03) as usize];
+    (pan, attack, release)
+}
 
 pub fn note_to_freq(note: u8) -> f32 {
     440.0 * 2.0f32.powf((note as f32 - 49.0) / 12.0)
@@ -108,5 +120,29 @@ impl MusicPlayer {
 
     pub fn pattern_row_base(pattern_id: u8, row: u8) -> usize {
         MUSIC_BANK_BASE + (pattern_id as usize) * (MUSIC_ROWS as usize * 2) + (row as usize) * 2
+    }
+}
+
+#[cfg(test)]
+mod byte3_tests {
+    use super::*;
+
+    #[test]
+    fn zero_byte_decodes_to_center_pan_and_instant_envelope() {
+        assert_eq!(decode_byte3(0), (0.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn pan_bits_select_the_pan_table() {
+        let (pan, _, _) = decode_byte3(0b0000_0001);
+        assert_eq!(pan, PAN_TABLE[1]);
+    }
+
+    #[test]
+    fn attack_and_release_bits_select_envelope_levels() {
+        let byte3 = 0b1000_0000 | 0b0001_0000; // release=level2(bit7), attack=level1(bit4)
+        let (_, attack, release) = decode_byte3(byte3);
+        assert_eq!(attack, ENVELOPE_MS[1]);
+        assert_eq!(release, ENVELOPE_MS[2]);
     }
 }
