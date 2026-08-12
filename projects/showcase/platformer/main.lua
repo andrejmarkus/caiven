@@ -460,7 +460,7 @@ end
 function _draw()
   clear_screen()
   if GAME.mode == "title" then
-    draw_text("CELESTE CLONE", 36, 50, 14)
+    draw_text("PLATFORMER", 46, 50, 14)
     draw_text("PRESS A", 46, 66, 7)
     return
   end

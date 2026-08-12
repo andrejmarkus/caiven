@@ -1,4 +1,4 @@
-# Celeste-clone showcase cart
+# Platformer showcase cart
 
 Status: approved, pending implementation plan.
 
@@ -7,14 +7,14 @@ Status: approved, pending implementation plan.
 Caiven has no flagship content cart demonstrating the full stack together —
 tile collision (`move_and_collide`, one-way platforms, slopes, hazards),
 `entities`, `tween`, `particles`, audio, and persistent input across a
-multi-room level. PICO-8 and TIC-80 both use a Celeste-style precision
-platformer (PICO-8's own "Celeste Classic") as their benchmark showcase for
-"can this console do a real game." This design is a single new content
+multi-room level. PICO-8 and TIC-80 both use a minimalist single-screen
+precision platformer as their benchmark showcase for "can this console do a
+real game." This design is a single new content
 project — no engine/API changes — that plays the same role for Caiven.
 
-Pure content work: `projects/showcase/celeste_clone/` (`caiven.toml` +
+Pure content work: `projects/showcase/platformer/` (`caiven.toml` +
 `main.lua` + `sprites.png` + `map.png`), built to
-`crates/caiven-studio/resources/examples/celeste_clone.cav` via
+`crates/caiven-studio/resources/examples/platformer.cav` via
 `scripts/demo-carts/build.sh`. No changes to `caiven-core`, `caiven-vm`, or
 the Lua API surface — everything needed already exists per
 `docs/api-reference.md`.
@@ -24,8 +24,8 @@ the Lua API surface — everything needed already exists per
 8 single-screen rooms (128×128px each = one full console screen, no
 scrolling), arranged as a 4×2 grid within the one available 64×64 map bank
 (each room = a fixed 16×16-tile slice). Room 1 = start, room 8 = end (flag).
-Rooms connect left-to-right and via up/down passages, matching PICO-8
-Celeste Classic's layout style. Mechanics demonstrated: run, coyote-time
+Rooms connect left-to-right and via up/down passages, matching the classic
+single-screen precision-platformer layout style. Mechanics demonstrated: run, coyote-time
 jump, jump buffering, variable jump height, wall slide, wall jump, 8-dir
 dash with ground/wall-refillable single stamina charge, hazards (instant
 death + respawn), one-way platforms, a slope, strawberry collectibles, a
@@ -39,7 +39,7 @@ any new engine API.
 
 ```toml
 [cart]
-title = "celeste_clone"
+title = "platformer"
 author = ""
 entry = "main.lua"
 entry_point = 0
@@ -94,7 +94,7 @@ ROOMS = {
 tile slice of the map bank is on screen; `set_camera((col)*128, (row)*128)`
 where `col, row` derive from room layout (e.g. rooms 1-4 top row, 5-8 bottom
 row, with a couple of vertical connectors breaking the straight line for
-Celeste-style verticality). Room transition is instant on crossing a screen
+verticality). Room transition is instant on crossing a screen
 edge (player x/y wraps to the opposite edge of the new room) — no smooth
 scroll, matching the source material and avoiding continuous-scroll camera
 work entirely.
@@ -175,7 +175,7 @@ No engine or Lua API changes, so no `caiven-vm` unit tests apply. Manual
 verification only:
 
 1. `scripts/demo-carts/build.sh` packs the project into the example `.cav`.
-2. `cargo run -p caiven-machine -- crates/caiven-studio/resources/examples/celeste_clone.cav`
+2. `cargo run -p caiven-machine -- crates/caiven-studio/resources/examples/platformer.cav`
    (or the built `carts/showcase/...` path, whichever `build.sh` targets)
    — play through all 8 rooms confirming: jump/coyote/buffer feel
    reasonable, wall slide+jump works both walls, dash refills on

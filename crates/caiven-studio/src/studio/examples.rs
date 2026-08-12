@@ -21,7 +21,7 @@ pub struct ExampleSummary {
     pub description: &'static str,
 }
 
-pub const EXAMPLES: [Example; 5] = [
+pub const EXAMPLES: [Example; 6] = [
     Example {
         id: "movement",
         name: "Movement",
@@ -51,6 +51,12 @@ pub const EXAMPLES: [Example; 5] = [
         name: "Scenes demo",
         description: "Scenes, entities, and camera: a title screen that transitions into play",
         bytes: include_bytes!("../../resources/examples/scenes_demo.cav"),
+    },
+    Example {
+        id: "platformer",
+        name: "Platformer",
+        description: "8-room precision platformer showcasing the full Lua API and stdlib",
+        bytes: include_bytes!("../../resources/examples/platformer.cav"),
     },
 ];
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-off asset generator for the celeste_clone showcase cart.
+"""One-off asset generator for the platformer showcase cart.
 
 Writes sprites.hex (sprite-major RAM order, id*64 + sy*8 + sx, one hex
 digit pair per byte = one palette index 0-15 per pixel, 0 = transparent),
@@ -11,7 +11,7 @@ outputs are committed, this script is not part of the shipped cart.
 """
 import pathlib
 
-OUT = pathlib.Path(__file__).resolve().parents[2] / "projects" / "showcase" / "celeste_clone"
+OUT = pathlib.Path(__file__).resolve().parents[2] / "projects" / "showcase" / "platformer"
 
 SPRITE_BYTES = 64  # 8x8 pixels, 1 byte/pixel
 
