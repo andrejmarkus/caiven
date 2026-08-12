@@ -192,6 +192,36 @@ function _init()
 
   GAME = { mode = "title", deaths = 0, berries = 0, last_room = ROOMS[1] }
   spawn_player(ROOMS[1].spawn)
+  spawn_berries()
+end
+
+function spawn_berries()
+  Entities.clear()
+  for _, room in ipairs(ROOMS) do
+    if room.berry then
+      Entities.add({
+        pos = Vec2.new(room.berry.x, room.berry.y),
+        w = 8, h = 8,
+        room = room,
+        is_berry = true,
+      })
+    end
+  end
+end
+
+local function update_berries()
+  for _, e in ipairs(Entities.overlapping(player.pos.x, player.pos.y, player.w, player.h)) do
+    if e.is_berry and not e.dead then
+      e.dead = true
+      GAME.berries = GAME.berries + 1
+      play_sfx(SFX_COLLECT)
+      for i = 1, 8 do
+        local a = (i / 8) * 6.28318
+        Particles.spawn(e.pos.x + 4, e.pos.y + 4, math.cos(a) * 1.2, math.sin(a) * 1.2, 6, 16)
+      end
+    end
+  end
+  Entities.update_all()
 end
 
 DYING_FRAMES = 20
@@ -391,6 +421,7 @@ function _update()
     local room = room_at(player.pos.x, player.pos.y)
     if room then GAME.last_room = room end
     physics_update(read_input())
+    update_berries()
     update_camera(player.pos.x, player.pos.y)
     if player_touches_hazard() then start_dying() end
     return
@@ -415,8 +446,10 @@ function _draw()
   Particles.draw()
   local frame = player.on_ground and math.abs(player.vx) > 0.1 and anim_sprite(player.anim) or SPR_PLAYER_IDLE
   sprite(frame, math.floor(player.pos.x), math.floor(player.pos.y), player.facing < 0)
-  if room.berry then
-    sprite(SPR_BERRY, room.berry.x, room.berry.y)
+  for _, e in ipairs(Entities.list) do
+    if e.is_berry and e.room == room then
+      sprite(SPR_BERRY, math.floor(e.pos.x), math.floor(e.pos.y))
+    end
   end
   if room.flag then
     sprite(SPR_FLAG, room.flag.x, room.flag.y)
