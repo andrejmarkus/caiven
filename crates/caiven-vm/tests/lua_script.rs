@@ -1255,6 +1255,160 @@ fn custom_shape_collision_types_are_respected() {
     assert_eq!(get("undefined_is_false"), "false");
 }
 
+const SPRITE_SIZE_STR: &str = "8";
+
+#[test]
+fn move_and_collide_flat_ground_clamps_and_reports_ground_touch() {
+    let got = run_and_get(
+        r#"
+        set_collision(0, 1, 1)
+        nx, ny, touch = move_and_collide(0, 0, SPRITE_SIZE, SPRITE_SIZE, 0, SPRITE_SIZE)
+        ground = touch.ground
+        "#,
+        &["ny", "ground"],
+    );
+    assert_eq!(got, vec!["0", "true"]);
+}
+
+#[test]
+fn move_and_collide_wall_blocks_horizontal_both_directions() {
+    let got = run_and_get(
+        r#"
+        set_collision(1, 0, 1)
+        set_collision(62, 0, 1)
+        nx1, ny1, t1 = move_and_collide(0, 0, SPRITE_SIZE, SPRITE_SIZE, SPRITE_SIZE, 0)
+        right = t1.right
+        nx2, ny2, t2 = move_and_collide(SPRITE_SIZE * 63, 0, SPRITE_SIZE, SPRITE_SIZE, -SPRITE_SIZE, 0)
+        left = t2.left
+        "#,
+        &["nx1", "right", "left"],
+    );
+    assert_eq!(got, vec!["0", "true", "true"]);
+}
+
+#[test]
+fn move_and_collide_ceiling_blocks_upward_movement() {
+    let got = run_and_get(
+        r#"
+        set_collision(0, 0, 1)
+        nx, ny, touch = move_and_collide(0, SPRITE_SIZE, SPRITE_SIZE, SPRITE_SIZE, 0, -SPRITE_SIZE)
+        ceiling = touch.ceiling
+        "#,
+        &["ny", "ceiling"],
+    );
+    assert_eq!(got, vec![SPRITE_SIZE_STR, "true"]);
+}
+
+#[test]
+fn move_and_collide_one_way_platform_lands_from_above_but_not_below() {
+    let mut vm = make_vm();
+    let mut types = caiven_core::builtin_collision_types();
+    types.push(caiven_core::CollisionType {
+        id: 3,
+        name: "platform".to_string(),
+        color: [0, 200, 0],
+        flags: caiven_core::CollisionTypeFlags::from_bits(caiven_core::CollisionTypeFlags::ONE_WAY),
+    });
+    vm.set_collision_types(types);
+
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          set_collision(0, 1, 3)
+          -- already resting on top of the platform: descending is blocked, stays put
+          _, landed_y, landed_touch = move_and_collide(0, 0, SPRITE_SIZE, SPRITE_SIZE, 0, SPRITE_SIZE)
+          landed_ground = landed_touch.ground
+
+          -- already below the platform, moving up: passes through
+          _, passed_y, passed_touch = move_and_collide(0, SPRITE_SIZE * 2, SPRITE_SIZE, SPRITE_SIZE, 0, -SPRITE_SIZE)
+          passed_ceiling = passed_touch.ceiling
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&input, &font);
+    assert_eq!(vm.get_fault(), None);
+
+    let globals = vm.lua_globals();
+    let get = |name: &str| {
+        globals
+            .iter()
+            .find(|(k, _)| k == name)
+            .unwrap_or_else(|| panic!("missing global {name}"))
+            .1
+            .clone()
+    };
+    assert_eq!(get("landed_y"), "0");
+    assert_eq!(get("landed_ground"), "true");
+    assert_eq!(get("passed_y"), "8");
+    assert_eq!(get("passed_ceiling"), "false");
+}
+
+#[test]
+fn move_and_collide_slope_right_resolves_floor_height_by_column() {
+    let mut vm = make_vm();
+    let mut types = caiven_core::builtin_collision_types();
+    types.push(caiven_core::CollisionType {
+        id: 3,
+        name: "ramp_right".to_string(),
+        color: [0, 200, 200],
+        flags: caiven_core::CollisionTypeFlags::from_bits(
+            caiven_core::CollisionTypeFlags::SLOPE_RIGHT,
+        ),
+    });
+    vm.set_collision_types(types);
+
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          set_collision(0, 1, 3)
+          -- a 1px-wide probe at the tile's left edge (lx=0): floor_y_in_tile = ss-1-0 = 7
+          _, y_left, _ = move_and_collide(0, 0, 1, 1, 0, SPRITE_SIZE * 2 - 1)
+          -- a 1px-wide probe at the tile's right edge (lx=7): floor_y_in_tile = ss-1-7 = 0
+          _, y_right, _ = move_and_collide(SPRITE_SIZE - 1, 0, 1, 1, 0, SPRITE_SIZE * 2 - 1)
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&input, &font);
+    assert_eq!(vm.get_fault(), None);
+
+    let globals = vm.lua_globals();
+    let get = |name: &str| {
+        globals
+            .iter()
+            .find(|(k, _)| k == name)
+            .unwrap_or_else(|| panic!("missing global {name}"))
+            .1
+            .clone()
+    };
+    assert_eq!(get("y_left"), "14");
+    assert_eq!(get("y_right"), "7");
+}
+
+#[test]
+fn move_and_collide_rejects_non_number_args() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"function _update() move_and_collide(0, 0, SPRITE_SIZE, SPRITE_SIZE, "x", 0) end"#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&input, &font);
+    assert!(vm.get_fault().is_some());
+}
+
 #[test]
 fn prelude_tween_reaches_target_and_marks_done() {
     let got = run_and_get(

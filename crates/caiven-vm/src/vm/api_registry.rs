@@ -452,6 +452,19 @@ pub const PRELUDE: &[ApiEntry] = &[
         doc: "True if the pixel-space box overlaps any solid map tile.",
     },
     ApiEntry {
+        name: "move_and_collide",
+        params: &[
+            param!("x": "number"),
+            param!("y": "number"),
+            param!("w": "number"),
+            param!("h": "number"),
+            param!("dx": "number"),
+            param!("dy": "number"),
+        ],
+        returns: "number, number, table",
+        doc: "Axis-separated swept move of a w×h box from (x, y) by (dx, dy) against SOLID tiles (both axes), ONE_WAY tiles (vertical only, landed on only when descending from above), and SLOPE_LEFT/SLOPE_RIGHT tiles (vertical only, floor height sampled per pixel column). Returns nx, ny, and touch = {ground, ceiling, left, right} reporting which sides were blocked this call. Non-number arguments are a regular Lua error.",
+    },
+    ApiEntry {
         name: "new_tween",
         params: &[
             param!("from": "number"),

@@ -191,6 +191,7 @@ const PRELUDE_MODULES: &[PreludeModule] = &[
             "point_in_circle",
             "tile_solid",
             "box_touches_solid",
+            "move_and_collide",
         ],
     },
     PreludeModule {
