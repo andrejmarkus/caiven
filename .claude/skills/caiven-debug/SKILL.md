@@ -22,15 +22,12 @@ Required sequence:
    the same change.
 6. **Run nearby tests** — the crate's full test suite at minimum, plus any
    e2e coverage touching the affected flow.
-7. **Record a durable invariant** in the relevant `.claude/rules/*.md` or a
-   CaveKit spec if this bug class could recur elsewhere (e.g. "cart format
-   version field is currently unchecked" is exactly this kind of durable
-   fact — see `.claude/rules/cart-format.md`).
+7. **Record a durable invariant** in the relevant `.claude/rules/*.md` if
+   this bug class could recur elsewhere (e.g. "cart format version field is
+   currently unchecked" is exactly this kind of durable fact — see
+   `.claude/rules/cart-format.md`).
 
 ## Notes
 
 - If the bug is security-sensitive (see `.claude/rules/security.md`'s list
   of sensitive surfaces), treat the fix with that rule's extra scrutiny.
-- If the bug reveals a reusable invariant, CaveKit back-propagation is the
-  mechanism for keeping the spec system honest — don't let the lesson live
-  only in a commit message.

@@ -1,16 +1,16 @@
 ---
 name: caiven-feature
-description: Take one already-approved Caiven feature from understanding through implementation, using the full required sequence (spec, exploration, boundaries, non-goals, acceptance criteria, tests, implementation, checks, review, docs, risk report). Use once a feature is approved — not for open-ended ideation (use caiven-idea) and not for bugs (use caiven-debug).
+description: Take one already-approved Caiven feature from understanding through implementation, using the full required sequence (exploration, boundaries, non-goals, acceptance criteria, tests, implementation, checks, review, docs, risk report). Use once a feature is approved — not for open-ended ideation (use caiven-idea) and not for bugs (use caiven-debug).
 ---
 
 # caiven-feature
 
 Required sequence — don't skip or reorder steps:
 
-1. Read the relevant specification (CaveKit) and any `.claude/rules/*.md`
+1. Read the relevant request/requirements and any `.claude/rules/*.md`
    scoped to the paths you expect to touch.
-2. Explore the current implementation for real (don't assume from the spec
-   alone — code may have moved since the spec was written).
+2. Explore the current implementation for real (don't assume from the
+   request alone — inspect the actual code).
 3. Identify affected subsystem boundaries (which crates/frontends, and
    whether it crosses the Lua API / cart-format / security-sensitive lines
    in `.claude/rules/`).

@@ -6,23 +6,12 @@ with `/plugin` when diagnosing context cost.
 
 ## Runtime policy
 
-All optional project integrations are installed on demand and disabled by the
-checked-in `.claude/settings.json`. Start a focused session through
-`scripts/claude-session.sh`; command-line settings enable only the selected
-profile.
-
-| Profile | Enabled integration(s) | Use for |
-|---|---|---|
-| `lean` | none | planning, docs, small edits, broad reasoning |
-| `rust` | `rust-analyzer-lsp` | Rust implementation and diagnostics |
-| `typescript` | `typescript-lsp` | Svelte/TypeScript implementation |
-| `lua` | `lua-lsp` | Lua code and public runtime API work |
-| `ui-test` | TypeScript LSP + `playwright` | repeatable browser actions and e2e |
-| `ui-debug` | TypeScript LSP + `chrome-devtools-mcp` | interactive browser/runtime diagnosis |
-
-Playwright and Chrome DevTools overlap and must not be enabled together by
-default. Use `scripts/setup-claude-code.sh <profile...>` to install missing
-integrations at user scope without changing the repository's lean default.
+All optional project integrations (`rust-analyzer-lsp`, `typescript-lsp`,
+`lua-lsp`, `playwright`, `chrome-devtools-mcp`) are disabled by the checked-in
+`.claude/settings.json`. Nothing needs to be installed to clone and use the
+project. Enable the one a task needs with `/plugin`, and disable it again
+when done — Playwright and Chrome DevTools overlap and should not both be on
+at once.
 
 ## Project workflows
 
@@ -40,7 +29,7 @@ Use one primary workflow per task:
 ## Optional user-scope plugins
 
 Developers may have plugins such as Superpowers, Code Review, Context7,
-Frontend Design, Security Guidance, Code Simplifier, Skill Creator, or CaveKit
+Frontend Design, Security Guidance, Code Simplifier, or Skill Creator
 installed globally. They are not required by the repository and are not
 force-enabled here. Enable only the plugin needed for the current task and
 inspect `/context` after doing so.

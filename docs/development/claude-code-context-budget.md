@@ -24,10 +24,9 @@ easy for several overlapping workflows to load into one conversation.
    integrations by default.
 2. `caiven-*` skills are `user-invocable-only`: they stay in the slash menu but
    their descriptions are hidden from the model until explicitly invoked.
-3. `scripts/claude-session.sh` enables exactly one focused profile through a
-   command-line settings override.
-4. Playwright and Chrome DevTools use separate profiles and are not loaded
-   together.
+3. Enable one integration at a time with `/plugin` when a task needs it, and
+   disable it again when done.
+4. Playwright and Chrome DevTools are not enabled together.
 5. The root `CLAUDE.md` contains only standing rules; derivable architecture
    detail remains in normal documentation.
 6. The Stop reminder hook is removed. Safety blocking, targeted failure
@@ -41,9 +40,10 @@ comparison.
 1. On the old configuration, start Claude Code at the repository root and run
    `/context` before reading files. Record the Memory, Skills, and MCP/tools
    rows.
-2. On this configuration, run `scripts/claude-session.sh lean`, then `/context`.
-3. Repeat with the profile used for normal feature work, for example
-   `scripts/claude-session.sh rust`.
+2. On this configuration, start `claude` with no plugins enabled, then run
+   `/context`.
+3. Repeat after enabling the one plugin used for normal feature work, for
+   example `rust-analyzer-lsp`, via `/plugin`.
 4. Compare startup totals and confirm only the selected plugin appears.
 5. During a feature, run `/context` again after implementation and note which
    file reads, skill bodies, and command outputs became the largest entries.
@@ -62,8 +62,6 @@ context size, and local settings. The expected structural result is:
 - Run `/status` and inspect the active settings sources.
 - Check `.claude/settings.local.json`; local settings override checked-in
   project settings.
-- Start through `scripts/claude-session.sh lean` to use a command-line override
-  above local/project/user settings.
 - Use `/skills` to confirm project skills show as user-only.
 - Use `/plugin` to inspect enabled user-scope plugins that are unrelated to
   Caiven's five project integrations.

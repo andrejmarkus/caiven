@@ -1,11 +1,4 @@
 {
-  "enabledPlugins": {
-    "rust-analyzer-lsp@claude-plugins-official": false,
-    "typescript-lsp@claude-plugins-official": false,
-    "lua-lsp@claude-plugins-official": false,
-    "playwright@claude-plugins-official": false,
-    "chrome-devtools-mcp@claude-plugins-official": false
-  },
   "skillListingBudgetFraction": 0.005,
   "skillOverrides": {
     "caiven-benchmark": "user-invocable-only",
@@ -54,5 +47,12 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "rust-analyzer-lsp@claude-plugins-official": false,
+    "typescript-lsp@claude-plugins-official": true,
+    "lua-lsp@claude-plugins-official": true,
+    "playwright@claude-plugins-official": true,
+    "chrome-devtools-mcp@claude-plugins-official": false
   }
 }

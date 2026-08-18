@@ -14,3 +14,5 @@ curl -s http://127.0.0.1:4444/status > /dev/null 2>&1 || tauri-wd --port 4444 &
 The debug binary loads the frontend from `devUrl`, not embedded files, so the Vite server must be up first. `tauri-wd` launches/kills the app binary itself — don't run `caiven-studio` manually alongside it.
 
 Default app path is set via `TAURI_APP_PATH` in the MCP server config, pointing at `target/debug/caiven-studio`. Rebuild (`cargo build -p caiven-studio --features automation`) after code changes before asking Claude to relaunch. Without that feature the binary runs fine but exposes no WebDriver endpoint, and `tauri-wd` will fail to connect — the plugin is off by default so a shipped Studio carries no remote-control channel.
+
+MCP server itself lives outside this repo at `~/mcp-servers/mcp-tauri-automation`.

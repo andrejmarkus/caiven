@@ -5,8 +5,8 @@ description: Generate and evaluate product/feature ideas for Caiven — fantasy-
 
 # caiven-idea
 
-Ideation and evaluation only — this skill never implements. Use CaveKit to
-specify an idea only after it's approved.
+Ideation and evaluation only — this skill never implements. Hand off to
+`/caiven-feature` only after an idea is approved.
 
 ## Idea categories
 
@@ -36,4 +36,4 @@ differentiation.
   that already exist or conflict with current architecture.
 - Rank ideas, don't just list them — say which one you'd do first and why.
 - Playground plugin (if installed) is useful for quick interactive
-  exploration of a UI-facing idea before writing a spec.
+  exploration of a UI-facing idea before implementation.

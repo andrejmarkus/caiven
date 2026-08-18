@@ -16,8 +16,8 @@ for ideation and `caiven-feature` for implementation.
 6. **Measure the result** against a chosen metric (below).
 7. **Keep, revise, or remove it** — based on the measurement, not on how
    much work went into it.
-8. **Update specifications and documentation** — CaveKit spec, README,
-   relevant `.claude/rules/*.md` if a durable lesson emerged.
+8. **Update documentation** — README, relevant `.claude/rules/*.md` if a
+   durable lesson emerged.
 
 ## Candidate metrics
 

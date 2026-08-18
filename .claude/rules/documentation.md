@@ -14,7 +14,7 @@ paths:
   dedicated `docs/` API page if one exists for the area) — see
   `.claude/rules/lua-api.md`.
 - Durable lessons (recurring bug classes, non-obvious build steps,
-  compatibility traps) belong in a scoped `.claude/rules/*.md` file or a
-  CaveKit spec, not only in commit messages or conversation history.
+  compatibility traps) belong in a scoped `.claude/rules/*.md` file, not
+  only in commit messages or conversation history.
 - Keep root `CLAUDE.md` under ~200 lines; put detail in scoped rules or
   `docs/development/` instead of growing the root file.

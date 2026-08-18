@@ -50,16 +50,11 @@ Prefer one targeted script while implementing:
 ## Context discipline
 
 The checked-in default is intentionally lean: project LSP and browser plugins
-are disabled, and `caiven-*` skills are manual commands. Start normally for
-most work, or use one focused profile:
-
-```bash
-scripts/claude-session.sh rust
-scripts/claude-session.sh typescript
-scripts/claude-session.sh lua
-scripts/claude-session.sh ui-test
-scripts/claude-session.sh ui-debug
-```
+are disabled by default, and `caiven-*` skills are manual commands. Enable a
+plugin yourself with `/plugin` when a task needs one (e.g. `rust-analyzer-lsp`
+for Rust work, `typescript-lsp` for Svelte/TypeScript, `lua-lsp` for Lua,
+`playwright` or `chrome-devtools-mcp` for browser work), and disable it again
+when done.
 
 Use `/caiven-feature`, `/caiven-debug`, `/caiven-review`, and other project
 skills only when their workflow is needed. Do not stack several workflow
@@ -72,9 +67,6 @@ switching to an unrelated task.
   then a flat bullet list (`- ...`), one line per bullet, no blank lines
   between bullets, no trailing watermark/co-author line unless the user
   asks for one. Match existing history style (e.g. `b64eebd`).
-- Never cite SPEC.md ids (`T*`, `V*`, `B*`, `§X`) in a commit message — git
-  readers don't have the spec open. Say what changed and why in plain terms;
-  the spec tracks its own ids.
 - Never push, merge, or open PRs without explicit approval.
 - Never force-push, `reset --hard`, or discard uncommitted work without
   checking `git status` first and confirming.
@@ -97,5 +89,5 @@ switching to an unrelated task.
   when working in that directory.
 
 When you discover a repeatable lesson (a bug class, a gotcha in a build
-step, a compatibility trap), write it into the relevant scoped rule file or
-CaveKit spec instead of letting it live only in conversation history.
+step, a compatibility trap), write it into the relevant scoped rule file
+instead of letting it live only in conversation history.

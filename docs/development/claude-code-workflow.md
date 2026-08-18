@@ -6,28 +6,21 @@ context stays available for implementation work.
 
 ## Start the smallest session
 
-Normal `claude` startup uses the lean checked-in settings. Use the launcher
-when a task benefits from one integration:
+Normal `claude` startup uses the lean checked-in settings — nothing to
+install, no plugins enabled. Enable the one integration a task needs with
+`/plugin`, and disable it again when done:
 
-| Task | Launch |
+| Task | Plugin |
 |---|---|
-| General planning, docs, small edits | `scripts/claude-session.sh lean` |
-| Rust implementation | `scripts/claude-session.sh rust` |
-| Svelte/TypeScript implementation | `scripts/claude-session.sh typescript` |
-| Lua/API or cartridge examples | `scripts/claude-session.sh lua` |
-| Browser automation/e2e | `scripts/claude-session.sh ui-test` |
-| Interactive browser diagnosis | `scripts/claude-session.sh ui-debug` |
+| Rust implementation | `rust-analyzer-lsp` |
+| Svelte/TypeScript implementation | `typescript-lsp` |
+| Lua/API or cartridge examples | `lua-lsp` |
+| Browser automation/e2e | `playwright` |
+| Interactive browser diagnosis | `chrome-devtools-mcp` |
 
-Do not enable both Playwright and Chrome DevTools by default. Playwright is for
+Do not enable both Playwright and Chrome DevTools at once. Playwright is for
 repeatable browser actions and tests; Chrome DevTools is for interactive
 runtime/network/performance diagnosis.
-
-Install missing integrations explicitly:
-
-```bash
-scripts/setup-claude-code.sh rust
-scripts/setup-claude-code.sh typescript ui-test
-```
 
 ## Invoke project skills deliberately
 
