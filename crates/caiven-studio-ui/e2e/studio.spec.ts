@@ -137,7 +137,7 @@ test('art, sound, asset reference, and navigation flow', async ({ page, e2e }) =
   const tilePicker = page.getByLabel(/^Tile picker/);
   const pickerBox = await tilePicker.boundingBox();
   await tilePicker.click({ position: { x: (pickerBox!.width / 16) * 1.5, y: (pickerBox!.height / 16) * 0.5 } });
-  await page.getByLabel('128 by 128 tile map').click({ position: { x: 10, y: 10 } });
+  await page.getByLabel('192 by 128 tile map').click({ position: { x: 10, y: 10 } });
   await page.getByTitle('Fill (f)').click();
   await page.getByRole('button', { name: 'Collision', exact: true }).click();
   await page.locator('.collision-type-picker select').selectOption({ label: 'solid' });
@@ -149,16 +149,16 @@ test('art, sound, asset reference, and navigation flow', async ({ page, e2e }) =
   // placement recomputes the first cell's edge variant to include its new neighbor.
   await tilePicker.click({ position: { x: (pickerBox!.width / 16) * 1.5, y: (pickerBox!.height / 16) * 1.5 } });
   await page.getByTitle(/^Autotile/).click();
-  const mapCanvas = page.getByLabel('128 by 128 tile map');
+  const mapCanvas = page.getByLabel('192 by 128 tile map');
   const mapBox = (await mapCanvas.boundingBox())!;
-  const cellW = mapBox.width / 128, cellH = mapBox.height / 128;
+  const cellW = mapBox.width / 192, cellH = mapBox.height / 128;
   await page.mouse.move(mapBox.x + cellW * 5.5, mapBox.y + cellH * 5.5);
   await page.mouse.down();
   await page.mouse.move(mapBox.x + cellW * 5.5, mapBox.y + cellH * 6.5);
   await page.mouse.up();
   let mapSnap = (await e2e.snapshot()) as any;
-  expect(mapSnap.banks.map['default'][5 * 128 + 5]).toBe(20); // south-connected variant
-  expect(mapSnap.banks.map['default'][6 * 128 + 5]).toBe(17); // north-connected variant
+  expect(mapSnap.banks.map['default'][5 * 192 + 5]).toBe(20); // south-connected variant
+  expect(mapSnap.banks.map['default'][6 * 192 + 5]).toBe(17); // north-connected variant
 
   // Rectangle outline: border only, the interior stays untouched.
   await page.getByTitle(/^Rectangle outline/).click();
@@ -167,8 +167,8 @@ test('art, sound, asset reference, and navigation flow', async ({ page, e2e }) =
   await page.mouse.move(mapBox.x + cellW * 23.5, mapBox.y + cellH * 23.5);
   await page.mouse.up();
   mapSnap = (await e2e.snapshot()) as any;
-  expect(mapSnap.banks.map['default'][20 * 128 + 20]).toBe(17);
-  expect(mapSnap.banks.map['default'][21 * 128 + 21]).toBe(0);
+  expect(mapSnap.banks.map['default'][20 * 192 + 20]).toBe(17);
+  expect(mapSnap.banks.map['default'][21 * 192 + 21]).toBe(0);
 
   // Select the box just outlined: flip, rotate, nudge, paste-in-place, save as a stamp.
   await page.getByTitle(/^Select/).click();
@@ -266,14 +266,14 @@ test('sprite and map canvases paint from the keyboard (3.4 keyboard-first editin
   const tilePicker = page.getByLabel(/^Tile picker/);
   const pickerBox = await tilePicker.boundingBox();
   await tilePicker.click({ position: { x: (pickerBox!.width / 16) * 1.5, y: (pickerBox!.height / 16) * 0.5 } });
-  const mapCanvas = page.getByLabel('128 by 128 tile map');
+  const mapCanvas = page.getByLabel('192 by 128 tile map');
   await mapCanvas.focus();
-  const before = ((await e2e.snapshot()) as any).banks.map['default'][1 * 128 + 1];
+  const before = ((await e2e.snapshot()) as any).banks.map['default'][1 * 192 + 1];
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
   const mapSnap = (await e2e.snapshot()) as any;
-  expect(mapSnap.banks.map['default'][1 * 128 + 1]).not.toBe(before);
+  expect(mapSnap.banks.map['default'][1 * 192 + 1]).not.toBe(before);
 });
 
 test('map canvas keyboard rect stroke: anchor, extend, commit — and Escape cancels mid-stroke', async ({ page, e2e }) => {
@@ -283,7 +283,7 @@ test('map canvas keyboard rect stroke: anchor, extend, commit — and Escape can
   const pickerBox = await tilePicker.boundingBox();
   await tilePicker.click({ position: { x: (pickerBox!.width / 16) * 1.5, y: (pickerBox!.height / 16) * 0.5 } });
   await page.getByTitle('Rectangle (r)').click();
-  const mapCanvas = page.getByLabel('128 by 128 tile map');
+  const mapCanvas = page.getByLabel('192 by 128 tile map');
   await mapCanvas.focus();
 
   // Move the keyboard cursor from (0,0) to (10,10) and anchor a rect stroke there.
@@ -296,8 +296,8 @@ test('map canvas keyboard rect stroke: anchor, extend, commit — and Escape can
   for (let i = 0; i < 2; i += 1) await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Escape');
   let snap = (await e2e.snapshot()) as any;
-  expect(snap.banks.map['default'][10 * 128 + 10]).toBe(0);
-  expect(snap.banks.map['default'][12 * 128 + 12]).toBe(0);
+  expect(snap.banks.map['default'][10 * 192 + 10]).toBe(0);
+  expect(snap.banks.map['default'][12 * 192 + 12]).toBe(0);
 
   // Re-anchor at (10,10) (cursor is still at (12,12) from before the cancel),
   // extend to (12,12) again, and commit this time — a filled 3x3 rectangle.
@@ -308,11 +308,11 @@ test('map canvas keyboard rect stroke: anchor, extend, commit — and Escape can
   for (let i = 0; i < 2; i += 1) await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
   snap = (await e2e.snapshot()) as any;
-  const tile = snap.banks.map['default'][10 * 128 + 10];
+  const tile = snap.banks.map['default'][10 * 192 + 10];
   expect(tile).not.toBe(0);
-  expect(snap.banks.map['default'][11 * 128 + 11]).toBe(tile); // interior of the fill
-  expect(snap.banks.map['default'][12 * 128 + 12]).toBe(tile); // far corner
-  expect(snap.banks.map['default'][9 * 128 + 9]).toBe(0); // outside the rect, untouched
+  expect(snap.banks.map['default'][11 * 192 + 11]).toBe(tile); // interior of the fill
+  expect(snap.banks.map['default'][12 * 192 + 12]).toBe(tile); // far corner
+  expect(snap.banks.map['default'][9 * 192 + 9]).toBe(0); // outside the rect, untouched
 });
 
 test('project, library, Port account, download, and publish flow', async ({ page, e2e }) => {

@@ -67,10 +67,11 @@ justification were updated to say so.
 - `projects/showcase/platformer/main.lua` — rooms re-authored from 16 × 16 to
   24 × 16 tiles (`ROOM_TILES_W`/`ROOM_TILES_H`), which is what 2.1 deferred.
 
-Note for later items: the map is **not** a whole number of screens wide
-(128 / 24 = 5.33), so the map editor's screen grid has a partial right-hand
-column. That is deliberate — it follows from the charter's own numbers — and
-the editor draws it honestly rather than hiding it.
+Note for later items: at this point the map was **not** a whole number of
+screens wide (128 / 24 = 5.33), so the map editor's screen grid had a partial
+right-hand column; the editor drew it honestly rather than hiding it. See
+Phase 4 below — the owner later resized the map to remove this remainder
+rather than live with it.
 
 Guest RAM is untouched: map and collision live in their own regions.
 
@@ -517,6 +518,72 @@ rework the 4 typed music channels from 2.4 require.
 
 Arrow-key cursor and keyboard painting across all editors — everything is
 mouse-only today. This is the single largest friction item for a returning user.
+
+## Phase 4 — map width
+
+### 4.1 Map 128 × 128 → 192 × 128 — **done**
+
+Approved 2026-08-24 by the project owner: 2.2's map was ~10.7 screens
+(128/24 = 5.33 screens wide × 128/16 = 8 screens tall), so the map editor's
+screen grid always had a partial trailing column on the right (see 2.2's
+note above). Rather than live with the remainder, the owner chose to widen
+the map to a whole number of screens in both directions — 8 columns to match
+the existing 8 rows — instead of narrowing it to 120 (5 columns) or leaving
+it as documented behavior.
+
+- `crates/caiven-core/src/memory.rs` — `MAP_W` 128 → 192 (`MAP_H` unchanged
+  at 128). `Map` and `Collision` region spans 0x4000 → 0x6000 each (both
+  exactly match the new `MAP_LEN`/`COLLISION_LEN`, no padding). `RAM_SIZE`
+  96 KiB → 112 KiB — chosen so Heap keeps its exact prior size (30717 bytes);
+  every base past `Map` shifted (Palette 0xC000 → 0xE000, Sfx 0xC100 →
+  0xE100, Music 0xC500 → 0xE500, Rtc 0xC800 → 0xE800, Collision 0xC803 →
+  0xE803, Heap 0x10803 → 0x14803). Golden-base test updated to match.
+- `crates/caiven-studio-ui/src/lib/ipc.ts`, `drawerMath.ts` — `MAP_W`,
+  `RAM_SIZE`, and the shifted `MEMORY`/`MEMORY_REGIONS` bases, caught by
+  `crates/caiven-core/tests/memory_map_sync.rs` (the same drift guard from
+  2.2/2.3/2.9 — no manual hunting needed, just fix until it's green).
+- `docs/api-reference.md` — map spec row and the full memory-map address
+  table, both covered by the same drift test.
+- `crates/caiven-vm/tests/lua_script.rs` — `map_bounds_and_collision_companion_size`
+  golden values moved from the (127, 127) corner to (191, 127); the
+  off-map-write probe moved from x=128 (now a valid column) to x=192.
+- `projects/dev/stdlib_demo/map.png` and its `projects/showcase/stdlib_demo/`
+  copy — the only cart in the repo with a hand-painted map bitmap on disk.
+  `asset_png.rs` rejects a mismatched-size map PNG on load, so packing this
+  project would hard-fail until the asset was regenerated. Reflowed with a
+  throwaway example (`png`/`caiven_cart::text` — write, run, delete, don't
+  keep it) that decodes the old 128×128 grayscale image, copies each row into
+  the left 128 columns of a new 192×128 image, and leaves the new 64 columns
+  at tile 0. Its `collision.hex` companion (trimmed hex, `caiven_cart::text`)
+  was reflowed the same way, row by row, since a flat byte offset means a
+  straight append would have scrambled every row past the first. All 20 demo
+  carts (`scripts/demo-carts/build.sh`) rebuilt clean afterward — every other
+  cart builds its map procedurally in Lua or has none, so only this one asset
+  needed touching.
+- `crates/caiven-studio-ui/e2e/studio.spec.ts` — every `row * 128 + col`
+  golden tile-offset formula and the `'128 by 128 tile map'` accessible name
+  (driven by `MapCanvas.svelte`'s `aria-label`) moved to 192.
+- `crates/caiven-studio-ui/e2e/fixtures.ts` — its mock `offsets`/`lengths`/
+  `COLLISION_OFFSET`/`COLLISION_LEN` still had 2.2-era values (`map: 4096`,
+  `COLLISION_OFFSET: 0x9703` — a pre-2.2 address, and the pre-2.3 palette/sfx/
+  music bases) even before this item; updated to the current real addresses
+  and lengths while touching this file for the row-stride fix. Its unrelated
+  `studio_frame` mock buffer is still hardcoded to a pre-2.1 `128 * 128` —
+  left alone, not something this item's tests exercise or this item broke.
+- `docs/product/design-charter.md` §4 — Map row's dimensions and "~42
+  screens" figure corrected to 192×128 / "exactly 8 × 8 screens (a whole
+  number in both directions, no partial trailing column)"; RAM row's total
+  addressable space corrected to 112 KiB.
+
+No `CART_FORMAT_VERSION` bump: like 2.2, the map/collision PNG and hex assets
+are self-describing (checked against `MAP_W`/`MAP_H`/`COLLISION_LEN` at load
+time with a clear error, not a version field), so an old cart with a
+128-wide map simply fails that dimension check with a readable message
+rather than silently misloading.
+
+Test: a tile written at (191, 127) lands, one at (192, 0) is dropped rather
+than wrapping onto row 1, and the collision region still starts exactly past
+the map's new end.
 
 ## Verification per phase
 

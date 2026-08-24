@@ -2614,23 +2614,23 @@ fn widescreen_bounds_and_text_width() {
     assert_eq!(config.width / 8, 24);
 }
 
-/// The map is 128 × 128 tiles, and its collision layer is its companion of the
-/// same size: the far corner must be addressable, one tile past it must be
-/// dropped rather than wrap onto the next row, and the two layers must not
-/// overlap now that both regions are four times bigger.
+/// The map is 192 × 128 tiles (8 × 8 screens), and its collision layer is its
+/// companion of the same size: the far corner must be addressable, one tile
+/// past it must be dropped rather than wrap onto the next row, and the two
+/// layers must not overlap now that Map is wider than it is tall.
 #[test]
 fn map_bounds_and_collision_companion_size() {
     let mut vm = make_vm();
     let input = Input::new();
     let font = Font::empty();
-    assert_eq!((MAP_W, MAP_H), (128, 128));
+    assert_eq!((MAP_W, MAP_H), (192, 128));
 
     vm.load_lua_source(
         r#"
         function _update()
-          set_tile(127, 127, 9)
-          set_tile(128, 0, 9)
-          set_collision(127, 127, 1)
+          set_tile(191, 127, 9)
+          set_tile(192, 0, 9)
+          set_collision(191, 127, 1)
           set_collision(0, 0, 1)
         end
         "#,
@@ -2642,12 +2642,12 @@ fn map_bounds_and_collision_companion_size() {
     vm.run_frame(&input, &font);
 
     assert_eq!(vm.get_fault(), None);
-    assert_eq!(vm.peek_memory(MAP_RAM_BASE + 127 * MAP_W + 127), 9);
-    assert_eq!(vm.peek_memory(COLLISION_RAM_BASE + 127 * MAP_W + 127), 1);
-    // x = 128 is off the map; writing it must not wrap onto row 1.
+    assert_eq!(vm.peek_memory(MAP_RAM_BASE + 127 * MAP_W + 191), 9);
+    assert_eq!(vm.peek_memory(COLLISION_RAM_BASE + 127 * MAP_W + 191), 1);
+    // x = 192 is off the map; writing it must not wrap onto row 1.
     assert_eq!(vm.peek_memory(MAP_RAM_BASE + MAP_W), 0);
     // The two layers must not overlap: writing collision (0, 0) would land on
-    // the map's own last row if the regions were still sized for a 64 × 64 map.
+    // the map's own last row if the regions were still sized for the old map.
     assert_eq!(vm.peek_memory(COLLISION_RAM_BASE), 1);
     assert_eq!(vm.peek_memory(MAP_RAM_BASE), 0);
 }

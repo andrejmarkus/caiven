@@ -11,21 +11,21 @@
 //! automatically, and `cargo test -p caiven-core` (see `tests/memory_map_sync.rs`) will fail
 //! naming any frontend/README literal that's now out of sync.
 //!
-//! Address space layout (96 KiB). The console's *general-purpose* RAM is the
+//! Address space layout (112 KiB). The console's *general-purpose* RAM is the
 //! 64 KiB of Work + Heap; the asset windows (sprite sheet, map, palette, sfx,
 //! music, collision) sit alongside it in their own regions, so enlarging one of
 //! them never costs a cart the memory it writes its own data into.
 //! ```text
 //! 0x0000 ─ 0x3FFF   general purpose / program data / compiler scratch
 //! 0x4000 ─ 0x7FFF   sprite sheet (256 sprites × 8×8 px, 1 byte per px index)
-//! 0x8000 ─ 0xBFFF   tile map (128 × 128 tiles, 1 byte per tile)
-//! 0xC000 ─ 0xC0FF   palette (16 slots × 3 bytes RGB)
-//! 0xC100 ─ 0xC4FF   SFX bank (16 sfx × 64 bytes)
-//! 0xC500 ─ 0xC7FF   music bank (8 patterns × 64 bytes, then the song order
+//! 0x8000 ─ 0xDFFF   tile map (192 × 128 tiles, 1 byte per tile)
+//! 0xE000 ─ 0xE0FF   palette (16 slots × 3 bytes RGB)
+//! 0xE100 ─ 0xE4FF   SFX bank (16 sfx × 64 bytes)
+//! 0xE500 ─ 0xE7FF   music bank (8 patterns × 64 bytes, then the song order
 //!                   table + its loop-point byte)
-//! 0xC800 ─ 0xC802   RTC peripheral (hour, minute, second)
-//! 0xC803 ─ 0x10802  per-cell collision (128 × 128 tiles, 1 byte per cell)
-//! 0x10803 ─ 0x17FFF general purpose / heap
+//! 0xE800 ─ 0xE802   RTC peripheral (hour, minute, second)
+//! 0xE803 ─ 0x14802  per-cell collision (192 × 128 tiles, 1 byte per cell)
+//! 0x14803 ─ 0x1BFFF general purpose / heap
 //! ```
 
 /// Screen width in pixels.
@@ -48,19 +48,21 @@ pub const SPRITE_SHEET_COLS: usize = 16;
 /// Number of palette slots.
 pub const PALETTE_SIZE: usize = 16;
 
-/// Tile map width in tiles.
-pub const MAP_W: usize = 128;
+/// Tile map width in tiles — 8 screens wide (24-tile screen × 8), matching
+/// the map's 8-screen height so a level is a whole number of screens in both
+/// directions instead of a partial trailing column.
+pub const MAP_W: usize = 192;
 /// Tile map height in tiles.
 pub const MAP_H: usize = 128;
 
 /// Total addressable memory in bytes. Larger than the 64 KiB of general-purpose
 /// RAM (Work + Heap) because the asset windows are mapped alongside it rather
 /// than carved out of it.
-pub const RAM_SIZE: usize = 96 * 1024;
+pub const RAM_SIZE: usize = 112 * 1024;
 
 /// Sprite sheet length in bytes (256 sprites × 64 bytes).
 pub const SPRITE_SHEET_LEN: usize = SPRITE_COUNT * SPRITE_BYTES;
-/// Tile map length in bytes (128 × 128 tiles).
+/// Tile map length in bytes (192 × 128 tiles).
 pub const MAP_LEN: usize = MAP_W * MAP_H;
 /// SFX bank length in bytes (16 sfx × 64 bytes).
 pub const SFX_BANK_LEN: usize = 16 * 64;
@@ -134,12 +136,12 @@ impl MemRegion {
         match self {
             MemRegion::Work => 0x4000,
             MemRegion::SpriteSheet => SPRITE_SHEET_LEN,
-            MemRegion::Map => 0x4000,
+            MemRegion::Map => 0x6000,
             MemRegion::Palette => 0x100,
             MemRegion::Sfx => 0x400,
             MemRegion::Music => 0x300,
             MemRegion::Rtc => RTC_LEN,
-            MemRegion::Collision => 0x4000,
+            MemRegion::Collision => 0x6000,
             // Everything left over at the top of RAM.
             MemRegion::Heap => RAM_SIZE - MemRegion::Heap.base(),
         }
@@ -218,12 +220,12 @@ mod tests {
             (MemRegion::Work, 0x0000),
             (MemRegion::SpriteSheet, 0x4000),
             (MemRegion::Map, 0x8000),
-            (MemRegion::Palette, 0xC000),
-            (MemRegion::Sfx, 0xC100),
-            (MemRegion::Music, 0xC500),
-            (MemRegion::Rtc, 0xC800),
-            (MemRegion::Collision, 0xC803),
-            (MemRegion::Heap, 0x10803),
+            (MemRegion::Palette, 0xE000),
+            (MemRegion::Sfx, 0xE100),
+            (MemRegion::Music, 0xE500),
+            (MemRegion::Rtc, 0xE800),
+            (MemRegion::Collision, 0xE803),
+            (MemRegion::Heap, 0x14803),
         ];
 
         for (region, want) in expected {

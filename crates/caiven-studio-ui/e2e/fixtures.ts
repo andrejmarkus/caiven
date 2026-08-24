@@ -29,10 +29,10 @@ function installBridge() {
   }
 
   type Kind = 'sprites' | 'map' | 'palette' | 'sfx' | 'music';
-  const lengths: Record<Kind, number> = { sprites: 16384, map: 4096, palette: 48, sfx: 1024, music: 545 };
+  const lengths: Record<Kind, number> = { sprites: 16384, map: 24576, palette: 48, sfx: 1024, music: 545 };
   // Must match `MEMORY` in src/lib/ipc.ts, or a writeMemory from an editor
   // lands nowhere and the next bank refresh silently reverts the edit.
-  const offsets: Record<Kind, number> = { sprites: 0x4000, map: 0x8000, palette: 0xC000, sfx: 0xC100, music: 0xC500 };
+  const offsets: Record<Kind, number> = { sprites: 0x4000, map: 0x8000, palette: 0xE000, sfx: 0xE100, music: 0xE500 };
   const calls: { command: string; args: Record<string, unknown> }[] = [];
   const faults = new Map<string, string[]>();
   const delays = new Map<string, number[]>();
@@ -57,8 +57,8 @@ function installBridge() {
     music: new Map([['default', make(lengths.music, 1)], ['second', make(lengths.music, 8)]]),
   };
   const flags = new Map([['default', make(256, 1)], ['second', make(256, 2)]]);
-  const COLLISION_OFFSET = 0x9703;
-  const COLLISION_LEN = 4096;
+  const COLLISION_OFFSET = 0xE803;
+  const COLLISION_LEN = 24576;
   const collision = new Map([['default', make(COLLISION_LEN, 0)], ['second', make(COLLISION_LEN, 0)]]);
   const BANK_NAME_PATTERN = /^[A-Za-z0-9_-]{1,31}$/;
   let collisionTypes: { id: number; name: string; color: [number, number, number]; shape: 'none' | 'solid' | 'one_way' | 'slope_left' | 'slope_right' }[] = [

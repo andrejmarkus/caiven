@@ -19,7 +19,7 @@ pub enum SectionKind {
     SfxBanks,
     /// Additional music bank. Data starts with bank id, followed by pattern bytes.
     MusicBanks,
-    /// Per-cell collision layer for the bank-0 map (128 × 128, one byte per cell).
+    /// Per-cell collision layer for the bank-0 map (192 × 128, one byte per cell).
     Collision,
     /// Additional collision layer, companion of a `MapBank`. Data starts
     /// with bank id, followed by one collision byte per cell.

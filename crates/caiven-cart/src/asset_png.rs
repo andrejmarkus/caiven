@@ -5,7 +5,7 @@
 //!
 //! Sprite sheet: 256 sprites arranged as a 16×16 grid of 8×8 tiles ->
 //! 128×128 8-bit indexed PNG (PLTE = the cart's 16-color palette). Palette:
-//! 16×1 8-bit RGB PNG (pixel `i` = palette color `i`). Map: 128×128 8-bit
+//! 16×1 8-bit RGB PNG (pixel `i` = palette color `i`). Map: 192×128 8-bit
 //! grayscale PNG (pixel value = the tile/sprite id stored at that cell).
 
 use caiven_core::memory::{MAP_H, MAP_LEN, MAP_W, PALETTE_SIZE, SPRITE_BYTES, SPRITE_SIZE};
@@ -76,8 +76,8 @@ pub fn png_to_palette(bytes: &[u8]) -> Result<Vec<u8>, String> {
     Ok(rgb)
 }
 
-/// Encodes the map RAM section (row-major, `map[y*64 + x]`, byte = tile id)
-/// as a 128×128 grayscale PNG.
+/// Encodes the map RAM section (row-major, `map[y*MAP_W + x]`, byte = tile id)
+/// as a 192×128 grayscale PNG.
 pub fn map_to_png(map: &[u8]) -> Result<Vec<u8>, String> {
     let mut gray = vec![0u8; MAP_LEN];
     let n = gray.len().min(map.len());
@@ -85,7 +85,7 @@ pub fn map_to_png(map: &[u8]) -> Result<Vec<u8>, String> {
     encode_gray(MAP_W as u32, MAP_H as u32, &gray)
 }
 
-/// Decodes a 128×128 grayscale (or indexed/RGB, using the red channel) PNG
+/// Decodes a 192×128 grayscale (or indexed/RGB, using the red channel) PNG
 /// back into the row-major map byte order.
 pub fn png_to_map(bytes: &[u8]) -> Result<Vec<u8>, String> {
     let (w, h, gray) = decode_to_gray(bytes)?;

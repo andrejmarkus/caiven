@@ -70,7 +70,7 @@ export const defaultSprite = [
 
 export const MEMORY = {
   sprites: 0x4000, map: 0x8000,
-  palette: 0xC000, sfx: 0xC100, music: 0xC500, collision: 0xC803,
+  palette: 0xE000, sfx: 0xE100, music: 0xE500, collision: 0xE803,
 } as const;
 
 /** Sprite sheet shape. Mirrors `caiven_core::memory::SPRITE_COUNT`/`SPRITE_SHEET_COLS`. */
@@ -78,7 +78,7 @@ export const SPRITE_COUNT = 256;
 export const SPRITE_SHEET_COLS = 16;
 
 /** Total addressable memory. Mirrors `caiven_core::memory::RAM_SIZE`. */
-export const RAM_SIZE = 98304;
+export const RAM_SIZE = 114688;
 
 /** Console framebuffer size. Mirrors `caiven_core::memory::SCREEN_WIDTH`/`SCREEN_HEIGHT`. */
 export const SCREEN_WIDTH = 192;
@@ -87,7 +87,7 @@ export const SCREEN_HEIGHT = 128;
 export const SCREEN_RGBA_LEN = SCREEN_WIDTH * SCREEN_HEIGHT * 4;
 
 /** Tile map size in tiles. Mirrors `caiven_core::memory::MAP_W`/`MAP_H`. */
-export const MAP_W = 128;
+export const MAP_W = 192;
 export const MAP_H = 128;
 /** Map/collision byte length — one byte per cell. */
 export const MAP_LEN = MAP_W * MAP_H;

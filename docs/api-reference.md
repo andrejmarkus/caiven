@@ -211,7 +211,7 @@ RNG is deterministic by default — the prelude core seeds `math.randomseed(1)` 
 
 > [!IMPORTANT]
 > The numbers below describe the console **as it is today**. The 192×128
-> screen, the 128×128 map, the redesigned palette, the 6 typed audio
+> screen, the 192×128 map, the redesigned palette, the 6 typed audio
 > voices, named banks, the `dset`/`dget` removal, and the per-frame
 > execution budget watchdog have landed; the rest of the hardware redesign
 > is still pending. Target spec:
@@ -226,7 +226,7 @@ RNG is deterministic by default — the prelude core seeds `math.randomseed(1)` 
 | **Cartridge**     | 128 KiB maximum packed `.cav` size                                                |
 | **Palette**       | 16 colors: 4 hue ramps × 3 shades, plus black, white and 2 accents (see below)     |
 | **Sprites**       | 256 × 8×8 pixels per bank; `"default"` bank always available                      |
-| **Map**           | 128×128 tiles per bank; `"default"` bank always available                         |
+| **Map**           | 192×128 tiles per bank (8×8 screens); `"default"` bank always available           |
 | **Audio**         | 6 voices: 4 typed music channels (pulse 1, pulse 2, triangle, noise) + 2 voices reserved for sound effects (see below) |
 
 Additional banks live in cartridge storage, not guest RAM. Studio writes them
@@ -282,10 +282,10 @@ concurrent sound effects steal the least recently started one.
 | :---------------| :----------------------------------------------------------------|
 | `0x0000–0x3FFF` | Unused / reserved                                              |
 | `0x4000–0x7FFF` | Sprite sheet — 256 sprites × 64 bytes (1 byte/pixel)           |
-| `0x8000–0xBFFF` | Tilemap 128×128 (1 byte/cell)                                  |
-| `0xC000–0xC0FF` | Palette (16 × 3 bytes RGB, rest padding)                       |
-| `0xC100–0xC4FF` | SFX bank (16 × 64 bytes)                                       |
-| `0xC500–0xC7FF` | Music bank (8 patterns × 16 rows × 4 channels, 1 byte/cell), then the 32-byte song order table and its loop-point byte |
-| `0xC800–0xC802` | RTC (hour, minute, second)                                     |
-| `0xC803–0x10802` | Collision — 128×128 (1 byte/cell: 0 walkable, 1 solid, 2 hazard) |
-| `0x10803–0x17FFF` | Reserved                                                     |
+| `0x8000–0xDFFF` | Tilemap 192×128 (1 byte/cell)                                  |
+| `0xE000–0xE0FF` | Palette (16 × 3 bytes RGB, rest padding)                       |
+| `0xE100–0xE4FF` | SFX bank (16 × 64 bytes)                                       |
+| `0xE500–0xE7FF` | Music bank (8 patterns × 16 rows × 4 channels, 1 byte/cell), then the 32-byte song order table and its loop-point byte |
+| `0xE800–0xE802` | RTC (hour, minute, second)                                     |
+| `0xE803–0x14802` | Collision — 192×128 (1 byte/cell: 0 walkable, 1 solid, 2 hazard) |
+| `0x14803–0x1BFFF` | Reserved                                                     |
