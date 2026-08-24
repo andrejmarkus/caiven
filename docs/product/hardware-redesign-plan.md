@@ -509,15 +509,29 @@ selection, rectangle outline.
   this item) would still be broken by this fact alone even once its earlier,
   unrelated assertion is fixed — left alone, out of scope for this item.
 
-### 3.3 Music / SFX gaps
+### 3.3 Music / SFX gaps — **done**
 
-Step and pattern copy/paste, song order list, pattern chaining, plus the tracker
-rework the 4 typed music channels from 2.4 require.
+`97f037d` (2026-08-23): each music bank gained a 33-byte song section (32-step
+order table + loop-point byte; `MUSIC_BANK_LEN` 512 → 545, `MemRegion::Music`
+span 0x200 → 0x300, RTC/Collision/Heap bases shifted accordingly). Order/loop
+bytes reuse the existing "value+1, 0=empty" convention, so every pre-existing
+bank zero-pads into a valid empty song — no migration or cart-format version
+bump. New Lua builtin `play_music_song(start_step)` plays through the order
+table honoring the loop point once (no chained loop-search). The Studio
+tracker gained row-range copy/cut/paste (Ctrl+C/X/V), whole-pattern
+copy/paste, and a song-order editor (32 click-to-cycle steps, one-at-a-time
+loop-point toggle, play-song transport) — the order table *is* this plan
+item's "pattern chaining": a song is a sequence of pattern-step references,
+not a separate chaining primitive.
 
-### 3.4 Keyboard-first editing
+### 3.4 Keyboard-first editing — **done**
 
-Arrow-key cursor and keyboard painting across all editors — everything is
-mouse-only today. This is the single largest friction item for a returning user.
+`feb0d95` (2026-08-23): arrow-key cursor, Enter/Space paint, Escape-cancel
+added to `SpriteCanvas.svelte` and `MapCanvas.svelte`, the two mouse-only
+raw-canvas editors — pointer begin/move/finish refactored into offset-based
+`beginAt`/`moveAt`/`finishAt` shared by pointer and keyboard input. Tracker
+cells were already native `<button>`s (keyboard-operable via default focus
+behavior) and out of scope. This closed Phase 3.
 
 ## Phase 4 — map width
 
