@@ -1649,6 +1649,191 @@ fn move_and_collide_one_way_platform_lands_from_above_but_not_below() {
 }
 
 #[test]
+fn move_and_collide_one_way_platform_never_blocks_horizontal_movement() {
+    let mut vm = make_vm();
+    let mut types = caiven_core::builtin_collision_types();
+    types.push(caiven_core::CollisionType {
+        id: 3,
+        name: "platform".to_string(),
+        color: [0, 200, 0],
+        flags: caiven_core::CollisionTypeFlags::from_bits(caiven_core::CollisionTypeFlags::ONE_WAY),
+    });
+    vm.set_collision_types(types);
+
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          set_collision(1, 0, 3)
+          -- standing beside a one-way tile, moving right into it: passes through
+          right_x, _, right_touch = move_and_collide(0, 0, SPRITE_SIZE, SPRITE_SIZE, SPRITE_SIZE, 0)
+          right_blocked = right_touch.right
+
+          -- standing on the far side, moving left into the same tile: passes through
+          left_x, _, left_touch = move_and_collide(SPRITE_SIZE * 2, 0, SPRITE_SIZE, SPRITE_SIZE, -SPRITE_SIZE, 0)
+          left_blocked = left_touch.left
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&input, &font);
+    assert_eq!(vm.get_fault(), None);
+
+    let globals = vm.lua_globals();
+    let get = |name: &str| {
+        globals
+            .iter()
+            .find(|(k, _)| k == name)
+            .unwrap_or_else(|| panic!("missing global {name}"))
+            .1
+            .clone()
+    };
+    assert_eq!(get("right_x"), "8");
+    assert_eq!(get("right_blocked"), "false");
+    assert_eq!(get("left_x"), "8");
+    assert_eq!(get("left_blocked"), "false");
+}
+
+#[test]
+fn move_and_collide_one_way_platform_holds_a_resting_entity_across_frames() {
+    // Regression test: an entity resting exactly flush on a one-way
+    // platform (bottom edge exactly at the platform's top pixel) used to
+    // fall straight through as soon as gravity resumed with a sub-pixel
+    // step. The landing frame computed the platform's tile row from
+    // `floor((new_bottom - 1) / ss)`; that is correct when new_bottom is a
+    // whole-pixel jump but rounds down to the *empty row above* the
+    // platform when new_bottom has only fractionally crossed into it (e.g.
+    // 80.35 -> row 9 instead of row 10) — which is exactly what happens the
+    // frame after resting stops zeroing gravity and a small step resumes.
+    // Once that happened, `prev_bottom <= platform_top` could never be true
+    // again (the entity was already past the platform), so it fell through
+    // for good rather than just missing one frame.
+    let mut vm = make_vm();
+    let mut types = caiven_core::builtin_collision_types();
+    types.push(caiven_core::CollisionType {
+        id: 3,
+        name: "platform".to_string(),
+        color: [0, 200, 0],
+        flags: caiven_core::CollisionTypeFlags::from_bits(caiven_core::CollisionTypeFlags::ONE_WAY),
+    });
+    vm.set_collision_types(types);
+
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          set_collision(0, 10, 3)
+          -- Land flush on the platform (bottom edge exactly at its top).
+          local landed_x, landed_y = move_and_collide(0, 72, 6, 8, 0, 8)
+          -- Then take a small (sub-pixel-of-a-tile) step down, as gravity
+          -- resuming from a zeroed, "already resting" velocity would.
+          local _, after_y, after_touch = move_and_collide(0, landed_y, 6, 8, 0, 0.35)
+          result_y = after_y
+          result_ground = after_touch.ground
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&input, &font);
+    assert_eq!(vm.get_fault(), None);
+
+    let globals = vm.lua_globals();
+    let get = |name: &str| {
+        globals
+            .iter()
+            .find(|(k, _)| k == name)
+            .unwrap_or_else(|| panic!("missing global {name}"))
+            .1
+            .clone()
+    };
+    assert_eq!(get("result_y"), "72", "should stay resting on the platform");
+    assert_eq!(get("result_ground"), "true");
+}
+
+#[test]
+fn move_and_collide_walking_onto_a_slope_from_its_lower_neighboring_floor_climbs_it() {
+    // Regression test: a slope that steps *up* from a flush, flat floor —
+    // the entity's resting depth already matches the lower floor's row,
+    // one row *below* the slope tile itself. `ty` (computed purely from
+    // the entity's current vertical position) only ever pointed at the
+    // lower floor's row, never at the slope one row above it, so
+    // `slope_floor_y` was never even consulted for the tile the entity was
+    // walking straight into — it fell through the slope entirely rather
+    // than climbing it.
+    let mut vm = make_vm();
+    let mut types = caiven_core::builtin_collision_types();
+    types.push(caiven_core::CollisionType {
+        id: 3,
+        name: "ramp_right".to_string(),
+        color: [0, 200, 200],
+        flags: caiven_core::CollisionTypeFlags::from_bits(
+            caiven_core::CollisionTypeFlags::SLOPE_RIGHT,
+        ),
+    });
+    vm.set_collision_types(types);
+
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          -- Lower floor at tile row 5; a slope one row up at row 4, tile
+          -- column 1; the upper floor continuing at row 4, column 2 —
+          -- exactly the shape of a flat-floor-to-slope-to-flat-floor step
+          -- a platformer room would author.
+          set_collision(0, 5, 1)
+          set_collision(1, 4, 3)
+          for tx = 2, 8 do
+            set_collision(tx, 4, 1)
+          end
+
+          local x, y, w, h = 0, 32, 6, 8
+          for _ = 1, 30 do
+            x = move_and_collide(x, y, w, h, 1.2, 0)
+            local _, ny, touch = move_and_collide(x, y, w, h, 0, 0.35)
+            y = ny
+            if touch.ground then
+              y = ny
+            end
+          end
+          final_x = x
+          final_y = y
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.run_frame(&input, &font);
+    assert_eq!(vm.get_fault(), None);
+
+    let globals = vm.lua_globals();
+    let get = |name: &str| {
+        globals
+            .iter()
+            .find(|(k, _)| k == name)
+            .unwrap_or_else(|| panic!("missing global {name}"))
+            .1
+            .clone()
+    };
+    // Climbed the slope and settled on the upper floor (row 4, resting
+    // y=24) rather than falling through it and staying at/below the lower
+    // floor's own resting height (y=32) or past it entirely.
+    let final_y: f64 = get("final_y").text.parse().unwrap_or(f64::MAX);
+    assert!(
+        (20.0..=26.0).contains(&final_y),
+        "entity should have climbed onto and settled on the upper floor \
+         (y near 24), got {final_y} (fell through the slope instead)"
+    );
+}
+
+#[test]
 fn move_and_collide_slope_right_resolves_floor_height_by_column() {
     let mut vm = make_vm();
     let mut types = caiven_core::builtin_collision_types();
