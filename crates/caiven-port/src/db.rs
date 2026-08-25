@@ -48,6 +48,10 @@ pub async fn ensure_legacy_user<C: ConnectionTrait>(db: &C) -> Result<()> {
         mfa_totp_secret: Set(None),
         mfa_enabled: Set(false),
         password_set: Set(false),
+        is_banned: Set(false),
+        banned_at: Set(None),
+        banned_reason: Set(None),
+        banned_by: Set(None),
     }
     .insert(db)
     .await?;

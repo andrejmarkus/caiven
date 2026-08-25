@@ -574,3 +574,33 @@ pub struct DeleteAccountInput {
     #[serde(default)]
     pub code: Option<String>,
 }
+
+// --- Admin: user management ---
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct AdminUserInfo {
+    pub id: String,
+    pub username: String,
+    pub email: Option<String>,
+    pub is_admin: bool,
+    pub is_banned: bool,
+    pub banned_reason: Option<String>,
+    pub created_at: String,
+    pub cart_count: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct AdminUserList {
+    pub users: Vec<AdminUserInfo>,
+    pub total: u64,
+    pub page: u32,
+    pub per_page: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct BanInput {
+    pub reason: String,
+}

@@ -270,6 +270,10 @@ pub async fn register(
         mfa_totp_secret: Set(None),
         mfa_enabled: Set(false),
         password_set: Set(true),
+        is_banned: Set(false),
+        banned_at: Set(None),
+        banned_reason: Set(None),
+        banned_by: Set(None),
     }
     .insert(&state.db)
     .await
@@ -369,6 +373,10 @@ pub async fn login(
     state.rate.reset("login_fail", &ip.0);
     state.rate.reset("login_identity_fail", &login_key);
 
+    if user.is_banned {
+        return Err(ApiError::forbidden("this account has been banned"));
+    }
+
     if user.mfa_enabled {
         let pending_token = auth::create_mfa_challenge(&state.db, &user.id).await?;
         return Ok(Json(LoginOutcome {
@@ -428,6 +436,10 @@ pub async fn login_mfa(
         return Err(ApiError::Unauthorized);
     }
     auth::delete_mfa_challenge(&state.db, &input.pending_token).await?;
+
+    if user.is_banned {
+        return Err(ApiError::forbidden("this account has been banned"));
+    }
 
     start_session(state, jar, &user.id, &session_ctx(&ip, &ua)).await?;
     notify(
@@ -1396,6 +1408,10 @@ async fn oauth_callback_inner(
         // placeholder hash above is unguessable and unusable for login.
         // `/auth/set-password` lets the user add a real one later.
         password_set: Set(false),
+        is_banned: Set(false),
+        banned_at: Set(None),
+        banned_reason: Set(None),
+        banned_by: Set(None),
     }
     .insert(&state.db)
     .await

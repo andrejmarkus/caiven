@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "crates/caiven-studio-ui", "run", "dev"],
       "port": 1420
+    },
+    {
+      "name": "port-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "crates/caiven-port/web", "run", "dev"],
+      "port": 5173
     }
   ]
 }

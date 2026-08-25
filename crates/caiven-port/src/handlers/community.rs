@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     PortState,
-    auth::{AuthUser, VerifiedUser, sha256_hex},
+    auth::{AdminUser, AuthUser, VerifiedUser, sha256_hex},
     db,
     entities::{
         cart_versions, collection_carts, collection_follows, collections, follows, jam_entries,
@@ -342,12 +342,10 @@ pub async fn create_collection(
 #[post("/api/v2/admin/collections", data = "<input>")]
 pub async fn create_editorial_collection(
     state: &State<PortState>,
-    user: AuthUser,
+    admin: AdminUser,
     input: Json<CollectionCreate>,
 ) -> Result<Json<CollectionInfo>, ApiError> {
-    if !user.is_admin {
-        return Err(ApiError::forbidden("admin required"));
-    }
+    let user = admin.0;
     let model = create_collection_impl(&state.db, &user, &input, "editorial").await?;
     Ok(Json(collection_info(&state.db, model, Some(&user)).await?))
 }
@@ -621,12 +619,9 @@ pub async fn get_jam(state: &State<PortState>, slug: &str) -> Result<Json<JamInf
 #[post("/api/v2/admin/jams", data = "<input>")]
 pub async fn create_jam(
     state: &State<PortState>,
-    user: AuthUser,
+    _admin: AdminUser,
     input: Json<JamCreate>,
 ) -> Result<Json<JamInfo>, ApiError> {
-    if !user.is_admin {
-        return Err(ApiError::forbidden("admin required"));
-    }
     validate_jam(&input)?;
     let slug = input
         .slug
@@ -661,13 +656,10 @@ pub async fn create_jam(
 #[patch("/api/v2/admin/jams/<slug>", data = "<input>")]
 pub async fn update_jam(
     state: &State<PortState>,
-    user: AuthUser,
+    _admin: AdminUser,
     slug: &str,
     input: Json<JamPatch>,
 ) -> Result<Json<JamInfo>, ApiError> {
-    if !user.is_admin {
-        return Err(ApiError::forbidden("admin required"));
-    }
     let model = jam_for_slug(&state.db, slug).await?;
     let prospective_starts = input.starts_at.as_deref().unwrap_or(&model.starts_at);
     let prospective_closes = input

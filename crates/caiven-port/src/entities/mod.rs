@@ -17,6 +17,7 @@ pub mod jam_entries;
 pub mod jams;
 pub mod mfa_backup_codes;
 pub mod mfa_challenges;
+pub mod moderation_actions;
 pub mod oauth_identities;
 pub mod play_events;
 pub mod ratings;

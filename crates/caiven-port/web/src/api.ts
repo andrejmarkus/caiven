@@ -208,6 +208,24 @@ export interface DashboardInfo {
   carts: Cart[];
 }
 
+export interface AdminUserInfo {
+  id: string;
+  username: string;
+  email: string | null;
+  is_admin: boolean;
+  is_banned: boolean;
+  banned_reason: string | null;
+  created_at: string;
+  cart_count: number;
+}
+
+export interface AdminUserList {
+  users: AdminUserInfo[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -425,4 +443,12 @@ export const api = {
     request<JamInfo>(`/jams/${slug}/entries`, { method: 'POST', body: JSON.stringify({ cart_id }) }),
   withdrawJam: (slug: string, cartId: string) =>
     request<JamInfo>(`/jams/${slug}/entries/${cartId}`, { method: 'DELETE' }),
+
+  adminListUsers: (opts: { page?: number; per_page?: number; q?: string; filter?: string } = {}) =>
+    request<AdminUserList>(`/admin/users${qs(opts)}`),
+  adminBanUser: (id: string, reason: string) =>
+    request<AdminUserInfo>(`/admin/users/${id}/ban`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  adminUnbanUser: (id: string) => request<AdminUserInfo>(`/admin/users/${id}/unban`, { method: 'POST' }),
+  adminPromoteUser: (id: string) => request<AdminUserInfo>(`/admin/users/${id}/promote`, { method: 'POST' }),
+  adminDemoteUser: (id: string) => request<AdminUserInfo>(`/admin/users/${id}/demote`, { method: 'POST' }),
 };

@@ -486,6 +486,10 @@ async fn session_management_is_owner_scoped_and_capped() {
         mfa_totp_secret: Set(None),
         mfa_enabled: Set(false),
         password_set: Set(true),
+        is_banned: Set(false),
+        banned_at: Set(None),
+        banned_reason: Set(None),
+        banned_by: Set(None),
     }
     .insert(&state.db)
     .await
@@ -2303,4 +2307,283 @@ async fn passkey_list_and_delete_are_owner_scoped() {
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::NoContent);
+}
+
+// ── admin: user management ──────────────────────────────────────────────────
+
+#[rocket::async_test]
+async fn admin_users_requires_authentication_then_admin() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+
+    let resp = client.get("/api/v2/admin/users").dispatch().await;
+    assert_eq!(resp.status(), Status::Unauthorized);
+
+    let founder_token = register_get_token_and_logout(&client, "founder").await;
+    let member_token = register_get_token_and_logout(&client, "member").await;
+
+    let resp = client
+        .get("/api/v2/admin/users")
+        .header(Header::new("X-Api-Key", member_token))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Forbidden);
+
+    let resp = client
+        .get("/api/v2/admin/users")
+        .header(Header::new("X-Api-Key", founder_token))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(body["total"], 2);
+}
+
+#[rocket::async_test]
+async fn admin_user_search_is_case_insensitive() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+
+    let founder_token = register_get_token_and_logout(&client, "founder").await;
+    register_get_token_and_logout(&client, "gigafan").await;
+
+    for q in ["GIGA", "giga", "GiGa"] {
+        let resp = client
+            .get(format!("/api/v2/admin/users?q={q}"))
+            .header(Header::new("X-Api-Key", founder_token.clone()))
+            .dispatch()
+            .await;
+        assert_eq!(resp.status(), Status::Ok);
+        let body: serde_json::Value =
+            serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+        assert_eq!(body["total"], 1, "query {q:?} should match `gigafan`");
+        assert_eq!(body["users"][0]["username"], "gigafan");
+    }
+}
+
+#[rocket::async_test]
+async fn admin_mutation_routes_require_authentication_then_admin() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+
+    let founder_token = register_get_token_and_logout(&client, "founder").await;
+    let member_token = register_get_token_and_logout(&client, "member").await;
+
+    let resp = client
+        .get("/api/v2/admin/users?q=member")
+        .header(Header::new("X-Api-Key", founder_token.clone()))
+        .dispatch()
+        .await;
+    let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let member_id = body["users"][0]["id"].as_str().unwrap().to_string();
+
+    for (path, body) in [
+        (
+            format!("/api/v2/admin/users/{member_id}/ban"),
+            Some(r#"{"reason":"x"}"#),
+        ),
+        (format!("/api/v2/admin/users/{member_id}/unban"), None),
+        (format!("/api/v2/admin/users/{member_id}/promote"), None),
+        (format!("/api/v2/admin/users/{member_id}/demote"), None),
+    ] {
+        let mut req = client.post(path.clone()).header(ContentType::JSON);
+        if let Some(b) = body {
+            req = req.body(b);
+        }
+        assert_eq!(
+            req.dispatch().await.status(),
+            Status::Unauthorized,
+            "{path} without auth"
+        );
+
+        let mut req = client
+            .post(path.clone())
+            .header(ContentType::JSON)
+            .header(Header::new("X-Api-Key", member_token.clone()));
+        if let Some(b) = body {
+            req = req.body(b);
+        }
+        assert_eq!(
+            req.dispatch().await.status(),
+            Status::Forbidden,
+            "{path} as non-admin"
+        );
+    }
+}
+
+#[rocket::async_test]
+async fn cannot_zero_out_admins_via_ban_then_self_demote() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+
+    // Two admins: `founder` (first account) and `second` (promoted).
+    let founder_token = register_get_token_and_logout(&client, "founder").await;
+    register_get_token_and_logout(&client, "second").await;
+
+    let resp = client
+        .get("/api/v2/admin/users?q=second")
+        .header(Header::new("X-Api-Key", founder_token.clone()))
+        .dispatch()
+        .await;
+    let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let second_id = body["users"][0]["id"].as_str().unwrap().to_string();
+    let resp = client
+        .post(format!("/api/v2/admin/users/{second_id}/promote"))
+        .header(Header::new("X-Api-Key", founder_token.clone()))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+
+    // `founder` bans the other admin, `second` — leaving `founder` as the
+    // only *functional* admin even though both rows still say is_admin.
+    let resp = client
+        .post(format!("/api/v2/admin/users/{second_id}/ban"))
+        .header(Header::new("X-Api-Key", founder_token.clone()))
+        .header(ContentType::JSON)
+        .body(r#"{"reason":"test"}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+
+    // `founder` must not be allowed to demote themselves now — doing so
+    // would leave zero admins anyone can actually log in as.
+    let resp = client
+        .get("/api/v2/admin/users?q=founder")
+        .header(Header::new("X-Api-Key", founder_token.clone()))
+        .dispatch()
+        .await;
+    let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let founder_id = body["users"][0]["id"].as_str().unwrap().to_string();
+    let resp = client
+        .post(format!("/api/v2/admin/users/{founder_id}/demote"))
+        .header(Header::new("X-Api-Key", founder_token))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Conflict);
+}
+
+#[rocket::async_test]
+async fn ban_user_forces_logout_and_blocks_future_auth() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+
+    let founder_token = register_get_token_and_logout(&client, "founder").await;
+
+    // `member` stays logged in (cookie session) after registering, and also
+    // mints an API token, so a ban's effect on both auth paths can be
+    // checked without cross-contaminating the shared cookie jar.
+    assert_eq!(register(&client, "member", TEST_PASSWORD).await, Status::Ok);
+    let resp = client
+        .post("/api/v2/auth/tokens")
+        .header(ContentType::JSON)
+        .header(csrf_header(&client))
+        .body(r#"{"name":"test"}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let member_token = body["token"].as_str().unwrap().to_string();
+
+    let resp = client.get("/api/v2/auth/me").dispatch().await;
+    let me: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let member_id = me["id"].as_str().unwrap().to_string();
+
+    let resp = client
+        .post(format!("/api/v2/admin/users/{member_id}/ban"))
+        .header(Header::new("X-Api-Key", founder_token))
+        .header(ContentType::JSON)
+        .body(r#"{"reason":"spam"}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+
+    // Cookie session was force-deleted by the ban.
+    let resp = client.get("/api/v2/auth/me").dispatch().await;
+    assert_eq!(resp.status(), Status::Unauthorized);
+
+    // The API token still exists but is now rejected because the account is
+    // banned.
+    let resp = client
+        .get("/api/v2/auth/me")
+        .header(Header::new("X-Api-Key", member_token))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Forbidden);
+}
+
+#[rocket::async_test]
+async fn last_admin_cannot_be_demoted() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+
+    let founder_token = register_get_token_and_logout(&client, "founder").await;
+    let resp = client
+        .get("/api/v2/admin/users")
+        .header(Header::new("X-Api-Key", founder_token.clone()))
+        .dispatch()
+        .await;
+    let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let founder_id = body["users"][0]["id"].as_str().unwrap().to_string();
+
+    let resp = client
+        .post(format!("/api/v2/admin/users/{founder_id}/demote"))
+        .header(Header::new("X-Api-Key", founder_token))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Conflict);
+}
+
+#[rocket::async_test]
+async fn promote_then_demote_second_admin() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+
+    let founder_token = register_get_token_and_logout(&client, "founder").await;
+    let member_token = register_get_token_and_logout(&client, "member").await;
+
+    let resp = client
+        .get("/api/v2/admin/users?q=member")
+        .header(Header::new("X-Api-Key", founder_token.clone()))
+        .dispatch()
+        .await;
+    let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let member_id = body["users"][0]["id"].as_str().unwrap().to_string();
+
+    let resp = client
+        .post(format!("/api/v2/admin/users/{member_id}/promote"))
+        .header(Header::new("X-Api-Key", founder_token.clone()))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(body["is_admin"], true);
+
+    // Promoting an already-admin user is idempotent: still 200/true.
+    let resp = client
+        .post(format!("/api/v2/admin/users/{member_id}/promote"))
+        .header(Header::new("X-Api-Key", founder_token.clone()))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(body["is_admin"], true);
+
+    // Now `member` is also an admin, so `founder` can be demoted without
+    // leaving the port admin-less.
+    let resp = client
+        .get("/api/v2/admin/users?q=founder")
+        .header(Header::new("X-Api-Key", member_token.clone()))
+        .dispatch()
+        .await;
+    let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let founder_id = body["users"][0]["id"].as_str().unwrap().to_string();
+
+    let resp = client
+        .post(format!("/api/v2/admin/users/{founder_id}/demote"))
+        .header(Header::new("X-Api-Key", member_token))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+    let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(body["is_admin"], false);
 }

@@ -19,6 +19,11 @@ pub struct Model {
     pub mfa_enabled: bool,
     #[sea_orm(default_value = true)]
     pub password_set: bool,
+    #[sea_orm(default_value = false)]
+    pub is_banned: bool,
+    pub banned_at: Option<String>,
+    pub banned_reason: Option<String>,
+    pub banned_by: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

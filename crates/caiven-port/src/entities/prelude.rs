@@ -25,6 +25,8 @@ pub use super::mfa_backup_codes::Entity as MfaBackupCodes;
 #[allow(unused_imports)]
 pub use super::mfa_challenges::Entity as MfaChallenges;
 #[allow(unused_imports)]
+pub use super::moderation_actions::Entity as ModerationActions;
+#[allow(unused_imports)]
 pub use super::oauth_identities::Entity as OauthIdentities;
 pub use super::play_events::Entity as PlayEvents;
 #[allow(unused_imports)]

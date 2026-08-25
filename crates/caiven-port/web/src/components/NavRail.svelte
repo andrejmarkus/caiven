@@ -1,5 +1,6 @@
 <script lang="ts">
   import { route, link } from '../router.svelte';
+  import { currentUser } from '../stores.svelte';
   import Logo from '$lib/components/Logo.svelte';
   import HomeIcon from '@lucide/svelte/icons/house';
   import GridIcon from '@lucide/svelte/icons/layout-grid';
@@ -11,8 +12,9 @@
   import ChartIcon from '@lucide/svelte/icons/chart-no-axes-column-increasing';
   import SettingsIcon from '@lucide/svelte/icons/settings';
   import DownloadIcon from '@lucide/svelte/icons/download';
+  import ShieldIcon from '@lucide/svelte/icons/shield';
 
-  const groups = [
+  const baseGroups = [
     {
       label: 'Discover',
       items: [
@@ -33,6 +35,18 @@
       ],
     },
   ];
+
+  const groups = $derived(
+    currentUser.value?.is_admin
+      ? [
+          ...baseGroups,
+          {
+            label: 'Admin',
+            items: [{ href: '/admin/users', label: 'Users', icon: ShieldIcon }],
+          },
+        ]
+      : baseGroups,
+  );
 
   function active(href: string) {
     return href === '/' ? route.path === '/' : route.path === href || route.path.startsWith(`${href}/`);

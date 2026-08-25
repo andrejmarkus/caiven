@@ -28,7 +28,9 @@
 
   hydrateUser();
   const match = $derived(matchRoute(route.path));
-  const protectedPage = $derived(['activity', 'dashboard', 'settings', 'upload'].includes(match.name));
+  const protectedPage = $derived(
+    ['activity', 'dashboard', 'settings', 'upload', 'admin'].includes(match.name),
+  );
 </script>
 
 <Toaster position="bottom-right" />
@@ -58,6 +60,14 @@
   {:else if match.name === 'reset-password'}<ResetPassword />
   {:else if match.name === 'upload'}<Upload />
   {:else if match.name === 'link-studio'}<LinkStudio />
+  {:else if match.name === 'admin'}
+    {#if !currentUser.value?.is_admin}
+      <div class="container-page py-24 text-center"><h1 class="text-2xl font-semibold">Not authorized</h1><p class="mt-2 text-muted-foreground">This area is admin-only.</p></div>
+    {:else}
+      {#await import('./pages/admin/AdminShell.svelte') then { default: AdminShell }}
+        <AdminShell section={match.params.section} />
+      {/await}
+    {/if}
   {:else}
     <div class="container-page py-24 text-center"><h1 class="text-2xl font-semibold">Page not found</h1><p class="mt-2 text-muted-foreground">Address points beyond Port.</p></div>
   {/if}

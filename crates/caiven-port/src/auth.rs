@@ -653,11 +653,17 @@ impl<'r> FromRequest<'r> for AuthUser {
         if let Some(token) = req.headers().get_one("X-Api-Key")
             && let Some(user) = user_for_token(&state.db, token).await
         {
+            if user.is_banned {
+                return Outcome::Error((Status::Forbidden, ()));
+            }
             return Outcome::Success(user.into());
         }
         if let Some(cookie) = req.cookies().get(SESSION_COOKIE)
             && let Some(user) = user_for_session(&state.db, cookie.value()).await
         {
+            if user.is_banned {
+                return Outcome::Error((Status::Forbidden, ()));
+            }
             // CSRF: cookie-based sessions are ambient (the browser attaches
             // them automatically), so state-changing requests must also
             // prove they can read the non-HttpOnly CSRF cookie — a
@@ -730,6 +736,29 @@ impl<'r> FromRequest<'r> for VerifiedUser {
             return Outcome::Error((Status::Forbidden, ()));
         }
         Outcome::Success(VerifiedUser(user))
+    }
+}
+
+/// Like [`AuthUser`], but additionally requires `is_admin`. `AuthUser`
+/// itself already rejects banned users, so this needs no extra check. Use
+/// for every `/api/v2/admin/*` route so admin-gating is one consistent
+/// guard instead of scattered inline `if !user.is_admin` checks.
+pub struct AdminUser(pub AuthUser);
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for AdminUser {
+    type Error = ();
+
+    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, ()> {
+        let user = match AuthUser::from_request(req).await {
+            Outcome::Success(u) => u,
+            Outcome::Error(e) => return Outcome::Error(e),
+            Outcome::Forward(f) => return Outcome::Forward(f),
+        };
+        if !user.is_admin {
+            return Outcome::Error((Status::Forbidden, ()));
+        }
+        Outcome::Success(AdminUser(user))
     }
 }
 

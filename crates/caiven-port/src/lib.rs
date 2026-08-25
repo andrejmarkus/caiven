@@ -278,6 +278,11 @@ pub fn build_rocket(config: rocket::Config, state: PortState) -> rocket::Rocket<
                 handlers::community::withdraw_jam_entry,
                 handlers::community::feed,
                 handlers::community::dashboard,
+                handlers::admin::list_users,
+                handlers::admin::ban_user,
+                handlers::admin::unban_user,
+                handlers::admin::promote_user,
+                handlers::admin::demote_user,
                 handlers::spa::fallback,
             ],
         )

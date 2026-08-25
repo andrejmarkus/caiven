@@ -1,5 +1,6 @@
 //! HTTP route handlers, split by area. Shared helpers live here.
 
+pub mod admin;
 pub mod auth;
 pub mod carts;
 pub mod community;
