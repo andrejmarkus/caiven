@@ -1,4 +1,3 @@
-use caiven_cart::MAX_CART_BYTES;
 use rocket::{
     FromForm, State, data::Capped, form::Form, fs::TempFile, get, post, serde::json::Json,
 };
@@ -11,7 +10,7 @@ use crate::{
     db,
     entities::{cart_blobs, cart_versions},
     error::ApiError,
-    handlers::carts::{cart_too_large, require_owner},
+    handlers::carts::{read_and_validate_cart_upload, require_owner},
     models::{CartVersionInfo, VersionMeta},
 };
 
@@ -225,29 +224,7 @@ pub async fn create_version(
         .ok_or_else(|| ApiError::not_found("cart not found"))?;
     require_owner(&user, &cart)?;
 
-    if !upload.cart.is_complete() {
-        return Err(cart_too_large());
-    }
-    let cart_len = upload.cart.n.written as usize;
-    if cart_len > MAX_CART_BYTES {
-        return Err(cart_too_large());
-    }
-
-    let tmp_path = upload
-        .cart
-        .value
-        .path()
-        .ok_or_else(|| ApiError::internal("temp file unavailable"))?;
-
-    let bytes = tokio::fs::read(tmp_path)
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
-    if bytes.len() < 6 {
-        return Err(ApiError::bad_request("cart too small"));
-    }
-    if &bytes[..6] != b"CAIVEN" {
-        return Err(ApiError::bad_request("not a valid Caiven cart"));
-    }
+    let (bytes, content_hash) = read_and_validate_cart_upload(&upload.cart).await?;
 
     // meta may be an empty body ({} or "") for a no-changelog bump.
     let meta: VersionMeta = if upload.meta.trim().is_empty() {
@@ -256,8 +233,6 @@ pub async fn create_version(
         serde_json::from_str(&upload.meta)?
     };
 
-    let content_hash = caiven_cart::content_hash(&bytes)
-        .map_err(|_| ApiError::bad_request("not a valid Caiven cart"))?;
     let owner_id = cart.owner_id.as_deref().unwrap_or(db::LEGACY_USER_ID);
     if let Some((title, author)) =
         db::find_other_owner_by_content_hash(&state.db, &content_hash, owner_id).await?

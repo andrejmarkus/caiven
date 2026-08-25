@@ -42,23 +42,21 @@ pub struct CartUpload<'v> {
     pub meta: String,
 }
 
-/// Shared multipart cart+meta validation, used by both the `/api/v2/carts`
-/// and legacy `/api/carts` create routes.
-pub(crate) async fn create_cart_impl(
-    state: &PortState,
-    user: &AuthUser,
-    upload: Form<CartUpload<'_>>,
-) -> Result<Cart, ApiError> {
-    if !upload.cart.is_complete() {
+/// Reads an uploaded cart's temp file, enforces the size cap and the cheap
+/// magic-byte pre-check, and returns its bytes plus content hash. Shared by
+/// the cart-create and version-create routes so they can't drift apart.
+pub(crate) async fn read_and_validate_cart_upload(
+    cart: &Capped<TempFile<'_>>,
+) -> Result<(Vec<u8>, String), ApiError> {
+    if !cart.is_complete() {
         return Err(cart_too_large());
     }
-    let cart_len = upload.cart.n.written as usize;
+    let cart_len = cart.n.written as usize;
     if cart_len > MAX_CART_BYTES {
         return Err(cart_too_large());
     }
 
-    let tmp_path = upload
-        .cart
+    let tmp_path = cart
         .value
         .path()
         .ok_or_else(|| ApiError::internal("temp file unavailable"))?;
@@ -73,11 +71,23 @@ pub(crate) async fn create_cart_impl(
         return Err(ApiError::bad_request("not a valid Caiven cart"));
     }
 
+    let content_hash = caiven_cart::content_hash(&bytes)
+        .map_err(|_| ApiError::bad_request("not a valid Caiven cart"))?;
+    Ok((bytes, content_hash))
+}
+
+/// Shared multipart cart+meta validation, used by both the `/api/v2/carts`
+/// and legacy `/api/carts` create routes.
+pub(crate) async fn create_cart_impl(
+    state: &PortState,
+    user: &AuthUser,
+    upload: Form<CartUpload<'_>>,
+) -> Result<Cart, ApiError> {
+    let (bytes, content_hash) = read_and_validate_cart_upload(&upload.cart).await?;
+
     let meta: CartMeta = serde_json::from_str(&upload.meta)?;
     validate_meta(&meta)?;
 
-    let content_hash = caiven_cart::content_hash(&bytes)
-        .map_err(|_| ApiError::bad_request("not a valid Caiven cart"))?;
     if let Some((title, author)) =
         db::find_other_owner_by_content_hash(&state.db, &content_hash, &user.id).await?
     {
