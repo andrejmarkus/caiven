@@ -81,7 +81,7 @@ fn decode_hex_line(hex: &str, out: &mut Vec<u8>) -> Result<(), String> {
     if !bytes.len().is_multiple_of(2) {
         return Err(format!("odd number of hex digits in line '{hex}'"));
     }
-    for pair in bytes.chunks_exact(2) {
+    for pair in bytes.as_chunks::<2>().0 {
         let hi =
             hex_val(pair[0]).ok_or_else(|| format!("invalid hex digit '{}'", pair[0] as char))?;
         let lo =

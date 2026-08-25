@@ -196,7 +196,7 @@ impl App {
                 path.display()
             ));
         }
-        for (i, rgb) in palette.chunks_exact(3).enumerate() {
+        for (i, rgb) in palette.as_chunks::<3>().0.iter().enumerate() {
             self.core
                 .vm
                 .set_palette_color(i, Color::new_rgb(rgb[0], rgb[1], rgb[2]));

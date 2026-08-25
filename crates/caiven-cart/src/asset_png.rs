@@ -178,7 +178,13 @@ impl Decoded {
                 if self.data.len() % 2 != 0 {
                     return Err("PNG has an incomplete 16-bit sample".to_string());
                 }
-                Ok(self.data.chunks_exact(2).map(|sample| sample[0]).collect())
+                Ok(self
+                    .data
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|sample| sample[0])
+                    .collect())
             }
             png::BitDepth::One | png::BitDepth::Two | png::BitDepth::Four => {
                 if !matches!(
@@ -250,21 +256,25 @@ fn decode_to_indices(bytes: &[u8], fallback_palette: &[u8]) -> Result<(u32, u32,
         png::ColorType::Indexed => Ok((d.width, d.height, samples)),
         png::ColorType::Rgb => {
             let indices = samples
-                .chunks_exact(3)
+                .as_chunks::<3>()
+                .0
+                .iter()
                 .map(|p| nearest_index(p[0], p[1], p[2], fallback_palette))
                 .collect();
             Ok((d.width, d.height, indices))
         }
         png::ColorType::Rgba => {
             let indices = samples
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|p| nearest_index(p[0], p[1], p[2], fallback_palette))
                 .collect();
             Ok((d.width, d.height, indices))
         }
         png::ColorType::Grayscale => Ok((d.width, d.height, samples)),
         png::ColorType::GrayscaleAlpha => {
-            let indices = samples.chunks_exact(2).map(|p| p[0]).collect();
+            let indices = samples.as_chunks::<2>().0.iter().map(|p| p[0]).collect();
             Ok((d.width, d.height, indices))
         }
     }
@@ -273,7 +283,7 @@ fn decode_to_indices(bytes: &[u8], fallback_palette: &[u8]) -> Result<(u32, u32,
 fn nearest_index(r: u8, g: u8, b: u8, palette: &[u8]) -> u8 {
     let mut best = 0u8;
     let mut best_dist = u32::MAX;
-    for (i, chunk) in palette.chunks_exact(3).enumerate() {
+    for (i, chunk) in palette.as_chunks::<3>().0.iter().enumerate() {
         let dr = r as i32 - chunk[0] as i32;
         let dg = g as i32 - chunk[1] as i32;
         let db = b as i32 - chunk[2] as i32;
@@ -294,7 +304,9 @@ fn decode_to_rgb(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
     let rgb = match d.color {
         png::ColorType::Rgb => samples,
         png::ColorType::Rgba => samples
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .flat_map(|p| [p[0], p[1], p[2]])
             .collect(),
         png::ColorType::Indexed => {
@@ -312,7 +324,9 @@ fn decode_to_rgb(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
         }
         png::ColorType::Grayscale => samples.iter().flat_map(|&v| [v, v, v]).collect(),
         png::ColorType::GrayscaleAlpha => samples
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .flat_map(|p| [p[0], p[0], p[0]])
             .collect(),
     };
@@ -326,9 +340,9 @@ fn decode_to_gray(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
     let samples = d.samples()?;
     let gray = match d.color {
         png::ColorType::Grayscale => samples,
-        png::ColorType::GrayscaleAlpha => samples.chunks_exact(2).map(|p| p[0]).collect(),
-        png::ColorType::Rgb => samples.chunks_exact(3).map(|p| p[0]).collect(),
-        png::ColorType::Rgba => samples.chunks_exact(4).map(|p| p[0]).collect(),
+        png::ColorType::GrayscaleAlpha => samples.as_chunks::<2>().0.iter().map(|p| p[0]).collect(),
+        png::ColorType::Rgb => samples.as_chunks::<3>().0.iter().map(|p| p[0]).collect(),
+        png::ColorType::Rgba => samples.as_chunks::<4>().0.iter().map(|p| p[0]).collect(),
         png::ColorType::Indexed => samples,
     };
     Ok((d.width, d.height, gray))
@@ -402,7 +416,7 @@ mod tests {
         }
 
         let mut packed = Vec::with_capacity(SHEET_LEN / 2);
-        for pair in pixels.chunks_exact(2) {
+        for pair in pixels.as_chunks::<2>().0 {
             packed.push(pair[0] << 4 | pair[1]);
         }
         let mut png = Vec::new();

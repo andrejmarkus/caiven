@@ -345,7 +345,12 @@ fn composite_frame(
         return;
     }
 
-    for (px_out, px_shell) in out.chunks_exact_mut(4).zip(shell_rgba.chunks_exact(4)) {
+    for (px_out, px_shell) in out
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(shell_rgba.as_chunks::<4>().0)
+    {
         let a = px_shell[3] as u32;
         if a == 0 {
             continue;

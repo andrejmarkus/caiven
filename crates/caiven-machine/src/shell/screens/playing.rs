@@ -56,7 +56,7 @@ mod tests {
     }
 
     fn any_opaque_pixel(s: &Surface) -> bool {
-        s.rgba().chunks_exact(4).any(|px| px[3] != 0)
+        s.rgba().as_chunks::<4>().0.iter().any(|px| px[3] != 0)
     }
 
     /// Turns `Show fps` on the same way a player does: Start from the

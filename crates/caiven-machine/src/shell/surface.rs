@@ -141,7 +141,13 @@ impl Surface {
     /// [`Self::is_fully_transparent`].
     pub fn mark_clean(&mut self) {
         self.dirty = false;
-        self.fully_transparent = self.pixmap.data().chunks_exact(4).all(|px| px[3] == 0);
+        self.fully_transparent = self
+            .pixmap
+            .data()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|px| px[3] == 0);
     }
 
     /// Whether the last repaint left every pixel fully transparent.

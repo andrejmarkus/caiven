@@ -439,7 +439,10 @@ mod tests {
         // content band — a loose check, but enough to catch a no-op draw.
         let data = s.rgba().to_vec();
         assert!(
-            data.chunks_exact(4).any(|px| px[..3] != [0x2B, 0x2A, 0x2A]),
+            data.as_chunks::<4>()
+                .0
+                .iter()
+                .any(|px| px[..3] != [0x2B, 0x2A, 0x2A]),
             "empty state drew nothing distinguishable from the background"
         );
     }
