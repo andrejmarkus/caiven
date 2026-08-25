@@ -158,6 +158,24 @@ fn zero_version_is_rejected() {
 }
 
 #[test]
+fn pre_map_resize_version_is_rejected_not_silently_misread() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_sample(&dir);
+
+    // Version 4 carts pre-date the 128x128 -> 192x128 map/collision stride
+    // change; their tile rows would land at the wrong offset if read as
+    // 192-wide instead of being rejected.
+    let mut bytes = std::fs::read(&path).unwrap();
+    bytes[6..8].copy_from_slice(&4u16.to_le_bytes());
+    std::fs::write(&path, &bytes).unwrap();
+
+    assert!(matches!(
+        load(&path),
+        Err(CartError::UnsupportedCartVersion { found: 4, .. })
+    ));
+}
+
+#[test]
 fn corrupted_section_data_fails_crc_check() {
     let dir = tempfile::tempdir().unwrap();
     let path = write_sample(&dir);

@@ -513,6 +513,11 @@ fn handle_effect(
             let id = entry.id.clone();
             match port_client::download(&id) {
                 Ok(bytes) => {
+                    if let Err(e) = caiven_cart::parse(&bytes) {
+                        error!("downloaded cart {id} failed to parse: {e}");
+                        shell.download_failed();
+                        return;
+                    }
                     let path = library_dir.join(format!("{}.cav", port_client::safe_filename(&id)));
                     match std::fs::write(&path, &bytes) {
                         Ok(()) => {

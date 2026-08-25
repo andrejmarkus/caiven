@@ -321,7 +321,7 @@ impl Surface {
         let paint = PixmapPaint {
             opacity: opacity.clamp(0.0, 1.0),
             // Nearest, always: this is a fantasy console, and its art is
-            // 128×128. Smooth-scaling it is the one thing not to do.
+            // 192×128. Smooth-scaling it is the one thing not to do.
             quality: tiny_skia::FilterQuality::Nearest,
             ..PixmapPaint::default()
         };

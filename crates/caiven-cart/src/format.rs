@@ -24,7 +24,7 @@ const MAGIC: &[u8; 6] = b"CAIVEN";
 /// Current on-disk cart format version, written by [`write`]. Bump this
 /// (and update `MIN_SUPPORTED_CART_VERSION` if old bytes become unparsable)
 /// whenever the header/section-table shape changes.
-pub(crate) const CART_FORMAT_VERSION: u16 = 4;
+pub(crate) const CART_FORMAT_VERSION: u16 = 5;
 
 /// Oldest version this build still loads. The section table is additive
 /// and self-describing (an unrecognized `SectionKind` just becomes
@@ -42,7 +42,15 @@ pub(crate) const CART_FORMAT_VERSION: u16 = 4;
 /// length under the new decoder, so old carts are rejected outright rather
 /// than silently misread — no migration exists because nothing is in
 /// production yet.
-const MIN_SUPPORTED_CART_VERSION: u16 = 4;
+///
+/// Raised 4 -> 5 with `CART_FORMAT_VERSION`: map/collision resize 128x128 ->
+/// 192x128 (hardware-redesign Phase 4) changed the row-major stride of the
+/// `Map`/`Collision`/`MapBank`/`CollisionBank` sections. A version-4 cart's
+/// 128-wide tile rows would be reinterpreted at the new 192-wide stride —
+/// every tile after the first row lands at the wrong (x, y) — so old carts
+/// are rejected outright rather than silently misread. No migration exists
+/// because nothing is in production yet.
+const MIN_SUPPORTED_CART_VERSION: u16 = 5;
 
 const HEADER_BODY_LEN: usize = 72;
 // 6 (magic) + 2 (version) + 2 (n_sections) + 72 (header body)
