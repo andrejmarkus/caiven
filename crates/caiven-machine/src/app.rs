@@ -1074,6 +1074,61 @@ mod tests {
     }
 
     #[test]
+    fn platformer_showcase_cart_loads_and_runs_without_fault() {
+        use caiven_vm::input::Button;
+
+        let project = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../projects/showcase/platformer");
+        let mut app = test_app();
+        app.load(&project)
+            .expect("platformer cart should load and run _init cleanly");
+        assert!(app.core.vm.get_fault().is_none());
+
+        // Title screen for a couple seconds — exercises _update/_draw before
+        // any input, including the sky fill_screen and title text.
+        for _ in 0..30 {
+            app.core.run_frame();
+        }
+        assert!(app.core.vm.get_fault().is_none(), "fault on title screen");
+
+        // Press A to enter "playing" (starts the song via play_music_song),
+        // then hold right + tap the jump/dash buttons to exercise player
+        // animation states, terrain collision, hazards, and the flag anim.
+        app.core.input.set_button(Button::A, true);
+        app.core.run_frame();
+        app.core.input.set_button(Button::A, false);
+        app.core.input.set_button(Button::Right, true);
+        for i in 0..90 {
+            if i == 20 {
+                app.core.input.set_button(Button::A, true);
+            } else if i == 21 {
+                app.core.input.set_button(Button::A, false);
+            } else if i == 40 {
+                app.core.input.set_button(Button::B, true);
+            } else if i == 41 {
+                app.core.input.set_button(Button::B, false);
+            }
+            app.core.run_frame();
+            assert!(
+                app.core.vm.get_fault().is_none(),
+                "fault during playback at frame {i}"
+            );
+        }
+
+        // The new sprite sheet / palette actually rendered something beyond
+        // an all-transparent frame.
+        let pixels = app.core.vm.world_pixels();
+        assert!(pixels.iter().any(|&b| b != 0), "frame is entirely blank");
+
+        // play_music_song() should have resolved a real song-order step and
+        // still be advancing through it — this is the exact bug that made
+        // the old music.hex (SFX-shaped bytes dumped into the music bank)
+        // read as near-silent garbage instead of a composition.
+        let music = app.core.vm.music_player();
+        assert!(music.active && music.song_active, "song did not start");
+    }
+
+    #[test]
     fn save_state_round_trips_ram_and_palette() {
         let dir = tempfile::tempdir().expect("tempdir");
         let mut app = test_app();

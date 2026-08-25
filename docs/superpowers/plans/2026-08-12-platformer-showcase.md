@@ -1,5 +1,17 @@
 # Platformer Showcase Cart Implementation Plan
 
+> **Update (2026-08-24):** the `.hex`-text sprite/music shortcut described
+> below ("no image editor available... generated as `.hex` text, not
+> `.png`") was a known deviation from every other showcase cart's asset
+> pipeline. It has since been superseded: `sprites.hex` was replaced with a
+> real Studio-native `sprites.png` (indexed PNG, matching
+> `crates/caiven-cart/src/asset_png.rs`), and `music.hex`'s format bug (it
+> was emitting SFX-shaped bytes into the music-bank's pattern/row/channel +
+> song-order layout) was fixed with a real composition. See
+> `scripts/demo-carts/gen_platformer_assets.py` for the current generator.
+> This historical plan is left as-is below for the original implementation
+> record.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build `projects/showcase/platformer/`, an 8-room precision

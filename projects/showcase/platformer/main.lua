@@ -9,19 +9,37 @@ SPR_BLANK = 0
 SPR_PLAYER_IDLE = 1
 SPR_PLAYER_RUN1 = 2
 SPR_PLAYER_RUN2 = 3
-SPR_GROUND = 4
-SPR_PLATFORM = 5
-SPR_SPIKE = 6
-SPR_BERRY = 7
-SPR_FLAG = 8
-SPR_SLOPE_RIGHT = 9
-SPR_SLOPE_LEFT = 10
+SPR_PLAYER_RUN3 = 4
+SPR_PLAYER_JUMP = 5
+SPR_PLAYER_FALL = 6
+SPR_PLAYER_WALL_SLIDE = 7
+SPR_PLAYER_DASH = 8
+SPR_PLAYER_DEATH = 9
+SPR_GROUND_TOP = 10
+SPR_GROUND_FILL = 11
+SPR_PLATFORM = 12
+SPR_SLOPE_RIGHT = 13
+SPR_SLOPE_LEFT = 14
+SPR_SPIKE = 15
+SPR_BERRY = 16
+SPR_FLAG_A = 17
+SPR_FLAG_B = 18
+SPR_CAVE_TOP = 19
+SPR_CAVE_FILL = 20
+SPR_RUIN_TOP = 21
+SPR_RUIN_FILL = 22
+SPR_CLOUD = 23
+
+-- Sky backdrop color (palette slot 0). Sprite pixels can never draw this
+-- index (the VM's sprite() builtin treats raw pixel byte 0 as transparent),
+-- so it is reserved for the world backdrop, painted fresh each frame with
+-- fill_screen before draw_map.
+COLOR_SKY = 0
 
 SFX_JUMP = 0
 SFX_DASH = 1
 SFX_DEATH = 2
 SFX_COLLECT = 3
-MUSIC_MAIN = 0
 
 -- Resolved once in _init from collision_types.json (ids there are stable,
 -- but resolving by name keeps this file correct if the table ever changes).
@@ -38,9 +56,10 @@ ROOMS = {
   [1] = {
     col = 0, row = 0,
     tiles = {
-      rect(0, 14, 23, 15, "solid", SPR_GROUND),
-      rect(6, 10, 8, 10, "solid", SPR_GROUND), -- tutorial hop platform
-      rect(15, 11, 17, 11, "solid", SPR_GROUND), -- second hop, a little lower
+      rect(0, 14, 23, 14, "solid", SPR_GROUND_TOP),
+      rect(0, 15, 23, 15, "solid", SPR_GROUND_FILL),
+      rect(6, 10, 8, 10, "solid", SPR_GROUND_TOP), -- tutorial hop platform
+      rect(15, 11, 17, 11, "solid", SPR_GROUND_TOP), -- second hop, a little lower
     },
     spawn = { x = 2 * TILE, y = 13 * TILE },
     berry = { x = 7 * TILE, y = 9 * TILE },
@@ -49,12 +68,20 @@ ROOMS = {
   [2] = {
     col = 1, row = 0,
     tiles = {
-      rect(0, 14, 5, 15, "solid", SPR_GROUND),
-      rect(8, 14, 15, 15, "solid", SPR_GROUND),
-      rect(18, 14, 23, 15, "solid", SPR_GROUND),
+      rect(0, 14, 5, 14, "solid", SPR_GROUND_TOP),
+      rect(0, 15, 5, 15, "solid", SPR_GROUND_FILL),
+      rect(8, 14, 10, 14, "solid", SPR_GROUND_TOP),
+      rect(8, 15, 10, 15, "solid", SPR_GROUND_FILL),
+      -- x11-12 deliberately open beneath the floating block below: a real
+      -- descent shaft into room 6 (row 1) directly underneath, not just a
+      -- hazard gap — the whole lower row is only reachable through here.
+      rect(13, 14, 15, 14, "solid", SPR_GROUND_TOP),
+      rect(13, 15, 15, 15, "solid", SPR_GROUND_FILL),
+      rect(18, 14, 23, 14, "solid", SPR_GROUND_TOP),
+      rect(18, 15, 23, 15, "solid", SPR_GROUND_FILL),
       rect(6, 15, 7, 15, "hazard", SPR_SPIKE),
       rect(16, 15, 17, 15, "hazard", SPR_SPIKE),
-      rect(11, 11, 12, 11, "solid", SPR_GROUND),
+      rect(11, 11, 12, 11, "solid", SPR_GROUND_TOP),
     },
     spawn = { x = 1 * TILE, y = 13 * TILE },
     berry = { x = 11 * TILE, y = 10 * TILE },
@@ -63,9 +90,10 @@ ROOMS = {
   [3] = {
     col = 2, row = 0,
     tiles = {
-      rect(0, 14, 23, 15, "solid", SPR_GROUND),
-      rect(6, 4, 6, 13, "solid", SPR_GROUND),
-      rect(9, 4, 9, 13, "solid", SPR_GROUND),
+      rect(0, 14, 23, 14, "solid", SPR_CAVE_TOP),
+      rect(0, 15, 23, 15, "solid", SPR_CAVE_FILL),
+      rect(6, 4, 6, 13, "solid", SPR_CAVE_FILL),
+      rect(9, 4, 9, 13, "solid", SPR_CAVE_FILL),
       -- "platform" (one-way) not "solid": a solid tile spanning both corridor
       -- columns would seal the wall-jump shaft shut with no gap to pass
       -- through on the way up; one-way only blocks descending, so the climb
@@ -73,7 +101,7 @@ ROOMS = {
       rect(7, 3, 8, 3, "platform", SPR_PLATFORM),
       -- Descent route back to ground level on the right half of the room.
       rect(13, 11, 15, 11, "platform", SPR_PLATFORM),
-      rect(18, 8, 20, 8, "solid", SPR_GROUND),
+      rect(18, 8, 20, 8, "solid", SPR_CAVE_TOP),
     },
     spawn = { x = 1 * TILE, y = 13 * TILE },
     berry = { x = 7 * TILE, y = 2 * TILE },
@@ -82,9 +110,17 @@ ROOMS = {
   [4] = {
     col = 3, row = 0,
     tiles = {
-      rect(0, 14, 13, 15, "solid", SPR_GROUND),
+      rect(0, 14, 13, 14, "solid", SPR_CAVE_TOP),
+      rect(0, 15, 13, 15, "solid", SPR_CAVE_FILL),
+      -- Extends to the room's right edge (the original 8-room map ended
+      -- here, so this half stayed open) so the floor connects seamlessly
+      -- into room 9's ruins entrance rather than dropping the walker into
+      -- a void at the map's old boundary.
+      rect(16, 14, 23, 14, "solid", SPR_CAVE_TOP),
+      rect(16, 15, 23, 15, "solid", SPR_CAVE_FILL),
       rect(2, 10, 6, 10, "platform", SPR_PLATFORM),
       rect(9, 11, 11, 11, "platform", SPR_PLATFORM),
+      rect(18, 11, 20, 11, "platform", SPR_PLATFORM),
     },
     spawn = { x = 1 * TILE, y = 13 * TILE },
     berry = { x = 4 * TILE, y = 9 * TILE },
@@ -93,9 +129,12 @@ ROOMS = {
   [5] = {
     col = 0, row = 1,
     tiles = {
-      rect(0, 14, 4, 15, "solid", SPR_GROUND),
-      rect(11, 14, 15, 15, "solid", SPR_GROUND),
-      rect(20, 14, 23, 15, "solid", SPR_GROUND),
+      rect(0, 14, 4, 14, "solid", SPR_GROUND_TOP),
+      rect(0, 15, 4, 15, "solid", SPR_GROUND_FILL),
+      rect(11, 14, 15, 14, "solid", SPR_GROUND_TOP),
+      rect(11, 15, 15, 15, "solid", SPR_GROUND_FILL),
+      rect(20, 14, 23, 14, "solid", SPR_GROUND_TOP),
+      rect(20, 15, 23, 15, "solid", SPR_GROUND_FILL),
       rect(5, 15, 10, 15, "hazard", SPR_SPIKE),
       rect(16, 15, 19, 15, "hazard", SPR_SPIKE),
       -- Stepping stone: the second spike field is too wide for a flat jump.
@@ -108,14 +147,14 @@ ROOMS = {
   [6] = {
     col = 1, row = 1,
     tiles = {
-      rect(0, 14, 6, 14, "solid", SPR_GROUND),
-      rect(0, 15, 6, 15, "solid", SPR_GROUND),
+      rect(0, 14, 6, 14, "solid", SPR_GROUND_TOP),
+      rect(0, 15, 6, 15, "solid", SPR_GROUND_FILL),
       rect(7, 13, 7, 13, "ramp_right", SPR_SLOPE_RIGHT),
-      rect(8, 13, 23, 13, "solid", SPR_GROUND),
-      rect(8, 14, 23, 15, "solid", SPR_GROUND),
+      rect(8, 13, 23, 13, "solid", SPR_GROUND_TOP),
+      rect(8, 14, 23, 15, "solid", SPR_GROUND_FILL),
       rect(12, 13, 12, 13, "hazard", SPR_SPIKE),
       rect(19, 13, 19, 13, "hazard", SPR_SPIKE),
-      rect(12, 10, 12, 10, "solid", SPR_GROUND),
+      rect(12, 10, 12, 10, "solid", SPR_GROUND_TOP),
       rect(16, 10, 17, 10, "platform", SPR_PLATFORM),
     },
     spawn = { x = 1 * TILE, y = 13 * TILE },
@@ -125,14 +164,16 @@ ROOMS = {
   [7] = {
     col = 2, row = 1,
     tiles = {
-      rect(0, 13, 3, 15, "solid", SPR_GROUND),
-      rect(4, 14, 4, 15, "solid", SPR_GROUND),
-      rect(9, 14, 9, 15, "solid", SPR_GROUND),
-      rect(4, 8, 4, 13, "solid", SPR_GROUND),
-      rect(9, 8, 9, 13, "solid", SPR_GROUND),
+      rect(0, 13, 3, 13, "solid", SPR_CAVE_TOP),
+      rect(0, 14, 3, 15, "solid", SPR_CAVE_FILL),
+      rect(4, 14, 4, 15, "solid", SPR_CAVE_TOP),
+      rect(9, 14, 9, 15, "solid", SPR_CAVE_TOP),
+      rect(4, 8, 4, 13, "solid", SPR_CAVE_FILL),
+      rect(9, 8, 9, 13, "solid", SPR_CAVE_FILL),
       rect(6, 10, 7, 10, "platform", SPR_PLATFORM),
       rect(5, 15, 8, 15, "hazard", SPR_SPIKE),
-      rect(10, 13, 23, 15, "solid", SPR_GROUND),
+      rect(10, 13, 23, 13, "solid", SPR_CAVE_TOP),
+      rect(10, 14, 23, 15, "solid", SPR_CAVE_FILL),
       rect(17, 10, 19, 10, "platform", SPR_PLATFORM),
       rect(21, 12, 22, 12, "hazard", SPR_SPIKE),
     },
@@ -143,16 +184,152 @@ ROOMS = {
   [8] = {
     col = 3, row = 1,
     tiles = {
-      rect(0, 13, 23, 15, "solid", SPR_GROUND),
+      rect(0, 13, 23, 13, "solid", SPR_CAVE_TOP),
+      rect(0, 14, 23, 15, "solid", SPR_CAVE_FILL),
       rect(8, 15, 9, 15, "hazard", SPR_SPIKE),
-      rect(10, 11, 10, 11, "solid", SPR_GROUND),
+      rect(10, 11, 10, 11, "solid", SPR_CAVE_TOP),
       rect(16, 11, 17, 11, "platform", SPR_PLATFORM),
     },
     spawn = { x = 1 * TILE, y = 12 * TILE },
     berry = { x = 10 * TILE, y = 10 * TILE },
-    flag = { x = 20 * TILE, y = 11 * TILE },
+    flag = nil,
+  },
+  [9] = {
+    col = 4, row = 0,
+    tiles = {
+      rect(0, 14, 3, 14, "solid", SPR_RUIN_TOP),
+      rect(0, 15, 3, 15, "solid", SPR_RUIN_FILL),
+      -- x4-5 left open: the climbing shaft from room 11 (row 1) directly
+      -- below arrives here.
+      rect(6, 14, 13, 14, "solid", SPR_RUIN_TOP),
+      rect(6, 15, 13, 15, "solid", SPR_RUIN_FILL),
+      rect(16, 14, 23, 14, "solid", SPR_RUIN_TOP),
+      rect(16, 15, 23, 15, "solid", SPR_RUIN_FILL),
+      rect(14, 15, 15, 15, "hazard", SPR_SPIKE),
+      rect(9, 10, 11, 10, "platform", SPR_PLATFORM),
+      rect(18, 10, 19, 10, "platform", SPR_PLATFORM),
+    },
+    spawn = { x = 1 * TILE, y = 13 * TILE },
+    berry = { x = 10 * TILE, y = 9 * TILE },
+    flag = nil,
+  },
+  [10] = {
+    col = 5, row = 0,
+    tiles = {
+      rect(0, 14, 23, 14, "solid", SPR_RUIN_TOP),
+      rect(0, 15, 23, 15, "solid", SPR_RUIN_FILL),
+      rect(4, 10, 4, 13, "solid", SPR_RUIN_FILL),
+      rect(9, 10, 9, 13, "solid", SPR_RUIN_FILL),
+      rect(5, 9, 8, 9, "platform", SPR_PLATFORM),
+      rect(14, 11, 16, 11, "platform", SPR_PLATFORM),
+    },
+    spawn = { x = 1 * TILE, y = 13 * TILE },
+    berry = { x = 6 * TILE, y = 8 * TILE },
+    flag = nil,
+  },
+  [11] = {
+    col = 4, row = 1,
+    tiles = {
+      rect(0, 14, 11, 14, "solid", SPR_RUIN_TOP),
+      rect(13, 14, 17, 14, "solid", SPR_RUIN_TOP),
+      rect(19, 14, 23, 14, "solid", SPR_RUIN_TOP),
+      rect(0, 15, 11, 15, "solid", SPR_RUIN_FILL),
+      rect(13, 15, 17, 15, "solid", SPR_RUIN_FILL),
+      rect(19, 15, 23, 15, "solid", SPR_RUIN_FILL),
+      rect(12, 15, 12, 15, "hazard", SPR_SPIKE),
+      rect(18, 15, 18, 15, "hazard", SPR_SPIKE),
+      -- Wall-jump climbing shaft (same technique as room 3) rising to the
+      -- gap left open in room 9 directly above — the low road's way back
+      -- up to the high road, not a dead end.
+      rect(4, 2, 4, 13, "solid", SPR_RUIN_FILL),
+      rect(7, 2, 7, 13, "solid", SPR_RUIN_FILL),
+      rect(5, 2, 6, 2, "platform", SPR_PLATFORM),
+    },
+    spawn = { x = 1 * TILE, y = 13 * TILE },
+    berry = { x = 15 * TILE, y = 13 * TILE },
+    flag = nil,
+  },
+  [12] = {
+    col = 5, row = 1,
+    tiles = {
+      rect(0, 14, 7, 14, "solid", SPR_RUIN_TOP),
+      rect(0, 15, 7, 15, "solid", SPR_RUIN_FILL),
+      rect(10, 14, 23, 14, "solid", SPR_RUIN_TOP),
+      rect(10, 15, 23, 15, "solid", SPR_RUIN_FILL),
+      rect(8, 15, 9, 15, "hazard", SPR_SPIKE),
+      rect(13, 10, 15, 10, "platform", SPR_PLATFORM),
+      rect(4, 9, 4, 13, "solid", SPR_RUIN_FILL),
+    },
+    spawn = { x = 1 * TILE, y = 13 * TILE },
+    berry = { x = 5 * TILE, y = 12 * TILE },
+    flag = nil,
+  },
+  [13] = {
+    col = 6, row = 0,
+    tiles = {
+      -- Ruins give way to open sky: past this ledge there is no floor at
+      -- all — falling off the world edge already means death/respawn
+      -- (see _update's "playing" branch), so a bottomless sky reach is a
+      -- real, intentional biome, not a gap that needs patching.
+      rect(0, 14, 5, 14, "solid", SPR_RUIN_TOP),
+      rect(0, 15, 5, 15, "solid", SPR_RUIN_FILL),
+      rect(8, 11, 10, 11, "platform", SPR_CLOUD),
+      rect(13, 9, 15, 9, "platform", SPR_CLOUD),
+      rect(17, 12, 19, 12, "platform", SPR_CLOUD),
+      rect(20, 9, 23, 9, "platform", SPR_CLOUD),
+    },
+    spawn = { x = 1 * TILE, y = 13 * TILE },
+    berry = { x = 14 * TILE, y = 8 * TILE },
+    flag = nil,
+  },
+  [14] = {
+    col = 7, row = 0,
+    tiles = {
+      rect(1, 10, 3, 10, "platform", SPR_CLOUD),
+      rect(6, 7, 8, 7, "platform", SPR_CLOUD),
+      rect(11, 10, 13, 10, "platform", SPR_CLOUD),
+      rect(16, 7, 18, 7, "platform", SPR_CLOUD),
+      rect(20, 10, 23, 10, "platform", SPR_CLOUD),
+    },
+    spawn = { x = 1 * TILE, y = 13 * TILE },
+    berry = { x = 7 * TILE, y = 6 * TILE },
+    flag = nil,
+  },
+  [15] = {
+    col = 6, row = 1,
+    tiles = {
+      rect(0, 14, 4, 14, "solid", SPR_RUIN_TOP),
+      rect(0, 15, 4, 15, "solid", SPR_RUIN_FILL),
+      rect(7, 11, 9, 11, "platform", SPR_CLOUD),
+      rect(12, 8, 14, 8, "platform", SPR_CLOUD),
+      rect(17, 11, 19, 11, "platform", SPR_CLOUD),
+      rect(21, 13, 23, 13, "platform", SPR_CLOUD),
+    },
+    spawn = { x = 1 * TILE, y = 13 * TILE },
+    berry = { x = 13 * TILE, y = 7 * TILE },
+    flag = nil,
+  },
+  [16] = {
+    col = 7, row = 1,
+    tiles = {
+      rect(0, 13, 3, 13, "platform", SPR_CLOUD),
+      rect(6, 10, 8, 10, "platform", SPR_CLOUD),
+      rect(11, 7, 13, 7, "platform", SPR_CLOUD),
+      -- The finale: a small sky temple to plant the flag on.
+      rect(16, 10, 20, 10, "solid", SPR_RUIN_TOP),
+      rect(16, 11, 20, 15, "solid", SPR_RUIN_FILL),
+    },
+    spawn = { x = 1 * TILE, y = 13 * TILE },
+    berry = { x = 7 * TILE, y = 9 * TILE },
+    flag = { x = 18 * TILE, y = 9 * TILE },
   },
 }
+
+TOTAL_BERRIES = 0
+for _, room in ipairs(ROOMS) do
+  if room.berry then TOTAL_BERRIES = TOTAL_BERRIES + 1 end
+end
+
 local function paint_world()
   for _, room in ipairs(ROOMS) do
     local ox, oy = room.col * ROOM_TILES_W, room.row * ROOM_TILES_H
@@ -177,33 +354,54 @@ function room_at(px, py)
   return nil
 end
 
+-- Screen shake: a brief camera jitter on hard impacts (death, landing hard).
+-- Pure hand-tuned juice on top of the existing set_camera call, not a new
+-- module or builtin.
+SHAKE_TIMER, SHAKE_AMOUNT = 0, 0
+
+function start_shake(amount, duration)
+  SHAKE_AMOUNT = amount
+  SHAKE_TIMER = duration
+end
+
 function update_camera(px, py)
   -- physics_update can push the player past the grid's outer edge for a
   -- single frame before the nil-room death check (which runs before this,
   -- on the prior frame's position) catches it next frame — clamp so
   -- set_camera (u32 args) never sees a negative or out-of-grid coordinate.
-  local col = math.max(0, math.min(3, math.floor(px / ROOM_PX_W)))
+  local col = math.max(0, math.min(7, math.floor(px / ROOM_PX_W)))
   local row = math.max(0, math.min(1, math.floor(py / ROOM_PX_H)))
-  set_camera(col * ROOM_PX_W, row * ROOM_PX_H)
+  local cx, cy = col * ROOM_PX_W, row * ROOM_PX_H
+  if SHAKE_TIMER > 0 then
+    cx = math.max(0, cx + math.floor(random_float(-SHAKE_AMOUNT, SHAKE_AMOUNT)))
+    cy = math.max(0, cy + math.floor(random_float(-SHAKE_AMOUNT, SHAKE_AMOUNT)))
+    SHAKE_TIMER = SHAKE_TIMER - 1
+  end
+  set_camera(cx, cy)
 end
 
+-- 16-color palette: ink outline + white + four hue ramps (stone, foliage,
+-- wood/player, ember/hazard) at three shades each, plus two accents (sky
+-- backdrop, gold) — see scripts/demo-carts/gen_platformer_assets.py's
+-- PALETTE table, which this must stay in sync with (sprite pixel indices
+-- there assume these exact slot colors).
 local function set_palette()
-  set_palette_color(0, 100, 160, 230)
-  set_palette_color(1, 92, 58, 33)
-  set_palette_color(2, 132, 86, 48)
-  set_palette_color(3, 60, 168, 60)
-  set_palette_color(4, 220, 70, 90)
-  set_palette_color(5, 255, 220, 210)
-  set_palette_color(6, 220, 40, 60)
-  set_palette_color(7, 60, 160, 70)
-  set_palette_color(8, 230, 40, 40)
-  set_palette_color(9, 255, 255, 255)
-  set_palette_color(10, 250, 210, 40)
-  set_palette_color(11, 255, 255, 255)
-  set_palette_color(12, 20, 20, 20)
-  set_palette_color(13, 255, 255, 255)
-  set_palette_color(14, 255, 255, 0)
-  set_palette_color(15, 40, 40, 40)
+  set_palette_color(0, 168, 186, 214)  -- sky (accent)
+  set_palette_color(1, 24, 20, 28)     -- ink
+  set_palette_color(2, 240, 236, 224)  -- white
+  set_palette_color(3, 58, 56, 72)     -- stone dark
+  set_palette_color(4, 104, 100, 122)  -- stone mid
+  set_palette_color(5, 158, 154, 170)  -- stone light
+  set_palette_color(6, 32, 68, 46)     -- foliage dark
+  set_palette_color(7, 60, 120, 74)    -- foliage mid
+  set_palette_color(8, 132, 190, 108)  -- foliage light
+  set_palette_color(9, 92, 54, 34)     -- wood dark
+  set_palette_color(10, 168, 96, 48)   -- wood mid
+  set_palette_color(11, 230, 162, 90)  -- wood light
+  set_palette_color(12, 96, 24, 26)    -- ember dark
+  set_palette_color(13, 188, 46, 40)   -- ember mid
+  set_palette_color(14, 236, 108, 52)  -- ember light
+  set_palette_color(15, 255, 214, 88)  -- gold (accent)
 end
 
 -- ROOMS[n].spawn/berry/flag are authored in the same ROOM-LOCAL tile-pixel
@@ -229,18 +427,21 @@ function _init()
 end
 
 local function player_touches_flag()
-  local flag = ROOMS[8].flag
+  local flag = ROOMS[16].flag
   if not flag then return false end
-  local wp = room_point(ROOMS[8], flag)
+  local wp = room_point(ROOMS[16], flag)
   return aabb_overlap(player.pos.x, player.pos.y, player.w, player.h,
     wp.x, wp.y, 8, 8)
 end
+
+FLAG_ANIM = nil
 
 function reset_game()
   GAME = { mode = "title", deaths = 0, berries = 0, last_room = ROOMS[1] }
   spawn_player(room_point(ROOMS[1], ROOMS[1].spawn))
   spawn_berries()
   stop_music()
+  FLAG_ANIM = new_anim({ SPR_FLAG_A, SPR_FLAG_B }, 20)
 end
 
 function spawn_berries()
@@ -266,7 +467,7 @@ local function update_berries()
       play_sfx(SFX_COLLECT)
       for i = 1, 8 do
         local a = (i / 8) * 6.28318
-        Particles.spawn(e.pos.x + 4, e.pos.y + 4, math.cos(a) * 1.2, math.sin(a) * 1.2, 6, 16)
+        Particles.spawn(e.pos.x + 4, e.pos.y + 4, math.cos(a) * 1.2, math.sin(a) * 1.2, 15, 16)
       end
     end
   end
@@ -292,10 +493,11 @@ local function start_dying()
   GAME.mode = "dying"
   GAME.dying_timer = DYING_FRAMES
   play_sfx(SFX_DEATH)
+  start_shake(3, 14)
   for i = 1, 12 do
     local a = (i / 12) * 6.28318
     Particles.spawn(player.pos.x + player.w / 2, player.pos.y + player.h / 2,
-      math.cos(a) * 1.5, math.sin(a) * 1.5, 8, 18)
+      math.cos(a) * 1.5, math.sin(a) * 1.5, 13, 18)
   end
   GAME.deaths = GAME.deaths + 1
 end
@@ -340,7 +542,7 @@ function spawn_player(spawn)
     wall_dir = 0,
     walljump_lock = 0,
     dashes = 1, dash_timer = 0, dashing = false, dash_vx = 0, dash_vy = 0,
-    anim = new_anim({ SPR_PLAYER_RUN1, SPR_PLAYER_IDLE, SPR_PLAYER_RUN2, SPR_PLAYER_IDLE }, 8),
+    anim = new_anim({ SPR_PLAYER_RUN1, SPR_PLAYER_RUN3, SPR_PLAYER_RUN2, SPR_PLAYER_RUN3 }, 6),
   }
 end
 
@@ -389,8 +591,13 @@ local function player_vertical(input)
 end
 
 local function player_move_and_collide()
-  local nx, _, htouch = move_and_collide(player.pos.x, player.pos.y, player.w, player.h, player.vx, 0)
+  local nx, ny_step, htouch = move_and_collide(player.pos.x, player.pos.y, player.w, player.h, player.vx, 0)
   player.pos.x = nx
+  -- A step-up (climbing onto a one-tile ledge or a slope's tall edge)
+  -- comes back as a raised y from the horizontal pass itself — apply it
+  -- before the vertical pass runs, so that pass starts from the stepped-up
+  -- height instead of re-deadlocking against the same ledge.
+  player.pos.y = ny_step
   if htouch.left then player.wall_dir = -1
   elseif htouch.right then player.wall_dir = 1
   else player.wall_dir = 0 end
@@ -399,7 +606,18 @@ local function player_move_and_collide()
   player.pos.y = ny
 
   if touch.ground then
-    if not player.on_ground then player.coyote_timer = COYOTE_MAX end
+    if not player.on_ground then
+      player.coyote_timer = COYOTE_MAX
+      -- Hard-landing juice: a small camera jab and a puff of dust, only
+      -- when falling fast enough for it to read as an impact.
+      if player.vy > 3.0 then
+        start_shake(1, 6)
+        for i = 1, 4 do
+          Particles.spawn(player.pos.x + player.w / 2, player.pos.y + player.h,
+            random_float(-0.6, 0.6), random_float(-0.6, -0.1), 4, 10)
+        end
+      end
+    end
     player.on_ground = true
     player.vy = 0
   else
@@ -433,7 +651,7 @@ function physics_update(input)
   if player.dashing then
     player.vx, player.vy = player.dash_vx, player.dash_vy
     Particles.spawn(player.pos.x + player.w / 2, player.pos.y + player.h / 2,
-      -player.dash_vx * 0.3, -player.dash_vy * 0.3, 13, 12)
+      -player.dash_vx * 0.3, -player.dash_vy * 0.3, 11, 12)
     player.dash_timer = player.dash_timer - 1
     if player.dash_timer <= 0 then
       player.dashing = false
@@ -464,7 +682,7 @@ function _update()
   if GAME.mode == "title" then
     if button_pressed(4) then
       GAME.mode = "playing"
-      play_music(MUSIC_MAIN)
+      play_music_song()
     end
     return
   end
@@ -482,6 +700,7 @@ function _update()
     end
     physics_update(read_input())
     update_berries()
+    anim_update(FLAG_ANIM)
     update_camera(player.pos.x, player.pos.y)
     if player_touches_hazard() then start_dying() end
     if player_touches_flag() then
@@ -502,18 +721,42 @@ function _update()
   end
 end
 
+-- Picks the player's sprite from movement state, in priority order: a
+-- dedicated frame beats reusing idle/run — dash and wall-slide read poorly
+-- with the wrong pose, so they're checked before the general airborne case.
+--
+-- Resting contact on a tile boundary toggles move_and_collide's `touch.ground`
+-- false for a frame or two even while standing still (the physics step
+-- resolves it every few frames, not every single one) — coyote_timer already
+-- exists to paper over exactly this gap for jump permission, so animation
+-- reuses it here too, rather than flickering into the fall pose each time
+-- raw on_ground drops for a frame.
+local function player_sprite()
+  if GAME.mode == "dying" then return SPR_PLAYER_DEATH end
+  if player.dashing then return SPR_PLAYER_DASH end
+  local grounded = player.on_ground or player.coyote_timer > 0
+  if not grounded and player.wall_dir ~= 0 and player.vy > 0 then return SPR_PLAYER_WALL_SLIDE end
+  if not grounded then
+    return player.vy < 0 and SPR_PLAYER_JUMP or SPR_PLAYER_FALL
+  end
+  if math.abs(player.vx) > 0.1 then return anim_sprite(player.anim) end
+  return SPR_PLAYER_IDLE
+end
+
 function _draw()
   clear_screen()
   if GAME.mode == "title" then
-    draw_text("PLATFORMER", 76, 50, 14)
-    draw_text("PRESS A", 82, 66, 7)
+    fill_screen(COLOR_SKY)
+    draw_text("PLATFORMER", 76, 50, 15)
+    draw_text("PRESS A", 82, 66, 2)
     return
   end
   if GAME.mode == "won" then
-    draw_text("YOU WIN", 82, 40, 14)
-    draw_text("DEATHS " .. GAME.deaths, 80, 56, 7)
-    draw_text("BERRIES " .. GAME.berries .. "/8", 74, 68, 7)
-    draw_text("PRESS A", 82, 84, 7)
+    fill_screen(COLOR_SKY)
+    draw_text("YOU WIN", 82, 40, 15)
+    draw_text("DEATHS " .. GAME.deaths, 80, 56, 2)
+    draw_text("BERRIES " .. GAME.berries .. "/" .. TOTAL_BERRIES, 74, 68, 2)
+    draw_text("PRESS A", 82, 84, 2)
     return
   end
   -- Falls back to the last known room for one frame if the player is
@@ -521,10 +764,10 @@ function _draw()
   -- _update, which kills and respawns them before the next frame).
   local room = room_at(player.pos.x, player.pos.y) or GAME.last_room
   local ox, oy = room.col * ROOM_TILES_W, room.row * ROOM_TILES_H
+  fill_screen(COLOR_SKY)
   draw_map(ox, oy, ox * TILE, oy * TILE, ROOM_TILES_W, ROOM_TILES_H)
   Particles.draw()
-  local frame = player.on_ground and math.abs(player.vx) > 0.1 and anim_sprite(player.anim) or SPR_PLAYER_IDLE
-  sprite(frame, math.floor(player.pos.x), math.floor(player.pos.y), player.facing < 0)
+  sprite(player_sprite(), math.floor(player.pos.x), math.floor(player.pos.y), player.facing < 0)
   for _, e in ipairs(Entities.list) do
     if e.is_berry and e.room == room then
       sprite(SPR_BERRY, math.floor(e.pos.x), math.floor(e.pos.y))
@@ -532,9 +775,9 @@ function _draw()
   end
   if room.flag then
     local wp = room_point(room, room.flag)
-    sprite(SPR_FLAG, wp.x, wp.y)
+    sprite(anim_sprite(FLAG_ANIM), wp.x, wp.y)
   end
   if GAME.mode == "playing" or GAME.mode == "dying" then
-    draw_text("DEATHS " .. GAME.deaths .. "  BERRIES " .. GAME.berries .. "/8", 2, 2, 14)
+    draw_text("DEATHS " .. GAME.deaths .. "  BERRIES " .. GAME.berries .. "/" .. TOTAL_BERRIES, 2, 2, 2)
   end
 end
