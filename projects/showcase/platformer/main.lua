@@ -29,6 +29,8 @@ SPR_CAVE_FILL = 20
 SPR_RUIN_TOP = 21
 SPR_RUIN_FILL = 22
 SPR_CLOUD = 23
+SPR_ENEMY1 = 24
+SPR_ENEMY2 = 25
 
 -- Sky backdrop color (palette slot 0). Sprite pixels can never draw this
 -- index (the VM's sprite() builtin treats raw pixel byte 0 as transparent),
@@ -105,6 +107,7 @@ ROOMS = {
     },
     spawn = { x = 1 * TILE, y = 13 * TILE },
     berry = { x = 7 * TILE, y = 2 * TILE },
+    enemy = { x = 11 * TILE, y = 13 * TILE },
     flag = nil,
   },
   [4] = {
@@ -124,6 +127,7 @@ ROOMS = {
     },
     spawn = { x = 1 * TILE, y = 13 * TILE },
     berry = { x = 4 * TILE, y = 9 * TILE },
+    enemy = { x = 19 * TILE, y = 13 * TILE },
     flag = nil,
   },
   [5] = {
@@ -225,6 +229,7 @@ ROOMS = {
     },
     spawn = { x = 1 * TILE, y = 13 * TILE },
     berry = { x = 6 * TILE, y = 8 * TILE },
+    enemy = { x = 12 * TILE, y = 13 * TILE },
     flag = nil,
   },
   [11] = {
@@ -262,6 +267,7 @@ ROOMS = {
     },
     spawn = { x = 1 * TILE, y = 13 * TILE },
     berry = { x = 5 * TILE, y = 12 * TILE },
+    enemy = { x = 16 * TILE, y = 13 * TILE },
     flag = nil,
   },
   [13] = {
@@ -440,6 +446,7 @@ function reset_game()
   GAME = { mode = "title", deaths = 0, berries = 0, last_room = ROOMS[1] }
   spawn_player(room_point(ROOMS[1], ROOMS[1].spawn))
   spawn_berries()
+  spawn_enemies()
   stop_music()
   FLAG_ANIM = new_anim({ SPR_FLAG_A, SPR_FLAG_B }, 20)
 end
@@ -471,7 +478,6 @@ local function update_berries()
       end
     end
   end
-  Entities.update_all()
 end
 
 DYING_FRAMES = 20
@@ -510,6 +516,75 @@ local function handle_dying()
     spawn_player(room_point(room, room.spawn))
     GAME.mode = "playing"
   end
+end
+
+ENEMY_SPEED = 0.5
+ENEMY_STOMP_BAND = 4 -- how far the player's feet can sink into the enemy's top edge and still count as a stomp, not a side hit
+
+-- A ground patroller turns around at a wall or the edge of its platform —
+-- checked one tile ahead in its direction of travel, at the tile row it
+-- occupies and the row just below its feet. Hazard/one-way-only-from-below
+-- tiles don't count as floor here (get_collision returning anything other
+-- than solid/one_way ahead reads as "nothing to stand on"), so the walker
+-- naturally refuses to step onto a spike bed or off a ledge into open air.
+local function enemy_should_turn(e)
+  local dir = e.vx > 0 and 1 or -1
+  local front_x = dir > 0 and (e.pos.x + e.w) or (e.pos.x - 1)
+  local tx = math.floor(front_x / TILE)
+  local ty_body = math.floor(e.pos.y / TILE)
+  local ty_below = math.floor((e.pos.y + e.h) / TILE)
+  if collision_is_solid(get_collision(tx, ty_body)) then return true end
+  local floor_id = get_collision(tx, ty_below)
+  if not (collision_is_solid(floor_id) or collision_is_one_way(floor_id)) then return true end
+  return false
+end
+
+local function enemy_update(e)
+  if enemy_should_turn(e) then e.vx = -e.vx end
+  e.pos.x = e.pos.x + e.vx
+  anim_update(e.anim)
+end
+
+function spawn_enemies()
+  for _, room in ipairs(ROOMS) do
+    if room.enemy then
+      local wp = room_point(room, room.enemy)
+      Entities.add({
+        pos = Vec2.new(wp.x, wp.y),
+        w = 8, h = 8,
+        vx = ENEMY_SPEED,
+        room = room,
+        is_enemy = true,
+        anim = new_anim({ SPR_ENEMY1, SPR_ENEMY2 }, 10),
+        update = enemy_update,
+      })
+    end
+  end
+end
+
+-- Mario-style stomp: landing on top of the enemy while falling kills it and
+-- gives a small bounce; touching it from any other angle kills the player,
+-- same as a hazard tile. The stomp band check (feet only a few pixels into
+-- the enemy's top edge) keeps a side collision from misreading as a stomp.
+local function update_enemies()
+  for _, e in ipairs(Entities.overlapping(player.pos.x, player.pos.y, player.w, player.h)) do
+    if e.is_enemy and not e.dead then
+      local stomping = player.vy > 0 and (player.pos.y + player.h - e.pos.y) < ENEMY_STOMP_BAND
+      if stomping then
+        e.dead = true
+        player.vy = JUMP_VY * 0.6
+        play_sfx(SFX_JUMP)
+        start_shake(1, 6)
+        for i = 1, 6 do
+          local a = (i / 6) * 6.28318
+          Particles.spawn(e.pos.x + 4, e.pos.y + 4, math.cos(a) * 1.0, math.sin(a) * 1.0, 12, 14)
+        end
+      else
+        start_dying()
+      end
+    end
+  end
+  Entities.update_all()
 end
 
 RUN_MAX = 1.2
@@ -700,6 +775,7 @@ function _update()
     end
     physics_update(read_input())
     update_berries()
+    update_enemies()
     anim_update(FLAG_ANIM)
     update_camera(player.pos.x, player.pos.y)
     if player_touches_hazard() then start_dying() end
@@ -771,6 +847,8 @@ function _draw()
   for _, e in ipairs(Entities.list) do
     if e.is_berry and e.room == room then
       sprite(SPR_BERRY, math.floor(e.pos.x), math.floor(e.pos.y))
+    elseif e.is_enemy and e.room == room then
+      sprite(anim_sprite(e.anim), math.floor(e.pos.x), math.floor(e.pos.y), e.vx < 0)
     end
   end
   if room.flag then

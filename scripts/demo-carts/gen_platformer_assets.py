@@ -336,6 +336,29 @@ FLAG_B = sprite_from_rows([
     "P.......",
 ], {"P": INK, "G": GOLD, "e": EMBER_MID})
 
+# --- enemy: a squat ember crawler (2-frame walk anim) --------------------
+ENEMY1 = sprite_from_rows([
+    "........",
+    ".oeeeeo.",
+    "oeWeWeo.",
+    "oeeeeeeo",
+    "oeeeeeeo",
+    ".oeeeeo.",
+    "..o..o..",
+    ".o....o.",
+], {"o": INK, "e": EMBER_MID, "W": WHITE})
+
+ENEMY2 = sprite_from_rows([
+    "........",
+    ".oeeeeo.",
+    "oeWeWeo.",
+    "oeeeeeeo",
+    "oeeeeeeo",
+    ".oeeeeo.",
+    ".o....o.",
+    "o......o",
+], {"o": INK, "e": EMBER_MID, "W": WHITE})
+
 # Sprite ids, in sheet order (id = index into this list).
 SPRITES = [
     BLANK,              # 0
@@ -362,6 +385,8 @@ SPRITES = [
     RUIN_TOP,           # 21
     RUIN_FILL,          # 22
     CLOUD,              # 23
+    ENEMY1,             # 24
+    ENEMY2,             # 25
 ]
 assert len(SPRITES) <= 256
 
