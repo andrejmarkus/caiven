@@ -40,10 +40,14 @@ documentation. The worktree was clean before this pass.
   handhelds, Windows/Linux installers and signing were not exercised here.
 - Live server coverage uses SQLite. PostgreSQL deployment, real OAuth providers,
   SMTP delivery and production load require their corresponding environments.
-- Dependency warnings remain: `proc-macro-error2` future Rust compatibility and
-  Studio's approximately 891 kB minified main JavaScript chunk. Splitting heavy
-  editor modules should follow startup profiling. Dependency advisories were not
-  independently refreshed during this pass.
+- Dependency warnings remain: `proc-macro-error2` future Rust compatibility.
+  Dependency advisories were not independently refreshed during this pass.
+- ~~Studio's approximately 891 kB minified main JavaScript chunk.~~ Fixed
+  2026-09-13: `LuaEditor.svelte` (CodeMirror and its language packages, the
+  single largest dependency) now loads via a dynamic `import()` in
+  `Workspace.svelte`, triggered when the code screen opens instead of at
+  startup. Main chunk dropped to ~508 kB; CodeMirror ships as its own ~384 kB
+  chunk fetched on first visit to the code screen.
 - ~~Machine Port requests block its frame loop.~~ Fixed 2026-09-13: a
   5s connect / 15s read timeout and `MAX_CART_BYTES` response cap were
   added first, then `port_client::list`/`download` moved off the frame

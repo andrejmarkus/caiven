@@ -21,7 +21,7 @@
     type CollisionBrush, type CollisionEdit, type PixelRegion,
   } from '../lib/editorMath';
   import { emptyHistory, pushEntry, undoEntry, redoEntry, type HistoryState } from '../lib/history';
-  import LuaEditor from './LuaEditor.svelte';
+  import type LuaEditorModule from './LuaEditor.svelte';
   import MapCanvas from './MapCanvas.svelte';
   import SpriteCanvas, { type Pixel, type SpriteTool } from './SpriteCanvas.svelte';
   import {
@@ -141,6 +141,16 @@
 
   let serverUrlDraft = $state('');
   $effect(() => { serverUrlDraft = portAccount.portUrl; });
+
+  // CodeMirror (LuaEditor's dependency) is the single largest chunk in the
+  // Studio bundle — load it only once the code screen is actually opened
+  // instead of paying for it on every Studio launch.
+  let LuaEditorComponent: typeof LuaEditorModule | null = $state(null);
+  $effect(() => {
+    if (screen === 'code' && !LuaEditorComponent) {
+      import('./LuaEditor.svelte').then((m) => { LuaEditorComponent = m.default; });
+    }
+  });
 
   let selectedColor = $state(8);
   let selectedSlot = $state(9);
@@ -1470,25 +1480,29 @@
         </div>
         <div class="breadcrumbs"><span>{title}</span><b>›</b><span>src</span><b>›</b><strong>{active?.name}</strong><code>Lua 5.4</code></div>
         <div class="code-editor">
-          {#key active?.name ?? ''}
-            <LuaEditor
-              value={active?.text ?? ''}
-              path={active?.name ?? ''}
-              initialCursor={sourceCursor[active?.name ?? ''] ?? 0}
-              {api}
-              {preludeModules}
-              {diagnostics}
-              {breakpoints}
-              {insertRequest}
-              {revealRequest}
-              {onInsertHandled}
-              {onRevealHandled}
-              onChange={onCode}
-              onCursor={(source, offset) => sourceCursor[source] = offset}
-              onToggleBreakpoint={onBreakpoint}
-              onEnableModule={(module) => onSetStdlibModule(module, true)}
-            />
-          {/key}
+          {#if LuaEditorComponent}
+            {#key active?.name ?? ''}
+              <LuaEditorComponent
+                value={active?.text ?? ''}
+                path={active?.name ?? ''}
+                initialCursor={sourceCursor[active?.name ?? ''] ?? 0}
+                {api}
+                {preludeModules}
+                {diagnostics}
+                {breakpoints}
+                {insertRequest}
+                {revealRequest}
+                {onInsertHandled}
+                {onRevealHandled}
+                onChange={onCode}
+                onCursor={(source, offset) => sourceCursor[source] = offset}
+                onToggleBreakpoint={onBreakpoint}
+                onEnableModule={(module) => onSetStdlibModule(module, true)}
+              />
+            {/key}
+          {:else}
+            <div class="editor-loading">Loading editor…</div>
+          {/if}
         </div>
         {#if diagnostics[0]}
           <div class="inline-diagnostic"><span>{diagnostics[0].path}:{diagnostics[0].line ?? '?'}</span><strong>{diagnostics[0].title}</strong><p>{diagnostics[0].detail}</p></div>

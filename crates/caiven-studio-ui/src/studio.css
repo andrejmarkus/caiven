@@ -465,6 +465,7 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .breadcrumbs strong { color: var(--color-ink-dim); font-weight: 500; }
 .breadcrumbs code { margin-left: auto; }
 .code-editor { flex: 1; min-height: 0; display: flex; overflow: auto; background: var(--color-void-900); }
+.editor-loading { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--color-ink-faint); font-size: 13px; }
 .gutter { width: 54px; flex: none; padding: 10px 8px; display: flex; flex-direction: column; align-items: flex-end; color: var(--color-ink-faint); font-family: var(--font-mono); font-size: 10.5px; line-height: 22px; background: rgba(0,0,0,.08); }
 .gutter span { width: 100%; position: relative; text-align: right; }
 .gutter span.breakpoint::before { content: ""; position: absolute; left: 6px; top: 7px; width: 8px; height: 8px; border-radius: 50%; background: var(--color-ember); }
