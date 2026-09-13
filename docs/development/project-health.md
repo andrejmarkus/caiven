@@ -38,8 +38,13 @@ documentation. The worktree was clean before this pass.
 
 - Native Studio browser tests mock Tauri IPC. Physical controllers, audio devices,
   handhelds, Windows/Linux installers and signing were not exercised here.
-- Live server coverage uses SQLite. PostgreSQL deployment, real OAuth providers,
-  SMTP delivery and production load require their corresponding environments.
+- ~~Live server coverage uses SQLite. PostgreSQL deployment...~~ Partially
+  verified 2026-09-13: built the Docker image and ran it against real
+  PostgreSQL via `crates/caiven-port/docker-compose.yml` — migrations applied
+  cleanly, the API served cart data, and the built SPA (index, static assets,
+  client-side routes) all returned 200 through the container. Real OAuth
+  providers, SMTP delivery and production load still require their
+  corresponding environments.
 - Dependency warnings remain: `proc-macro-error2` future Rust compatibility.
   Dependency advisories were not independently refreshed during this pass.
 - ~~Studio's approximately 891 kB minified main JavaScript chunk.~~ Fixed
@@ -56,8 +61,12 @@ documentation. The worktree was clean before this pass.
   longer stalls input handling or rendering at all. The Port screen gained
   a `port_loading` flag to show "Loading…" instead of misreporting an
   empty/unreachable server while a fetch is in flight.
-- Docker publishing was not run. Builder/runtime distribution compatibility and
-  deployed container startup still need container verification.
+- ~~Docker publishing was not run... deployed container startup still need
+  container verification.~~ Verified 2026-09-13 (build + run, not the
+  publish workflow itself): `docker compose build` and `up` succeed end to
+  end — Node web build, Rust release build, and the Debian runtime image all
+  produce a working container. Publishing to the registry was still not
+  exercised.
 
 Saved Studio tokens from older builds require one fresh account link because
 they lack a trustworthy server identity. No releases or deployments were created
