@@ -44,9 +44,13 @@ documentation. The worktree was clean before this pass.
   Studio's approximately 891 kB minified main JavaScript chunk. Splitting heavy
   editor modules should follow startup profiling. Dependency advisories were not
   independently refreshed during this pass.
-- Machine Port requests still block its frame loop. Moving network effects to a
-  worker, with explicit timeouts and bounded response sizes, remains useful for
-  slow or unavailable servers.
+- Machine Port requests still block its frame loop (`handle_effect` runs
+  `port_client::list`/`download` synchronously from `app.rs`). 2026-09-13
+  follow-up added a 5s connect / 15s read timeout and a `MAX_CART_BYTES`
+  response cap, so a slow or unreachable server now fails within ~15s
+  instead of hanging indefinitely — but the frame loop still stalls for
+  that whole window. Moving the request itself to a worker thread remains
+  useful for a server that responds but slowly.
 - Docker publishing was not run. Builder/runtime distribution compatibility and
   deployed container startup still need container verification.
 

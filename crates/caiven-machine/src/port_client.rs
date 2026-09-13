@@ -12,8 +12,24 @@
 //! `rename_all`, so the wire format is plain snake_case.
 
 use std::io::Read;
+use std::sync::OnceLock;
+use std::time::Duration;
 
 use crate::shell::state::PortSort;
+
+/// Shared agent with explicit timeouts — ureq's default agent has none, so
+/// an unreachable or stalled Port server would otherwise hang the frame
+/// loop indefinitely (`handle_effect` calls this synchronously, see the
+/// module doc above).
+fn agent() -> &'static ureq::Agent {
+    static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
+    AGENT.get_or_init(|| {
+        ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(5))
+            .timeout(Duration::from_secs(15))
+            .build()
+    })
+}
 
 /// One row of the Port listing, trimmed to what the shell draws and what a
 /// download needs.
@@ -73,7 +89,7 @@ pub fn list(sort: PortSort) -> Result<Vec<PortEntry>, String> {
         port_url(),
         sort.query_value()
     );
-    let response = ureq::get(&url).call().map_err(error_message)?;
+    let response = agent().get(&url).call().map_err(error_message)?;
     let wire: WireList = serde_json::from_reader(response.into_reader())
         .map_err(|error| format!("Invalid cart list: {error}"))?;
     Ok(wire
@@ -88,16 +104,27 @@ pub fn list(sort: PortSort) -> Result<Vec<PortEntry>, String> {
         .collect())
 }
 
-/// Downloads one cart's bytes by id.
+/// Downloads one cart's bytes by id. Bounded to one byte past
+/// `MAX_CART_BYTES` — a malicious or misbehaving server sending an
+/// unbounded body must not be allowed to grow this indefinitely; a cart
+/// that size is invalid anyway and `caiven_cart::parse` would reject it.
 pub fn download(id: &str) -> Result<Vec<u8>, String> {
     let url = format!("{}/api/v2/carts/{id}/cart", port_url());
     let mut bytes = Vec::new();
-    ureq::get(&url)
+    agent()
+        .get(&url)
         .call()
         .map_err(error_message)?
         .into_reader()
+        .take(caiven_cart::MAX_CART_BYTES as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|error| error.to_string())?;
+    if bytes.len() > caiven_cart::MAX_CART_BYTES {
+        return Err(format!(
+            "cart exceeds {} KiB limit",
+            caiven_cart::MAX_CART_BYTES / 1024
+        ));
+    }
     Ok(bytes)
 }
 
@@ -126,15 +153,21 @@ pub fn safe_filename(id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+    use std::net::TcpListener;
+    use std::sync::Mutex;
+
     use super::*;
 
-    // Both env-mutating cases live in one test: `CAIVEN_PORT_URL` is process
-    // global state, and cargo runs tests in this file concurrently by
-    // default, so two separate tests toggling the same var would race.
+    // Any test that touches `CAIVEN_PORT_URL` (process-global state) must
+    // hold this for its whole env-mutate-then-call span, since cargo runs
+    // tests in this file concurrently by default.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
     #[test]
     fn port_url_reads_env_with_localhost_fallback() {
-        // SAFETY: test-only env mutation; kept to this single test so no
-        // other test in this file touches CAIVEN_PORT_URL concurrently.
+        let _guard = ENV_LOCK.lock().unwrap();
+        // SAFETY: test-only env mutation, serialized by ENV_LOCK above.
         unsafe {
             std::env::remove_var("CAIVEN_PORT_URL");
         }
@@ -148,6 +181,44 @@ mod tests {
         unsafe {
             std::env::remove_var("CAIVEN_PORT_URL");
         }
+    }
+
+    /// A server sending more than `MAX_CART_BYTES` must not be allowed to
+    /// grow `download`'s buffer without bound — regression test for the
+    /// `.take()` cap added alongside this test.
+    #[test]
+    fn download_rejects_body_over_max_cart_bytes() {
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let oversized = vec![0u8; caiven_cart::MAX_CART_BYTES + 1024];
+
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            // Drain the request line/headers so the client isn't left
+            // waiting on us before we write the response.
+            let mut buf = [0u8; 1024];
+            let _ = std::io::Read::read(&mut stream, &mut buf);
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
+                oversized.len()
+            );
+            stream.write_all(header.as_bytes()).unwrap();
+            stream.write_all(&oversized).unwrap();
+        });
+
+        unsafe {
+            std::env::set_var("CAIVEN_PORT_URL", format!("http://{addr}"));
+        }
+        let result = download("some-id");
+        unsafe {
+            std::env::remove_var("CAIVEN_PORT_URL");
+        }
+        server.join().unwrap();
+
+        let err = result.expect_err("oversized body must be rejected");
+        assert!(err.contains("128 KiB"), "unexpected error: {err}");
     }
 
     #[test]
