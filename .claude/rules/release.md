@@ -32,8 +32,9 @@ prefix, version source, and CI gate. Do not conflate their versions.
 - All three tag prefixes share the same `.github/workflows/rust.yml` file
   and the same `build`/`lint`/`security`/`doc` quality gate before any
   release job runs.
-- `cargo audit` (with the documented `RUSTSEC-2023-0071` exception for
-  unused `rsa` via sqlx-mysql metadata) and `npm audit --omit=dev
+- `cargo audit` (with the documented per-advisory exceptions in
+  `.github/workflows/rust.yml` — unused `rsa` via sqlx-mysql metadata,
+  unreachable `rkyv`/`h2` paths) and `npm audit --omit=dev
   --audit-level=high` for both frontends must pass before a release.
 - Use the `caiven-release` skill to assemble a release-readiness report
   before tagging — don't tag directly without it.
