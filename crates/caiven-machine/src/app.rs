@@ -18,6 +18,7 @@ use crate::platform::power;
 use crate::platform::scaling::{AspectMode, ScaleMode};
 use crate::platform::window::Display;
 use crate::port_client::{self, PortEntry};
+use crate::port_worker::{PortResult, PortWorker};
 use crate::shell::input::{ShellInput, cart_button, shell_button, shell_button_from_system};
 use crate::shell::library::{self as cart_library, CartMeta};
 use crate::shell::save_data_io;
@@ -363,18 +364,24 @@ fn map_pad(input_map: &InputMap, pad: PadButton) -> Option<Mapped> {
     input_map.get_pad_button(pad).map(Mapped::Cart)
 }
 
+/// Everything a button handler threads through unchanged, bundled so
+/// `dispatch`/`on_down`/`on_up`/`handle_effect` stay under clippy's
+/// too-many-arguments limit as call depth grows (`port_worker` was the arg
+/// that tipped `on_down`/`on_up` over it).
+struct RunCtx<'a> {
+    app: &'a mut App,
+    shell: &'a mut ShellState,
+    carts: &'a mut Vec<CartMeta>,
+    library_dir: &'a Path,
+    port_entries: &'a mut Vec<PortEntry>,
+    port_worker: &'a PortWorker,
+}
+
 /// Runs one shell button event through `ShellState::press` and handles
 /// whatever effect comes back.
-fn dispatch(
-    evt: ShellButton,
-    app: &mut App,
-    shell: &mut ShellState,
-    carts: &mut Vec<CartMeta>,
-    library_dir: &Path,
-    port_entries: &mut Vec<PortEntry>,
-) {
-    if let Some(effect) = shell.press(evt) {
-        handle_effect(effect, app, shell, carts, library_dir, port_entries);
+fn dispatch(evt: ShellButton, ctx: &mut RunCtx) {
+    if let Some(effect) = ctx.shell.press(evt) {
+        handle_effect(effect, ctx);
     }
 }
 
@@ -384,46 +391,21 @@ fn dispatch(
 /// long-press-to-`Start` fallback (SPEC V53) no matter what screen is up —
 /// `press_playing` already ignores every shell event but `Start`, so
 /// routing every button through both paths unconditionally is safe.
-fn on_down(
-    mapped: Mapped,
-    app: &mut App,
-    shell: &mut ShellState,
-    shell_input: &mut ShellInput,
-    carts: &mut Vec<CartMeta>,
-    library_dir: &Path,
-    port_entries: &mut Vec<PortEntry>,
-) {
+fn on_down(mapped: Mapped, ctx: &mut RunCtx, shell_input: &mut ShellInput) {
     match mapped {
         Mapped::Cart(button) => {
-            if shell.screen() == Screen::Playing {
-                app.core.input.set_button(button, true);
+            if ctx.shell.screen() == Screen::Playing {
+                ctx.app.core.input.set_button(button, true);
             }
             if let Some(evt) = shell_input.press(shell_button(button)) {
-                dispatch(evt, app, shell, carts, library_dir, port_entries);
+                dispatch(evt, ctx);
             }
         }
-        Mapped::System(sys) => {
-            dispatch(
-                shell_button_from_system(sys),
-                app,
-                shell,
-                carts,
-                library_dir,
-                port_entries,
-            );
-        }
+        Mapped::System(sys) => dispatch(shell_button_from_system(sys), ctx),
     }
 }
 
-fn on_up(
-    mapped: Mapped,
-    app: &mut App,
-    shell: &mut ShellState,
-    shell_input: &mut ShellInput,
-    carts: &mut Vec<CartMeta>,
-    library_dir: &Path,
-    port_entries: &mut Vec<PortEntry>,
-) {
+fn on_up(mapped: Mapped, ctx: &mut RunCtx, shell_input: &mut ShellInput) {
     // SystemButton has no release semantics of its own — B's hold timer is
     // what carries the long-press fallback, and that lives on the Cart(B)
     // arm below.
@@ -431,9 +413,9 @@ fn on_up(
         // Not gated on `Screen::Playing` like `on_down`: the press that opens
         // the pause menu can flip the screen before its key-up arrives, and
         // gating the release the same way would leave the button latched.
-        app.core.input.set_button(button, false);
+        ctx.app.core.input.set_button(button, false);
         if let Some(evt) = shell_input.release(shell_button(button)) {
-            dispatch(evt, app, shell, carts, library_dir, port_entries);
+            dispatch(evt, ctx);
         }
     }
 }
@@ -444,17 +426,19 @@ fn on_up(
 /// listening check answers with `bind_captured` once a physical input
 /// arrives, or `listening` would swallow every future press.
 ///
-/// Port requests (`RefreshPort`, `StartDownload`) block on `ureq` just like
-/// `LoadCart`/`DeleteCart` block on the filesystem — same synchronous
-/// convention, see `port_client`'s module doc.
-fn handle_effect(
-    effect: Effect,
-    app: &mut App,
-    shell: &mut ShellState,
-    carts: &mut Vec<CartMeta>,
-    library_dir: &Path,
-    port_entries: &mut Vec<PortEntry>,
-) {
+/// `LoadCart`/`DeleteCart` block on the filesystem, same as ever. Port
+/// requests (`RefreshPort`, `StartDownload`) instead hand off to
+/// `port_worker` and return immediately — their replies are collected by
+/// `apply_port_result`, polled once per frame from the run loop, so a slow
+/// or unreachable Port server no longer stalls this function or the frame
+/// it's called from.
+fn handle_effect(effect: Effect, ctx: &mut RunCtx) {
+    let app = &mut *ctx.app;
+    let shell = &mut *ctx.shell;
+    let carts = &mut *ctx.carts;
+    let library_dir = ctx.library_dir;
+    let port_entries = &mut *ctx.port_entries;
+    let port_worker = ctx.port_worker;
     match effect {
         Effect::LoadCart(index) => {
             let Some(cart) = carts.get(index) else {
@@ -494,48 +478,13 @@ fn handle_effect(
             Ok(()) => info!("state loaded"),
             Err(e) => error!("failed to load state: {e:#}"),
         },
-        Effect::RefreshPort => match port_client::list(shell.port_sort()) {
-            Ok(entries) => {
-                *port_entries = entries;
-                shell.set_port_count(port_entries.len());
-            }
-            Err(e) => {
-                error!("Port listing failed: {e}");
-                port_entries.clear();
-                shell.set_port_count(0);
-            }
-        },
+        Effect::RefreshPort => port_worker.refresh(shell.port_sort()),
         Effect::StartDownload(index) => {
             let Some(entry) = port_entries.get(index) else {
                 shell.download_failed();
                 return;
             };
-            let id = entry.id.clone();
-            match port_client::download(&id) {
-                Ok(bytes) => {
-                    if let Err(e) = caiven_cart::parse(&bytes) {
-                        error!("downloaded cart {id} failed to parse: {e}");
-                        shell.download_failed();
-                        return;
-                    }
-                    let path = library_dir.join(format!("{}.cav", port_client::safe_filename(&id)));
-                    match std::fs::write(&path, &bytes) {
-                        Ok(()) => {
-                            *carts = cart_library::scan(library_dir);
-                            shell.download_finished();
-                            shell.set_cart_count(carts.len());
-                        }
-                        Err(e) => {
-                            error!("failed to save downloaded cart to {}: {e}", path.display());
-                            shell.download_failed();
-                        }
-                    }
-                }
-                Err(e) => {
-                    error!("Port download failed for {id}: {e}");
-                    shell.download_failed();
-                }
-            }
+            port_worker.download(entry.id.clone());
         }
         Effect::SettingsChanged => save_settings(&settings_path(), shell.settings()),
         // `press_controls` already flipped `listening`; the run loop's
@@ -545,6 +494,65 @@ fn handle_effect(
         // A handheld has no window-close gesture, so Settings needs its own
         // way out back to the device's launcher menu.
         Effect::QuitApp => std::process::exit(0),
+    }
+}
+
+/// Applies one finished background Port request, polled once per frame from
+/// the run loop. This is where `RefreshPort`/`StartDownload`'s old
+/// synchronous completion logic now lives.
+fn apply_port_result(
+    result: PortResult,
+    shell: &mut ShellState,
+    carts: &mut Vec<CartMeta>,
+    library_dir: &Path,
+    port_entries: &mut Vec<PortEntry>,
+) {
+    match result {
+        PortResult::List { sort, result } => {
+            // A later SELECT press can fire a second refresh before this
+            // one's reply lands; if the sort has since moved on, that
+            // request (still in flight) owns applying its own reply, not
+            // this stale one.
+            if sort != shell.port_sort() {
+                return;
+            }
+            match result {
+                Ok(entries) => {
+                    *port_entries = entries;
+                    shell.set_port_count(port_entries.len());
+                }
+                Err(e) => {
+                    error!("Port listing failed: {e}");
+                    port_entries.clear();
+                    shell.set_port_count(0);
+                }
+            }
+        }
+        PortResult::Download { id, result } => match result {
+            Ok(bytes) => {
+                if let Err(e) = caiven_cart::parse(&bytes) {
+                    error!("downloaded cart {id} failed to parse: {e}");
+                    shell.download_failed();
+                    return;
+                }
+                let path = library_dir.join(format!("{}.cav", port_client::safe_filename(&id)));
+                match std::fs::write(&path, &bytes) {
+                    Ok(()) => {
+                        *carts = cart_library::scan(library_dir);
+                        shell.download_finished();
+                        shell.set_cart_count(carts.len());
+                    }
+                    Err(e) => {
+                        error!("failed to save downloaded cart to {}: {e}", path.display());
+                        shell.download_failed();
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Port download failed for {id}: {e}");
+                shell.download_failed();
+            }
+        },
     }
 }
 
@@ -660,6 +668,7 @@ pub fn run() -> Result<()> {
     let library_dir = cart_library::default_dir();
     let mut carts: Vec<CartMeta> = Vec::new();
     let mut port_entries: Vec<PortEntry> = Vec::new();
+    let port_worker = PortWorker::new();
 
     match &cli.file {
         // A cart given directly on the command line is the developer
@@ -784,12 +793,15 @@ pub fn run() -> Result<()> {
                         input_event_this_frame = true;
                         on_down(
                             mapped,
-                            &mut app,
-                            &mut shell_state,
+                            &mut RunCtx {
+                                app: &mut app,
+                                shell: &mut shell_state,
+                                carts: &mut carts,
+                                library_dir: &library_dir,
+                                port_entries: &mut port_entries,
+                                port_worker: &port_worker,
+                            },
                             &mut shell_input,
-                            &mut carts,
-                            &library_dir,
-                            &mut port_entries,
                         );
                     }
                 }
@@ -803,12 +815,15 @@ pub fn run() -> Result<()> {
                         input_event_this_frame = true;
                         on_up(
                             mapped,
-                            &mut app,
-                            &mut shell_state,
+                            &mut RunCtx {
+                                app: &mut app,
+                                shell: &mut shell_state,
+                                carts: &mut carts,
+                                library_dir: &library_dir,
+                                port_entries: &mut port_entries,
+                                port_worker: &port_worker,
+                            },
                             &mut shell_input,
-                            &mut carts,
-                            &library_dir,
-                            &mut port_entries,
                         );
                     }
                 }
@@ -836,12 +851,15 @@ pub fn run() -> Result<()> {
                         input_event_this_frame = true;
                         on_down(
                             mapped,
-                            &mut app,
-                            &mut shell_state,
+                            &mut RunCtx {
+                                app: &mut app,
+                                shell: &mut shell_state,
+                                carts: &mut carts,
+                                library_dir: &library_dir,
+                                port_entries: &mut port_entries,
+                                port_worker: &port_worker,
+                            },
                             &mut shell_input,
-                            &mut carts,
-                            &library_dir,
-                            &mut port_entries,
                         );
                     }
                 }
@@ -852,12 +870,15 @@ pub fn run() -> Result<()> {
                         input_event_this_frame = true;
                         on_up(
                             mapped,
-                            &mut app,
-                            &mut shell_state,
+                            &mut RunCtx {
+                                app: &mut app,
+                                shell: &mut shell_state,
+                                carts: &mut carts,
+                                library_dir: &library_dir,
+                                port_entries: &mut port_entries,
+                                port_worker: &port_worker,
+                            },
                             &mut shell_input,
-                            &mut carts,
-                            &library_dir,
-                            &mut port_entries,
                         );
                     }
                 }
@@ -875,7 +896,23 @@ pub fn run() -> Result<()> {
         if let Some(evt) = shell_input.tick(dt) {
             dispatch(
                 evt,
-                &mut app,
+                &mut RunCtx {
+                    app: &mut app,
+                    shell: &mut shell_state,
+                    carts: &mut carts,
+                    library_dir: &library_dir,
+                    port_entries: &mut port_entries,
+                    port_worker: &port_worker,
+                },
+            );
+        }
+
+        // Drain every Port reply that finished since last frame — usually
+        // zero or one, but a stale `List` (see `apply_port_result`) can
+        // land in the same frame as the reply that superseded it.
+        while let Some(result) = port_worker.poll() {
+            apply_port_result(
+                result,
                 &mut shell_state,
                 &mut carts,
                 &library_dir,

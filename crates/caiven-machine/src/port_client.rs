@@ -151,18 +151,19 @@ pub fn safe_filename(id: &str) -> String {
     }
 }
 
+// Any test anywhere in this crate that touches `CAIVEN_PORT_URL`
+// (process-global state) must hold this for its whole env-mutate-then-call
+// span — cargo runs every test in this binary concurrently by default, and
+// that includes `port_worker`'s tests, not just this file's.
+#[cfg(test)]
+pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use std::io::Write;
     use std::net::TcpListener;
-    use std::sync::Mutex;
 
     use super::*;
-
-    // Any test that touches `CAIVEN_PORT_URL` (process-global state) must
-    // hold this for its whole env-mutate-then-call span, since cargo runs
-    // tests in this file concurrently by default.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn port_url_reads_env_with_localhost_fallback() {

@@ -4,10 +4,12 @@
 //! [`PortSort`](crate::shell::state::PortSort).
 //!
 //! `entries` is host-fetched (`port_client::list`) and handed in fresh every
-//! time the screen becomes current — `Effect::RefreshPort` resolves
-//! synchronously in `app.rs::handle_effect` before the next draw, the same
-//! "never draws mid-progress" discipline `loading.rs` documents for
-//! `Effect::LoadCart`. There is no captured Port thumbnail in the response
+//! time the screen becomes current. Unlike `Effect::LoadCart`,
+//! `Effect::RefreshPort` runs on a background thread (`port_worker`) rather
+//! than blocking `app.rs::handle_effect` — this screen can draw with a
+//! still-empty `entries` while the fetch is in flight, which
+//! `ShellState::port_loading` distinguishes from a genuinely empty or
+//! unreachable server. There is no captured Port thumbnail in the response
 //! (SPEC I.machine-shell-port lists a screenshot endpoint, but wiring pixel
 //! decode for it is out of scope here) — rows reuse the library's
 //! deterministic id-swatch cover treatment instead.
@@ -84,7 +86,11 @@ pub fn draw(surface: &mut Surface, state: &ShellState, entries: &[PortEntry]) {
     y += m.text.caps_label + space::X4 as f32;
 
     if entries.is_empty() {
-        draw_empty_state(surface, &m, y);
+        if state.port_loading() {
+            draw_loading_state(surface, &m, y);
+        } else {
+            draw_empty_state(surface, &m, y);
+        }
         return;
     }
 
@@ -177,6 +183,24 @@ fn draw_row(surface: &mut Surface, m: &Metrics, bounds: Box2, entry: &PortEntry,
         Align::Right,
         &format_kb(entry.bytes),
     );
+}
+
+/// Drawn instead of the empty state while `Effect::RefreshPort` is still in
+/// flight on its background thread (see `port_worker`) — without this, a
+/// fast local server and a genuinely empty/unreachable one would look
+/// identical for the frame or two the fetch takes.
+fn draw_loading_state(surface: &mut Surface, m: &Metrics, content_top: f32) {
+    let center_x = m.width as f32 / 2.0;
+    let content_bottom = (m.content_top() + m.content_height()) as f32;
+    let center_y = (content_top + content_bottom) / 2.0;
+
+    let title_style = TextStyle::new(
+        Family::Display,
+        Weight::SemiBold,
+        m.text.empty_title,
+        color::INK,
+    );
+    surface.draw_text(title_style, center_x, center_y, Align::Center, "Loading…");
 }
 
 fn draw_empty_state(surface: &mut Surface, m: &Metrics, content_top: f32) {

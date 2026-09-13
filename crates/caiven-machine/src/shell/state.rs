@@ -298,6 +298,11 @@ pub struct ShellState {
     port_count: usize,
     port_index: usize,
     port_sort: PortSort,
+    /// A `RefreshPort` request is in flight — the host now runs it on a
+    /// background thread (see `port_worker`), so the Port screen can draw
+    /// before the reply lands and needs to tell "still loading" apart from
+    /// "server returned nothing".
+    port_loading: bool,
     downloading: Option<usize>,
     /// Where B leaves the Port screen for — same reasoning as
     /// `settings_return`.
@@ -332,6 +337,7 @@ impl ShellState {
             port_count: 0,
             port_index: 0,
             port_sort: PortSort::default(),
+            port_loading: false,
             downloading: None,
             port_return: Screen::Library,
             settings: Settings::default(),
@@ -409,6 +415,11 @@ impl ShellState {
         self.port_sort
     }
 
+    /// Whether a `RefreshPort` request is still in flight.
+    pub fn port_loading(&self) -> bool {
+        self.port_loading
+    }
+
     pub fn downloading(&self) -> Option<usize> {
         self.downloading
     }
@@ -446,10 +457,14 @@ impl ShellState {
         self.sel = self.sel.min(count);
     }
 
-    /// Replaces the Port listing size, keeping the cursor in range.
+    /// Replaces the Port listing size, keeping the cursor in range. Always
+    /// called once a `RefreshPort` request resolves (success or failure —
+    /// see `app.rs`'s handling of `PortResult::List`), so this doubles as
+    /// "the refresh in flight, if any, is done".
     pub fn set_port_count(&mut self, count: usize) {
         self.port_count = count;
         self.port_index = self.port_index.min(count.saturating_sub(1));
+        self.port_loading = false;
     }
 
     /// The cart finished loading and the VM is running it.
@@ -783,6 +798,7 @@ impl ShellState {
             ShellButton::Select => {
                 self.port_sort = self.port_sort.next();
                 self.port_index = 0;
+                self.port_loading = true;
                 Some(Effect::RefreshPort)
             }
             ShellButton::Left | ShellButton::Right | ShellButton::Start => None,
@@ -832,6 +848,7 @@ impl ShellState {
         self.port_return = from;
         self.screen = Screen::Port;
         self.port_index = 0;
+        self.port_loading = true;
         Effect::RefreshPort
     }
 
