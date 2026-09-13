@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { api, type CartDetail } from '../api';
   import { CartPlayer } from '../player';
   import { playSessionId, rememberCart } from '../history';
@@ -22,24 +23,37 @@
   let muted = $state(false);
   let fps = $state(60);
   let player: CartPlayer | null = null;
+  let bootGeneration = 0;
 
   async function boot() {
+    const generation = ++bootGeneration;
+    const cartId = id;
     player?.stop(); player = null; loading = true; error = ''; fault = '';
     try {
-      cart = await api.getCart(id);
-      const res = await fetch(api.cartUrl(id));
+      const loadedCart = await api.getCart(cartId);
+      if (generation !== bootGeneration) return;
+      const res = await fetch(api.cartUrl(cartId));
       if (!res.ok) throw new Error(`failed to fetch cart (${res.status})`);
       const bytes = new Uint8Array(await res.arrayBuffer());
+      if (generation !== bootGeneration) return;
+      cart = loadedCart;
       loading = false;
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await tick();
+      if (generation !== bootGeneration) return;
       if (!canvas) throw new Error('canvas did not mount');
-      player = await CartPlayer.load(canvas, bytes);
+      const loadedPlayer = await CartPlayer.load(canvas, bytes);
+      if (generation !== bootGeneration) { loadedPlayer.stop(); return; }
+      player = loadedPlayer;
       player.setMuted(muted);
       if (touchContainer) player.mountTouchControls(touchContainer);
       player.start((message) => (fault = message), (value) => (fps = value));
       rememberCart(cart);
-      void api.recordPlay(id, playSessionId());
-    } catch (e) { error = e instanceof Error ? e.message : String(e); loading = false; }
+      // A metrics request must not interrupt an already running game.
+      void api.recordPlay(cartId, playSessionId()).catch(() => {});
+    } catch (e) {
+      if (generation !== bootGeneration) return;
+      error = e instanceof Error ? e.message : String(e); loading = false;
+    }
   }
   function toggleMute() { muted = !muted; player?.setMuted(muted); }
   function toggleFullscreen() { if (!stage) return; document.fullscreenElement ? void document.exitFullscreen() : void stage.requestFullscreen(); }
@@ -47,7 +61,7 @@
     id; boot();
     const onFull = () => (fullscreen = document.fullscreenElement === stage);
     document.addEventListener('fullscreenchange', onFull);
-    return () => { document.removeEventListener('fullscreenchange', onFull); player?.stop(); player = null; };
+    return () => { ++bootGeneration; document.removeEventListener('fullscreenchange', onFull); player?.stop(); player = null; };
   });
 </script>
 

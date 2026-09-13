@@ -14,6 +14,7 @@ const PLAYER_JS: &str = include_str!("../../assets/web-export-player.js");
 const WASM_JS: &str = include_str!("../../../caiven-port/web/public/wasm/caiven_web.js");
 const WASM_BIN: &[u8] = include_bytes!("../../../caiven-port/web/public/wasm/caiven_web.wasm");
 const WORKLET_JS: &str = include_str!("../../../caiven-port/web/public/caiven-audio-worklet.js");
+const TIMING_JS: &str = include_str!("../../../caiven-port/web/src/lib/caiven-timing.js");
 
 /// Minimal HTML-attribute/text escaping — `title` only ever lands inside
 /// `<title>...</title>`, a text context, so this covers it.
@@ -61,6 +62,7 @@ pub fn build_web_html(packed_cav: &[u8], title: &str) -> String {
     let wasm_b64 = BASE64.encode(WASM_BIN);
     let worklet_b64 = BASE64.encode(WORKLET_JS.as_bytes());
     let title = escape_html(title);
+    let timing_js = TIMING_JS.replace("export class FrameClock", "class FrameClock");
 
     substitute(
         TEMPLATE,
@@ -71,6 +73,7 @@ pub fn build_web_html(packed_cav: &[u8], title: &str) -> String {
             ("CART_B64", &cart_b64),
             ("WORKLET_B64", &worklet_b64),
             ("PLAYER_JS", PLAYER_JS),
+            ("TIMING_JS", &timing_js),
         ],
     )
 }

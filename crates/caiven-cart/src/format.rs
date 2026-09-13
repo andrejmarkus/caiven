@@ -197,7 +197,7 @@ pub fn write(
     Ok(())
 }
 
-/// Exact byte length produced by [`write`] for this program and section set.
+/// Exact byte length produced by [`write()`] for this program and section set.
 pub fn packed_len(program: &[u8], extra_sections: &[(SectionKind, Vec<u8>)]) -> usize {
     let section_count = 1 + extra_sections.len();
     FIXED_HDR

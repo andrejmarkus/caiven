@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
     "check:ui": "node ../../caiven-ui/scripts/check-boundaries.mjs",
+    "test": "node --test tests/*.test.js",
     "test:e2e": "npm run test:e2e:mock && npm run test:e2e:live",
     "test:e2e:mock": "playwright test --config playwright.config.ts",
     "test:e2e:live": "playwright test --config playwright.live.config.ts",

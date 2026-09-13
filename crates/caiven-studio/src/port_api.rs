@@ -1,12 +1,12 @@
 use crate::port_client::{build_multipart, capture_screenshot};
 use caiven_vm::VmConfig;
 use serde::{Deserialize, Serialize};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use tauri_plugin_opener::OpenerExt;
 
 #[derive(Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all(serialize = "camelCase", deserialize = "snake_case"))]
 pub(crate) struct PortCart {
     pub id: String,
     pub title: String,
@@ -149,10 +149,18 @@ fn validate_port_url(raw: &str) -> Result<String, String> {
     if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
         return Err("Server URL must start with http:// or https://".to_string());
     }
-    if trimmed.len() <= "https://".len() {
+    let parsed = tauri::Url::parse(trimmed).map_err(|_| "Invalid server URL".to_string())?;
+    if parsed.host_str().is_none() {
         return Err("Server URL is missing a host".to_string());
     }
-    Ok(trimmed.to_string())
+    if !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err("Server URL must not contain credentials, a query, or a fragment".to_string());
+    }
+    Ok(parsed.as_str().trim_end_matches('/').to_string())
 }
 
 fn load_saved_url() -> Option<String> {
@@ -175,23 +183,52 @@ fn port_url() -> String {
         .to_string()
 }
 
-fn load_token() -> Option<(String, String)> {
+fn parse_saved_token(text: &str, base: &str) -> Option<(String, String)> {
+    let mut lines = text.lines();
+    let username = lines.next()?;
+    let token = lines.next()?;
+    // Legacy records lack a server identity. Require relinking rather than
+    // sending their credential to a potentially different Port instance.
+    let server = lines.next()?;
+    if username.is_empty() || token.is_empty() || server != base {
+        return None;
+    }
+    Some((username.to_string(), token.to_string()))
+}
+
+fn load_token(base: &str) -> Option<(String, String)> {
+    let env_base =
+        std::env::var("CAIVEN_PORT_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
     if let Ok(token) = std::env::var("CAIVEN_PORT_API_KEY")
         && !token.is_empty()
+        && validate_port_url(&env_base).ok().as_deref() == Some(base)
     {
         return Some(("API key".to_string(), token));
     }
     let text = std::fs::read_to_string(token_file_path()?).ok()?;
-    let mut lines = text.lines();
-    Some((lines.next()?.to_string(), lines.next()?.to_string()))
+    parse_saved_token(&text, base)
 }
 
-fn save_token(username: &str, token: &str) -> Result<(), String> {
+fn save_token(base: &str, username: &str, token: &str) -> Result<(), String> {
     let path = token_file_path().ok_or_else(|| "No config directory available".to_string())?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    std::fs::write(path, format!("{username}\n{token}"))
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path).map_err(|error| error.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .map_err(|error| error.to_string())?;
+    }
+    file.write_all(format!("{username}\n{token}\n{base}").as_bytes())
         .map_err(|error| format!("Could not save port token: {error}"))
 }
 
@@ -223,11 +260,12 @@ fn error_message(error: ureq::Error) -> String {
 
 #[tauri::command]
 pub(crate) fn port_session() -> PortSession {
-    let saved = load_token();
+    let base = port_url();
+    let saved = load_token(&base);
     PortSession {
         authenticated: saved.is_some(),
         username: saved.map(|value| value.0).unwrap_or_default(),
-        port_url: port_url(),
+        port_url: base,
     }
 }
 
@@ -273,7 +311,7 @@ pub(crate) fn port_link_poll(
     let token = link
         .token
         .ok_or_else(|| "Studio link returned no token".to_string())?;
-    save_token(&username, &token)?;
+    save_token(&base, &username, &token)?;
     Ok(Some(PortSession {
         authenticated: true,
         username,
@@ -437,8 +475,9 @@ pub(crate) fn publish(
     meta: PublishMeta,
     mut progress: impl FnMut(PublishProgress),
 ) -> Result<PublishResult, String> {
-    let (_, token) = load_token().ok_or_else(|| "Log in to port before publishing".to_string())?;
     let base = port_url();
+    let (_, token) =
+        load_token(&base).ok_or_else(|| "Log in to port before publishing".to_string())?;
     let cart =
         caiven_cart::load(packed).map_err(|error| format!("Packed cart invalid: {error}"))?;
     let cart_bytes = std::fs::read(packed).map_err(|error| error.to_string())?;
@@ -542,8 +581,33 @@ pub(crate) fn publish(
 
 #[cfg(test)]
 mod tests {
-    use super::{load_saved_url, port_set_url, url_encode, validate_port_url};
+    use super::{
+        PortCartListWire, load_saved_url, parse_saved_token, port_set_url, url_encode,
+        validate_port_url,
+    };
     use std::sync::Mutex;
+
+    #[test]
+    fn port_metadata_survives_server_to_studio_conversion() {
+        let list: PortCartListWire = serde_json::from_value(serde_json::json!({
+            "carts": [{
+                "id": "demo", "title": "Demo", "author": "Creator",
+                "rating_avg": 4.5, "rating_count": 12, "latest_version": 3,
+                "cart_size": 4096, "has_screenshot": true
+            }],
+            "total": 1, "page": 1, "per_page": 24
+        }))
+        .unwrap();
+        let cart = &list.carts[0];
+        assert!(cart.has_screenshot);
+        let ipc = serde_json::to_value(cart).unwrap();
+        assert_eq!(ipc["ratingAvg"], 4.5);
+        assert_eq!(ipc["ratingCount"], 12);
+        assert_eq!(ipc["latestVersion"], 3);
+        assert_eq!(ipc["cartSize"], 4096);
+        assert_eq!(ipc["hasScreenshot"], true);
+        assert!(ipc.get("rating_avg").is_none());
+    }
 
     #[test]
     fn encodes_port_query() {
@@ -566,6 +630,33 @@ mod tests {
         assert!(validate_port_url("ftp://example.com").is_err());
         assert!(validate_port_url("https://").is_err());
         assert!(validate_port_url("example.com").is_err());
+        assert_eq!(validate_port_url("http://a/"), Ok("http://a".to_string()));
+        for invalid in [
+            "https://bad host",
+            "https://user:secret@host",
+            "https://host?q=1",
+            "https://host#path",
+        ] {
+            assert!(validate_port_url(invalid).is_err(), "accepted {invalid}");
+        }
+    }
+
+    #[test]
+    fn saved_credentials_are_bound_to_their_port_server() {
+        let record = "creator\nsecret\nhttps://port.example";
+        assert_eq!(
+            parse_saved_token(record, "https://port.example"),
+            Some(("creator".into(), "secret".into()))
+        );
+        assert_eq!(parse_saved_token(record, "https://other.example"), None);
+        assert_eq!(
+            parse_saved_token("creator\nsecret", "https://port.example"),
+            None
+        );
+        assert_eq!(
+            parse_saved_token("creator\n\nhttps://port.example", "https://port.example"),
+            None
+        );
     }
 
     /// Guards tests that mutate the process-wide `HOME` env var: `set_var`

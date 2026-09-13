@@ -1,5 +1,6 @@
 // Wraps the emscripten-built caiven-web module (crates/caiven-web) for use
 // from a Svelte page. Button indices mirror crates/caiven-vm/src/input/button.rs.
+import { FrameClock } from './lib/caiven-timing.js';
 
 interface CaivenModuleInstance {
   ccall: (name: string, ret: string | null, argTypes: string[], args: unknown[]) => unknown;
@@ -29,9 +30,11 @@ const KEY_TO_BUTTON: Record<string, number> = {
   d: 3,
   D: 3,
   j: 4,
+  J: 4,
   z: 4,
   Z: 4,
   k: 5,
+  K: 5,
   x: 5,
   X: 5,
   Shift: 6,
@@ -68,7 +71,11 @@ function loadScript(src: string): Promise<void> {
     const el = document.createElement('script');
     el.src = src;
     el.onload = () => resolve();
-    el.onerror = () => reject(new Error(`failed to load ${src}`));
+    el.onerror = () => {
+      el.remove();
+      scriptLoadPromise = null;
+      reject(new Error(`failed to load ${src}`));
+    };
     document.body.appendChild(el);
   });
   return scriptLoadPromise;
@@ -110,6 +117,7 @@ class AudioEngine {
     const ctx = new AudioCtx();
     this.ctx = ctx;
     void ctx.audioWorklet.addModule('/caiven-audio-worklet.js').then(() => {
+      if (this.ctx !== ctx) return;
       const node = new AudioWorkletNode(ctx, 'caiven-audio-processor', {
         numberOfInputs: 0,
         numberOfOutputs: 1,
@@ -118,6 +126,10 @@ class AudioEngine {
       node.connect(ctx.destination);
       this.node = node;
       this.nextChunkTime = ctx.currentTime;
+    }).catch(() => {
+      // Audio is optional; retry on the next interaction after a load failure.
+      if (this.ctx === ctx) this.ctx = null;
+      if (ctx.state !== 'closed') void ctx.close().catch(() => {});
     });
   }
 
@@ -175,6 +187,8 @@ export class CartPlayer {
   private onFault: ((message: string) => void) | null = null;
   private onFps: ((fps: number) => void) | null = null;
   private touchEls: HTMLElement[] = [];
+  private clock = new FrameClock();
+  private running = false;
 
   private constructor(module: CaivenModuleInstance, canvas: HTMLCanvasElement, width: number, height: number) {
     this.module = module;
@@ -212,6 +226,7 @@ export class CartPlayer {
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    if (document.activeElement !== this.canvas) return;
     const btn = KEY_TO_BUTTON[e.key];
     if (btn === undefined) return;
     e.preventDefault();
@@ -222,8 +237,23 @@ export class CartPlayer {
   private onKeyUp = (e: KeyboardEvent): void => {
     const btn = KEY_TO_BUTTON[e.key];
     if (btn === undefined) return;
-    e.preventDefault();
+    if (document.activeElement === this.canvas) e.preventDefault();
     this.setButton(btn, false);
+  };
+
+  private onBlur = (): void => {
+    for (let button = 0; button < 7; button++) this.setButton(button, false);
+    this.gamepadPrevState.clear();
+    this.clock.reset();
+  };
+
+  private onVisibilityChange = (): void => {
+    this.onBlur();
+  };
+
+  private onCanvasClick = (): void => {
+    this.canvas.focus();
+    this.audio.ensureStarted();
   };
 
   private onGamepadConnected = (e: GamepadEvent): void => {
@@ -231,7 +261,11 @@ export class CartPlayer {
   };
 
   private onGamepadDisconnected = (e: GamepadEvent): void => {
-    if (this.gamepadIndex === e.gamepad.index) this.gamepadIndex = null;
+    if (this.gamepadIndex === e.gamepad.index) {
+      for (const button of this.gamepadPrevState) this.setButton(button, false);
+      this.gamepadPrevState.clear();
+      this.gamepadIndex = null;
+    }
   };
 
   private pollGamepad(): void {
@@ -272,7 +306,6 @@ export class CartPlayer {
       el.addEventListener('pointerup', release);
       el.addEventListener('pointerleave', release);
       el.addEventListener('pointercancel', release);
-      this.touchEls.push(el);
       return el;
     };
 
@@ -286,6 +319,7 @@ export class CartPlayer {
 
     container.appendChild(dpad);
     container.appendChild(face);
+    this.touchEls.push(dpad, face);
   }
 
   setMuted(muted: boolean): void {
@@ -293,32 +327,36 @@ export class CartPlayer {
   }
 
   start(onFault?: (message: string) => void, onFps?: (fps: number) => void): void {
+    if (this.running) return;
+    this.running = true;
+    this.clock.reset();
     this.onFault = onFault ?? null;
     this.onFps = onFps ?? null;
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('gamepadconnected', this.onGamepadConnected);
     window.addEventListener('gamepaddisconnected', this.onGamepadDisconnected);
+    window.addEventListener('blur', this.onBlur);
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
     this.canvas.tabIndex = 0;
-    this.canvas.addEventListener('click', () => {
-      this.canvas.focus();
-      this.audio.ensureStarted();
-    });
+    this.canvas.addEventListener('click', this.onCanvasClick);
     this.canvas.focus();
 
     let frames = 0;
     let fpsStarted = performance.now();
-    const frame = () => {
-      frames += 1;
-      const elapsed = performance.now() - fpsStarted;
+    const frame = (now: number) => {
+      if (!this.running) return;
+      const steps = document.hidden ? 0 : this.clock.advance(now);
+      frames += this.faulted ? 0 : steps;
+      const elapsed = now - fpsStarted;
       if (elapsed >= 1000) {
         this.onFps?.(Math.round((frames * 1000) / elapsed));
         frames = 0;
-        fpsStarted = performance.now();
+        fpsStarted = now;
       }
       this.pollGamepad();
       if (!this.faulted) {
-        this.module.ccall('caiven_tick', null, ['number'], [1]);
+        this.module.ccall('caiven_tick', null, ['number'], [steps]);
         this.audio.pump();
         const hasFault = this.module.ccall('caiven_has_fault', 'number', [], []) as number;
         if (hasFault) {
@@ -333,17 +371,22 @@ export class CartPlayer {
       const buf = this.module.HEAPU8.subarray(pixPtr, pixPtr + this.width * this.height * 4);
       const imageData = new ImageData(new Uint8ClampedArray(buf), this.width, this.height);
       this.ctx.putImageData(imageData, 0, 0);
-      this.rafId = requestAnimationFrame(frame);
+      if (this.running) this.rafId = requestAnimationFrame(frame);
     };
     this.rafId = requestAnimationFrame(frame);
   }
 
   stop(): void {
+    this.running = false;
     cancelAnimationFrame(this.rafId);
+    this.onBlur();
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('gamepadconnected', this.onGamepadConnected);
     window.removeEventListener('gamepaddisconnected', this.onGamepadDisconnected);
+    window.removeEventListener('blur', this.onBlur);
+    document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    this.canvas.removeEventListener('click', this.onCanvasClick);
     this.audio.stop();
     for (const el of this.touchEls) el.remove();
     this.touchEls = [];

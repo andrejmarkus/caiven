@@ -1,5 +1,5 @@
 //! Structured metadata for every name a Lua cart script can call — the
-//! console's own builtins (registered in [`super::lua_exec::register_builtins`]),
+//! console's own builtins (registered by `lua_exec::register_builtins`),
 //! the pure-Lua gameplay stdlib (`lua_exec.rs`'s `prelude/*.lua`), plus the Lua
 //! stdlib members this console leans on. Single source of truth for editor
 //! tooling (autocomplete, hover docs, signature help); the

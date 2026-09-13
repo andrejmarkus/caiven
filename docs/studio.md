@@ -51,3 +51,13 @@ Bundles land under `target/release/bundle/`. For UI-only work, run
 
 Browser preview uses representative data; Tauri launch supplies live VM,
 filesystem, input, API-registry, sprite, and palette state.
+
+## Port accounts
+
+Studio binds saved credentials to the Port server where you linked your account.
+Changing the server requires linking there before publishing. Older saved tokens
+without a server identity require one fresh link after upgrading. On Unix, token
+files are readable and writable only by your user.
+
+`CAIVEN_PORT_API_KEY` applies to `CAIVEN_PORT_URL` (or localhost when that URL is
+unset); it is not forwarded to a different server selected in Studio.

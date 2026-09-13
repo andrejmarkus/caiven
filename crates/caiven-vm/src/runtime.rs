@@ -11,12 +11,11 @@ use crate::rendering::screen::Screen;
 use crate::timing::FixedTimestep;
 use crate::vm::audio::{AudioFactory, AudioOut};
 use crate::{Vm, VmConfig};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use log::{error, info};
 use std::time::Instant;
 
-/// Glyphs available in the built-in font sheet, in sheet order.
-pub const FONT_GLYPHS: &str = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!?\"'()+-=.:,[]<>";
+pub use crate::rendering::font::FONT_GLYPHS;
 /// Integer scale factor from console resolution to initial window size.
 pub const WINDOW_SCALE: u32 = 4;
 
@@ -71,13 +70,7 @@ impl ConsoleCore {
     /// its SDL2 audio device — pass their own here rather than pulling a
     /// second audio stack in through the VM.
     pub fn with_audio_factory(audio_factory: AudioFactory) -> Result<Self> {
-        let font = Font::from_bytes(
-            include_bytes!("../../../assets/font.png"),
-            FONT_GLYPHS,
-            3,
-            5,
-        )
-        .context("failed to initialize embedded font")?;
+        let font = Font::builtin()?;
 
         let config = VmConfig::default();
         let vm = Vm::new(config);
@@ -154,18 +147,12 @@ impl ConsoleCore {
 
 #[cfg(test)]
 mod tests {
-    use super::{ConsoleCore, FONT_GLYPHS};
+    use super::ConsoleCore;
     use crate::rendering::font::Font;
 
     #[test]
     fn embedded_font_decodes_without_working_directory_asset_lookup() {
-        let font = Font::from_bytes(
-            include_bytes!("../../../assets/font.png"),
-            FONT_GLYPHS,
-            3,
-            5,
-        )
-        .expect("embedded font should decode");
+        let font = Font::builtin().expect("embedded font should decode");
         assert_eq!(font.get_width(), 3);
         assert_eq!(font.get_height(), 5);
         assert!(font.get_glyph('A').is_some());

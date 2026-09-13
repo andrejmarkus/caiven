@@ -23,6 +23,7 @@ export interface Fault {
 type User = {
   id: string; username: string; is_admin: boolean; email: string;
   email_verified: boolean; password_set: boolean;
+  is_banned?: boolean; banned_reason?: string | null;
 };
 
 type Cart = {
@@ -45,6 +46,9 @@ type Jam = {
 };
 
 export const UI_CONTRACTS = [
+  'GET /api/v2/admin/users', 'POST /api/v2/admin/users/:id/ban',
+  'POST /api/v2/admin/users/:id/unban', 'POST /api/v2/admin/users/:id/promote',
+  'POST /api/v2/admin/users/:id/demote',
   'GET /api/v2/auth/config', 'POST /api/v2/auth/register', 'POST /api/v2/auth/login',
   'POST /api/v2/auth/login/mfa', 'POST /api/v2/auth/logout', 'GET /api/v2/auth/me',
   'POST /api/v2/auth/set-password', 'GET /api/v2/auth/mfa/status', 'POST /api/v2/auth/mfa/setup',
@@ -168,6 +172,38 @@ export class MockApi {
       if (request.headers()['x-csrf-token'] !== 'mock-csrf') return this.json(route, { error: 'CSRF token missing or invalid' }, 403);
     }
 
+    const adminUser = (user: User) => ({
+      ...user, is_banned: user.is_banned ?? false, banned_reason: user.banned_reason ?? null,
+      created_at: now, cart_count: this.carts.filter((cart) => cart.owner === user.username).length,
+    });
+    if (path.startsWith('/api/v2/admin/users')) {
+      if (!this.user?.is_admin) {
+        this.allowStatus(403);
+        return this.json(route, { error: 'Admin access required' }, 403);
+      }
+      if (path === '/api/v2/admin/users' && method === 'GET') {
+        const query = (url.searchParams.get('q') ?? '').toLowerCase();
+        const filter = url.searchParams.get('filter');
+        const users = [...this.users.values()].filter((user) =>
+          `${user.username} ${user.email}`.toLowerCase().includes(query)
+          && (filter !== 'admin' || user.is_admin) && (filter !== 'banned' || user.is_banned));
+        const page = Math.max(1, Number(url.searchParams.get('page') ?? 1));
+        const perPage = Math.max(1, Math.min(100, Number(url.searchParams.get('per_page') ?? 50)));
+        return this.json(route, { users: users.slice((page - 1) * perPage, page * perPage).map(adminUser), total: users.length, page, per_page: perPage });
+      }
+      const action = path.match(/^\/api\/v2\/admin\/users\/([^/]+)\/(ban|unban|promote|demote)$/);
+      if (action && method === 'POST') {
+        const user = [...this.users.values()].find((user) => user.id === action[1]);
+        if (!user) return this.json(route, { error: 'User not found' }, 404);
+        if (action[2] === 'ban') {
+          user.is_banned = true;
+          user.banned_reason = JSON.parse(request.postData() ?? '{}').reason;
+        } else if (action[2] === 'unban') {
+          user.is_banned = false; user.banned_reason = null;
+        } else user.is_admin = action[2] === 'promote';
+        return this.json(route, adminUser(user));
+      }
+    }
     if (method === 'GET' && path === '/api/v2/auth/config') return this.json(route, { turnstile_site_key: null, providers: ['github', 'google'] });
     if (method === 'GET' && path === '/api/v2/auth/me') {
       if (!this.user) this.allowStatus(401);

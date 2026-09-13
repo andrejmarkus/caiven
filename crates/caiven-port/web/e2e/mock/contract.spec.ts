@@ -51,7 +51,7 @@ test('every frontend API contract exists in strict mock and Rocket', async ({}, 
   test.skip(testInfo.project.name !== 'desktop-chromium', 'static contract guard runs once');
   const [apiSource, ...rocketSources] = await Promise.all([
     readFile('src/api.ts', 'utf8'),
-    ...['auth.rs', 'carts.rs', 'community.rs', 'discovery.rs', 'social.rs', 'versions.rs'].map((name) => readFile(`../src/handlers/${name}`, 'utf8')),
+    ...['admin.rs', 'auth.rs', 'carts.rs', 'community.rs', 'discovery.rs', 'social.rs', 'versions.rs'].map((name) => readFile(`../src/handlers/${name}`, 'utf8')),
   ]);
   const frontend = frontendContracts(apiSource);
   const mock = new Set(UI_CONTRACTS.map((entry) => {

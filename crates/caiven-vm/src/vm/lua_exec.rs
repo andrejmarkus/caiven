@@ -1553,7 +1553,7 @@ fn register_builtins<'scope, 'env>(
 
 impl Vm {
     /// Sets the cart's opt-in gameplay-stdlib module selection (`[stdlib]
-    /// modules` in `caiven.toml`), validated against [`PRELUDE_MODULES`].
+    /// modules` in `caiven.toml`), validated against [`prelude_module_catalog`].
     /// Errors by name on any unknown module rather than silently dropping it
     /// — a typo'd module name should fail cart load, not quietly leave
     /// globals missing. Takes effect on the next [`Vm::load_lua_source`] or
@@ -1853,10 +1853,10 @@ impl Vm {
         }
     }
 
-    /// Like [`Vm::run_frame_lua`], but also installs a line hook that aborts
+    /// Like `Vm::run_frame_lua`, but also installs a line hook that aborts
     /// `_update()` as soon as it reaches a breakpointed source line (the
     /// execution-budget watchdog runs here too, same as in
-    /// [`Vm::run_frame_lua`]). The aborted call unwinds Lua's stack (mlua's
+    /// `Vm::run_frame_lua`). The aborted call unwinds Lua's stack (mlua's
     /// hooks can't yield outside a
     /// coroutine while borrowing per-frame VM state via `Lua::scope`, so a
     /// suspend-and-resume mid-statement debugger isn't possible here) —
@@ -1864,7 +1864,7 @@ impl Vm {
     /// [`Vm::lua_globals`] and `peek_memory`; locals are readable too, via
     /// [`Vm::lua_debug_locals`] — mlua's safe hook API has no `lua_getlocal`
     /// binding, so that path drops to raw `mlua_sys` FFI (see
-    /// [`read_active_locals`]). Resuming re-runs `_update()` from the top,
+    /// `read_active_locals`). Resuming re-runs `_update()` from the top,
     /// same as any other frame.
     pub fn run_frame_lua_bp(
         &mut self,
@@ -2043,9 +2043,9 @@ impl Vm {
     /// Local variables at the innermost frame, captured at the moment the
     /// last breakpoint was hit — cleared once execution resumes past a
     /// breakpoint. Read via raw FFI from inside the `EVERY_LINE` hook (see
-    /// [`read_active_locals`]); empty if no breakpoint has fired yet. Table
+    /// `read_active_locals`); empty if no breakpoint has fired yet. Table
     /// and function values are rooted for [`Vm::expand_debug_node`] — see
-    /// [`Vm::root_debug_value`].
+    /// `Vm::root_debug_value`.
     pub fn lua_debug_locals(&mut self) -> Vec<(String, DebugValue)> {
         let locals = self.locals.clone();
         locals
@@ -2065,8 +2065,7 @@ impl Vm {
 
     /// Snapshot of the script's global variables, for the Studio debugger's
     /// state inspector. Excludes registered builtins, the gameplay prelude,
-    /// and Lua's own stdlib — see [`BUILTIN_NAMES`]/[`prelude_names`]/
-    /// [`STDLIB_NAMES`] — so only script-defined state shows up. For locals
+    /// and Lua's own stdlib, so only script-defined state shows up. For locals
     /// at a breakpoint, see [`Vm::lua_debug_locals`]. Table and function
     /// values are rooted for [`Vm::expand_debug_node`].
     pub fn lua_globals(&mut self) -> Vec<(String, DebugValue)> {

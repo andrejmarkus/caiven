@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 
+/// Glyphs available in the built-in font sheet, in sheet order.
+pub const FONT_GLYPHS: &str = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!?\"'()+-=.:,[]<>";
+
 pub struct Glyph {
     pub pixels: Vec<bool>,
 }
@@ -12,6 +15,17 @@ pub struct Font {
 }
 
 impl Font {
+    /// The same embedded game font for desktop, browser and headless rendering.
+    pub fn builtin() -> Result<Self> {
+        Self::from_bytes(
+            include_bytes!("../../../../assets/font.png"),
+            FONT_GLYPHS,
+            3,
+            5,
+        )
+        .context("failed to initialize embedded font")
+    }
+
     pub fn empty() -> Self {
         Self {
             glyphs: HashMap::new(),

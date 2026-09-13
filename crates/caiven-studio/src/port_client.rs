@@ -1,6 +1,6 @@
 //! Shared caiven-port client helpers used by both the `publish` CLI command
 //! (`app/cli.rs`) and the Studio browser panel's publish dialog
-//! (`studio/browser_panel.rs`): multipart body building and the headless
+//! (`port_api.rs`): multipart body building and the headless
 //! screenshot capture used to illustrate a published cart.
 
 use anyhow::{Context, Result};
@@ -60,7 +60,7 @@ pub(crate) fn capture_screenshot(
         .load_cart_sections(&cart.sections)
         .context("cart has no Lua source section (bytecode carts are no longer supported)")?;
 
-    let font = Font::empty();
+    let font = Font::builtin()?;
     let input = Input::new();
 
     vm.load_lua_source(&lua_source, &input, &font)
@@ -69,6 +69,9 @@ pub(crate) fn capture_screenshot(
 
     for _ in 0..frames {
         vm.run_frame(&input, &font);
+        if let Some(fault) = vm.get_fault() {
+            anyhow::bail!("cart failed during screenshot capture: {fault:?}");
+        }
     }
 
     let world = vm.world_pixels();
@@ -93,4 +96,44 @@ pub(crate) fn capture_screenshot(
     )
     .context("failed to encode screenshot PNG")?;
     Ok(png_bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cart(source: &str) -> caiven_cart::Cart {
+        caiven_cart::Cart {
+            header: caiven_cart::CartHeader::new("Screenshot test", "Caiven"),
+            program: vec![],
+            sections: vec![caiven_cart::CartSection {
+                kind: SectionKind::LuaSource,
+                data: source.as_bytes().to_vec(),
+            }],
+        }
+    }
+
+    #[test]
+    fn screenshot_renders_builtin_text() {
+        let png = capture_screenshot(
+            &cart("function _update() clear_screen() draw_text('A', 0, 0, 1) end"),
+            VmConfig::default(),
+            1,
+        )
+        .unwrap();
+        let image = image::load_from_memory(&png).unwrap().to_rgba8();
+        let background = *image.get_pixel(191, 127);
+        assert!(image.pixels().any(|pixel| *pixel != background));
+    }
+
+    #[test]
+    fn screenshot_reports_runtime_failure() {
+        let error = capture_screenshot(
+            &cart("function _update() error('broken cart') end"),
+            VmConfig::default(),
+            1,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("screenshot capture"));
+    }
 }

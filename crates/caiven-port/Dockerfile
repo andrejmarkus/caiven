@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/li
 WORKDIR /app
 COPY . .
 
-RUN cargo build --release -p caiven-port
+RUN cargo build --locked --release -p caiven-port
 
 # Runtime stage
 FROM debian:bookworm-slim

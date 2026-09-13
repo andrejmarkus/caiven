@@ -47,6 +47,7 @@ cargo run -p caiven-studio -- [command]
 | `inspect <path>`               | Print cart section table (project dir or `.cav`)                      |
 | `build <project> -o <out.cav>` | Build a project dir into a distribution `.cav` cartridge              |
 | `unpack <file.cav> -o <out>`   | Unpack a binary `.cav` into an editable project dir                   |
+| `export <project> --web -o <out.html>` | Export a self-contained, offline browser player                |
 | `publish <cart>`               | Upload a cart (`.cav` or project dir) to a caiven-port instance       |
 
 To just run a cart (no editor), use `caiven-machine`:
@@ -71,7 +72,7 @@ cargo run -p caiven-machine -- game.cav    # distribution cartridge
 
 ## Project Structure
 
-Cargo workspace with nine crates:
+Cargo workspace with eight Rust crates and two frontend packages:
 
 | Crate                     | Description                                                                                                                                    |
 | :------------------------ | :--------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -80,9 +81,46 @@ Cargo workspace with nine crates:
 | `crates/caiven-vm`        | VM core: embedded Lua (`mlua`) execution, builtin API, renderer, audio, input, debugger hooks                                                  |
 | `crates/caiven-studio`    | Tauri shell, VM actor, Studio IPC, and CLI (`build`/`unpack`/`inspect`/`publish`)                                                              |
 | `crates/caiven-studio-ui` | Svelte 5 + Vite Studio frontend shared with Port brand tokens                                                                                  |
+| `crates/caiven-ui`        | Shared Svelte components and theme consumed by Studio and Port                                                                                 |
 | `crates/caiven-machine`   | Standalone cart runner (run mode: project dir or `.cav`, no editor/port; `Ctrl+R` hot-reloads)                                                 |
 | `crates/caiven-port`      | Cart sharing server                                                                                                                            |
 | `crates/caiven-web`       | WASM cart player (`wasm32-unknown-emscripten`) served by caiven-port's `/play/:id`                                                             |
 | `crates/migration`        | `sea-orm` database migrations for caiven-port                                                                                                  |
 
-`games/carts/` — example carts, ready to run: `cargo run -p caiven-machine -- games/carts/catch.cav`, or open in Caiven Studio via `caiven-studio edit`.
+`carts/` contains packed cartridges; `projects/` contains editable projects.
+For a quick runtime check, use `cargo run -p caiven-machine -- carts/dev/smoke.cav`.
+
+## Verification
+
+```bash
+cargo fmt --all -- --check
+cargo test --workspace --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings -A unused-imports
+npm --prefix crates/caiven-studio-ui run check:ui
+npm --prefix crates/caiven-studio-ui run check
+npm --prefix crates/caiven-studio-ui test
+npm --prefix crates/caiven-port/web run check
+npm --prefix crates/caiven-port/web test
+node crates/caiven-web/smoke_test.mjs
+```
+
+Install browser test dependencies once with
+`npm --prefix crates/caiven-port/web exec playwright install chromium`.
+Run Studio's browser suite with `npm --prefix crates/caiven-studio-ui run test:e2e`.
+Run Port's mocked and live server suites with
+`npm --prefix crates/caiven-port/web run test:e2e`.
+
+## Browser runtime
+
+Port and Studio's HTML export share the checked-in runtime under
+`crates/caiven-port/web/public/wasm/`. After changing cartridge formats, the VM,
+or browser exports, activate an Emscripten SDK and run:
+
+```bash
+bash crates/caiven-web/build-web.sh
+```
+
+This builds with the Cargo lockfile, updates both shipped runtime files, and
+smoke-tests the shipped artifact against a current cartridge, including the
+offline instantiation hook. Rebuild the Port frontend and Studio afterward so
+their assets include the refreshed runtime. Commit both generated files together.

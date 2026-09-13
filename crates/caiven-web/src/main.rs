@@ -16,9 +16,6 @@ use std::cell::RefCell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Mutex};
 
-const FONT_BYTES: &[u8] = include_bytes!("../../../assets/font.png");
-const FONT_GLYPHS: &str = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!?\"'()+-=.:,[]<>";
-
 /// Extracts a human-readable message from a `catch_unwind` payload.
 ///
 /// These `extern "C"` exports are plain (non-unwind) ABI, so a panic that
@@ -53,7 +50,7 @@ struct Player {
 
 impl Player {
     fn new() -> anyhow::Result<Self> {
-        let font = Font::from_bytes(FONT_BYTES, FONT_GLYPHS, 3, 5)?;
+        let font = Font::builtin()?;
         let config = VmConfig::default();
         let vm = Vm::new(config);
         let sound = vm.get_sound_shared();

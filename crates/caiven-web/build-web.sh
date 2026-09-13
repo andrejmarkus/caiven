@@ -8,15 +8,18 @@
 #     emscripten/emsdk:latest bash crates/caiven-web/build-web.sh
 set -euo pipefail
 
+cd "$(dirname "$0")/../.."
+
 if ! command -v rustup >/dev/null 2>&1; then
   curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable
   source "$HOME/.cargo/env"
 fi
-rustup target add wasm32-unknown-emscripten
+rustup target add --toolchain stable wasm32-unknown-emscripten
 
 export CC_wasm32_unknown_emscripten=emcc
 export AR_wasm32_unknown_emscripten=emar
-export CARGO_TARGET_WASM32_UNKNOWN_EMSCRIPTEN_LINKER=emcc
+# mlua's vendored Lua uses C++ exceptions; link the matching C++ runtime.
+export CARGO_TARGET_WASM32_UNKNOWN_EMSCRIPTEN_LINKER=em++
 # Vendored Lua's C objects must be compiled under the same wasm exception
 # scheme Rust's emscripten target links against, or it's a link-time ABI
 # mismatch (undefined symbol: __cxa_find_matching_catch_3).
@@ -26,7 +29,13 @@ EXPORTED_FUNCS='["_caiven_new","_caiven_load_cart","_caiven_set_button","_caiven
 
 export EMCC_CFLAGS="$EMCC_CFLAGS -sEXPORTED_FUNCTIONS=$EXPORTED_FUNCS -sEXPORTED_RUNTIME_METHODS=[ccall,cwrap,HEAPU8,HEAPF32] -sMODULARIZE=1 -sEXPORT_NAME=CaivenModule -sENVIRONMENT=web,node -sALLOW_MEMORY_GROWTH=1"
 
-cargo build -p caiven-web --release --target wasm32-unknown-emscripten
+# Use the compiler whose target was installed above, even when a system Cargo
+# (e.g. Homebrew) precedes rustup's toolchain on PATH.
+export RUSTC="$(rustup which --toolchain stable rustc)"
+rustup run stable cargo build --locked -p caiven-web --release --target wasm32-unknown-emscripten
 
 OUT_DIR="target/wasm32-unknown-emscripten/release"
 echo "Built: $OUT_DIR/caiven_web.js + $OUT_DIR/caiven_web.wasm"
+cp "$OUT_DIR/caiven_web.js" "$OUT_DIR/caiven_web.wasm" crates/caiven-port/web/public/wasm/
+echo "Updated the runtime shared by Port and Studio's offline export"
+node crates/caiven-web/smoke_test.mjs

@@ -27,8 +27,8 @@
     ArrowDown: 1, s: 1, S: 1,
     ArrowLeft: 2, a: 2, A: 2,
     ArrowRight: 3, d: 3, D: 3,
-    j: 4, z: 4, Z: 4,
-    k: 5, x: 5, X: 5,
+    j: 4, J: 4, z: 4, Z: 4,
+    k: 5, K: 5, x: 5, X: 5,
     Shift: 6,
   };
 
@@ -217,11 +217,13 @@
         }
 
         let faulted = false;
+        const clock = new FrameClock();
+        document.addEventListener("visibilitychange", function () { clock.reset(); });
         setStatus("");
-        function frame() {
+        function frame(now) {
           pollGamepad();
           if (!faulted) {
-            module.ccall("caiven_tick", null, ["number"], [1]);
+            module.ccall("caiven_tick", null, ["number"], [document.hidden ? 0 : clock.advance(now)]);
             audio.pump();
             const hasFault = module.ccall("caiven_has_fault", "number", [], []);
             if (hasFault) {

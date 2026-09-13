@@ -18,7 +18,8 @@
       canvas {
         image-rendering: pixelated;
         width: min(90vw, 640px);
-        height: min(90vw, 640px);
+        height: auto;
+        aspect-ratio: 3 / 2;
         border: 1px solid #444;
       }
       #status {
@@ -29,7 +30,7 @@
     </style>
   </head>
   <body>
-    <canvas id="screen" width="128" height="128"></canvas>
+    <canvas id="screen" width="192" height="128"></canvas>
     <div id="status"></div>
     <!-- Emscripten glue (MODULARIZE=1, EXPORT_NAME=CaivenModule) built from
          crates/caiven-web; inlined verbatim, no externally-sourced script tag. -->
@@ -39,6 +40,7 @@
       window.__CAIVEN_CART_B64 = "{{CART_B64}}";
       window.__CAIVEN_WORKLET_B64 = "{{WORKLET_B64}}";
     </script>
-    <script>{{PLAYER_JS}}</script>
+    <script>{{TIMING_JS}}
+{{PLAYER_JS}}</script>
   </body>
 </html>

@@ -40,6 +40,10 @@ jobs:
         run: npm --prefix crates/caiven-port/web run check
       - name: Test Studio frontend
         run: npm --prefix crates/caiven-studio-ui test
+      - name: Test Port player timing
+        run: npm --prefix crates/caiven-port/web test
+      - name: Verify shipped browser runtime against current cartridge
+        run: node crates/caiven-web/smoke_test.mjs
       - name: Install Playwright Chromium
         run: npm --prefix crates/caiven-port/web exec playwright install --with-deps chromium
       - name: Test Studio end-to-end (3x)
@@ -104,6 +108,10 @@ jobs:
           path: build.log
       - name: Test
         run: cargo test --locked --verbose
+      - name: Verify offline HTML export
+        run: |
+          cargo run --locked -p caiven-studio -- export projects/dev/smoke --web -o target/caiven-offline-smoke.html
+          node crates/caiven-web/offline_test.mjs target/caiven-offline-smoke.html
       - name: Test Port live full-stack gate
         run: npm --prefix crates/caiven-port/web run test:e2e:live
       - name: Upload Port live Playwright diagnostics
@@ -248,6 +256,8 @@ jobs:
             libudev-dev \
             libgl1-mesa-dev
       - name: Build docs
+        env:
+          RUSTDOCFLAGS: -D warnings
         run: cargo doc --locked --no-deps
 
   release-check-studio:
@@ -543,7 +553,7 @@ jobs:
   port-image:
     name: Caiven Port (Docker image)
     if: startsWith(github.ref, 'refs/tags/port-v') || github.event_name == 'workflow_dispatch'
-    needs: release-check-port
+    needs: [release-check-port, build, lint, security, doc]
     runs-on: ubuntu-latest
     permissions:
       contents: read
