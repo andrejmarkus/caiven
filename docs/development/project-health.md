@@ -37,7 +37,14 @@ documentation. The worktree was clean before this pass.
 ## Remaining limits and improvement candidates
 
 - Native Studio browser tests mock Tauri IPC. Physical controllers, audio devices,
-  handhelds, Windows/Linux installers and signing were not exercised here.
+  and handhelds were not exercised here.
+- ~~Windows/Linux installers and signing were not exercised here.~~ Partially
+  verified 2026-09-13: `cargo tauri build` on macOS (this machine) produces a
+  working `.app` and `.dmg` — the built app launches and runs, not just
+  bundles. `spctl` rejects it since it's only ad-hoc signed (no Developer ID,
+  no notarization) — expected without paid signing credentials, not a new
+  defect. Windows/Linux installers still untested; real code-signing
+  certificates for all platforms still need their own environments.
 - ~~Live server coverage uses SQLite. PostgreSQL deployment...~~ Partially
   verified 2026-09-13: built the Docker image and ran it against real
   PostgreSQL via `crates/caiven-port/docker-compose.yml` — migrations applied
