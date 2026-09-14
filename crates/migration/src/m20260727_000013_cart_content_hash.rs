@@ -19,7 +19,7 @@ async fn backfill_blob_hashes(manager: &SchemaManager<'_>) -> Result<(), DbErr> 
     let connection = manager.get_connection();
     let backend = manager.get_database_backend();
     let rows = connection
-        .query_all(Statement::from_string(
+        .query_all_raw(Statement::from_string(
             backend,
             "SELECT cart_versions.id, cart_blobs.cart_data \
              FROM cart_versions \
@@ -46,7 +46,7 @@ async fn backfill_blob_hashes(manager: &SchemaManager<'_>) -> Result<(), DbErr> 
             _ => "UPDATE cart_versions SET content_hash = ? WHERE id = ?",
         };
         connection
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 backend,
                 sql,
                 [content_hash.into(), id.into()],

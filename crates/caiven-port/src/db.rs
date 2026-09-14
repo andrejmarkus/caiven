@@ -3,7 +3,8 @@ use std::path::Path;
 use anyhow::Result;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DatabaseBackend, DatabaseConnection,
-    EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set, Statement, TransactionTrait,
+    EntityTrait, ExprTrait, PaginatorTrait, QueryFilter, QueryOrder, Set, Statement,
+    TransactionTrait,
     sea_query::{Expr, Order},
 };
 
@@ -103,7 +104,7 @@ pub async fn backfill_legacy_cart_content_hashes(
 ) -> Result<usize> {
     let backend = db.get_database_backend();
     let rows = db
-        .query_all(sea_orm::Statement::from_string(
+        .query_all_raw(sea_orm::Statement::from_string(
             backend,
             "SELECT id, legacy_cart_path FROM cart_versions \
              WHERE content_hash IS NULL AND legacy_cart_path IS NOT NULL",
@@ -131,7 +132,7 @@ pub async fn backfill_legacy_cart_content_hashes(
             DatabaseBackend::Postgres => "UPDATE cart_versions SET content_hash = $1 WHERE id = $2",
             _ => "UPDATE cart_versions SET content_hash = ? WHERE id = ?",
         };
-        db.execute(Statement::from_sql_and_values(
+        db.execute_raw(Statement::from_sql_and_values(
             backend,
             sql,
             [content_hash.into(), id.into()],

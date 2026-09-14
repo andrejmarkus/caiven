@@ -9,8 +9,8 @@ use rocket::{
     time::Duration as CookieDuration,
 };
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set,
-    TransactionTrait,
+    ActiveModelTrait, ColumnTrait, EntityTrait, ExprTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    Set, TransactionTrait,
 };
 use uuid::Uuid;
 use webauthn_rs::prelude::Passkey;
@@ -1482,7 +1482,7 @@ pub async fn audit_log(
     per_page: Option<u32>,
 ) -> Result<Json<Vec<AuditEntry>>, ApiError> {
     let page = page.unwrap_or(0);
-    let per_page = per_page.unwrap_or(20).min(100);
+    let per_page = std::cmp::min(per_page.unwrap_or(20), 100);
     let pager = audit_log_entity::Entity::find()
         .filter(audit_log_entity::Column::UserId.eq(&user.id))
         .order_by_desc(audit_log_entity::Column::CreatedAt)

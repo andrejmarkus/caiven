@@ -117,7 +117,7 @@ impl MigrationTrait for Migration {
         // the column default above can't reference another column.
         manager
             .get_connection()
-            .execute(sea_orm::Statement::from_string(
+            .execute_raw(sea_orm::Statement::from_string(
                 manager.get_database_backend(),
                 format!(
                     "UPDATE {} SET {} = {} WHERE {} = ''",

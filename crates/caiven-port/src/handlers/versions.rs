@@ -40,7 +40,7 @@ async fn legacy_cart_path(state: &PortState, version_id: &str) -> Result<Option<
     };
     let row = state
         .db
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             backend,
             sql,
             [version_id.into()],

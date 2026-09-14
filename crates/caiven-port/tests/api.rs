@@ -1208,7 +1208,7 @@ async fn existing_cart_versions_receive_content_hashes() {
     .await
     .unwrap();
     let cart = sample_cart();
-    db.execute(sea_orm::Statement::from_sql_and_values(
+    db.execute_raw(sea_orm::Statement::from_sql_and_values(
         sea_orm::DatabaseBackend::Sqlite,
         "INSERT INTO cart_blobs (version_id, cart_data, screenshot_data) VALUES (?, ?, NULL)",
         ["blob-version".into(), cart.clone().into()],
@@ -1219,7 +1219,7 @@ async fn existing_cart_versions_receive_content_hashes() {
     migration::Migrator::up(&db, None).await.unwrap();
     let expected = caiven_cart::content_hash(&cart).unwrap();
     let blob_hash: Option<String> = db
-        .query_one(sea_orm::Statement::from_string(
+        .query_one_raw(sea_orm::Statement::from_string(
             sea_orm::DatabaseBackend::Sqlite,
             "SELECT content_hash FROM cart_versions WHERE id = 'blob-version'",
         ))
@@ -1240,7 +1240,7 @@ async fn existing_cart_versions_receive_content_hashes() {
         1
     );
     let legacy_hash: Option<String> = db
-        .query_one(sea_orm::Statement::from_string(
+        .query_one_raw(sea_orm::Statement::from_string(
             sea_orm::DatabaseBackend::Sqlite,
             "SELECT content_hash FROM cart_versions WHERE id = 'legacy-version'",
         ))
@@ -1279,7 +1279,7 @@ async fn canonical_hash_migration_rehashes_existing_versions() {
     .await
     .unwrap();
     let cart = cart_with_repeated_sections();
-    db.execute(sea_orm::Statement::from_sql_and_values(
+    db.execute_raw(sea_orm::Statement::from_sql_and_values(
         sea_orm::DatabaseBackend::Sqlite,
         "INSERT INTO cart_blobs (version_id, cart_data, screenshot_data) VALUES (?, ?, NULL)",
         ["blob-version".into(), cart.clone().into()],
@@ -1291,7 +1291,7 @@ async fn canonical_hash_migration_rehashes_existing_versions() {
 
     let expected = caiven_cart::content_hash(&cart).unwrap();
     let rows = db
-        .query_all(sea_orm::Statement::from_string(
+        .query_all_raw(sea_orm::Statement::from_string(
             sea_orm::DatabaseBackend::Sqlite,
             "SELECT id, content_hash FROM cart_versions ORDER BY id",
         ))
@@ -1312,7 +1312,7 @@ async fn canonical_hash_migration_rehashes_existing_versions() {
         1
     );
     let legacy_hash: Option<String> = db
-        .query_one(sea_orm::Statement::from_string(
+        .query_one_raw(sea_orm::Statement::from_string(
             sea_orm::DatabaseBackend::Sqlite,
             "SELECT content_hash FROM cart_versions WHERE id = 'legacy-version'",
         ))

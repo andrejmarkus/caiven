@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use chrono::{DateTime, Duration, Utc};
 use rocket::{State, delete, get, patch, post, put, serde::json::Json};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
-    TransactionTrait,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, ExprTrait, QueryFilter,
+    QueryOrder, Set, TransactionTrait,
 };
 use uuid::Uuid;
 
@@ -275,7 +275,7 @@ pub async fn list_collections(
         .all(&state.db)
         .await?;
     let page = page.unwrap_or(0) as usize;
-    let per_page = per_page.unwrap_or(30).min(100) as usize;
+    let per_page = std::cmp::min(per_page.unwrap_or(30), 100) as usize;
     models = models
         .into_iter()
         .skip(page * per_page)
@@ -913,7 +913,7 @@ pub async fn feed(
     events.sort_by(|a, b| b.occurred_at.cmp(&a.occurred_at));
     let total = events.len() as u64;
     let page = page.unwrap_or(0);
-    let per_page = per_page.unwrap_or(20).min(100);
+    let per_page = std::cmp::min(per_page.unwrap_or(20), 100);
     let events = events
         .into_iter()
         .skip(page as usize * per_page as usize)

@@ -37,8 +37,8 @@ fontdue = { version = "0.9", default-features = false, features = ["std", "hashb
 # Parses the Lucide icon path data, arcs included, into plain curves.
 svgtypes = "0.16"
 totp-rs = { version = "5", features = ["qr", "gen_secret"] }
-sea-orm = { version = "1", features = ["sqlx-sqlite", "sqlx-postgres", "runtime-tokio-rustls", "macros"] }
-sea-orm-migration = { version = "1", features = ["sqlx-sqlite", "sqlx-postgres", "runtime-tokio-rustls"] }
+sea-orm = { version = "2", features = ["sqlx-sqlite", "sqlx-postgres", "runtime-tokio-rustls", "macros"] }
+sea-orm-migration = { version = "2", features = ["sqlx-sqlite", "sqlx-postgres", "runtime-tokio-rustls"] }
 migration = { path = "crates/migration" }
 serde = { version = "1", features = ["derive"] }
 sha1 = "0.10"

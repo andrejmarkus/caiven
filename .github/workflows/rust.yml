@@ -197,13 +197,17 @@ jobs:
         with:
           tool: cargo-audit
       - name: cargo audit
-        # sqlx-mysql keeps rsa in Cargo.lock through sqlx macro metadata, but this
-        # workspace enables only SQLite and PostgreSQL. No patched rsa release exists.
+        # The RUSTSEC-2023-0071 (rsa via sqlx-mysql metadata) exception this
+        # comment used to document was cleared by the sea-orm 1→2 / sqlx
+        # 0.8→0.9 upgrade (2026-09-14) — rsa no longer appears in Cargo.lock.
         #
         # rkyv 0.7 (RUSTSEC-2026-0235, OOB read decoding Rc/Arc in untrusted rkyv
-        # archives) is pulled in transitively by rust_decimal, itself pulled in by
-        # sea-orm/sqlx-postgres. This workspace never constructs or deserializes an
-        # rkyv archive directly, so the vulnerable path is unreachable.
+        # archives) is still pinned in Cargo.lock — rust_decimal depends on it
+        # unconditionally, though its rkyv feature isn't actually compiled into
+        # this workspace's build (cargo audit scans the full lockfile, not just
+        # the active feature graph). This workspace never constructs or
+        # deserializes an rkyv archive directly, so the vulnerable path is
+        # unreachable.
         #
         # h2 0.3.x (RUSTSEC-2026-0258, unbounded empty DATA frames) is pinned by
         # hyper 0.14 (`h2 = "0.3.24"`), which Rocket 0.5.1 — the latest release —
@@ -213,7 +217,7 @@ jobs:
         # `CAIVEN_BASE_URL` in caiven-port's CLI args — it expects a TLS-
         # terminating reverse proxy in front of it), so the vulnerable path is
         # unreachable here.
-        run: cargo audit --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2026-0235 --ignore RUSTSEC-2026-0258
+        run: cargo audit --ignore RUSTSEC-2026-0235 --ignore RUSTSEC-2026-0258
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
