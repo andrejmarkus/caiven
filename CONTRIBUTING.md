@@ -1,0 +1,45 @@
+# Contributing to Caiven
+
+Start with [building from source](docs/building.md) and the
+[design charter](docs/product/design-charter.md). The charter defines the
+hardware and API constraints; product hardening must preserve existing creator
+projects, cartridge behavior, and ownership rights.
+
+## Development checks
+
+Install the documented system dependencies, then install both frontends with
+`npm ci` from their directories. Use the checked-in lockfiles.
+
+For Rust changes, run:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings -A unused-imports
+cargo test --locked --workspace
+```
+
+For each changed frontend, run `npm run check`, `npm test`, `npm run build`,
+and its browser tests. Studio uses `npm run test:e2e`; Port uses
+`npm run test:e2e:mock` and `npm run test:e2e:live`. Browser tests require
+Playwright Chromium and permission to start local servers. Run
+`npm --prefix crates/caiven-studio-ui run check:ui` for shared UI changes.
+
+Before a release, use the complete gates in
+[CI](.github/workflows/rust.yml), including dependency audits, documentation,
+shipped WASM, offline exports, and repeated browser tests. A locally passing
+subset does not replace the release gates.
+
+## Review expectations
+
+- Describe the user-visible problem, resulting behavior, and verification.
+- For defects, add a test that reproduces the failure before applying the fix.
+- Exercise malformed input, failure recovery, and authorization where relevant.
+- Document public API, CLI, environment, and format changes alongside code.
+- Preserve unknown cartridge sections and round-trip behavior. Format changes
+  require explicit compatibility decisions and tests.
+- Keep secrets, generated build output, and unrelated formatting out of patches.
+- State untested platforms and integration dependencies honestly.
+
+Report suspected vulnerabilities through [the security process](SECURITY.md).
+Release procedures live in [releasing.md](docs/releasing.md); service deployment
+and recovery live in [Port operations](docs/development/port-operations.md).

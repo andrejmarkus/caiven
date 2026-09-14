@@ -22,9 +22,19 @@ fn collect(current: &Path, entry_abs: &Path, out: &mut Vec<PathBuf>) {
     };
     for entry in entries.filter_map(|e| e.ok()) {
         let path = entry.path();
-        if path.is_dir() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        // Never follow directory cycles or bundle files outside the project.
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() {
             collect(&path, entry_abs, out);
-        } else if path.extension().and_then(|e| e.to_str()) == Some("lua") && path != *entry_abs {
+        } else if file_type.is_file()
+            && path.extension().and_then(|e| e.to_str()) == Some("lua")
+            && path != *entry_abs
+        {
             out.push(path);
         }
     }
@@ -67,11 +77,16 @@ pub fn bundle_lua(entry_src: &str, modules: &[(String, String)]) -> String {
         let level = bracket_level(src);
         let eq = "=".repeat(level);
         let slash_key = key.replace('.', "/");
+        let quoted_key = lua_string(key);
+        let quoted_slash_key = lua_string(&slash_key);
+        let chunk_name = lua_string(&format!("@{slash_key}.lua"));
         out.push_str(&format!(
-            "  __pre[\"{key}\"] = assert(load([{eq}[\n{src}]{eq}], \"@{slash_key}.lua\"))\n"
+            "  __pre[{quoted_key}] = assert(load([{eq}[\n{src}]{eq}], {chunk_name}))\n"
         ));
         if slash_key != *key {
-            out.push_str(&format!("  __pre[\"{slash_key}\"] = __pre[\"{key}\"]\n"));
+            out.push_str(&format!(
+                "  __pre[{quoted_slash_key}] = __pre[{quoted_key}]\n"
+            ));
         }
     }
     out.push_str("end\n");
@@ -83,6 +98,22 @@ pub fn bundle_lua(entry_src: &str, modules: &[(String, String)]) -> String {
     out.push_str(&format!(
         "return assert(load([{eq}[\n{entry_src}]{eq}], \"=cart\"))()\n"
     ));
+    out
+}
+
+/// Quote names as Lua data. Decimal escapes use three digits so a following
+/// digit cannot become part of the escape; JSON escaping is not Lua escaping.
+fn lua_string(value: &str) -> String {
+    let mut out = String::from("\"");
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            ch if ch.is_ascii_control() => out.push_str(&format!("\\{:03}", ch as u32)),
+            ch => out.push(ch),
+        }
+    }
+    out.push('"');
     out
 }
 
@@ -158,6 +189,34 @@ mod tests {
     fn bundle_with_no_modules_is_byte_identical_to_entry() {
         let out = bundle_lua("return 1", &[]);
         assert_eq!(out, "return 1");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discovery_skips_external_symlinks() {
+        let project = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(project.path().join("main.lua"), "return 1").unwrap();
+        std::fs::write(project.path().join("safe.lua"), "return 2").unwrap();
+        std::fs::write(outside.path().join("secret.lua"), "return 3").unwrap();
+        std::os::unix::fs::symlink(outside.path(), project.path().join("external")).unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("secret.lua"),
+            project.path().join("linked.lua"),
+        )
+        .unwrap();
+        assert_eq!(
+            list_lua_files(project.path(), Path::new("main.lua")),
+            vec![project.path().join("safe.lua")]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discovery_skips_directory_cycles() {
+        let project = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(project.path(), project.path().join("cycle")).unwrap();
+        assert!(list_lua_files(project.path(), Path::new("main.lua")).is_empty());
     }
 
     #[test]

@@ -3,4 +3,13 @@ target/
 **/dist/
 .git/
 .vscode/
+.env
+.env.*
+.claude/
+.codex/
+.agents/
+.cache/
+.miyoo-work/
+.miyoo-sdl2-out/
+data/
 **/*.md

@@ -69,4 +69,43 @@ const hasFault = Module.ccall("caiven_has_fault", "number", [], []);
 console.log(`hasFault=${hasFault}`);
 if (hasFault !== 0) throw new Error("unexpected fault after a clean run");
 
-console.log("OK");
+// Validate the parser in the artifact itself, so a stale WASM binary cannot
+// silently bypass the native cartridge hardening tests.
+function expectRejected(invalid, label) {
+  const allocation = Module._malloc(invalid.length);
+  try {
+    Module.HEAPU8.set(invalid, allocation);
+    const result = Module.ccall("caiven_load_cart", "number", ["number", "number"], [allocation, invalid.length]);
+    if (result === 0) throw new Error(`shipped runtime accepted ${label}`);
+  } finally {
+    Module._free(allocation);
+  }
+}
+
+const oversized = Buffer.alloc(128 * 1024 + 1);
+bytes.copy(oversized);
+expectRejected(oversized, "oversized cartridge");
+
+const overlapping = Buffer.from(bytes);
+const sectionCount = overlapping.readUInt16LE(8);
+let payloadEntry;
+for (let i = 1; i < sectionCount; i++) {
+  const entry = 82 + i * 14;
+  if (overlapping.readUInt32LE(entry + 6) > 0) { payloadEntry = entry; break; }
+}
+if (payloadEntry === undefined) throw new Error("smoke fixture needs a nonempty asset section");
+// Give Program the same range and valid CRC as an asset without changing kinds.
+overlapping.copy(overlapping, 84, payloadEntry + 2, payloadEntry + 14);
+expectRejected(overlapping, "overlapping cartridge sections");
+
+// A bad upload must not prevent a subsequent valid load.
+const valid = Module._malloc(bytes.length);
+try {
+  Module.HEAPU8.set(bytes, valid);
+  if (Module.ccall("caiven_load_cart", "number", ["number", "number"], [valid, bytes.length]) !== 0) {
+    throw new Error("runtime failed to recover after invalid cartridge");
+  }
+} finally {
+  Module._free(valid);
+}
+console.log("OK (rendering, audio, parser rejection, recovery)");

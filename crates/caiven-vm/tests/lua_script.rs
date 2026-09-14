@@ -1172,6 +1172,27 @@ fn lua_globals_excludes_builtins_and_stdlib() {
 /// real Lua interpreter to confirm `require()` resolves the preloaded
 /// module — not just that the bundled string looks right.
 #[test]
+fn bundled_module_names_are_literal_data() {
+    let key = "ui.quote\"slash\\line\ncarriage\rtab\té";
+    // Construct the expected Lua string independently of the bundler.
+    let literal = key
+        .as_bytes()
+        .iter()
+        .map(|b| format!("\\{b:03}"))
+        .collect::<String>();
+    let entry = format!("result = require(\"{literal}\").value\nfunction _update() end");
+    let bundled = caiven_cart::bundle_lua(&entry, &[(key.into(), "return { value = 42 }".into())]);
+    let mut vm = make_vm();
+    vm.load_lua_source(&bundled, &Input::new(), &Font::empty())
+        .unwrap_or_else(|e| panic!("literal module name failed: {e}"));
+    assert!(
+        vm.lua_globals()
+            .iter()
+            .any(|(key, value)| key == "result" && value == "42")
+    );
+}
+
+#[test]
 fn bundled_module_resolves_via_require() {
     let mut vm = make_vm();
     let input = Input::new();

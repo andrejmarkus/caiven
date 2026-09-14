@@ -23,13 +23,24 @@ RUN cargo build --locked --release -p caiven-port
 FROM debian:bookworm-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/caiven-port /usr/local/bin/caiven-port
 COPY --from=web /app/crates/caiven-port/web/dist /app/web
 
+RUN groupadd --gid 10001 caiven \
+    && useradd --uid 10001 --gid caiven --no-create-home --shell /usr/sbin/nologin caiven \
+    && mkdir -p /app/data \
+    && chown caiven:caiven /app/data
+
+WORKDIR /app
+USER 10001:10001
+
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
+    CMD curl --fail --silent --max-time 2.5 http://127.0.0.1:8080/readyz || exit 1
 
 ENTRYPOINT ["caiven-port"]
 CMD ["--web-dir", "/app/web", "--address", "0.0.0.0", "--port", "8080"]

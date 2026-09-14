@@ -211,12 +211,10 @@ jobs:
         #
         # h2 0.3.x (RUSTSEC-2026-0258, unbounded empty DATA frames) is pinned by
         # hyper 0.14 (`h2 = "0.3.24"`), which Rocket 0.5.1 — the latest release —
-        # still depends on; no patched hyper 0.14 exists and Rocket hasn't moved
-        # to hyper 1.0. HTTP/2 is only ever negotiated over TLS ALPN, and Port
-        # never terminates TLS itself (see `CAIVEN_SECURE_COOKIES`/
-        # `CAIVEN_BASE_URL` in caiven-port's CLI args — it expects a TLS-
-        # terminating reverse proxy in front of it), so the vulnerable path is
-        # unreachable here.
+        # still depends on. The active graph remains affected: deployments must
+        # restrict backend access and use HTTP/1.1 upstream from the TLS proxy.
+        # TLS termination alone does not prove HTTP/2 is unreachable.
+        # Review these exceptions before each release; see SECURITY.md.
         run: cargo audit --ignore RUSTSEC-2026-0235 --ignore RUSTSEC-2026-0258
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -225,11 +223,11 @@ jobs:
       - name: npm audit (Port web)
         run: |
           npm --prefix crates/caiven-port/web ci
-          npm --prefix crates/caiven-port/web audit --omit=dev --audit-level=high
+          npm --prefix crates/caiven-port/web audit --audit-level=high
       - name: npm audit (Studio UI)
         run: |
           npm --prefix crates/caiven-studio-ui ci
-          npm --prefix crates/caiven-studio-ui audit --omit=dev --audit-level=high
+          npm --prefix crates/caiven-studio-ui audit --audit-level=high
 
   doc:
     name: Docs

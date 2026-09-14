@@ -1,5 +1,7 @@
 # Project health audit — 2026-09-13
 
+Follow-up: [product hardening — 2026-09-14](product-hardening.md).
+
 Cross-component review of the Rust workspace, Studio IPC, Port API and browser
 client, shipped WASM, offline export, build scripts, release gates, and contributor
 documentation. The worktree was clean before this pass.

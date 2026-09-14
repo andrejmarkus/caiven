@@ -136,7 +136,8 @@ impl Fairing for AuthNoStore {
     }
 
     async fn on_response<'r>(&self, request: &'r Request<'_>, response: &mut Response<'r>) {
-        if request.uri().path().as_str().starts_with("/api/v2/auth/") {
+        let path = request.uri().path().as_str();
+        if path.starts_with("/api/v2/auth/") || matches!(path, "/healthz" | "/readyz") {
             response.set_header(Header::new("Cache-Control", "no-store"));
         }
     }
@@ -196,6 +197,8 @@ pub fn build_rocket(config: rocket::Config, state: PortState) -> rocket::Rocket<
         .mount(
             "/",
             rocket::routes![
+                handlers::health::live,
+                handlers::health::ready,
                 handlers::legacy::list_carts,
                 handlers::legacy::get_cart,
                 handlers::legacy::upload_cart,

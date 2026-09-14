@@ -10,6 +10,7 @@
 ///     len:     u32 LE
 ///     crc32:   u32 LE
 ///   section data: packed at the offsets listed in the table
+use std::io::Read;
 use std::path::Path;
 
 use sha2::{Digest, Sha256};
@@ -65,13 +66,23 @@ pub struct Cart {
 }
 
 pub fn load(path: &Path) -> Result<Cart, CartError> {
-    let data = std::fs::read(path)?;
+    // Bound the read itself, including files that grow after being opened.
+    let mut data = Vec::new();
+    std::fs::File::open(path)?
+        .take((MAX_CART_BYTES + 1) as u64)
+        .read_to_end(&mut data)?;
     parse(&data)
 }
 
 /// Parses a cart from an in-memory byte slice (e.g. fetched over HTTP),
 /// for hosts without filesystem access such as the web player.
 pub fn parse(data: &[u8]) -> Result<Cart, CartError> {
+    if data.len() > MAX_CART_BYTES {
+        return Err(CartError::TooLarge {
+            size: data.len(),
+            max: MAX_CART_BYTES,
+        });
+    }
     if data.len() < MAGIC.len() || &data[0..MAGIC.len()] != MAGIC {
         return Err(CartError::BadMagic);
     }
@@ -106,8 +117,11 @@ fn load_bytes(data: &[u8]) -> Result<Cart, CartError> {
         return Err(CartError::Truncated);
     }
 
-    let mut program = Vec::new();
-    let mut sections = Vec::new();
+    // Validate the complete table before copying any payload. Overlapping
+    // ranges could otherwise multiply a small input into large allocations.
+    let mut entries = Vec::with_capacity(n_sections);
+    let mut ranges = Vec::with_capacity(n_sections);
+    let mut program_count = 0;
 
     for i in 0..n_sections {
         let e = FIXED_HDR + i * SECTION_ENTRY_LEN;
@@ -120,8 +134,33 @@ fn load_bytes(data: &[u8]) -> Result<Cart, CartError> {
         if data.len() < end {
             return Err(CartError::Truncated);
         }
-        let section_data = data[offset..end].to_vec();
-        let actual_crc = crc32fast::hash(&section_data);
+        if offset < table_end {
+            return Err(CartError::InvalidLayout("section overlaps header or table"));
+        }
+        if len > 0 {
+            ranges.push((offset, end));
+        }
+        let kind = SectionKind::from_u16(kind_id);
+        if kind == SectionKind::Program {
+            program_count += 1;
+        }
+        entries.push((kind, offset, end, stored_crc));
+    }
+    if program_count != 1 {
+        return Err(CartError::InvalidLayout(
+            "expected exactly one Program section",
+        ));
+    }
+    ranges.sort_unstable();
+    if ranges.windows(2).any(|pair| pair[0].1 > pair[1].0) {
+        return Err(CartError::InvalidLayout("section payloads overlap"));
+    }
+
+    let mut program = Vec::new();
+    let mut sections = Vec::new();
+    for (kind, offset, end, stored_crc) in entries {
+        let section_data = &data[offset..end];
+        let actual_crc = crc32fast::hash(section_data);
         if actual_crc != stored_crc {
             return Err(CartError::ChecksumMismatch {
                 expected: stored_crc,
@@ -129,13 +168,12 @@ fn load_bytes(data: &[u8]) -> Result<Cart, CartError> {
             });
         }
 
-        let kind = SectionKind::from_u16(kind_id);
         if kind == SectionKind::Program {
-            program = section_data;
+            program = section_data.to_vec();
         } else {
             sections.push(CartSection {
                 kind,
-                data: section_data,
+                data: section_data.to_vec(),
             });
         }
     }
@@ -155,6 +193,12 @@ pub fn write(
     program: &[u8],
     extra_sections: &[(SectionKind, Vec<u8>)],
 ) -> Result<(), CartError> {
+    if extra_sections
+        .iter()
+        .any(|(kind, _)| kind.to_u16() == SectionKind::Program.to_u16())
+    {
+        return Err(CartError::InvalidLayout("extra Program section"));
+    }
     let n = 1 + extra_sections.len();
     let packed_len = packed_len(program, extra_sections);
     if packed_len > MAX_CART_BYTES {

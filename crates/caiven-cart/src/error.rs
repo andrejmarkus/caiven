@@ -11,6 +11,9 @@ pub enum CartError {
     #[error("cart data is truncated")]
     Truncated,
 
+    #[error("invalid cart section layout: {0}")]
+    InvalidLayout(&'static str),
+
     #[error("packed cart is {size} bytes; maximum is {max} bytes")]
     TooLarge { size: usize, max: usize },
 

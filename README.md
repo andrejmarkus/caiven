@@ -74,6 +74,9 @@ end
 - [Caiven Port](docs/port.md) — sharing server, REST API, Web Play
 - [Key Bindings (Game)](docs/controls.md) — defaults and `controls.toml` overrides
 - [Publishing a Release](docs/releasing.md)
+- [Contributing](CONTRIBUTING.md) — development checks and review expectations
+- [Security](SECURITY.md) — reporting and dependency exceptions
+- [Port operations](docs/development/port-operations.md) — probes, deployment, backup and recovery
 - [Handheld builds](docs/development/handheld-builds.md) — Miyoo, TrimUI, Anbernic
 
 Full index: [docs/README.md](docs/README.md).
