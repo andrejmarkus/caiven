@@ -1063,6 +1063,53 @@ mod tests {
         )
     }
 
+    /// Consumes the artifact exported by the real Studio handlers in a
+    /// separate process. The runner removes the project before this stage.
+    #[test]
+    #[ignore = "run through scripts/creator-workflow/run.py"]
+    fn creator_workflow_playback() {
+        let root = std::path::PathBuf::from(
+            std::env::var_os("CAIVEN_WORKFLOW_DIR").expect("workflow directory"),
+        );
+        let mut app = test_app();
+        app.load(&root.join("game.cav"))
+            .expect("load Studio export");
+        assert_eq!(app.core.vm.get_palette()[7].to_rgb(), [18, 52, 86]);
+        for (offset, byte) in [48, 15, 8, 0].into_iter().enumerate() {
+            assert_eq!(
+                app.core
+                    .vm
+                    .peek_memory(caiven_core::memory::SFX_RAM_BASE + offset),
+                byte
+            );
+        }
+        for _ in 0..3 {
+            app.core.run_frame();
+            assert!(app.core.vm.get_fault().is_none(), "fault during playback");
+        }
+        let width = caiven_core::memory::SCREEN_WIDTH as usize;
+        let old_pixel = (16 * width + 16) * 4;
+        let new_pixel = (16 * width + 40) * 4;
+        assert_eq!(
+            &app.core.vm.world_pixels()[old_pixel..old_pixel + 4],
+            &[18, 52, 86, 255]
+        );
+        let background = app.core.vm.world_pixels()[new_pixel..new_pixel + 4].to_vec();
+        app.core
+            .input
+            .set_button(caiven_vm::input::Button::Right, true);
+        app.core.run_frame();
+        assert!(app.core.vm.get_fault().is_none(), "fault after input");
+        assert_eq!(
+            &app.core.vm.world_pixels()[new_pixel..new_pixel + 4],
+            &[18, 52, 86, 255]
+        );
+        assert_eq!(
+            &app.core.vm.world_pixels()[old_pixel..old_pixel + 4],
+            background
+        );
+    }
+
     #[test]
     fn passes_when_all_required_peripherals_registered() {
         assert!(check_mod_manifest("rtc\ninput", &["rtc", "input", "audio"]).is_ok());

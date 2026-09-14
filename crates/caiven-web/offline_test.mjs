@@ -31,6 +31,22 @@ try {
   // Ignore the one-pixel border when measuring console aspect ratio.
   assert.ok(Math.abs((bounds.width - 2) / (bounds.height - 2) - 1.5) < 0.01);
   await canvas.click();
+  if (process.argv.includes('--creator-workflow')) {
+    const pixel = (x) => page.evaluate((x) => Array.from(document.getElementById('screen')
+      .getContext('2d').getImageData(x, 16, 1, 1).data), x);
+    assert.deepEqual(await pixel(16), [18, 52, 86, 255], 'saved sprite/palette missing');
+    const background = await pixel(40);
+    await page.keyboard.down('ArrowRight');
+    try {
+      await page.waitForFunction(() => {
+        const p = document.getElementById('screen').getContext('2d').getImageData(40, 16, 1, 1).data;
+        return p[0] === 18 && p[1] === 52 && p[2] === 86;
+      });
+    } finally {
+      await page.keyboard.up('ArrowRight');
+    }
+    assert.deepEqual(await pixel(16), background, 'input did not move the saved sprite');
+  }
   await page.keyboard.press('ArrowRight');
   assert.equal(await page.locator('#status').textContent(), '');
   assert.deepEqual(requests, [], 'offline export attempted a network request');

@@ -2809,6 +2809,9 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
 }
 
 #[cfg(test)]
+mod creator_workflow;
+
+#[cfg(test)]
 mod tests {
     use super::{
         Breakpoint, CoreCommand, RunState, SharedSnapshot, StudioCore, debug_path, handle_command,
@@ -2834,7 +2837,7 @@ mod tests {
     /// Drives `handle_command` exactly as the actor thread does, without a
     /// real Tauri runtime: builds a `CoreCommand` around a fresh reply
     /// channel and returns what the handler sent back.
-    fn dispatch<T>(
+    pub(super) fn dispatch<T>(
         studio: &mut StudioCore,
         build: impl FnOnce(mpsc::Sender<Result<T, String>>) -> CoreCommand,
     ) -> Result<T, String> {

@@ -112,6 +112,8 @@ jobs:
         run: |
           cargo run --locked -p caiven-studio -- export projects/dev/smoke --web -o target/caiven-offline-smoke.html
           node crates/caiven-web/offline_test.mjs target/caiven-offline-smoke.html
+      - name: Verify native creator workflow
+        run: python3 scripts/creator-workflow/run.py
       - name: Test Port live full-stack gate
         run: npm --prefix crates/caiven-port/web run test:e2e:live
       - name: Upload Port live Playwright diagnostics

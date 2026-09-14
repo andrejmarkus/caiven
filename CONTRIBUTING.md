@@ -29,6 +29,27 @@ Before a release, use the complete gates in
 shipped WASM, offline exports, and repeated browser tests. A locally passing
 subset does not replace the release gates.
 
+Run the native creator workflow after changes to Studio persistence, export,
+or Machine loading:
+
+```bash
+python3 scripts/creator-workflow/run.py
+```
+
+Requires Python 3, Rust/system build dependencies, built Studio frontend assets,
+and Port's Playwright Chromium installation. The runner creates a temporary
+project through real Studio actor commands, edits Lua (including a sibling
+module), sprite, palette and sound bytes, saves and closes it, then reopens it
+in a separate process. It exports `.cav` and offline HTML, removes the source
+project, and checks Machine and Chromium playback, including visible movement
+from input. Temporary projects and isolated Studio history are cleaned up on
+success or failure. Each process has a ten-minute timeout.
+
+This gate exercises native Rust handlers and Machine's actual loader/frame loop;
+it does not launch the Studio webview or SDL window, test Tauri IPC serialization,
+or certify physical audio/controllers. The two Rust stage tests are intentionally
+ignored in ordinary `cargo test`; this runner executes them explicitly in CI.
+
 ## Review expectations
 
 - Describe the user-visible problem, resulting behavior, and verification.
