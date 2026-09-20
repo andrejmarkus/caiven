@@ -24,6 +24,9 @@ impl Peripheral for RealTimeClock {
 }
 
 fn write_time(mem: &mut Memory) {
+    // Deliberately UTC, not `Local::now()`: this crate also builds for
+    // `wasm32-unknown-unknown` (`caiven-web`), where chrono's local-time
+    // support isn't available. Documented as UTC in `docs/api-reference.md`.
     let now = Utc::now();
     let _ = mem.write(RTC_RAM_BASE, now.hour() as u8);
     let _ = mem.write(RTC_RAM_BASE + 1, now.minute() as u8);

@@ -299,6 +299,192 @@ fn run_frame_lua_bp_reports_execution_budget_exceeded_with_line() {
 }
 
 #[test]
+fn load_lua_source_aborts_an_infinite_loop_in_init_instead_of_hanging() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    let result = vm.load_lua_source(
+        r#"
+        function _init()
+          while true do end
+        end
+        function _update() end
+        "#,
+        &input,
+        &font,
+    );
+    assert!(
+        result.is_err(),
+        "an infinite loop in _init must fail load, not hang it"
+    );
+}
+
+#[test]
+fn hot_reload_lua_source_aborts_an_infinite_loop_at_top_level_instead_of_hanging() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source("function _update() end", &input, &font)
+        .unwrap_or_else(|e| panic!("initial load failed: {e}"));
+
+    let result =
+        vm.hot_reload_lua_source("while true do end\nfunction _update() end", &input, &font);
+    assert!(
+        result.is_err(),
+        "an infinite loop in top-level reload code must fail, not hang it"
+    );
+}
+
+#[test]
+fn an_infinite_loop_caught_by_the_carts_own_pcall_still_trips_the_execution_budget() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          pcall(function()
+            while true do end
+          end)
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    // Without the fix, the cart's own `pcall` swallows the watchdog's error
+    // before it ever reaches `_update`'s caller, so `run_frame` looks like it
+    // completed a normal frame even though the watchdog had to step in.
+    vm.run_frame(&input, &font);
+
+    assert_eq!(vm.get_fault(), Some(VmFault::ExecutionBudgetExceeded));
+}
+
+#[test]
+fn a_coroutine_running_forever_still_trips_the_execution_budget() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          local co = coroutine.create(function()
+            while true do end
+          end)
+          coroutine.resume(co)
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    // `coroutine.resume` itself swallows the coroutine's error into a
+    // `false, message` return — same "looks like a normal frame" trap as
+    // the cart's own `pcall`, and separately: without wrapping
+    // `coroutine.create`, this coroutine would have no execution-budget hook
+    // at all and loop forever.
+    vm.run_frame(&input, &font);
+
+    assert_eq!(vm.get_fault(), Some(VmFault::ExecutionBudgetExceeded));
+}
+
+#[test]
+fn a_coroutine_wrap_running_forever_still_trips_the_execution_budget() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          local f = coroutine.wrap(function()
+            while true do end
+          end)
+          f()
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    vm.run_frame(&input, &font);
+
+    assert_eq!(vm.get_fault(), Some(VmFault::ExecutionBudgetExceeded));
+}
+
+#[test]
+fn a_cooperative_coroutine_that_yields_does_not_trip_the_budget() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source(
+        r#"
+        function _update()
+          local co = coroutine.create(function()
+            for i = 1, 5 do
+              coroutine.yield(i)
+            end
+          end)
+          for i = 1, 5 do
+            coroutine.resume(co)
+          end
+        end
+        "#,
+        &input,
+        &font,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+
+    vm.run_frame(&input, &font);
+
+    assert_eq!(vm.get_fault(), None);
+}
+
+#[test]
+fn fault_message_carries_the_lua_error_text() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    vm.load_lua_source("function _update() error(\"boom\") end", &input, &font)
+        .unwrap_or_else(|e| panic!("load failed: {e}"));
+
+    vm.run_frame(&input, &font);
+
+    assert_eq!(vm.get_fault(), Some(VmFault::LuaError));
+    let message = vm.fault_message().expect("LuaError should carry a message");
+    assert!(
+        message.contains("boom"),
+        "expected message to mention the error, got: {message}"
+    );
+}
+
+#[test]
+fn a_cart_growing_its_lua_heap_unboundedly_hits_a_memory_error_instead_of_the_host() {
+    let mut vm = make_vm();
+    let input = Input::new();
+    let font = Font::empty();
+    // ~200,000 iterations at 1KB each is ~200MB, past the 64MB heap limit,
+    // but cheap enough in instructions to stay well under the init budget —
+    // isolates this to the memory limit rather than the instruction one.
+    let result = vm.load_lua_source(
+        r#"
+        local t = {}
+        for i = 1, 200000 do
+          t[i] = string.rep("x", 1024)
+        end
+        "#,
+        &input,
+        &font,
+    );
+    assert!(
+        result.is_err(),
+        "unbounded Lua-heap growth must fail instead of exhausting host memory"
+    );
+}
+
+#[test]
 fn lua_run_frame_bp_stops_at_breakpointed_line() {
     let mut vm = make_vm();
     let input = Input::new();

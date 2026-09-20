@@ -613,6 +613,23 @@ fn should_redraw(
     animates_every_frame(shell) || input_event_this_frame || shell.screen() != screen_before_tick
 }
 
+/// Surfaces a mid-play VM fault as the crash screen — checked once per frame
+/// after stepping the VM, a no-op while the cart is healthy. Pulled out of
+/// the frame loop so it's unit-testable without an SDL window (see
+/// `app::tests::a_mid_play_fault_lands_on_the_crash_screen`); before this,
+/// a cart that faulted while `Screen::Playing` just kept looping forever
+/// with a dead VM instead of surfacing anything to the player.
+fn report_vm_fault(vm: &caiven_vm::Vm, shell: &mut ShellState) {
+    let Some(fault) = vm.get_fault() else {
+        return;
+    };
+    let message = vm
+        .fault_message()
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{fault:?}"));
+    shell.cart_failed(message, Some(vm.frame_count() as u64));
+}
+
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
 
@@ -947,10 +964,17 @@ pub fn run() -> Result<()> {
             let vm_start = Instant::now();
             for _ in 0..steps {
                 app.core.run_frame();
+                // Stop feeding a faulted cart more frames — it would just
+                // hit the same error (or budget) again every time.
+                if app.core.vm.get_fault().is_some() {
+                    break;
+                }
             }
             vm_time_in_window += vm_start.elapsed();
             vm_steps_in_window += steps as u64;
             app.core.screen.get_debug_layer().clear();
+
+            report_vm_fault(&app.core.vm, &mut shell_state);
         }
 
         if app.core.vm.save_data().is_dirty() {
@@ -1049,7 +1073,9 @@ pub fn run() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{App, check_mod_manifest, load_settings, save_settings, should_redraw};
+    use super::{
+        App, check_mod_manifest, load_settings, report_vm_fault, save_settings, should_redraw,
+    };
     use crate::platform::scaling::{AspectMode, ScaleMode};
     use crate::shell::settings::Settings;
     use crate::shell::state::{BOOT_DURATION, Screen, ShellState};
@@ -1215,6 +1241,46 @@ mod tests {
         // read as near-silent garbage instead of a composition.
         let music = app.core.vm.music_player();
         assert!(music.active && music.song_active, "song did not start");
+    }
+
+    #[test]
+    fn a_mid_play_fault_lands_on_the_crash_screen_with_the_real_message() {
+        use caiven_vm::input::Input;
+        use caiven_vm::rendering::font::Font;
+        use caiven_vm::{Vm, VmConfig};
+
+        let mut vm = Vm::new(VmConfig::default());
+        let input = Input::new();
+        let font = Font::empty();
+        vm.load_lua_source("function _update() error(\"boom\") end", &input, &font)
+            .expect("load failing cart");
+        vm.run_frame(&input, &font);
+
+        let mut shell = ShellState::new();
+        report_vm_fault(&vm, &mut shell);
+
+        assert_eq!(shell.screen(), Screen::Crash);
+    }
+
+    #[test]
+    fn a_healthy_vm_never_touches_the_shell_screen() {
+        use caiven_vm::input::Input;
+        use caiven_vm::rendering::font::Font;
+        use caiven_vm::{Vm, VmConfig};
+
+        let mut vm = Vm::new(VmConfig::default());
+        let input = Input::new();
+        let font = Font::empty();
+        vm.load_lua_source("function _update() end", &input, &font)
+            .expect("load healthy cart");
+        vm.run_frame(&input, &font);
+
+        let mut shell = ShellState::new();
+        report_vm_fault(&vm, &mut shell);
+
+        // `report_vm_fault` must leave a healthy VM's shell screen alone —
+        // whatever it already was, not force it to any particular screen.
+        assert_eq!(shell.screen(), Screen::Boot);
     }
 
     #[test]

@@ -100,7 +100,7 @@ or Studio), not by the Lua sandbox directly.
 
 | Function        | Description                                                      |
 | :--------------- | :-----------------------------------------------------------------|
-| `real_time()`   | Returns `(hour, minute, second)` from the host's real-time clock |
+| `real_time()`   | Returns `(hour, minute, second)` — the host's real-time clock, **UTC**, not the player's local time zone |
 | `frame_count()` | Number of frames run since the cart loaded                       |
 | `time()`        | Seconds since the cart loaded, assuming 60 frames per second     |
 

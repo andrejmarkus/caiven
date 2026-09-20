@@ -206,6 +206,12 @@ pub struct Vm {
     frame_count: u32,
     waiting: bool,
     fault: Option<VmFault>,
+    /// Plain-language description of `fault`, when there's more to say than
+    /// the variant itself carries — set alongside `fault` by `set_fault`.
+    /// `VmFault::LuaError` carries no text of its own, so a host wanting to
+    /// show *why* a cart crashed (not just that it did) reads this via
+    /// [`Vm::fault_message`] instead.
+    fault_message: Option<String>,
     world: ScreenLayer,
     ui: ScreenLayer,
     config: VmConfig,
@@ -353,6 +359,7 @@ impl Vm {
             frame_count: 0,
             waiting: false,
             fault: None,
+            fault_message: None,
             world: ScreenLayer::new(config.width, config.height),
             ui: ScreenLayer::new(config.width, config.height),
             config,
@@ -407,8 +414,27 @@ impl Vm {
     }
 
     pub fn set_fault(&mut self, fault: VmFault) {
+        // `LuaError` callers always know more than the bare variant (the
+        // actual error text) and go through `set_fault_with_message`
+        // directly; `ExecutionBudgetExceeded` has one fixed plain-language
+        // message regardless of call site, so it's filled in here instead of
+        // making every caller repeat it.
+        let message = match fault {
+            VmFault::ExecutionBudgetExceeded => {
+                Some(lua_exec::EXECUTION_BUDGET_MESSAGE.to_string())
+            }
+            VmFault::LuaError | VmFault::MemoryOutOfBounds(_) => None,
+        };
+        self.set_fault_with_message(fault, message);
+    }
+
+    /// Same as [`Vm::set_fault`], additionally recording a plain-language
+    /// description for [`Vm::fault_message`] — used for `VmFault::LuaError`,
+    /// whose variant alone carries no text a host could show a player.
+    pub fn set_fault_with_message(&mut self, fault: VmFault, message: Option<String>) {
         error!("VM FAULT: {:?}", fault);
         self.fault = Some(fault);
+        self.fault_message = message;
         self.waiting = true;
     }
 
@@ -711,8 +737,23 @@ impl Vm {
         self.waiting
     }
 
+    /// Frames run since load — the console-time clock a host can attach to
+    /// a fault report (e.g. "crashed at frame N") without duplicating its
+    /// own counter alongside the VM's.
+    pub fn frame_count(&self) -> u32 {
+        self.frame_count
+    }
+
     pub fn get_fault(&self) -> Option<VmFault> {
         self.fault
+    }
+
+    /// Plain-language description of the current fault, when there's more to
+    /// say than the [`VmFault`] variant itself — set by
+    /// [`Vm::set_fault_with_message`]. `None` for a fault-free VM, and for a
+    /// fault that didn't record extra text.
+    pub fn fault_message(&self) -> Option<&str> {
+        self.fault_message.as_deref()
     }
 
     pub fn world_pixels(&self) -> &[u8] {

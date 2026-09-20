@@ -31,7 +31,7 @@ use caiven_core::memory::{
     RTC_RAM_BASE, SPRITE_BYTES, SPRITE_COUNT, SPRITE_SHEET_COLS, SPRITE_SHEET_RAM_BASE,
 };
 use caiven_core::{Color, Vec2};
-use mlua::{HookTriggers, Lua, LuaSerdeExt, MultiValue, Scope, StdLib, Table, VmState};
+use mlua::{Debug, HookTriggers, Lua, LuaSerdeExt, MultiValue, Scope, StdLib, Table, VmState};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -266,6 +266,11 @@ const MAX_CAPTURED_OUTPUT_LINES: usize = 200;
 /// thousands to low millions of instructions, so this leaves generous
 /// headroom while still bounding a runaway script to well under a second.
 const FRAME_INSTRUCTION_BUDGET: u32 = 25_000_000;
+/// Separate, larger budget for [`Vm::load_lua_source`] (prelude + the cart's
+/// top-level code + `_init()`) and [`Vm::hot_reload_lua_source`] (prelude +
+/// top-level re-exec) — one-time setup legitimately costs more than a single
+/// frame, but a hostile cart still can't hang loading forever.
+const INIT_INSTRUCTION_BUDGET: u32 = 100_000_000;
 /// mlua's instruction-count hook fires once per this many executed
 /// instructions — the stride trades check granularity for per-frame
 /// overhead, since the hook is Rust code called from inside the Lua VM loop.
@@ -273,13 +278,34 @@ const INSTRUCTION_HOOK_STRIDE: u32 = 10_000;
 /// Plain-language watchdog message — deliberately not an mlua traceback, per
 /// the design charter's "must fail with a line number and a plain-language
 /// message" watchdog requirement.
-const EXECUTION_BUDGET_MESSAGE: &str =
+pub(crate) const EXECUTION_BUDGET_MESSAGE: &str =
     "your game did not finish drawing this frame — is there a loop that never ends?";
+/// Ceiling on a cart's Lua-heap usage (`Lua::set_memory_limit`) — the
+/// instruction-count watchdog bounds CPU time, not memory, so a hostile cart
+/// growing an unbounded table needs a separate limit.
+const LUA_MEMORY_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 
 pub(super) struct LuaScript {
     lua: Lua,
     output: Arc<Mutex<Vec<String>>>,
+    /// Every coroutine a cart has spawned via the wrapped `coroutine.create`/
+    /// `coroutine.wrap` installed by [`install_coroutine_budget_guard`] —
+    /// re-armed with the active execution budget at the top of every call
+    /// site that can resume one, so a coroutine created in an earlier call
+    /// counts against *that* call's budget rather than running forever on a
+    /// stale or absent hook.
+    coroutines: Rc<RefCell<Vec<mlua::Thread>>>,
+    /// The budget the wrapped `coroutine.create`/`coroutine.wrap` should arm
+    /// a brand-new thread with — set fresh before every chunk/`_init`/
+    /// `_update` call, cleared afterward so a thread can never be created
+    /// outside a window we control.
+    active_budget: Rc<RefCell<Option<BudgetCells>>>,
 }
+
+/// `(instruction counter, budget-hit sink, budget)` for one execution-budget
+/// hook — shared between the main thread and any coroutine it spawns so they
+/// count against the same limit. See [`budget_hook`].
+type BudgetCells = (Rc<RefCell<u32>>, Rc<RefCell<Option<LuaBreakpoint>>>, u32);
 
 /// Result of one debug-aware Lua frame ([`Vm::run_frame_lua_bp`]).
 #[derive(Debug, Clone)]
@@ -370,6 +396,100 @@ fn hook_debug_source(debug: &mlua::Debug) -> String {
         .or(debug_source.source.as_deref())
         .map(normalized_debug_source)
         .unwrap_or_else(|| "cart".to_string())
+}
+
+/// Builds one execution-budget hook closure. Shared by the main thread's own
+/// hook and every coroutine's (see [`install_coroutine_budget_guard`]) so a
+/// hostile cart can't dodge the watchdog by looping forever inside a
+/// coroutine instead of the main chunk — both count against the same
+/// `instructions`/`budget_hit` cells.
+fn budget_hook(
+    instructions: Rc<RefCell<u32>>,
+    budget_hit: Rc<RefCell<Option<LuaBreakpoint>>>,
+    budget: u32,
+) -> impl Fn(&Lua, Debug) -> mlua::Result<VmState> {
+    move |_lua, debug| {
+        let mut count = instructions.borrow_mut();
+        *count += INSTRUCTION_HOOK_STRIDE;
+        if *count < budget {
+            return Ok(VmState::Continue);
+        }
+        let line = debug.curr_line();
+        *budget_hit.borrow_mut() = (line > 0).then(|| LuaBreakpoint {
+            source: hook_debug_source(&debug),
+            line: line as usize,
+        });
+        Err(mlua::Error::runtime(EXECUTION_BUDGET_MESSAGE))
+    }
+}
+
+/// Re-arms every already-tracked coroutine with this call's execution budget
+/// — called alongside `lua.set_hook` on the main thread at the top of
+/// [`Vm::load_lua_source`], [`Vm::hot_reload_lua_source`],
+/// [`Vm::run_frame_lua`], and [`Vm::run_frame_lua_bp`]. mlua only arms the
+/// thread `set_hook` is called on, and a hook set once at coroutine-creation
+/// time would otherwise keep counting instructions cumulatively across every
+/// later call instead of resetting per call like the main thread's does.
+fn rearm_coroutines(
+    coroutines: &RefCell<Vec<mlua::Thread>>,
+    instructions: &Rc<RefCell<u32>>,
+    budget_hit: &Rc<RefCell<Option<LuaBreakpoint>>>,
+    budget: u32,
+) {
+    let triggers = HookTriggers::new().every_nth_instruction(INSTRUCTION_HOOK_STRIDE);
+    for thread in coroutines.borrow().iter() {
+        thread.set_hook(
+            triggers,
+            budget_hook(instructions.clone(), budget_hit.clone(), budget),
+        );
+    }
+}
+
+/// Overrides `coroutine.create`/`coroutine.wrap` so any thread a cart spawns
+/// is armed with the caller's active execution budget (`active_budget`, kept
+/// current by [`rearm_coroutines`]'s callers) the moment it's created, and
+/// tracked in `coroutines` so it keeps getting re-armed on every later call
+/// too. Installed once, in [`Vm::load_lua_source`] — it survives hot reload
+/// since that reuses the same `Lua` instance. See [`budget_hook`] for why
+/// this exists at all: a plain `coroutine.create` has no budget whatsoever.
+fn install_coroutine_budget_guard(
+    lua: &Lua,
+    globals: &Table,
+    coroutines: Rc<RefCell<Vec<mlua::Thread>>>,
+    active_budget: Rc<RefCell<Option<BudgetCells>>>,
+) -> mlua::Result<()> {
+    let coroutine: Table = globals.get("coroutine")?;
+
+    let arm = move |thread: &mlua::Thread, active_budget: &Rc<RefCell<Option<BudgetCells>>>| {
+        if let Some((instructions, budget_hit, budget)) = &*active_budget.borrow() {
+            thread.set_hook(
+                HookTriggers::new().every_nth_instruction(INSTRUCTION_HOOK_STRIDE),
+                budget_hook(instructions.clone(), budget_hit.clone(), *budget),
+            );
+        }
+    };
+
+    let create_coroutines = coroutines.clone();
+    let create_budget = active_budget.clone();
+    let wrapped_create = lua.create_function(move |lua, f: mlua::Function| {
+        let thread = lua.create_thread(f)?;
+        arm(&thread, &create_budget);
+        create_coroutines.borrow_mut().push(thread.clone());
+        Ok(thread)
+    })?;
+    coroutine.set("create", wrapped_create)?;
+
+    let wrap_coroutines = coroutines;
+    let wrap_budget = active_budget;
+    let wrapped_wrap = lua.create_function(move |lua, f: mlua::Function| {
+        let thread = lua.create_thread(f)?;
+        arm(&thread, &wrap_budget);
+        wrap_coroutines.borrow_mut().push(thread.clone());
+        lua.create_function(move |_, args: MultiValue| thread.resume::<MultiValue>(args))
+    })?;
+    coroutine.set("wrap", wrapped_wrap)?;
+
+    Ok(())
 }
 
 /// Walks the interpreter stack from the innermost frame outward, for the
@@ -799,6 +919,53 @@ fn cam_offset(camera: &RefCell<&mut Camera>) -> (i64, i64) {
     (c.get_x() as i32 as i64, c.get_y() as i32 as i64)
 }
 
+/// Intersects the rectangle `[x, x+w) x [y, y+h)` with the screen
+/// `[0, width) x [0, height)`, returning the clipped range or `None` when
+/// they don't overlap at all. Computed once before rasterizing — a cart
+/// passing a huge `w`/`h` (or coordinates far outside the screen) must not
+/// turn one Lua call into a native loop proportional to that size instead of
+/// the visible area: the instruction-count watchdog only sees Lua bytecode
+/// between calls, not work done inside a single native one, so an unclipped
+/// per-pixel loop here would hang the process with no way for the watchdog
+/// to ever step in.
+fn clip_rect(
+    x: i64,
+    y: i64,
+    w: i64,
+    h: i64,
+    width: u32,
+    height: u32,
+) -> Option<(i64, i64, i64, i64)> {
+    let x0 = x.max(0);
+    let y0 = y.max(0);
+    let x1 = (x + w).min(width as i64);
+    let y1 = (y + h).min(height as i64);
+    (x1 > x0 && y1 > y0).then_some((x0, y0, x1, y1))
+}
+
+/// Radius past which a filled/outlined circle can no longer add any visible
+/// pixel regardless of where it's centered — the diagonal of the screen is
+/// the largest radius a circle could need to fully cover it. Clamping to
+/// this before rasterizing bounds `fill_circle`'s `O(r^2)` loop (and
+/// `draw_circle`'s `O(r)` one) the same way [`clip_rect`] bounds the
+/// rectangle builtins — see its doc comment for why that has to happen
+/// before the loop rather than per-pixel inside it.
+fn max_render_radius(width: u32, height: u32) -> i64 {
+    let (w, h) = (width as i64, height as i64);
+    // Integer-safe ceiling of `sqrt(w*w + h*h)`: `isqrt` floors, so bump by
+    // one to stay past the true diagonal.
+    (w * w + h * h).isqrt() + 1
+}
+
+/// Steps a Bresenham line from `(x0,y0)` to `(x1,y1)` always takes exactly —
+/// clamped before the loop starts for the same reason as [`clip_rect`]: a
+/// cart-supplied endpoint far outside the screen must not turn one Lua call
+/// into a native loop proportional to that distance. Every point beyond this
+/// many steps from either endpoint of a legitimate on-screen line is already
+/// off-screen and invisible (`plot` drops it), so this only changes behavior
+/// for lines no cart has a real reason to draw.
+const MAX_LINE_STEPS: i64 = 8192;
+
 fn draw_line(layer: &mut ScreenLayer, x0: i64, y0: i64, x1: i64, y1: i64, color: Color) {
     let (mut x, mut y) = (x0, y0);
     let dx = (x1 - x0).abs();
@@ -806,7 +973,8 @@ fn draw_line(layer: &mut ScreenLayer, x0: i64, y0: i64, x1: i64, y1: i64, color:
     let sx = if x0 < x1 { 1 } else { -1 };
     let sy = if y0 < y1 { 1 } else { -1 };
     let mut err = dx + dy;
-    loop {
+    let steps = dx.max(-dy).saturating_add(1).min(MAX_LINE_STEPS);
+    for _ in 0..steps {
         plot(layer, x, y, color);
         if x == x1 && y == y1 {
             break;
@@ -1090,51 +1258,62 @@ fn register_builtins<'scope, 'env>(
 
     globals.set(
         "draw_rect",
-        scope.create_function_mut(|_, (x, y, w, h, color_index): (i64, i64, i64, i64, u8)| {
-            if w <= 0 || h <= 0 {
-                return Ok(());
-            }
-            let color = palette.borrow().get_color(color_index as usize);
-            let (cam_x, cam_y) = cam_offset(camera);
-            let (x, y) = (x - cam_x, y - cam_y);
-            let mut layer = world.borrow_mut();
-            for ix in x..x + w {
-                plot(&mut layer, ix, y, color);
-                plot(&mut layer, ix, y + h - 1, color);
-            }
-            for iy in y..y + h {
-                plot(&mut layer, x, iy, color);
-                plot(&mut layer, x + w - 1, iy, color);
-            }
-            Ok(())
-        })?,
+        scope.create_function_mut(
+            move |_, (x, y, w, h, color_index): (i64, i64, i64, i64, u8)| {
+                if w <= 0 || h <= 0 {
+                    return Ok(());
+                }
+                let color = palette.borrow().get_color(color_index as usize);
+                let (cam_x, cam_y) = cam_offset(camera);
+                let (x, y) = (x - cam_x, y - cam_y);
+                let Some((cx0, cy0, cx1, cy1)) = clip_rect(x, y, w, h, width, height) else {
+                    return Ok(());
+                };
+                let mut layer = world.borrow_mut();
+                for ix in cx0..cx1 {
+                    plot(&mut layer, ix, y, color);
+                    plot(&mut layer, ix, y + h - 1, color);
+                }
+                for iy in cy0..cy1 {
+                    plot(&mut layer, x, iy, color);
+                    plot(&mut layer, x + w - 1, iy, color);
+                }
+                Ok(())
+            },
+        )?,
     )?;
 
     globals.set(
         "fill_rect",
-        scope.create_function_mut(|_, (x, y, w, h, color_index): (i64, i64, i64, i64, u8)| {
-            if w <= 0 || h <= 0 {
-                return Ok(());
-            }
-            let color = palette.borrow().get_color(color_index as usize);
-            let (cam_x, cam_y) = cam_offset(camera);
-            let (x, y) = (x - cam_x, y - cam_y);
-            let mut layer = world.borrow_mut();
-            for iy in y..y + h {
-                for ix in x..x + w {
-                    plot(&mut layer, ix, iy, color);
+        scope.create_function_mut(
+            move |_, (x, y, w, h, color_index): (i64, i64, i64, i64, u8)| {
+                if w <= 0 || h <= 0 {
+                    return Ok(());
                 }
-            }
-            Ok(())
-        })?,
+                let color = palette.borrow().get_color(color_index as usize);
+                let (cam_x, cam_y) = cam_offset(camera);
+                let (x, y) = (x - cam_x, y - cam_y);
+                let Some((x0, y0, x1, y1)) = clip_rect(x, y, w, h, width, height) else {
+                    return Ok(());
+                };
+                let mut layer = world.borrow_mut();
+                for iy in y0..y1 {
+                    for ix in x0..x1 {
+                        plot(&mut layer, ix, iy, color);
+                    }
+                }
+                Ok(())
+            },
+        )?,
     )?;
 
     globals.set(
         "draw_circle",
-        scope.create_function_mut(|_, (cx, cy, r, color_index): (i64, i64, i64, u8)| {
+        scope.create_function_mut(move |_, (cx, cy, r, color_index): (i64, i64, i64, u8)| {
             if r < 0 {
                 return Ok(());
             }
+            let r = r.min(max_render_radius(width, height));
             let color = palette.borrow().get_color(color_index as usize);
             let (cam_x, cam_y) = cam_offset(camera);
             circle_points(cx - cam_x, cy - cam_y, r, |x, y| {
@@ -1146,10 +1325,11 @@ fn register_builtins<'scope, 'env>(
 
     globals.set(
         "fill_circle",
-        scope.create_function_mut(|_, (cx, cy, r, color_index): (i64, i64, i64, u8)| {
+        scope.create_function_mut(move |_, (cx, cy, r, color_index): (i64, i64, i64, u8)| {
             if r < 0 {
                 return Ok(());
             }
+            let r = r.min(max_render_radius(width, height));
             let color = palette.borrow().get_color(color_index as usize);
             let (cam_x, cam_y) = cam_offset(camera);
             let (cx, cy) = (cx - cam_x, cy - cam_y);
@@ -1187,21 +1367,24 @@ fn register_builtins<'scope, 'env>(
         "draw_map",
         scope.create_function_mut(
             move |_, (cx, cy, sx, sy, w, h): (i64, i64, i64, i64, i64, i64)| {
+                // A cart-supplied `w`/`h` far larger than the map must not
+                // turn this into a native loop proportional to that size
+                // instead of the map's actual 128x128 tiles — same hang risk
+                // `clip_rect` guards against for the pixel-rect builtins.
+                let Some((mx0, my0, mx1, my1)) =
+                    clip_rect(cx, cy, w, h, MAP_W as u32, MAP_H as u32)
+                else {
+                    return Ok(());
+                };
                 let (cam_x, cam_y) = cam_offset(camera);
                 let ss = sprite_size as i64;
                 let mem = memory.borrow();
                 let pal = palette.borrow();
                 let mut layer = world.borrow_mut();
-                for ty in 0..h {
-                    let map_y = cy + ty;
-                    if !(0..MAP_H as i64).contains(&map_y) {
-                        continue;
-                    }
-                    for tx in 0..w {
-                        let map_x = cx + tx;
-                        if !(0..MAP_W as i64).contains(&map_x) {
-                            continue;
-                        }
+                for map_y in my0..my1 {
+                    let ty = map_y - cy;
+                    for map_x in mx0..mx1 {
+                        let tx = map_x - cx;
                         let Ok(tile) =
                             mem.read(MAP_RAM_BASE + map_y as usize * MAP_W + map_x as usize)
                         else {
@@ -1621,6 +1804,12 @@ impl Vm {
                 | StdLib::PACKAGE,
             mlua::LuaOptions::default(),
         )?;
+        // Bounds a hostile cart's own Lua-heap growth (runaway table/string
+        // allocation) independently of the instruction-count watchdog, which
+        // only catches CPU time, not memory. Generous relative to the 128
+        // KiB cart cap so legitimate carts — including ones bundling several
+        // prelude modules — never come close.
+        lua.set_memory_limit(LUA_MEMORY_LIMIT_BYTES)?;
         {
             let globals = lua.globals();
             let package: Table = globals.get("package")?;
@@ -1672,6 +1861,18 @@ impl Vm {
             register_print_sink(&lua, Arc::clone(&output))?;
         }
 
+        // A cart's top-level code and `_init()` currently ran with no
+        // instruction budget at all — only per-frame `_update()`/`_draw()`
+        // did. An infinite loop here hung load instead of the frame loop.
+        let coroutines: Rc<RefCell<Vec<mlua::Thread>>> = Rc::new(RefCell::new(Vec::new()));
+        let active_budget: Rc<RefCell<Option<BudgetCells>>> = Rc::new(RefCell::new(None));
+        install_coroutine_budget_guard(
+            &lua,
+            &lua.globals(),
+            coroutines.clone(),
+            active_budget.clone(),
+        )?;
+
         let selected_modules: Vec<&'static PreludeModule> =
             self.selected_prelude_modules().collect();
         let world = RefCell::new(&mut self.world);
@@ -1688,6 +1889,28 @@ impl Vm {
         let sprite_size = self.config.sprite_size;
         let width = self.config.width;
         let height = self.config.height;
+
+        let instructions: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
+        let budget_hit: Rc<RefCell<Option<LuaBreakpoint>>> = Rc::new(RefCell::new(None));
+        *active_budget.borrow_mut() = Some((
+            instructions.clone(),
+            budget_hit.clone(),
+            INIT_INSTRUCTION_BUDGET,
+        ));
+        lua.set_hook(
+            HookTriggers::new().every_nth_instruction(INSTRUCTION_HOOK_STRIDE),
+            budget_hook(
+                instructions.clone(),
+                budget_hit.clone(),
+                INIT_INSTRUCTION_BUDGET,
+            ),
+        );
+        rearm_coroutines(
+            &coroutines,
+            &instructions,
+            &budget_hit,
+            INIT_INSTRUCTION_BUDGET,
+        );
 
         let result: mlua::Result<()> = lua.scope(|scope| {
             let globals = lua.globals();
@@ -1730,10 +1953,18 @@ impl Vm {
             }
             Ok(())
         });
+        lua.remove_hook();
+        *active_budget.borrow_mut() = None;
         result?;
 
-        self.script = Some(LuaScript { lua, output });
+        self.script = Some(LuaScript {
+            lua,
+            output,
+            coroutines,
+            active_budget,
+        });
         self.fault = None;
+        self.fault_message = None;
         self.waiting = false;
         self.call_stack.clear();
         Ok(())
@@ -1783,26 +2014,25 @@ impl Vm {
 
         let budget_hit: Rc<RefCell<Option<LuaBreakpoint>>> = Rc::new(RefCell::new(None));
         let instructions: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
-        {
-            let budget_hook = budget_hit.clone();
-            let instructions_hook = instructions.clone();
-            lua.set_hook(
-                HookTriggers::new().every_nth_instruction(INSTRUCTION_HOOK_STRIDE),
-                move |_lua, debug| {
-                    let mut count = instructions_hook.borrow_mut();
-                    *count += INSTRUCTION_HOOK_STRIDE;
-                    if *count < FRAME_INSTRUCTION_BUDGET {
-                        return Ok(VmState::Continue);
-                    }
-                    let line = debug.curr_line();
-                    *budget_hook.borrow_mut() = (line > 0).then(|| LuaBreakpoint {
-                        source: hook_debug_source(&debug),
-                        line: line as usize,
-                    });
-                    Err(mlua::Error::runtime(EXECUTION_BUDGET_MESSAGE))
-                },
-            );
-        }
+        *script.active_budget.borrow_mut() = Some((
+            instructions.clone(),
+            budget_hit.clone(),
+            FRAME_INSTRUCTION_BUDGET,
+        ));
+        lua.set_hook(
+            HookTriggers::new().every_nth_instruction(INSTRUCTION_HOOK_STRIDE),
+            budget_hook(
+                instructions.clone(),
+                budget_hit.clone(),
+                FRAME_INSTRUCTION_BUDGET,
+            ),
+        );
+        rearm_coroutines(
+            &script.coroutines,
+            &instructions,
+            &budget_hit,
+            FRAME_INSTRUCTION_BUDGET,
+        );
 
         let result: mlua::Result<()> = lua.scope(|scope| {
             let globals = lua.globals();
@@ -1837,19 +2067,24 @@ impl Vm {
             Ok(())
         });
         lua.remove_hook();
+        *script.active_budget.borrow_mut() = None;
 
-        if let Err(e) = result {
-            if let Some(location) = budget_hit.borrow().clone() {
-                log::error!(
-                    "Lua execution budget exceeded at {}:{}",
-                    location.source,
-                    location.line
-                );
-                self.set_fault(VmFault::ExecutionBudgetExceeded);
-            } else {
-                log::error!("Lua runtime error: {e}");
-                self.set_fault(VmFault::LuaError);
-            }
+        // Checked ahead of `result`, not just on `Err`: a cart can wrap its
+        // own runaway loop in `pcall`, which swallows the hook's error
+        // before it ever reaches `update.call`, so `result` comes back `Ok`
+        // even though the watchdog had to step in. That must still surface
+        // as a fault instead of silently reporting a normal frame.
+        if let Some(location) = budget_hit.borrow().clone() {
+            log::error!(
+                "Lua execution budget exceeded at {}:{}",
+                location.source,
+                location.line
+            );
+            self.set_fault(VmFault::ExecutionBudgetExceeded);
+        } else if let Err(e) = result {
+            log::error!("Lua runtime error: {e}");
+            let (_, message) = describe_lua_error_location(&e);
+            self.set_fault_with_message(VmFault::LuaError, Some(message));
         }
     }
 
@@ -1908,7 +2143,7 @@ impl Vm {
             let hit_hook = hit.clone();
             let stack_hook = stack.clone();
             let locals_hook = locals.clone();
-            let budget_hook = budget_hit.clone();
+            let budget_sink = budget_hit.clone();
             let instructions_hook = instructions.clone();
             let bps: Vec<LuaBreakpoint> = breakpoints.to_vec();
             // The execution-budget count trigger always runs; EVERY_LINE
@@ -1926,7 +2161,7 @@ impl Vm {
                         return Ok(VmState::Continue);
                     }
                     let line = debug.curr_line();
-                    *budget_hook.borrow_mut() = (line > 0).then(|| LuaBreakpoint {
+                    *budget_sink.borrow_mut() = (line > 0).then(|| LuaBreakpoint {
                         source: hook_debug_source(&debug),
                         line: line as usize,
                     });
@@ -1967,6 +2202,19 @@ impl Vm {
                 Ok(VmState::Continue)
             });
         }
+        // Breakpoint checking only applies to the main thread — a coroutine
+        // still only gets the plain budget hook, same as `run_frame_lua`.
+        *script.active_budget.borrow_mut() = Some((
+            instructions.clone(),
+            budget_hit.clone(),
+            FRAME_INSTRUCTION_BUDGET,
+        ));
+        rearm_coroutines(
+            &script.coroutines,
+            &instructions,
+            &budget_hit,
+            FRAME_INSTRUCTION_BUDGET,
+        );
 
         let result: mlua::Result<()> = lua.scope(|scope| {
             let globals = lua.globals();
@@ -2001,6 +2249,7 @@ impl Vm {
             Ok(())
         });
         lua.remove_hook();
+        *script.active_budget.borrow_mut() = None;
 
         if hit.borrow().is_some() {
             self.call_stack = stack.borrow().clone();
@@ -2011,24 +2260,27 @@ impl Vm {
         }
 
         let breakpoint = hit.borrow().clone();
-        match (breakpoint, result) {
-            (Some(breakpoint), _) => LuaRunOutcome::Breakpoint(breakpoint),
-            (None, Ok(())) => LuaRunOutcome::Completed,
-            (None, Err(e)) => {
-                if let Some(location) = budget_hit.borrow().clone() {
-                    log::error!(
-                        "Lua execution budget exceeded at {}:{}",
-                        location.source,
-                        location.line
-                    );
-                    self.set_fault(VmFault::ExecutionBudgetExceeded);
-                    LuaRunOutcome::Error(Some(location), EXECUTION_BUDGET_MESSAGE.to_string())
-                } else {
-                    log::error!("Lua runtime error: {e}");
-                    self.set_fault(VmFault::LuaError);
-                    let (location, message) = describe_lua_error_location(&e);
-                    LuaRunOutcome::Error(location, message)
-                }
+        // `budget_hit` is checked ahead of `result` for the same reason as
+        // `run_frame_lua`: a cart's own `pcall` around a runaway loop can
+        // swallow the watchdog's error before it reaches `update.call`,
+        // leaving `result` looking like a normal `Ok(())`.
+        match (breakpoint, budget_hit.borrow().clone(), result) {
+            (Some(breakpoint), _, _) => LuaRunOutcome::Breakpoint(breakpoint),
+            (None, Some(location), _) => {
+                log::error!(
+                    "Lua execution budget exceeded at {}:{}",
+                    location.source,
+                    location.line
+                );
+                self.set_fault(VmFault::ExecutionBudgetExceeded);
+                LuaRunOutcome::Error(Some(location), EXECUTION_BUDGET_MESSAGE.to_string())
+            }
+            (None, None, Ok(())) => LuaRunOutcome::Completed,
+            (None, None, Err(e)) => {
+                log::error!("Lua runtime error: {e}");
+                let (location, message) = describe_lua_error_location(&e);
+                self.set_fault_with_message(VmFault::LuaError, Some(message.clone()));
+                LuaRunOutcome::Error(location, message)
             }
         }
     }
@@ -2253,6 +2505,30 @@ impl Vm {
         let frame_count = self.frame_count;
         let collision_types = &self.collision_types;
 
+        // Same watchdog gap as `load_lua_source`: the re-exec below ran with
+        // no instruction budget at all before this fix.
+        let instructions: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
+        let budget_hit: Rc<RefCell<Option<LuaBreakpoint>>> = Rc::new(RefCell::new(None));
+        *script.active_budget.borrow_mut() = Some((
+            instructions.clone(),
+            budget_hit.clone(),
+            INIT_INSTRUCTION_BUDGET,
+        ));
+        lua.set_hook(
+            HookTriggers::new().every_nth_instruction(INSTRUCTION_HOOK_STRIDE),
+            budget_hook(
+                instructions.clone(),
+                budget_hit.clone(),
+                INIT_INSTRUCTION_BUDGET,
+            ),
+        );
+        rearm_coroutines(
+            &script.coroutines,
+            &instructions,
+            &budget_hit,
+            INIT_INSTRUCTION_BUDGET,
+        );
+
         let result: mlua::Result<()> = lua.scope(|scope| {
             let globals = lua.globals();
             register_builtins(
@@ -2289,6 +2565,8 @@ impl Vm {
             // reload rather than a reset.
             Ok(())
         });
+        lua.remove_hook();
+        *script.active_budget.borrow_mut() = None;
         result?;
 
         let globals = lua.globals();
@@ -2299,6 +2577,7 @@ impl Vm {
         }
 
         self.fault = None;
+        self.fault_message = None;
         self.waiting = false;
         self.call_stack.clear();
         Ok(())

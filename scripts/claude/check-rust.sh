@@ -20,7 +20,7 @@ if $all; then
   exit 0
 fi
 
-changed_pkgs=$(git diff --name-only --diff-filter=ACMR -- 'crates/*/src/**/*.rs' 'crates/*/Cargo.toml' 2>/dev/null \
+changed_pkgs=$(git diff --name-only --diff-filter=ACMR -- 'crates/*/src/*.rs' 'crates/*/src/**/*.rs' 'crates/*/tests/**' 'crates/*/Cargo.toml' 2>/dev/null \
   | sed -E 's#^crates/([^/]+)/.*#\1#' | sort -u || true)
 
 if [[ -z "$changed_pkgs" ]]; then
