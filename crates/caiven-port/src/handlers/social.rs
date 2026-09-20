@@ -16,15 +16,19 @@ pub async fn rate_cart(
     id: &str,
     input: Json<RatingInput>,
 ) -> Result<Json<Cart>, ApiError> {
+    user.require_full_scope()?;
     if !valid_id(id) {
         return Err(ApiError::bad_request("invalid id"));
     }
     if !(1..=5).contains(&input.score) {
         return Err(ApiError::bad_request("score must be 1-5"));
     }
-    db::get_cart_model(&state.db, id)
+    let cart = db::get_cart_model(&state.db, id)
         .await?
         .ok_or_else(|| ApiError::not_found("cart not found"))?;
+    if cart.owner_id.as_deref() == Some(user.id.as_str()) {
+        return Err(ApiError::forbidden("cannot rate your own cart"));
+    }
 
     db::upsert_rating(&state.db, id, &user.id, input.score).await?;
     Ok(Json(db::get(&state.db, id).await?.expect("just rated")))
@@ -36,6 +40,7 @@ pub async fn unrate_cart(
     user: AuthUser,
     id: &str,
 ) -> Result<Json<Cart>, ApiError> {
+    user.require_full_scope()?;
     if !valid_id(id) {
         return Err(ApiError::bad_request("invalid id"));
     }
@@ -80,6 +85,7 @@ pub async fn add_comment(
     input: Json<CommentInput>,
 ) -> Result<Json<CommentInfo>, ApiError> {
     let user = user.0;
+    user.require_full_scope()?;
     if !valid_id(id) {
         return Err(ApiError::bad_request("invalid id"));
     }
@@ -110,6 +116,7 @@ pub async fn delete_comment(
     id: &str,
     comment_id: &str,
 ) -> Result<(), ApiError> {
+    user.require_full_scope()?;
     if !valid_id(id) {
         return Err(ApiError::bad_request("invalid id"));
     }

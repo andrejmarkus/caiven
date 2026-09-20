@@ -17,7 +17,7 @@ use webauthn_rs::prelude::Passkey;
 
 use crate::{
     PortState,
-    auth::{self, AuthUser, CSRF_COOKIE, ClientIp, SESSION_COOKIE, UserAgent},
+    auth::{self, AuthUser, CSRF_COOKIE, ClientIp, SESSION_COOKIE, SessionUser, UserAgent},
     db,
     entities::{
         api_tokens, audit_log as audit_log_entity, carts, oauth_identities, sessions,
@@ -29,8 +29,8 @@ use crate::{
         AuditEntry, AuthConfigInfo, DeleteAccountInput, ForgotPasswordInput, LoginInput,
         LoginMfaInput, LoginOutcome, MfaConfirmInput, MfaConfirmed, MfaDisableInput, MfaSetupInfo,
         MfaStatus, PasskeyInfo, PasswordChange, RegisterInput, ResetPasswordInput, SessionInfo,
-        SetPasswordInput, StudioLinkPoll, StudioLinkPollResult, StudioLinkStart, TokenCreate,
-        TokenCreated, TokenInfo, UserInfo, VerifyEmailInput, WebauthnLoginFinishInput,
+        SetPasswordInput, StudioLinkApprove, StudioLinkPoll, StudioLinkPollResult, StudioLinkStart,
+        TokenCreate, TokenCreated, TokenInfo, UserInfo, VerifyEmailInput, WebauthnLoginFinishInput,
         WebauthnLoginStartInput, WebauthnRegisterFinishInput, WebauthnStartResponse,
     },
     oauth, turnstile,
@@ -52,6 +52,8 @@ const STUDIO_LINK_LIMIT: u32 = 10;
 const STUDIO_LINK_WINDOW: Duration = Duration::from_secs(10 * 60);
 const STUDIO_LINK_TTL_MINUTES: i64 = 10;
 const STUDIO_LINK_POLL_LIMIT: u32 = 330;
+/// Wrong confirmation codes before a link request is auto-cancelled.
+const STUDIO_LINK_MAX_CODE_ATTEMPTS: i32 = 5;
 const PASSKEY_LOGIN_START_LIMIT: u32 = 10;
 const PASSKEY_LOGIN_START_WINDOW: Duration = Duration::from_secs(5 * 60);
 
@@ -232,24 +234,42 @@ pub async fn register(
     }
     let email_normalized = auth::normalize_email(&email);
 
-    let existing = users::Entity::find()
-        .filter(
-            users::Column::Username
-                .eq(&username)
-                .or(users::Column::EmailNormalized.eq(&email_normalized)),
-        )
+    // Username collisions are fine to report directly — it's the public
+    // identifier the form is checking. Email collisions are not (PY-03):
+    // `forgot-password` never confirms an address is registered, so
+    // registration can't either without becoming the odd one out that does.
+    let username_taken = users::Entity::find()
+        .filter(users::Column::Username.eq(&username))
         .one(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
-    if existing.is_some() {
-        return Err(ApiError::conflict("username or email already in use"));
+        .map_err(ApiError::from)?
+        .is_some();
+    if username_taken {
+        return Err(ApiError::conflict("username already in use"));
+    }
+    if let Some(existing) = users::Entity::find()
+        .filter(users::Column::EmailNormalized.eq(&email_normalized))
+        .one(&state.db)
+        .await
+        .map_err(ApiError::from)?
+    {
+        if let Some(owner_email) = &existing.email {
+            mailer::send_or_log_alert(
+                state.mailer.as_ref(),
+                owner_email,
+                "Someone tried to register with your email",
+                "Someone just tried to create a new Caiven account using this email address. If that was you, log in to your existing account instead — no new account was created. If it wasn't you, no action is needed.",
+            )
+            .await;
+        }
+        return Err(ApiError::bad_request("could not complete registration"));
     }
 
     // First account on a fresh port becomes the admin.
     let user_count = users::Entity::find()
         .count(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
 
     // Without SMTP configured there's no way for the user to click a link,
     // so local/self-hosted deployments auto-verify instead of locking every
@@ -355,7 +375,7 @@ pub async fn login(
         )
         .one(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
 
     let valid = auth::verify_login_password(
         input.password.clone(),
@@ -421,7 +441,7 @@ pub async fn login_mfa(
     let user = users::Entity::find_by_id(&user_id)
         .one(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(ApiError::from)?
         .ok_or(ApiError::Unauthorized)?;
 
     let code = input.code.trim();
@@ -470,7 +490,7 @@ pub async fn me(user: AuthUser, state: &State<PortState>) -> Result<Json<UserInf
     let model = users::Entity::find_by_id(&user.id)
         .one(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(ApiError::from)?
         .ok_or(ApiError::Unauthorized)?;
     Ok(Json(to_user_info(model)))
 }
@@ -486,14 +506,11 @@ pub async fn verify_email(
     let model = users::Entity::find_by_id(&user_id)
         .one(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(ApiError::from)?
         .ok_or_else(|| ApiError::not_found("account not found"))?;
     let mut update: users::ActiveModel = model.into();
     update.email_verified = Set(true);
-    update
-        .update(&state.db)
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    update.update(&state.db).await.map_err(ApiError::from)?;
     Ok(Status::NoContent)
 }
 
@@ -509,7 +526,7 @@ pub async fn resend_verification(
     let model = users::Entity::find_by_id(&user.id)
         .one(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(ApiError::from)?
         .ok_or(ApiError::Unauthorized)?;
     if model.email.is_none() {
         return Err(ApiError::bad_request("no email on file"));
@@ -548,7 +565,7 @@ pub async fn forgot_password(
         .filter(users::Column::EmailNormalized.eq(&email_normalized))
         .one(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(ApiError::from)?
         && let Some(email) = &user.email
     {
         let token = auth::create_email_token(
@@ -577,19 +594,17 @@ pub async fn reset_password(
     let model = users::Entity::find_by_id(&user_id)
         .one(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(ApiError::from)?
         .ok_or_else(|| ApiError::not_found("account not found"))?;
 
     let mut update: users::ActiveModel = model.into();
     update.password_hash = Set(auth::hash_password_async(input.new_password.clone())
         .await
         .map_err(ApiError::internal)?);
-    update
-        .update(&state.db)
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    update.update(&state.db).await.map_err(ApiError::from)?;
 
     auth::delete_all_sessions(&state.db, &user_id).await?;
+    auth::delete_all_tokens(&state.db, &user_id).await?;
     Ok(Status::NoContent)
 }
 
@@ -599,15 +614,16 @@ pub async fn change_password(
     ip: ClientIp,
     ua: UserAgent,
     jar: &CookieJar<'_>,
-    user: AuthUser,
+    user: SessionUser,
     req: Json<PasswordChange>,
 ) -> Result<Status, ApiError> {
+    let user = user.0;
     validate_password(&req.new_password)?;
     reject_breached_password(state, &req.new_password).await?;
     let model = users::Entity::find_by_id(&user.id)
         .one(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(ApiError::from)?
         .ok_or(ApiError::Unauthorized)?;
     if !model.password_set {
         return Err(ApiError::bad_request(
@@ -635,12 +651,12 @@ pub async fn change_password(
     update.password_hash = Set(auth::hash_password_async(req.new_password.clone())
         .await
         .map_err(ApiError::internal)?);
-    update
-        .update(&state.db)
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    update.update(&state.db).await.map_err(ApiError::from)?;
 
+    // A leaked API token must not outlive the password that was supposed to
+    // shut it out (PORT-02) — revoke tokens alongside every other session.
     auth::delete_all_sessions(&state.db, &user.id).await?;
+    auth::delete_all_tokens(&state.db, &user.id).await?;
     start_session(state, jar, &user.id, &session_ctx(&ip, &ua)).await?;
     notify(
         state,
@@ -660,15 +676,16 @@ pub async fn set_password(
     state: &State<PortState>,
     ip: ClientIp,
     ua: UserAgent,
-    user: AuthUser,
+    user: SessionUser,
     input: Json<SetPasswordInput>,
 ) -> Result<Status, ApiError> {
+    let user = user.0;
     validate_password(&input.new_password)?;
     reject_breached_password(state, &input.new_password).await?;
     let model = users::Entity::find_by_id(&user.id)
         .one(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(ApiError::from)?
         .ok_or(ApiError::Unauthorized)?;
     if model.password_set {
         return Err(ApiError::bad_request(
@@ -681,10 +698,7 @@ pub async fn set_password(
         .await
         .map_err(ApiError::internal)?);
     update.password_set = Set(true);
-    update
-        .update(&state.db)
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    update.update(&state.db).await.map_err(ApiError::from)?;
 
     notify(
         state,
@@ -703,8 +717,9 @@ pub async fn set_password(
 pub async fn list_sessions(
     state: &State<PortState>,
     jar: &CookieJar<'_>,
-    user: AuthUser,
+    user: SessionUser,
 ) -> Result<Json<Vec<SessionInfo>>, ApiError> {
+    let user = user.0;
     let current_id = jar
         .get(SESSION_COOKIE)
         .map(|cookie| auth::sha256_hex(cookie.value()));
@@ -714,7 +729,7 @@ pub async fn list_sessions(
         .order_by_desc(sessions::Column::CreatedAt)
         .all(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
     Ok(Json(
         rows.into_iter()
             .filter(|session| {
@@ -738,15 +753,16 @@ pub async fn list_sessions(
 pub async fn revoke_session(
     state: &State<PortState>,
     jar: &CookieJar<'_>,
-    user: AuthUser,
+    user: SessionUser,
     session_id: &str,
 ) -> Result<Status, ApiError> {
+    let user = user.0;
     let result = sessions::Entity::delete_many()
         .filter(sessions::Column::Id.eq(session_id))
         .filter(sessions::Column::UserId.eq(&user.id))
         .exec(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
     if result.rows_affected == 0 {
         return Err(ApiError::not_found("session not found"));
     }
@@ -765,15 +781,16 @@ pub async fn revoke_all_sessions(
     ip: ClientIp,
     ua: UserAgent,
     jar: &CookieJar<'_>,
-    user: AuthUser,
+    user: SessionUser,
 ) -> Result<Status, ApiError> {
+    let user = user.0;
     auth::delete_all_sessions(&state.db, &user.id).await?;
     jar.remove(Cookie::build(SESSION_COOKIE).path("/"));
     jar.remove(Cookie::build(CSRF_COOKIE).path("/"));
     if let Some(model) = users::Entity::find_by_id(&user.id)
         .one(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(ApiError::from)?
     {
         notify(
             state,
@@ -792,14 +809,15 @@ pub async fn revoke_all_sessions(
 #[get("/api/v2/auth/tokens")]
 pub async fn list_tokens(
     state: &State<PortState>,
-    user: AuthUser,
+    user: SessionUser,
 ) -> Result<Json<Vec<TokenInfo>>, ApiError> {
+    let user = user.0;
     let rows = api_tokens::Entity::find()
         .filter(api_tokens::Column::UserId.eq(&user.id))
         .order_by_desc(api_tokens::Column::CreatedAt)
         .all(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
     Ok(Json(
         rows.into_iter()
             .map(|t| TokenInfo {
@@ -815,13 +833,15 @@ pub async fn list_tokens(
 #[post("/api/v2/auth/tokens", data = "<req>")]
 pub async fn create_token(
     state: &State<PortState>,
-    user: AuthUser,
+    user: SessionUser,
     req: Json<TokenCreate>,
 ) -> Result<Json<TokenCreated>, ApiError> {
+    let user = user.0;
     if req.name.len() > 64 {
         return Err(ApiError::bad_request("name max 64 chars"));
     }
-    let (id, token) = auth::create_token(&state.db, &user.id, &req.name).await?;
+    let (id, token) =
+        auth::create_token(&state.db, &user.id, &req.name, auth::TOKEN_SCOPE_FULL).await?;
     Ok(Json(TokenCreated {
         id,
         name: req.name.clone(),
@@ -832,15 +852,16 @@ pub async fn create_token(
 #[delete("/api/v2/auth/tokens/<token_id>")]
 pub async fn revoke_token(
     state: &State<PortState>,
-    user: AuthUser,
+    user: SessionUser,
     token_id: &str,
 ) -> Result<(), ApiError> {
+    let user = user.0;
     let res = api_tokens::Entity::delete_many()
         .filter(api_tokens::Column::Id.eq(token_id))
         .filter(api_tokens::Column::UserId.eq(&user.id))
         .exec(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
     if res.rows_affected == 0 {
         return Err(ApiError::not_found("token not found"));
     }
@@ -869,6 +890,10 @@ pub async fn studio_link_start(
     }
     let id = Uuid::new_v4().to_string();
     let poll_secret = auth::random_secret();
+    // Never embedded in `browser_url` — Studio shows this locally and the
+    // approving browser must type it back (PORT-01: a forwarded link alone
+    // must not be enough to approve).
+    let user_code = auth::generate_user_code();
     let expires_at =
         (chrono::Utc::now() + chrono::Duration::minutes(STUDIO_LINK_TTL_MINUTES)).to_rfc3339();
     studio_link_requests::ActiveModel {
@@ -879,6 +904,8 @@ pub async fn studio_link_start(
         consumed_at: Set(None),
         cancelled_at: Set(None),
         created_at: Set(chrono::Utc::now().to_rfc3339()),
+        user_code_hash: Set(auth::sha256_hex(&auth::normalize_user_code(&user_code))),
+        code_attempts: Set(0),
     }
     .insert(&state.db)
     .await?;
@@ -886,6 +913,7 @@ pub async fn studio_link_start(
         browser_url: link_for(state, &format!("/link-studio?request={id}")),
         request_id: id,
         poll_secret,
+        user_code,
         expires_at,
     }))
 }
@@ -959,6 +987,10 @@ pub async fn studio_link_poll(
         name: Set("Caiven Studio".into()),
         created_at: Set(chrono::Utc::now().to_rfc3339()),
         last_used_at: Set(None),
+        // Publish-only (PORT-02): this token is minted by a browser-approval
+        // flow that's phishable (PORT-01), so it must not double as a full
+        // account credential the way a self-service token does.
+        scope: Set(auth::TOKEN_SCOPE_PUBLISH.to_string()),
     }
     .insert(&txn)
     .await?;
@@ -1014,12 +1046,14 @@ pub async fn studio_link_status(
     }))
 }
 
-#[post("/api/v2/auth/studio-link/<request_id>/approve")]
+#[post("/api/v2/auth/studio-link/<request_id>/approve", data = "<input>")]
 pub async fn studio_link_approve(
     state: &State<PortState>,
-    user: AuthUser,
+    user: SessionUser,
     request_id: &str,
+    input: Json<StudioLinkApprove>,
 ) -> Result<(), ApiError> {
+    let user = user.0;
     let Some(row) = studio_link_requests::Entity::find_by_id(request_id)
         .one(&state.db)
         .await?
@@ -1031,6 +1065,28 @@ pub async fn studio_link_approve(
         || studio_link_expired(&row.expires_at)
     {
         return Err(ApiError::bad_request("link request unavailable"));
+    }
+    if row.code_attempts >= STUDIO_LINK_MAX_CODE_ATTEMPTS {
+        return Err(ApiError::bad_request(
+            "too many incorrect codes; start over in Caiven Studio",
+        ));
+    }
+    // PORT-01: the code is shown only in Studio's own window, never in the
+    // shared `browser_url` — so a forwarded/phished link can't be approved
+    // without the approver also having (or being told) what Studio displays.
+    let code_matches = auth::constant_time_eq_str(
+        &row.user_code_hash,
+        &auth::sha256_hex(&auth::normalize_user_code(&input.code)),
+    );
+    if !code_matches {
+        let attempts = row.code_attempts + 1;
+        let mut active: studio_link_requests::ActiveModel = row.into();
+        active.code_attempts = Set(attempts);
+        if attempts >= STUDIO_LINK_MAX_CODE_ATTEMPTS {
+            active.cancelled_at = Set(Some(chrono::Utc::now().to_rfc3339()));
+        }
+        active.update(&state.db).await?;
+        return Err(ApiError::bad_request("incorrect code"));
     }
     let mut active: studio_link_requests::ActiveModel = row.into();
     active.approved_user_id = Set(Some(user.id.clone()));
@@ -1087,7 +1143,7 @@ pub async fn mfa_status(
     let model = users::Entity::find_by_id(&user.id)
         .one(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(ApiError::from)?
         .ok_or(ApiError::Unauthorized)?;
     Ok(Json(MfaStatus {
         enabled: model.mfa_enabled,
@@ -1097,12 +1153,13 @@ pub async fn mfa_status(
 #[post("/api/v2/auth/mfa/setup")]
 pub async fn mfa_setup(
     state: &State<PortState>,
-    user: AuthUser,
+    user: SessionUser,
 ) -> Result<Json<MfaSetupInfo>, ApiError> {
+    let user = user.0;
     let model = users::Entity::find_by_id(&user.id)
         .one(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(ApiError::from)?
         .ok_or(ApiError::Unauthorized)?;
     if model.mfa_enabled {
         return Err(ApiError::conflict(
@@ -1115,10 +1172,7 @@ pub async fn mfa_setup(
     let secret = auth::generate_totp_secret();
     let mut update: users::ActiveModel = model.clone().into();
     update.mfa_totp_secret = Set(Some(secret.clone()));
-    update
-        .update(&state.db)
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    update.update(&state.db).await.map_err(ApiError::from)?;
 
     let account_name = model.email.clone().unwrap_or(model.username);
     let otpauth_url = auth::totp_otpauth_url(&secret, &account_name)
@@ -1138,13 +1192,14 @@ pub async fn mfa_confirm(
     state: &State<PortState>,
     ip: ClientIp,
     ua: UserAgent,
-    user: AuthUser,
+    user: SessionUser,
     input: Json<MfaConfirmInput>,
 ) -> Result<Json<MfaConfirmed>, ApiError> {
+    let user = user.0;
     let model = users::Entity::find_by_id(&user.id)
         .one(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(ApiError::from)?
         .ok_or(ApiError::Unauthorized)?;
     let secret = model
         .mfa_totp_secret
@@ -1156,10 +1211,7 @@ pub async fn mfa_confirm(
 
     let mut update: users::ActiveModel = model.clone().into();
     update.mfa_enabled = Set(true);
-    update
-        .update(&state.db)
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    update.update(&state.db).await.map_err(ApiError::from)?;
 
     let backup_codes = auth::generate_backup_codes();
     auth::store_backup_codes(&state.db, &user.id, &backup_codes).await?;
@@ -1183,13 +1235,14 @@ pub async fn mfa_disable(
     state: &State<PortState>,
     ip: ClientIp,
     ua: UserAgent,
-    user: AuthUser,
+    user: SessionUser,
     input: Json<MfaDisableInput>,
 ) -> Result<Status, ApiError> {
+    let user = user.0;
     let model = users::Entity::find_by_id(&user.id)
         .one(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(ApiError::from)?
         .ok_or(ApiError::Unauthorized)?;
     if !auth::verify_login_password(
         input.current_password.clone(),
@@ -1213,10 +1266,7 @@ pub async fn mfa_disable(
     let mut update: users::ActiveModel = model.clone().into();
     update.mfa_enabled = Set(false);
     update.mfa_totp_secret = Set(None);
-    update
-        .update(&state.db)
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    update.update(&state.db).await.map_err(ApiError::from)?;
     auth::clear_backup_codes(&state.db, &user.id).await?;
 
     notify(
@@ -1295,6 +1345,23 @@ pub async fn oauth_callback(
 ) -> Redirect {
     match oauth_callback_inner(state, jar, provider, code, state_param, error).await {
         Ok(user_id) => {
+            // PORT-09: an OAuth-linked account with TOTP enabled must not
+            // skip the second factor — route through the same MFA challenge
+            // password login uses, instead of starting the session here.
+            let mfa_enabled = users::Entity::find_by_id(&user_id)
+                .one(&state.db)
+                .await
+                .ok()
+                .flatten()
+                .is_some_and(|u| u.mfa_enabled);
+            if mfa_enabled {
+                return match auth::create_mfa_challenge(&state.db, &user_id).await {
+                    Ok(pending_token) => {
+                        Redirect::to(format!("/login?mfa_pending={pending_token}"))
+                    }
+                    Err(_) => Redirect::to("/login?error=oauth_failed"),
+                };
+            }
             if start_session(state, jar, &user_id, &session_ctx(&ip, &ua))
                 .await
                 .is_err()
@@ -1344,7 +1411,7 @@ async fn oauth_callback_inner(
     let identity =
         oauth::exchange_and_fetch(&state.http, provider, cfg, &code, &redirect_uri, verifier)
             .await
-            .map_err(|e| ApiError::internal(e.to_string()))?;
+            .map_err(ApiError::from)?;
 
     // Already linked: log that user in.
     if let Some(link) = oauth_identities::Entity::find()
@@ -1352,7 +1419,7 @@ async fn oauth_callback_inner(
         .filter(oauth_identities::Column::Subject.eq(&identity.subject))
         .one(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(ApiError::from)?
     {
         return Ok(link.user_id);
     }
@@ -1368,7 +1435,7 @@ async fn oauth_callback_inner(
             .filter(users::Column::EmailVerified.eq(true))
             .one(&state.db)
             .await
-            .map_err(|e| ApiError::internal(e.to_string()))?
+            .map_err(ApiError::from)?
     {
         oauth_identities::ActiveModel {
             id: Set(Uuid::new_v4().to_string()),
@@ -1380,7 +1447,7 @@ async fn oauth_callback_inner(
         }
         .insert(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
         return Ok(existing.id);
     }
 
@@ -1389,7 +1456,7 @@ async fn oauth_callback_inner(
     let user_count = users::Entity::find()
         .count(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
     let placeholder_password = auth::hash_password_async(auth::random_secret())
         .await
         .map_err(ApiError::internal)?;
@@ -1415,7 +1482,7 @@ async fn oauth_callback_inner(
     }
     .insert(&state.db)
     .await
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    .map_err(ApiError::from)?;
 
     oauth_identities::ActiveModel {
         id: Set(Uuid::new_v4().to_string()),
@@ -1427,7 +1494,7 @@ async fn oauth_callback_inner(
     }
     .insert(&state.db)
     .await
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    .map_err(ApiError::from)?;
 
     Ok(user.id)
 }
@@ -1463,7 +1530,7 @@ async fn unique_oauth_username(state: &PortState, suggested: &str) -> Result<Str
             .filter(users::Column::Username.eq(&candidate))
             .one(&state.db)
             .await
-            .map_err(|e| ApiError::internal(e.to_string()))?
+            .map_err(ApiError::from)?
             .is_some();
         if !taken {
             return Ok(candidate);
@@ -1477,10 +1544,11 @@ async fn unique_oauth_username(state: &PortState, suggested: &str) -> Result<Str
 #[get("/api/v2/auth/audit-log?<page>&<per_page>")]
 pub async fn audit_log(
     state: &State<PortState>,
-    user: AuthUser,
+    user: SessionUser,
     page: Option<u32>,
     per_page: Option<u32>,
 ) -> Result<Json<Vec<AuditEntry>>, ApiError> {
+    let user = user.0;
     let page = page.unwrap_or(0);
     let per_page = std::cmp::min(per_page.unwrap_or(20), 100);
     let pager = audit_log_entity::Entity::find()
@@ -1490,7 +1558,7 @@ pub async fn audit_log(
     let items = pager
         .fetch_page(page as u64)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
     Ok(Json(
         items
             .into_iter()
@@ -1512,46 +1580,44 @@ async fn user_passkeys(state: &PortState, user_id: &str) -> Result<Vec<Passkey>,
         .filter(webauthn_credentials::Column::UserId.eq(user_id))
         .all(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
     rows.iter()
-        .map(|row| {
-            serde_json::from_str::<Passkey>(&row.passkey_json)
-                .map_err(|e| ApiError::internal(e.to_string()))
-        })
+        .map(|row| serde_json::from_str::<Passkey>(&row.passkey_json).map_err(ApiError::from))
         .collect()
 }
 
 #[post("/api/v2/auth/webauthn/register/start")]
 pub async fn webauthn_register_start(
     state: &State<PortState>,
-    user: AuthUser,
+    user: SessionUser,
 ) -> Result<Json<WebauthnStartResponse>, ApiError> {
+    let user = user.0;
     let webauthn = state
         .webauthn
         .as_ref()
         .ok_or_else(|| ApiError::bad_request("passkeys are not configured on this server"))?;
-    let user_id = Uuid::parse_str(&user.id).map_err(|e| ApiError::internal(e.to_string()))?;
+    let user_id = Uuid::parse_str(&user.id).map_err(ApiError::from)?;
     let existing = user_passkeys(state, &user.id).await?;
     let exclude =
         (!existing.is_empty()).then(|| existing.iter().map(|p| p.cred_id().clone()).collect());
 
     let (ccr, reg_state) = webauthn
         .start_passkey_registration(user_id, &user.username, &user.username, exclude)
-        .map_err(|e| ApiError::internal(e.to_string()))?;
-    let state_json =
-        serde_json::to_string(&reg_state).map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
+    let state_json = serde_json::to_string(&reg_state).map_err(ApiError::from)?;
     let token =
         auth::create_webauthn_challenge(&state.db, Some(&user.id), "register", state_json).await?;
-    let options = serde_json::to_value(&ccr).map_err(|e| ApiError::internal(e.to_string()))?;
+    let options = serde_json::to_value(&ccr).map_err(ApiError::from)?;
     Ok(Json(WebauthnStartResponse { token, options }))
 }
 
 #[post("/api/v2/auth/webauthn/register/finish", data = "<input>")]
 pub async fn webauthn_register_finish(
     state: &State<PortState>,
-    user: AuthUser,
+    user: SessionUser,
     input: Json<WebauthnRegisterFinishInput>,
 ) -> Result<Json<PasskeyInfo>, ApiError> {
+    let user = user.0;
     let webauthn = state
         .webauthn
         .as_ref()
@@ -1569,12 +1635,11 @@ pub async fn webauthn_register_finish(
         ));
     }
     let reg_state: webauthn_rs::prelude::PasskeyRegistration =
-        serde_json::from_str(&state_json).map_err(|e| ApiError::internal(e.to_string()))?;
+        serde_json::from_str(&state_json).map_err(ApiError::from)?;
     let passkey = webauthn
         .finish_passkey_registration(&input.credential, &reg_state)
         .map_err(|e| ApiError::bad_request(e.to_string()))?;
-    let passkey_json =
-        serde_json::to_string(&passkey).map_err(|e| ApiError::internal(e.to_string()))?;
+    let passkey_json = serde_json::to_string(&passkey).map_err(ApiError::from)?;
 
     let id = Uuid::new_v4().to_string();
     let created_at = chrono::Utc::now().to_rfc3339();
@@ -1588,12 +1653,12 @@ pub async fn webauthn_register_finish(
     }
     .insert(&state.db)
     .await
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    .map_err(ApiError::from)?;
 
     if let Some(model) = users::Entity::find_by_id(&user.id)
         .one(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(ApiError::from)?
     {
         auth::audit(
             &state.db,
@@ -1654,7 +1719,7 @@ pub async fn webauthn_login_start(
         )
         .one(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(ApiError::from)?
         .ok_or_else(|| ApiError::not_found("no passkeys for this account"))?;
     let passkeys = user_passkeys(state, &user.id).await?;
     if passkeys.is_empty() {
@@ -1663,13 +1728,12 @@ pub async fn webauthn_login_start(
 
     let (rcr, auth_state) = webauthn
         .start_passkey_authentication(&passkeys)
-        .map_err(|e| ApiError::internal(e.to_string()))?;
-    let state_json =
-        serde_json::to_string(&auth_state).map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
+    let state_json = serde_json::to_string(&auth_state).map_err(ApiError::from)?;
     let token =
         auth::create_webauthn_challenge(&state.db, Some(&user.id), "authenticate", state_json)
             .await?;
-    let options = serde_json::to_value(&rcr).map_err(|e| ApiError::internal(e.to_string()))?;
+    let options = serde_json::to_value(&rcr).map_err(ApiError::from)?;
     Ok(Json(WebauthnStartResponse { token, options }))
 }
 
@@ -1691,7 +1755,7 @@ pub async fn webauthn_login_finish(
             .ok_or_else(|| ApiError::bad_request("invalid or expired challenge"))?;
     let user_id = challenge_user.ok_or_else(|| ApiError::internal("challenge missing user"))?;
     let auth_state: webauthn_rs::prelude::PasskeyAuthentication =
-        serde_json::from_str(&state_json).map_err(|e| ApiError::internal(e.to_string()))?;
+        serde_json::from_str(&state_json).map_err(ApiError::from)?;
 
     let result = webauthn
         .finish_passkey_authentication(&input.credential, &auth_state)
@@ -1701,21 +1765,17 @@ pub async fn webauthn_login_finish(
         .filter(webauthn_credentials::Column::UserId.eq(&user_id))
         .all(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
     for row in rows {
         let Ok(mut passkey) = serde_json::from_str::<Passkey>(&row.passkey_json) else {
             continue;
         };
         if passkey.update_credential(&result).is_some() {
-            let passkey_json =
-                serde_json::to_string(&passkey).map_err(|e| ApiError::internal(e.to_string()))?;
+            let passkey_json = serde_json::to_string(&passkey).map_err(ApiError::from)?;
             let mut update: webauthn_credentials::ActiveModel = row.into();
             update.passkey_json = Set(passkey_json);
             update.last_used_at = Set(Some(chrono::Utc::now().to_rfc3339()));
-            update
-                .update(&state.db)
-                .await
-                .map_err(|e| ApiError::internal(e.to_string()))?;
+            update.update(&state.db).await.map_err(ApiError::from)?;
             break;
         }
     }
@@ -1723,7 +1783,7 @@ pub async fn webauthn_login_finish(
     let user = users::Entity::find_by_id(&user_id)
         .one(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(ApiError::from)?
         .ok_or(ApiError::Unauthorized)?;
 
     // A passkey is itself strong, phishing-resistant authentication — no
@@ -1745,14 +1805,15 @@ pub async fn webauthn_login_finish(
 #[get("/api/v2/auth/webauthn/credentials")]
 pub async fn list_passkeys(
     state: &State<PortState>,
-    user: AuthUser,
+    user: SessionUser,
 ) -> Result<Json<Vec<PasskeyInfo>>, ApiError> {
+    let user = user.0;
     let rows = webauthn_credentials::Entity::find()
         .filter(webauthn_credentials::Column::UserId.eq(&user.id))
         .order_by_desc(webauthn_credentials::Column::CreatedAt)
         .all(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
     Ok(Json(
         rows.into_iter()
             .map(|r| PasskeyInfo {
@@ -1768,15 +1829,16 @@ pub async fn list_passkeys(
 #[delete("/api/v2/auth/webauthn/credentials/<id>")]
 pub async fn delete_passkey(
     state: &State<PortState>,
-    user: AuthUser,
+    user: SessionUser,
     id: &str,
 ) -> Result<Status, ApiError> {
+    let user = user.0;
     let res = webauthn_credentials::Entity::delete_many()
         .filter(webauthn_credentials::Column::Id.eq(id))
         .filter(webauthn_credentials::Column::UserId.eq(&user.id))
         .exec(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
     if res.rows_affected == 0 {
         return Err(ApiError::not_found("passkey not found"));
     }
@@ -1792,13 +1854,14 @@ pub async fn delete_account(
     ip: ClientIp,
     ua: UserAgent,
     jar: &CookieJar<'_>,
-    user: AuthUser,
+    user: SessionUser,
     input: Json<DeleteAccountInput>,
 ) -> Result<Status, ApiError> {
+    let user = user.0;
     let model = users::Entity::find_by_id(&user.id)
         .one(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(ApiError::from)?
         .ok_or(ApiError::Unauthorized)?;
     if !auth::verify_login_password(
         input.current_password.clone(),
@@ -1840,14 +1903,8 @@ pub async fn delete_account(
     )
     .await;
 
-    let txn = state
-        .db
-        .begin()
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
-    db::ensure_legacy_user(&txn)
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    let txn = state.db.begin().await.map_err(ApiError::from)?;
+    db::ensure_legacy_user(&txn).await.map_err(ApiError::from)?;
     carts::Entity::update_many()
         .col_expr(
             carts::Column::OwnerId,
@@ -1856,14 +1913,12 @@ pub async fn delete_account(
         .filter(carts::Column::OwnerId.eq(&user.id))
         .exec(&txn)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
     users::Entity::delete_by_id(&user.id)
         .exec(&txn)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
-    txn.commit()
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
+    txn.commit().await.map_err(ApiError::from)?;
 
     jar.remove(Cookie::build(SESSION_COOKIE).path("/"));
     jar.remove(Cookie::build(CSRF_COOKIE).path("/"));
@@ -1873,30 +1928,31 @@ pub async fn delete_account(
 #[get("/api/v2/auth/export")]
 pub async fn export_data(
     state: &State<PortState>,
-    user: AuthUser,
+    user: SessionUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    let user = user.0;
     let model = users::Entity::find_by_id(&user.id)
         .one(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(ApiError::from)?
         .ok_or(ApiError::Unauthorized)?;
 
     let owned_carts = carts::Entity::find()
         .filter(carts::Column::OwnerId.eq(&user.id))
         .all(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
     let sessions_rows = sessions::Entity::find()
         .filter(sessions::Column::UserId.eq(&user.id))
         .all(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
     let audit_rows = audit_log_entity::Entity::find()
         .filter(audit_log_entity::Column::UserId.eq(&user.id))
         .order_by_desc(audit_log_entity::Column::CreatedAt)
         .all(&state.db)
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
 
     Ok(Json(serde_json::json!({
         "profile": {

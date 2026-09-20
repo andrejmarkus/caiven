@@ -60,6 +60,7 @@ struct StudioLinkStart {
     poll_secret: String,
     browser_url: String,
     expires_at: String,
+    user_code: String,
 }
 
 #[derive(Deserialize)]
@@ -76,6 +77,10 @@ pub(crate) struct PortLinkPending {
     pub request_id: String,
     pub poll_secret: String,
     pub expires_at: String,
+    /// Shown to the user, who must re-enter it on the Port approval page —
+    /// binds "Studio opened this browser tab" to "this is the request I
+    /// meant to approve" (PORT-01).
+    pub user_code: String,
 }
 
 #[derive(Serialize)]
@@ -284,6 +289,7 @@ pub(crate) fn port_link_start(app: tauri::AppHandle) -> Result<PortLinkPending, 
         request_id: link.request_id,
         poll_secret: link.poll_secret,
         expires_at: link.expires_at,
+        user_code: link.user_code,
     })
 }
 

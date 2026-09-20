@@ -25,6 +25,19 @@ pub mod turnstile;
 
 static LEGACY_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
+/// Outbound HTTP client for third-party calls (Pwned Passwords, Turnstile,
+/// OAuth token exchange). PORT-06: the default `reqwest::Client` has no
+/// timeout at all, so a hung third party leaves the request — and the
+/// account operation waiting on it (registration, password change/reset) —
+/// stuck forever instead of falling back.
+pub fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .expect("reqwest client with a plain timeout config always builds")
+}
+
 /// Configure the on-disk data directory used only as a compatibility fallback
 /// for SQLite installations upgraded from path-backed cartridge storage.
 pub fn set_legacy_data_dir(path: PathBuf) {
@@ -100,7 +113,7 @@ impl PortState {
             secure_cookies,
             base_url: None,
             local_origin: "http://localhost:8080".to_string(),
-            http: reqwest::Client::new(),
+            http: http_client(),
             mailer: None,
             turnstile_site_key: None,
             turnstile_secret: None,

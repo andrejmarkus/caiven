@@ -26,6 +26,12 @@
 
   api.authConfig().then((c) => (authConfig = c)).catch(() => {});
 
+  // OAuth login for an account with TOTP enabled redirects back here with a
+  // pending MFA challenge instead of a session (PORT-09) — same second step
+  // as password login, just entered from a different door.
+  const oauthMfaPending = route.search.get('mfa_pending');
+  if (oauthMfaPending) pendingToken = oauthMfaPending;
+
   function goNext() {
     const next = route.search.get('next') ?? (route.path !== '/login' ? route.path : null);
     navigate(next?.startsWith('/') ? next : '/');

@@ -458,7 +458,7 @@ export async function portSession(): Promise<PortSession> {
   return isTauri() ? invoke<PortSession>('port_session') : { authenticated: false, username: '', portUrl: 'http://localhost:8080' };
 }
 
-export interface PortLinkPending { requestId: string; pollSecret: string; expiresAt: string; }
+export interface PortLinkPending { requestId: string; pollSecret: string; expiresAt: string; userCode: string; }
 export async function portLinkStart(): Promise<PortLinkPending> {
   if (!isTauri()) throw new Error('Port account linking needs native Caiven Studio. Browser preview cannot store Studio token.');
   return invoke<PortLinkPending>('port_link_start');

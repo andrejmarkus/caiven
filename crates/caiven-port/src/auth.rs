@@ -3,6 +3,7 @@
 //! before), and a small in-memory per-IP rate limiter.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -50,6 +51,13 @@ pub const MFA_BACKUP_CODE_COUNT: usize = 10;
 pub const MFA_ISSUER: &str = "Caiven Port";
 
 pub const WEBAUTHN_CHALLENGE_MINUTES: i64 = 5;
+
+/// Self-service tokens (`/auth/tokens`) — full account-content access.
+pub const TOKEN_SCOPE_FULL: &str = "full";
+/// Tokens minted by the Studio link flow — publish surface only (create
+/// cart, create version, upload screenshot). See
+/// [`AuthUser::require_full_scope`].
+pub const TOKEN_SCOPE_PUBLISH: &str = "publish";
 
 static DUMMY_PASSWORD_HASH: OnceLock<String> = OnceLock::new();
 
@@ -109,6 +117,31 @@ pub fn random_secret() -> String {
     let mut bytes = [0u8; 32];
     OsRng.fill_bytes(&mut bytes);
     to_hex(&bytes)
+}
+
+/// Alphabet for [`generate_user_code`] — excludes visually ambiguous
+/// characters (`I`/`1`, `O`/`0`) since a human reads and types this one.
+const USER_CODE_ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+/// A short, human-typable confirmation code for the Studio link flow (e.g.
+/// `"7K4H-QX2M"`). Not a bearer credential by itself — it only ever gates
+/// approving an already-created, short-lived, attempt-limited link request.
+pub fn generate_user_code() -> String {
+    let mut raw = [0u8; 8];
+    OsRng.fill_bytes(&mut raw);
+    let chars: String = raw
+        .iter()
+        .map(|b| USER_CODE_ALPHABET[*b as usize % USER_CODE_ALPHABET.len()] as char)
+        .collect();
+    format!("{}-{}", &chars[..4], &chars[4..])
+}
+
+/// Strips formatting so `"7k4h qx2m"`, `"7K4H-QX2M"` etc. all compare equal.
+pub fn normalize_user_code(code: &str) -> String {
+    code.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_ascii_uppercase()
 }
 
 fn now_rfc3339() -> String {
@@ -257,12 +290,25 @@ pub async fn delete_all_sessions(db: &DatabaseConnection, user_id: &str) -> anyh
     Ok(())
 }
 
+/// Revokes every API token for a user — pair with [`delete_all_sessions`] on
+/// password change/reset so a leaked token doesn't outlive the password that
+/// was supposed to shut it out.
+pub async fn delete_all_tokens(db: &DatabaseConnection, user_id: &str) -> anyhow::Result<()> {
+    api_tokens::Entity::delete_many()
+        .filter(api_tokens::Column::UserId.eq(user_id))
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
 /// Mint a new API token for a user; returns (token row id, plaintext token).
-/// Only the SHA-256 of the token is stored.
+/// Only the SHA-256 of the token is stored. `scope` is one of
+/// [`TOKEN_SCOPE_FULL`] / [`TOKEN_SCOPE_PUBLISH`].
 pub async fn create_token(
     db: &DatabaseConnection,
     user_id: &str,
     name: &str,
+    scope: &str,
 ) -> anyhow::Result<(String, String)> {
     let id = Uuid::new_v4().to_string();
     let token = random_secret();
@@ -273,6 +319,7 @@ pub async fn create_token(
         name: Set(name.to_string()),
         created_at: Set(now_rfc3339()),
         last_used_at: Set(None),
+        scope: Set(scope.to_string()),
     }
     .insert(db)
     .await?;
@@ -557,18 +604,6 @@ fn to_hex_upper(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02X}")).collect()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::pwned_response_contains_suffix;
-
-    #[test]
-    fn breached_password_parser_matches_suffix_case_insensitively() {
-        let body = "001122:4\r\nAABBCC:99\r\n";
-        assert!(pwned_response_contains_suffix(body, "aabbcc"));
-        assert!(!pwned_response_contains_suffix(body, "ddeeff"));
-    }
-}
-
 async fn user_for_session(db: &DatabaseConnection, session_token: &str) -> Option<users::Model> {
     let session_id = sha256_hex(session_token);
     let session = sessions::Entity::find_by_id(&session_id)
@@ -607,7 +642,7 @@ async fn touch_session(db: &DatabaseConnection, session_id: &str, last_seen_at: 
     let _ = update.update(db).await;
 }
 
-async fn user_for_token(db: &DatabaseConnection, token: &str) -> Option<users::Model> {
+async fn user_for_token(db: &DatabaseConnection, token: &str) -> Option<(users::Model, String)> {
     let hash = sha256_hex(token);
     let row = api_tokens::Entity::find()
         .filter(api_tokens::Column::TokenHash.eq(&hash))
@@ -617,7 +652,11 @@ async fn user_for_token(db: &DatabaseConnection, token: &str) -> Option<users::M
     let mut touch: api_tokens::ActiveModel = row.clone().into();
     touch.last_used_at = Set(Some(now_rfc3339()));
     let _ = touch.update(db).await;
-    users::Entity::find_by_id(&row.user_id).one(db).await.ok()?
+    let user = users::Entity::find_by_id(&row.user_id)
+        .one(db)
+        .await
+        .ok()??;
+    Some((user, row.scope))
 }
 
 /// Authenticated user, accepted from either a session cookie (web) or an
@@ -626,6 +665,24 @@ pub struct AuthUser {
     pub id: String,
     pub username: String,
     pub is_admin: bool,
+    /// [`TOKEN_SCOPE_FULL`] for a session or a self-service token;
+    /// [`TOKEN_SCOPE_PUBLISH`] for a Studio-link-issued token.
+    pub scope: String,
+}
+
+impl AuthUser {
+    /// Rejects publish-scoped tokens — call at the top of any handler
+    /// outside the cart/version/screenshot publish surface, so a
+    /// phished Studio-link token can't touch the social graph (ratings,
+    /// comments, follows, collections, jams) or edit/delete existing carts.
+    pub fn require_full_scope(&self) -> Result<(), crate::error::ApiError> {
+        if self.scope == TOKEN_SCOPE_PUBLISH {
+            return Err(crate::error::ApiError::forbidden(
+                "this token is limited to publishing carts",
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl From<users::Model> for AuthUser {
@@ -634,6 +691,7 @@ impl From<users::Model> for AuthUser {
             id: u.id,
             username: u.username,
             is_admin: u.is_admin,
+            scope: TOKEN_SCOPE_FULL.to_string(),
         }
     }
 }
@@ -651,12 +709,14 @@ impl<'r> FromRequest<'r> for AuthUser {
         // CSRF — a request that presents it authenticates via the token,
         // full stop, even if a session cookie also happens to be present.
         if let Some(token) = req.headers().get_one("X-Api-Key")
-            && let Some(user) = user_for_token(&state.db, token).await
+            && let Some((user, scope)) = user_for_token(&state.db, token).await
         {
             if user.is_banned {
                 return Outcome::Error((Status::Forbidden, ()));
             }
-            return Outcome::Success(user.into());
+            let mut auth_user: AuthUser = user.into();
+            auth_user.scope = scope;
+            return Outcome::Success(auth_user);
         }
         if let Some(cookie) = req.cookies().get(SESSION_COOKIE)
             && let Some(user) = user_for_session(&state.db, cookie.value()).await
@@ -762,6 +822,37 @@ impl<'r> FromRequest<'r> for AdminUser {
     }
 }
 
+/// Like [`AuthUser`], but only ever satisfied by a session cookie — never by
+/// `X-Api-Key`, regardless of token scope. Use on the account-management
+/// surface (tokens, passkeys, MFA, sessions, export, account deletion): a
+/// leaked or phished API token must never be a path to changing account
+/// security settings, only a logged-in browser session can.
+pub struct SessionUser(pub AuthUser);
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for SessionUser {
+    type Error = ();
+
+    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, ()> {
+        let Some(state) = req.rocket().state::<PortState>() else {
+            return Outcome::Error((Status::InternalServerError, ()));
+        };
+        let Some(cookie) = req.cookies().get(SESSION_COOKIE) else {
+            return Outcome::Error((Status::Unauthorized, ()));
+        };
+        let Some(user) = user_for_session(&state.db, cookie.value()).await else {
+            return Outcome::Error((Status::Unauthorized, ()));
+        };
+        if user.is_banned {
+            return Outcome::Error((Status::Forbidden, ()));
+        }
+        if is_unsafe_method(req.method()) && !csrf_ok(req) {
+            return Outcome::Error((Status::Forbidden, ()));
+        }
+        Outcome::Success(SessionUser(user.into()))
+    }
+}
+
 /// Client IP for rate limiting; falls back to loopback when unknown
 /// (e.g. local test client).
 pub struct ClientIp(pub String);
@@ -793,13 +884,41 @@ impl<'r> FromRequest<'r> for UserAgent {
     }
 }
 
+/// How often (in number of `hit()` calls) to sweep expired windows out of
+/// the map. Amortizes the O(n) sweep cost instead of paying it every call —
+/// important since the worst-case caller (many distinct IPs hitting login)
+/// is exactly the case that grows the map fastest.
+const RATE_LIMITER_SWEEP_INTERVAL: u64 = 256;
+
 /// Fixed-window in-memory rate limiter keyed by (bucket, client key).
-#[derive(Default)]
+///
+/// Entries older than `max_entry_age` are swept out periodically so a
+/// client that keeps changing its key (e.g. a spoofed IP header) can't grow
+/// this map without bound — see PORT-10.
 pub struct RateLimiter {
     windows: Mutex<HashMap<(String, String), (Instant, u32)>>,
+    hits_since_sweep: AtomicU64,
+    max_entry_age: Duration,
+}
+
+impl Default for RateLimiter {
+    fn default() -> Self {
+        // Generous upper bound on any window used against this limiter —
+        // long enough that sweeping an entry this old never resets a
+        // still-active limit early.
+        Self::with_max_entry_age(Duration::from_secs(3600))
+    }
 }
 
 impl RateLimiter {
+    fn with_max_entry_age(max_entry_age: Duration) -> Self {
+        Self {
+            windows: Mutex::new(HashMap::new()),
+            hits_since_sweep: AtomicU64::new(0),
+            max_entry_age,
+        }
+    }
+
     /// Record one hit; returns the hit count within the current window.
     pub fn hit(&self, bucket: &str, key: &str, window: Duration) -> u32 {
         let mut map = self.windows.lock().unwrap_or_else(|e| e.into_inner());
@@ -810,7 +929,21 @@ impl RateLimiter {
             *entry = (Instant::now(), 0);
         }
         entry.1 += 1;
-        entry.1
+        let count = entry.1;
+        if self
+            .hits_since_sweep
+            .fetch_add(1, Ordering::Relaxed)
+            .is_multiple_of(RATE_LIMITER_SWEEP_INTERVAL)
+        {
+            let max_age = self.max_entry_age;
+            map.retain(|_, (start, _)| start.elapsed() <= max_age);
+        }
+        count
+    }
+
+    #[cfg(test)]
+    fn entry_count(&self) -> usize {
+        self.windows.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 
     /// Current hit count without recording a new one.
@@ -825,5 +958,58 @@ impl RateLimiter {
     pub fn reset(&self, bucket: &str, key: &str) {
         let mut map = self.windows.lock().unwrap_or_else(|e| e.into_inner());
         map.remove(&(bucket.to_string(), key.to_string()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        RateLimiter, generate_user_code, normalize_user_code, pwned_response_contains_suffix,
+    };
+    use std::time::Duration;
+
+    #[test]
+    fn breached_password_parser_matches_suffix_case_insensitively() {
+        let body = "001122:4\r\nAABBCC:99\r\n";
+        assert!(pwned_response_contains_suffix(body, "aabbcc"));
+        assert!(!pwned_response_contains_suffix(body, "ddeeff"));
+    }
+
+    #[test]
+    fn user_code_normalizes_case_and_formatting() {
+        let code = generate_user_code();
+        assert_eq!(code.len(), 9); // XXXX-XXXX
+        assert_eq!(
+            normalize_user_code(&code),
+            normalize_user_code(&code.to_ascii_lowercase())
+        );
+        assert_eq!(
+            normalize_user_code("7k4h-qx2m"),
+            normalize_user_code("7K4H QX2M")
+        );
+    }
+
+    #[test]
+    fn rate_limiter_sweeps_expired_entries_so_memory_does_not_grow_unbounded() {
+        // Tiny max age so entries are immediately eligible for a sweep.
+        let limiter = RateLimiter::with_max_entry_age(Duration::from_millis(1));
+        for i in 0..(super::RATE_LIMITER_SWEEP_INTERVAL as usize) {
+            limiter.hit("bucket", &format!("key-{i}"), Duration::from_secs(60));
+        }
+        std::thread::sleep(Duration::from_millis(5));
+        // One more round of hits crosses the next sweep boundary and should
+        // clear out the now-stale entries above instead of accumulating them.
+        for i in 0..(super::RATE_LIMITER_SWEEP_INTERVAL as usize) {
+            limiter.hit(
+                "bucket",
+                &format!("key-round2-{i}"),
+                Duration::from_secs(60),
+            );
+        }
+        let remaining = limiter.entry_count();
+        assert!(
+            remaining <= super::RATE_LIMITER_SWEEP_INTERVAL as usize,
+            "expected old entries to be swept, found {remaining} remaining"
+        );
     }
 }

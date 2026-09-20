@@ -442,6 +442,59 @@ async fn password_change_revokes_sessions_and_enforces_policy() {
 }
 
 #[rocket::async_test]
+async fn password_change_revokes_api_tokens_too() {
+    // PORT-02: a leaked API token must not outlive the password change that
+    // was supposed to shut it out.
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    assert_eq!(
+        register(&client, "tokenrevoker", TEST_PASSWORD).await,
+        Status::Ok
+    );
+    let resp = client
+        .post("/api/v2/auth/tokens")
+        .header(ContentType::JSON)
+        .header(csrf_header(&client))
+        .body(r#"{"name":"leak-me"}"#)
+        .dispatch()
+        .await;
+    let token = serde_json::from_str::<serde_json::Value>(&resp.into_string().await.unwrap())
+        .unwrap()["token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let resp = client
+        .get("/api/v2/auth/me")
+        .header(Header::new("X-Api-Key", token.clone()))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+
+    let resp = client
+        .post("/api/v2/auth/password")
+        .header(ContentType::JSON)
+        .header(csrf_header(&client))
+        .body(format!(
+            r#"{{"current_password":"{TEST_PASSWORD}","new_password":"{NEW_TEST_PASSWORD}"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::NoContent);
+
+    // Drop the fresh session cookie `change_password` just issued — this
+    // check is about the *token*, and a live cookie would authenticate the
+    // request on its own and mask a token that's still valid.
+    client.post("/api/v2/auth/logout").dispatch().await;
+    let resp = client
+        .get("/api/v2/auth/me")
+        .header(Header::new("X-Api-Key", token))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Unauthorized);
+}
+
+#[rocket::async_test]
 async fn session_management_is_owner_scoped_and_capped() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
@@ -456,9 +509,10 @@ async fn session_management_is_owner_scoped_and_capped() {
         .await
         .unwrap()
         .unwrap();
-    let (_, api_token) = auth::create_token(&state.db, &user.id, "session-test")
-        .await
-        .unwrap();
+    let (_, api_token) =
+        auth::create_token(&state.db, &user.id, "session-test", auth::TOKEN_SCOPE_FULL)
+            .await
+            .unwrap();
 
     for _ in 0..25 {
         auth::create_session(&state.db, &user.id, &auth::SessionContext::default())
@@ -499,19 +553,50 @@ async fn session_management_is_owner_scoped_and_capped() {
         .unwrap();
     let other_id = auth::sha256_hex(&other_token);
 
+    // PORT-02: account-management endpoints are session-only now — an API
+    // token, even with no cookie present at all, must not reach them.
+    client.post("/api/v2/auth/logout").dispatch().await;
     let resp = client
         .get("/api/v2/auth/sessions")
         .header(Header::new("X-Api-Key", api_token.clone()))
         .dispatch()
         .await;
+    assert_eq!(resp.status(), Status::Unauthorized);
+    let resp = client
+        .delete(format!("/api/v2/auth/sessions/{other_id}"))
+        .header(Header::new("X-Api-Key", api_token.clone()))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Unauthorized);
+    let resp = client
+        .delete("/api/v2/auth/sessions")
+        .header(Header::new("X-Api-Key", api_token))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Unauthorized);
+
+    // A real session cookie still works exactly as before.
+    let resp = client
+        .post("/api/v2/auth/login")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"identifier":"sessionuser","password":"{TEST_PASSWORD}"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+
+    let resp = client.get("/api/v2/auth/sessions").dispatch().await;
     assert_eq!(resp.status(), Status::Ok);
     let listed: serde_json::Value =
         serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    // Still capped at 20 — logging back in adds one but also re-triggers
+    // the same MAX_SESSIONS_PER_USER prune that produced 20 above.
     assert_eq!(listed.as_array().unwrap().len(), 20);
 
     let resp = client
         .delete(format!("/api/v2/auth/sessions/{other_id}"))
-        .header(Header::new("X-Api-Key", api_token.clone()))
+        .header(csrf_header(&client))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::NotFound);
@@ -525,7 +610,7 @@ async fn session_management_is_owner_scoped_and_capped() {
 
     let resp = client
         .delete("/api/v2/auth/sessions")
-        .header(Header::new("X-Api-Key", api_token))
+        .header(csrf_header(&client))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::NoContent);
@@ -1073,6 +1158,39 @@ async fn rating_out_of_range_is_400_and_requires_auth() {
 }
 
 #[rocket::async_test]
+async fn rate_cart_rejects_self_rating() {
+    // PORT-08: an owner rating their own cart could inflate its standing on
+    // "top rated" sorts.
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    let owner_token = register_get_token_and_logout(&client, "selfrater").await;
+
+    let resp = upload(
+        &client,
+        &owner_token,
+        &sample_cart(),
+        r#"{"title":"Game","author":"A"}"#,
+    )
+    .await;
+    let cart: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let id = cart["id"].as_str().unwrap().to_string();
+
+    let resp = client
+        .put(format!("/api/v2/carts/{id}/rating"))
+        .header(Header::new("X-Api-Key", owner_token))
+        .header(ContentType::JSON)
+        .body(r#"{"score":5}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Forbidden);
+
+    let resp = client.get(format!("/api/v2/carts/{id}")).dispatch().await;
+    let detail: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(detail["rating_count"], 0);
+}
+
+#[rocket::async_test]
 async fn comments_add_list_and_delete_permissions() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
@@ -1504,11 +1622,39 @@ async fn register_rejects_duplicate_email_across_usernames() {
     assert_eq!(resp.status(), Status::Ok);
     client.post("/api/v2/auth/logout").dispatch().await;
 
+    // PY-03: an email collision must not answer any differently than a
+    // generic failure — a distinct "already in use" status/message here
+    // would let registration be used to enumerate accounts, the same thing
+    // `forgot-password` is deliberately built not to leak. Username
+    // collisions are still reported directly (see the 409 test below);
+    // only the email-collision path is non-committal.
     let resp = client
         .post("/api/v2/auth/register")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"username":"duptwo","password":"{TEST_PASSWORD}","email":"shared@example.test"}}"#
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::BadRequest);
+}
+
+#[rocket::async_test]
+async fn register_rejects_duplicate_username_with_conflict() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+
+    assert_eq!(
+        register(&client, "dupname", TEST_PASSWORD).await,
+        Status::Ok
+    );
+    client.post("/api/v2/auth/logout").dispatch().await;
+
+    let resp = client
+        .post("/api/v2/auth/register")
+        .header(ContentType::JSON)
+        .body(format!(
+            r#"{{"username":"dupname","password":"{TEST_PASSWORD}","email":"dupname2@example.test"}}"#
         ))
         .dispatch()
         .await;
@@ -1926,7 +2072,8 @@ async fn csrf_header_required_for_cookie_auth_mutations_but_not_api_key() {
     let resp = client.get("/api/v2/auth/mfa/status").dispatch().await;
     assert_eq!(resp.status(), Status::Ok);
 
-    // X-Api-Key auth is exempt from CSRF entirely, cookies or not.
+    // PORT-02: token management is session-only now — even with the correct
+    // CSRF header, an API token can no longer create another token.
     let resp = client
         .post("/api/v2/auth/tokens")
         .header(ContentType::JSON)
@@ -1939,12 +2086,49 @@ async fn csrf_header_required_for_cookie_auth_mutations_but_not_api_key() {
         .as_str()
         .unwrap()
         .to_string();
+
+    // A second account to follow — created directly so the test client's
+    // own session cookie (about to be dropped) isn't disturbed.
+    let state = client.rocket().state::<PortState>().unwrap();
+    let target = users::ActiveModel {
+        id: Set(uuid::Uuid::new_v4().to_string()),
+        username: Set("csrftarget".into()),
+        password_hash: Set(auth::hash_password(TEST_PASSWORD).unwrap()),
+        is_admin: Set(false),
+        created_at: Set(chrono::Utc::now().to_rfc3339()),
+        email: Set(None),
+        email_verified: Set(false),
+        email_normalized: Set(None),
+        mfa_totp_secret: Set(None),
+        mfa_enabled: Set(false),
+        password_set: Set(true),
+        is_banned: Set(false),
+        banned_at: Set(None),
+        banned_reason: Set(None),
+        banned_by: Set(None),
+    }
+    .insert(&state.db)
+    .await
+    .unwrap();
+
     client.post("/api/v2/auth/logout").dispatch().await;
+
+    // Account-management stays out of reach for a token, with or without a
+    // (now absent) session cookie.
     let resp = client
         .post("/api/v2/auth/tokens")
         .header(ContentType::JSON)
-        .header(Header::new("X-Api-Key", token))
+        .header(Header::new("X-Api-Key", token.clone()))
         .body(r#"{"name":"second-token"}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Unauthorized);
+
+    // But X-Api-Key auth on a route it *is* allowed to use is still exempt
+    // from CSRF entirely — no cookie, no CSRF header, and it works.
+    let resp = client
+        .put(format!("/api/v2/users/{}/follow", target.username))
+        .header(Header::new("X-Api-Key", token))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok);
@@ -2050,6 +2234,97 @@ async fn studio_link_polling_covers_advertised_lifetime() {
             .await;
         assert_eq!(poll.status(), Status::Ok);
     }
+}
+
+#[rocket::async_test]
+async fn studio_link_approve_requires_the_code_shown_in_studio() {
+    // PORT-01: approving must require the confirmation code Studio displays
+    // locally, not just a click — otherwise a forwarded `browser_url` alone
+    // is enough to phish a token.
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    let start = client.post("/api/v2/auth/studio-link").dispatch().await;
+    let link: serde_json::Value =
+        serde_json::from_str(&start.into_string().await.unwrap()).unwrap();
+    let request_id = link["request_id"].as_str().unwrap().to_string();
+    let poll_secret = link["poll_secret"].as_str().unwrap().to_string();
+    let user_code = link["user_code"].as_str().unwrap().to_string();
+    assert!(!link["browser_url"].as_str().unwrap().contains(&user_code));
+
+    assert_eq!(
+        register(&client, "linkuser", TEST_PASSWORD).await,
+        Status::Ok
+    );
+
+    // Wrong code: rejected, request stays open.
+    let resp = client
+        .post(format!("/api/v2/auth/studio-link/{request_id}/approve"))
+        .header(ContentType::JSON)
+        .header(csrf_header(&client))
+        .body(r#"{"code":"0000-0000"}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::BadRequest);
+
+    // Correct code (case/formatting insensitive): approved.
+    let resp = client
+        .post(format!("/api/v2/auth/studio-link/{request_id}/approve"))
+        .header(ContentType::JSON)
+        .header(csrf_header(&client))
+        .body(serde_json::json!({ "code": user_code.to_ascii_lowercase() }).to_string())
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
+
+    let poll = client
+        .post("/api/v2/auth/studio-link/poll")
+        .header(ContentType::JSON)
+        .body(
+            serde_json::json!({ "request_id": request_id, "poll_secret": poll_secret }).to_string(),
+        )
+        .dispatch()
+        .await;
+    let result: serde_json::Value =
+        serde_json::from_str(&poll.into_string().await.unwrap()).unwrap();
+    assert_eq!(result["status"], "linked");
+    assert_eq!(result["username"], "linkuser");
+}
+
+#[rocket::async_test]
+async fn studio_link_approve_locks_out_after_too_many_wrong_codes() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    let start = client.post("/api/v2/auth/studio-link").dispatch().await;
+    let link: serde_json::Value =
+        serde_json::from_str(&start.into_string().await.unwrap()).unwrap();
+    let request_id = link["request_id"].as_str().unwrap().to_string();
+    let user_code = link["user_code"].as_str().unwrap().to_string();
+
+    assert_eq!(
+        register(&client, "linkuser2", TEST_PASSWORD).await,
+        Status::Ok
+    );
+
+    for _ in 0..5 {
+        let resp = client
+            .post(format!("/api/v2/auth/studio-link/{request_id}/approve"))
+            .header(ContentType::JSON)
+            .header(csrf_header(&client))
+            .body(r#"{"code":"0000-0000"}"#)
+            .dispatch()
+            .await;
+        assert_eq!(resp.status(), Status::BadRequest);
+    }
+
+    // The request is now cancelled — even the *correct* code no longer works.
+    let resp = client
+        .post(format!("/api/v2/auth/studio-link/{request_id}/approve"))
+        .header(ContentType::JSON)
+        .header(csrf_header(&client))
+        .body(serde_json::json!({ "code": user_code }).to_string())
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::BadRequest);
 }
 
 // ── security round 3: breached-password, audit log, passkeys, deletion/export ──
@@ -2254,8 +2529,32 @@ async fn creating_webauthn_challenge_removes_expired_rows() {
 async fn passkey_list_and_delete_are_owner_scoped() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
-    let owner_token = register_get_token_and_logout(&client, "pkowner").await;
-    let other_token = register_get_token_and_logout(&client, "pkother").await;
+
+    // PORT-02: passkey management is session-only now, so exercise it via
+    // login/logout rather than X-Api-Key (which list_passkeys/delete_passkey
+    // no longer accept at all).
+    async fn login(client: &Client, username: &str) {
+        let resp = client
+            .post("/api/v2/auth/login")
+            .header(ContentType::JSON)
+            .body(format!(
+                r#"{{"identifier":"{username}","password":"{TEST_PASSWORD}"}}"#
+            ))
+            .dispatch()
+            .await;
+        assert_eq!(resp.status(), Status::Ok);
+    }
+
+    assert_eq!(
+        register(&client, "pkowner", TEST_PASSWORD).await,
+        Status::Ok
+    );
+    client.post("/api/v2/auth/logout").dispatch().await;
+    assert_eq!(
+        register(&client, "pkother", TEST_PASSWORD).await,
+        Status::Ok
+    );
+    client.post("/api/v2/auth/logout").dispatch().await;
 
     let state = client.rocket().state::<PortState>().unwrap();
     let owner = users::Entity::find()
@@ -2277,18 +2576,19 @@ async fn passkey_list_and_delete_are_owner_scoped() {
     .await
     .unwrap();
 
+    login(&client, "pkowner").await;
     let resp = client
         .get("/api/v2/auth/webauthn/credentials")
-        .header(Header::new("X-Api-Key", owner_token.clone()))
         .dispatch()
         .await;
     let list: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(list.as_array().unwrap().len(), 1);
     assert_eq!(list[0]["label"], "Test key");
+    client.post("/api/v2/auth/logout").dispatch().await;
 
+    login(&client, "pkother").await;
     let resp = client
         .get("/api/v2/auth/webauthn/credentials")
-        .header(Header::new("X-Api-Key", other_token.clone()))
         .dispatch()
         .await;
     let list: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
@@ -2296,14 +2596,16 @@ async fn passkey_list_and_delete_are_owner_scoped() {
 
     let resp = client
         .delete(format!("/api/v2/auth/webauthn/credentials/{cred_id}"))
-        .header(Header::new("X-Api-Key", other_token))
+        .header(csrf_header(&client))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::NotFound);
+    client.post("/api/v2/auth/logout").dispatch().await;
 
+    login(&client, "pkowner").await;
     let resp = client
         .delete(format!("/api/v2/auth/webauthn/credentials/{cred_id}"))
-        .header(Header::new("X-Api-Key", owner_token))
+        .header(csrf_header(&client))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::NoContent);

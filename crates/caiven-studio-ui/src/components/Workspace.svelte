@@ -109,6 +109,7 @@
     portError: string;
     portLinkPending: boolean;
     portLinkExpiresAt: string;
+    portLinkUserCode: string;
     onScanLibrary: () => void;
     onSearchPort: (query: string) => void;
     onOpenLocal: (path: string) => void;
@@ -134,7 +135,7 @@
     soundSelection = $bindable(),
     onNavigate, onSource, onCode, onSprite, onCollision, onCollisionTypes, onMap, onAssetBank, onSfx, onMusic, onSong, onAudio,
     onBreakpoint, onMeta, onSetStdlibModule, onCreateModule, onPalette, onTour, onOpen, onNew, onRemix,
-    localCarts, portCarts, portAccount, portBusy, portError, portLinkPending, portLinkExpiresAt, onScanLibrary,
+    localCarts, portCarts, portAccount, portBusy, portError, portLinkPending, portLinkExpiresAt, portLinkUserCode, onScanLibrary,
     onSearchPort, onOpenLocal, onRemoveRecent, onDownloadPort, onOpenPortAccount, onPortLink, onPortLinkCancel, onPortLogout,
     onInsertBuiltin, onOpenSource, onHistoryStatus, onSetServerUrl,
   }: Props = $props();
@@ -2219,7 +2220,8 @@
           <div class="account-avatar pending"><Globe size={28} /></div>
           <span class="account-status pending">Browser opened</span>
           <h2>Finish linking in Port</h2>
-          <p>Sign in or register in the browser tab, then approve Caiven Studio there — Studio picks it up automatically.</p>
+          <p>Sign in or register in the browser tab, then enter this code to approve Caiven Studio — Studio picks it up automatically.</p>
+          <p class="port-link-code">{portLinkUserCode || '········'}</p>
           <p class="account-expiry">Link expires {portLinkExpiresAt ? new Date(portLinkExpiresAt).toLocaleTimeString() : 'soon'}.</p>
           <Button variant="outline" disabled={portBusy} onclick={onPortLinkCancel}>Cancel</Button>
         {:else}

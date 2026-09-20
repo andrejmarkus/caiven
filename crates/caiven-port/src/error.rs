@@ -58,20 +58,48 @@ impl<'r> Responder<'r, 'static> for ApiError {
     }
 }
 
+/// Internal-error message sent to clients — never the underlying error text,
+/// which can carry table/column/SQL detail (see PORT-07). The real error is
+/// logged server-side by the `From` impls below.
+const INTERNAL_ERROR_MESSAGE: &str = "internal error";
+
 impl From<anyhow::Error> for ApiError {
     fn from(e: anyhow::Error) -> Self {
-        ApiError::Internal(e.to_string())
+        log::error!("internal error: {e:#}");
+        ApiError::Internal(INTERNAL_ERROR_MESSAGE.into())
     }
 }
 
 impl From<sea_orm::DbErr> for ApiError {
     fn from(e: sea_orm::DbErr) -> Self {
-        ApiError::Internal(e.to_string())
+        log::error!("database error: {e}");
+        ApiError::Internal(INTERNAL_ERROR_MESSAGE.into())
     }
 }
 
 impl From<serde_json::Error> for ApiError {
     fn from(e: serde_json::Error) -> Self {
         ApiError::BadRequest(e.to_string())
+    }
+}
+
+impl From<std::io::Error> for ApiError {
+    fn from(e: std::io::Error) -> Self {
+        log::error!("io error: {e}");
+        ApiError::Internal(INTERNAL_ERROR_MESSAGE.into())
+    }
+}
+
+impl From<uuid::Error> for ApiError {
+    fn from(e: uuid::Error) -> Self {
+        log::error!("uuid parse error: {e}");
+        ApiError::Internal(INTERNAL_ERROR_MESSAGE.into())
+    }
+}
+
+impl From<webauthn_rs::prelude::WebauthnError> for ApiError {
+    fn from(e: webauthn_rs::prelude::WebauthnError) -> Self {
+        log::error!("webauthn error: {e}");
+        ApiError::Internal(INTERNAL_ERROR_MESSAGE.into())
     }
 }

@@ -49,7 +49,7 @@
   let localCarts = $state<LocalCart[]>([]);
   let portCarts = $state<PortCart[]>([]);
   let portAccount = $state<PortSession>({ authenticated: false, username: '', portUrl: '' });
-  let portLink = $state<{ requestId: string; pollSecret: string; expiresAt: string } | null>(null);
+  let portLink = $state<{ requestId: string; pollSecret: string; expiresAt: string; userCode: string } | null>(null);
   let portBusy = $state(false);
   let portError = $state('');
   let publishProgress = $state<PublishProgress | null>(null);
@@ -1131,6 +1131,7 @@
           {portError}
           portLinkPending={portLink !== null}
           portLinkExpiresAt={portLink?.expiresAt ?? ''}
+          portLinkUserCode={portLink?.userCode ?? ''}
           onScanLibrary={() => void scanLocal()}
           onSearchPort={(query) => void searchPort(query)}
           onOpenLocal={(path) => void openPath(path)}

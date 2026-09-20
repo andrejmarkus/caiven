@@ -100,6 +100,11 @@ pub struct StudioLinkStart {
     pub request_id: String,
     pub poll_secret: String,
     pub browser_url: String,
+    /// Short confirmation code Studio displays locally. Never embedded in
+    /// `browser_url` — the approving browser must be told this code out of
+    /// band (by reading Studio's own window) and type it back, which is
+    /// what stops a forwarded link from being approved blind.
+    pub user_code: String,
     pub expires_at: String,
 }
 
@@ -108,6 +113,12 @@ pub struct StudioLinkStart {
 pub struct StudioLinkPoll {
     pub request_id: String,
     pub poll_secret: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct StudioLinkApprove {
+    pub code: String,
 }
 
 #[derive(Debug, Serialize)]

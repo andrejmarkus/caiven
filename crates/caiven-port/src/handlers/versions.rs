@@ -46,11 +46,11 @@ async fn legacy_cart_path(state: &PortState, version_id: &str) -> Result<Option<
             [version_id.into()],
         ))
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
     match row {
         Some(row) => row
             .try_get::<Option<String>>("", "legacy_cart_path")
-            .map_err(|e| ApiError::internal(e.to_string())),
+            .map_err(ApiError::from),
         None => Ok(None),
     }
 }
@@ -96,7 +96,7 @@ async fn ensure_cart_blob(state: &PortState, v: &cart_versions::Model) -> Result
     }
     .insert(&state.db)
     .await
-    .map_err(|e| ApiError::internal(e.to_string()))?;
+    .map_err(ApiError::from)?;
     Ok(())
 }
 
@@ -190,9 +190,7 @@ pub(crate) async fn upload_screenshot_impl(
         .path()
         .ok_or_else(|| ApiError::internal("temp file unavailable"))?;
 
-    let bytes = tokio::fs::read(tmp_path)
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    let bytes = tokio::fs::read(tmp_path).await.map_err(ApiError::from)?;
     if bytes.len() < 8 {
         return Err(ApiError::bad_request("file too small"));
     }

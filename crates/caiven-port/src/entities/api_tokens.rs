@@ -11,6 +11,9 @@ pub struct Model {
     pub name: String,
     pub created_at: String,
     pub last_used_at: Option<String>,
+    /// `"full"` (self-service tokens, `/auth/tokens`) or `"publish"` (minted
+    /// by the Studio link flow) — see `auth::AuthUser::require_full_scope`.
+    pub scope: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

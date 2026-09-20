@@ -466,6 +466,10 @@ pub async fn delete_cart(db: &DatabaseConnection, id: &str) -> Result<()> {
     Ok(())
 }
 
+// PORT-05: this still scans every cart row — unlike the feed, tags aren't
+// normalized into their own table, so there's no id set to filter by; a
+// real fix needs a `cart_tags` table + a `GROUP BY` count, not a query-shape
+// change here.
 pub async fn list_tags(db: &DatabaseConnection) -> Result<Vec<TagCount>> {
     let carts = CartEntity::find().all(db).await?;
     let mut counts: std::collections::HashMap<String, i64> = std::collections::HashMap::new();

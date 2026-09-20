@@ -16,6 +16,7 @@ mod m20260727_000013_cart_content_hash;
 mod m20260728_000014_rehash_cart_content;
 mod m20260729_000015_repair_legacy_cart_path;
 mod m20260825_000016_admin_moderation;
+mod m20260901_000017_port_security_hardening;
 
 pub struct Migrator;
 
@@ -39,6 +40,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260729_000015_repair_legacy_cart_path::Migration),
             Box::new(m20260728_000014_rehash_cart_content::Migration),
             Box::new(m20260825_000016_admin_moderation::Migration),
+            Box::new(m20260901_000017_port_security_hardening::Migration),
         ]
     }
 }

@@ -335,7 +335,7 @@ export const api = {
   createToken: (name: string) =>
     request<TokenCreated>('/auth/tokens', { method: 'POST', body: JSON.stringify({ name }) }),
   revokeToken: (id: string) => request<void>(`/auth/tokens/${id}`, { method: 'DELETE' }),
-  approveStudioLink: (requestId: string) => request<void>(`/auth/studio-link/${requestId}/approve`, { method: 'POST' }),
+  approveStudioLink: (requestId: string, code: string) => request<void>(`/auth/studio-link/${requestId}/approve`, { method: 'POST', body: JSON.stringify({ code }) }),
 
   webauthnRegisterStart: () =>
     request<WebauthnStartResponse>('/auth/webauthn/register/start', { method: 'POST' }),

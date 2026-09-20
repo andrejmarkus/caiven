@@ -61,9 +61,7 @@ pub(crate) async fn read_and_validate_cart_upload(
         .path()
         .ok_or_else(|| ApiError::internal("temp file unavailable"))?;
 
-    let bytes = tokio::fs::read(tmp_path)
-        .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    let bytes = tokio::fs::read(tmp_path).await.map_err(ApiError::from)?;
     if bytes.len() < 6 {
         return Err(ApiError::bad_request("cart too small"));
     }
@@ -191,6 +189,7 @@ pub async fn update_cart(
     id: &str,
     patch: Json<CartPatch>,
 ) -> Result<Json<Cart>, ApiError> {
+    user.require_full_scope()?;
     if !valid_id(id) {
         return Err(ApiError::bad_request("invalid id"));
     }
@@ -220,6 +219,7 @@ pub async fn delete_cart(
     state: &State<PortState>,
     id: &str,
 ) -> Result<(), ApiError> {
+    user.require_full_scope()?;
     if !valid_id(id) {
         return Err(ApiError::bad_request("invalid id"));
     }

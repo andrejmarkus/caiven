@@ -131,6 +131,13 @@ async fn main() -> Result<()> {
         port: args.port,
         limits,
         log_level: rocket::config::LogLevel::Normal,
+        // PORT-03: Rocket's default trusts an `X-Real-IP` header from the
+        // client itself. Without a reverse proxy in front that overwrites
+        // this header, a client can set it to anything and pick its own
+        // rate-limit bucket on every request. Disabled here; a deployment
+        // that does sit behind a trusted proxy should set this explicitly
+        // to the header that proxy controls (see docs/port.md).
+        ip_header: None,
         ..Default::default()
     };
 
@@ -185,7 +192,7 @@ async fn main() -> Result<()> {
         secure_cookies: args.secure_cookies,
         base_url: args.base_url,
         local_origin,
-        http: reqwest::Client::new(),
+        http: caiven_port::http_client(),
         mailer,
         turnstile_site_key: args.turnstile_site_key,
         turnstile_secret: args.turnstile_secret_key,

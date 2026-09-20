@@ -4,15 +4,17 @@
   import { navigate, route } from '../router.svelte';
   import * as Card from '@caiven/ui/card';
   import { Button } from '@caiven/ui/button';
+  import { Input } from '@caiven/ui/input';
   const requestId = route.search.get('request') ?? '';
   let busy = $state(false);
   let message = $state('');
   let failed = $state(false);
+  let code = $state('');
   function login() { navigate(`/login?next=${encodeURIComponent(`/link-studio?request=${requestId}`)}`); }
   async function approve() {
     busy = true; message = ''; failed = false;
     try {
-      await api.approveStudioLink(requestId);
+      await api.approveStudioLink(requestId, code);
       message = 'Caiven Studio linked. You can close this tab.';
       setTimeout(() => window.close(), 1200);
     } catch (error) {
@@ -25,5 +27,5 @@
   {#if !requestId}<p>Invalid link request.</p>
   {:else if !currentUser.value}<p>Sign in or register, then return here to link Studio.</p><Button onclick={login}>Log in</Button>
   {:else if message}<p class="text-sm">{message}</p>{#if failed}<div class="mt-4 flex gap-2"><Button disabled={busy} onclick={approve}>Retry</Button><Button variant="outline" onclick={() => navigate('/')}>Cancel</Button></div>{/if}
-  {:else}<p>Link Studio to <strong>{currentUser.value.username}</strong>?</p><div class="mt-4 flex gap-2"><Button disabled={busy} onclick={approve}>Link Caiven Studio</Button><Button variant="outline" onclick={() => navigate('/')}>Cancel</Button></div>{/if}
+  {:else}<p>Link Studio to <strong>{currentUser.value.username}</strong>?</p><p class="text-sm text-muted-foreground mt-2">Enter the code shown in Caiven Studio:</p><Input class="mt-2" placeholder="XXXX-XXXX" bind:value={code} /><div class="mt-4 flex gap-2"><Button disabled={busy || !code.trim()} onclick={approve}>Link Caiven Studio</Button><Button variant="outline" onclick={() => navigate('/')}>Cancel</Button></div>{/if}
 </Card.Content></Card.Root></div>

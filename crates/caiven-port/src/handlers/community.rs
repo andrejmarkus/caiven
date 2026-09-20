@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     PortState,
-    auth::{AdminUser, AuthUser, VerifiedUser, sha256_hex},
+    auth::{AdminUser, AuthUser, ClientIp, VerifiedUser, sha256_hex},
     db,
     entities::{
         cart_versions, collection_carts, collection_follows, collections, follows, jam_entries,
@@ -145,6 +145,7 @@ fn require_collection_owner(user: &AuthUser, model: &collections::Model) -> Resu
 pub async fn record_play(
     state: &State<PortState>,
     user: Option<AuthUser>,
+    ip: ClientIp,
     id: &str,
     input: Json<PlayInput>,
 ) -> Result<Json<PlayResult>, ApiError> {
@@ -160,14 +161,19 @@ pub async fn record_play(
     let cart = db::get_cart_model(&state.db, id)
         .await?
         .ok_or_else(|| ApiError::not_found("cart not found"))?;
+    // PORT-04: dedup must not key on `session_id` — it's client-supplied, so
+    // a script can mint a fresh one per request and inflate plays without
+    // bound. Logged-in plays dedup per (cart, user) forever; anonymous plays
+    // dedup per (cart, IP) forever — coarser than per-device, but the IP is
+    // the one thing here the client can't just make up.
     let session_key = sha256_hex(&format!("session:{}", input.session_id));
     let viewer_key = sha256_hex(&match user {
         Some(ref u) => format!("user:{}", u.id),
-        None => format!("session:{}", input.session_id),
+        None => format!("ip:{}", ip.0),
     });
     let exists = play_events::Entity::find()
         .filter(play_events::Column::CartId.eq(id))
-        .filter(play_events::Column::SessionKey.eq(&session_key))
+        .filter(play_events::Column::ViewerKey.eq(&viewer_key))
         .one(&state.db)
         .await?
         .is_some();
@@ -213,6 +219,7 @@ pub async fn follow_user(
     user: AuthUser,
     username: &str,
 ) -> Result<(), ApiError> {
+    user.require_full_scope()?;
     let target = db::get_user_by_username(&state.db, username)
         .await?
         .ok_or_else(|| ApiError::not_found("user not found"))?;
@@ -241,6 +248,7 @@ pub async fn unfollow_user(
     user: AuthUser,
     username: &str,
 ) -> Result<(), ApiError> {
+    user.require_full_scope()?;
     let target = db::get_user_by_username(&state.db, username)
         .await?
         .ok_or_else(|| ApiError::not_found("user not found"))?;
@@ -335,6 +343,7 @@ pub async fn create_collection(
     input: Json<CollectionCreate>,
 ) -> Result<Json<CollectionInfo>, ApiError> {
     let user = user.0;
+    user.require_full_scope()?;
     let model = create_collection_impl(&state.db, &user, &input, "player").await?;
     Ok(Json(collection_info(&state.db, model, Some(&user)).await?))
 }
@@ -357,6 +366,7 @@ pub async fn update_collection(
     slug: &str,
     input: Json<CollectionPatch>,
 ) -> Result<Json<CollectionInfo>, ApiError> {
+    user.require_full_scope()?;
     let model = collection_for_slug(&state.db, slug).await?;
     require_collection_owner(&user, &model)?;
     let mut active: collections::ActiveModel = model.into();
@@ -391,6 +401,7 @@ pub async fn delete_collection(
     user: AuthUser,
     slug: &str,
 ) -> Result<(), ApiError> {
+    user.require_full_scope()?;
     let model = collection_for_slug(&state.db, slug).await?;
     require_collection_owner(&user, &model)?;
     collections::Entity::delete_by_id(model.id)
@@ -406,6 +417,7 @@ pub async fn add_collection_cart(
     slug: &str,
     input: Json<CollectionCartInput>,
 ) -> Result<Json<CollectionInfo>, ApiError> {
+    user.require_full_scope()?;
     let model = collection_for_slug(&state.db, slug).await?;
     require_collection_owner(&user, &model)?;
     db::get_cart_model(&state.db, &input.cart_id)
@@ -439,6 +451,7 @@ pub async fn remove_collection_cart(
     slug: &str,
     cart_id: &str,
 ) -> Result<Json<CollectionInfo>, ApiError> {
+    user.require_full_scope()?;
     let model = collection_for_slug(&state.db, slug).await?;
     require_collection_owner(&user, &model)?;
     collection_carts::Entity::delete_by_id((model.id.clone(), cart_id.to_string()))
@@ -464,6 +477,7 @@ pub async fn reorder_collection(
     slug: &str,
     input: Json<CollectionOrderInput>,
 ) -> Result<Json<CollectionInfo>, ApiError> {
+    user.require_full_scope()?;
     let model = collection_for_slug(&state.db, slug).await?;
     require_collection_owner(&user, &model)?;
     let rows = collection_carts::Entity::find()
@@ -497,6 +511,7 @@ pub async fn follow_collection(
     user: AuthUser,
     slug: &str,
 ) -> Result<(), ApiError> {
+    user.require_full_scope()?;
     let model = collection_for_slug(&state.db, slug).await?;
     if collection_follows::Entity::find_by_id((model.id.clone(), user.id.clone()))
         .one(&state.db)
@@ -520,6 +535,7 @@ pub async fn unfollow_collection(
     user: AuthUser,
     slug: &str,
 ) -> Result<(), ApiError> {
+    user.require_full_scope()?;
     let model = collection_for_slug(&state.db, slug).await?;
     collection_follows::Entity::delete_by_id((model.id, user.id))
         .exec(&state.db)
@@ -710,6 +726,7 @@ pub async fn enter_jam(
     input: Json<JamEntryInput>,
 ) -> Result<Json<JamInfo>, ApiError> {
     let user = user.0;
+    user.require_full_scope()?;
     let jam = jam_for_slug(&state.db, slug).await?;
     if jam_status(&jam) != "open" {
         return Err(ApiError::bad_request("jam submissions are not open"));
@@ -759,6 +776,7 @@ pub async fn withdraw_jam_entry(
     slug: &str,
     cart_id: &str,
 ) -> Result<Json<JamInfo>, ApiError> {
+    user.require_full_scope()?;
     let jam = jam_for_slug(&state.db, slug).await?;
     if jam_status(&jam) != "open" {
         return Err(ApiError::bad_request("jam submissions are not open"));
@@ -785,11 +803,13 @@ pub async fn feed(
     page: Option<u32>,
     per_page: Option<u32>,
 ) -> Result<Json<FeedPage>, ApiError> {
+    user.require_full_scope()?;
     let followed = follows::Entity::find()
         .filter(follows::Column::FollowerId.eq(&user.id))
         .all(&state.db)
         .await?;
     let followed_ids: HashSet<_> = followed.into_iter().map(|f| f.followed_id).collect();
+    let followed_id_list: Vec<String> = followed_ids.iter().cloned().collect();
     let followed_collections: HashSet<_> = collection_follows::Entity::find()
         .filter(collection_follows::Column::UserId.eq(&user.id))
         .all(&state.db)
@@ -797,72 +817,91 @@ pub async fn feed(
         .into_iter()
         .map(|f| f.collection_id)
         .collect();
-    let all_users: HashMap<_, _> = users::Entity::find()
-        .all(&state.db)
-        .await?
-        .into_iter()
-        .map(|u| (u.id, u.username))
-        .collect();
+
+    // Bounded by what this user follows, not by the size of the instance
+    // (PORT-05): a followed-collections list of N and a followed-users list
+    // of M drive a handful of queries scaled to N and M, not one scan of
+    // every user/cart/jam-entry row that exists.
+    let mut collection_models = Vec::with_capacity(followed_collections.len());
+    for collection_id in &followed_collections {
+        if let Some(collection) = collections::Entity::find_by_id(collection_id)
+            .one(&state.db)
+            .await?
+        {
+            collection_models.push(collection);
+        }
+    }
+    let mut needed_user_ids: HashSet<String> = followed_ids.clone();
+    needed_user_ids.extend(collection_models.iter().map(|c| c.owner_id.clone()));
+    let all_users: HashMap<String, String> = if needed_user_ids.is_empty() {
+        HashMap::new()
+    } else {
+        users::Entity::find()
+            .filter(users::Column::Id.is_in(needed_user_ids.into_iter().collect::<Vec<_>>()))
+            .all(&state.db)
+            .await?
+            .into_iter()
+            .map(|u| (u.id, u.username))
+            .collect()
+    };
+
     let mut events = Vec::new();
-    let carts = crate::entities::carts::Entity::find()
-        .all(&state.db)
-        .await?;
+    let carts = if followed_id_list.is_empty() {
+        Vec::new()
+    } else {
+        crate::entities::carts::Entity::find()
+            .filter(crate::entities::carts::Column::OwnerId.is_in(followed_id_list.clone()))
+            .all(&state.db)
+            .await?
+    };
     for cart_model in carts {
         let Some(owner_id) = cart_model.owner_id.as_ref() else {
             continue;
         };
-        if followed_ids.contains(owner_id) {
-            let actor = all_users
-                .get(owner_id)
-                .cloned()
-                .unwrap_or_else(|| cart_model.author.clone());
-            let Some(cart) = db::get(&state.db, &cart_model.id).await? else {
-                continue;
-            };
+        let actor = all_users
+            .get(owner_id)
+            .cloned()
+            .unwrap_or_else(|| cart_model.author.clone());
+        let Some(cart) = db::get(&state.db, &cart_model.id).await? else {
+            continue;
+        };
+        events.push(FeedEvent {
+            kind: "cart_published".into(),
+            actor: actor.clone(),
+            occurred_at: cart_model.uploaded_at.clone(),
+            cart: cart.clone(),
+            version: None,
+            collection_slug: None,
+            collection_title: None,
+            jam_slug: None,
+            jam_title: None,
+        });
+        let versions = cart_versions::Entity::find()
+            .filter(cart_versions::Column::CartId.eq(&cart_model.id))
+            .filter(cart_versions::Column::Version.gt(1))
+            .all(&state.db)
+            .await?;
+        for version in versions {
             events.push(FeedEvent {
-                kind: "cart_published".into(),
+                kind: "version_published".into(),
                 actor: actor.clone(),
-                occurred_at: cart_model.uploaded_at.clone(),
+                occurred_at: version.created_at,
                 cart: cart.clone(),
-                version: None,
+                version: Some(version.version),
                 collection_slug: None,
                 collection_title: None,
                 jam_slug: None,
                 jam_title: None,
             });
-            let versions = cart_versions::Entity::find()
-                .filter(cart_versions::Column::CartId.eq(&cart_model.id))
-                .filter(cart_versions::Column::Version.gt(1))
-                .all(&state.db)
-                .await?;
-            for version in versions {
-                events.push(FeedEvent {
-                    kind: "version_published".into(),
-                    actor: actor.clone(),
-                    occurred_at: version.created_at,
-                    cart: cart.clone(),
-                    version: Some(version.version),
-                    collection_slug: None,
-                    collection_title: None,
-                    jam_slug: None,
-                    jam_title: None,
-                });
-            }
         }
     }
-    for collection_id in followed_collections {
-        let Some(collection) = collections::Entity::find_by_id(&collection_id)
-            .one(&state.db)
-            .await?
-        else {
-            continue;
-        };
+    for collection in collection_models {
         let actor = all_users
             .get(&collection.owner_id)
             .cloned()
             .unwrap_or_else(|| "unknown".into());
         let rows = collection_carts::Entity::find()
-            .filter(collection_carts::Column::CollectionId.eq(&collection_id))
+            .filter(collection_carts::Column::CollectionId.eq(&collection.id))
             .all(&state.db)
             .await?;
         for row in rows {
@@ -881,11 +920,15 @@ pub async fn feed(
             }
         }
     }
-    let entries = jam_entries::Entity::find().all(&state.db).await?;
+    let entries = if followed_id_list.is_empty() {
+        Vec::new()
+    } else {
+        jam_entries::Entity::find()
+            .filter(jam_entries::Column::UserId.is_in(followed_id_list))
+            .all(&state.db)
+            .await?
+    };
     for entry in entries {
-        if !followed_ids.contains(&entry.user_id) {
-            continue;
-        }
         let Some(jam) = jams::Entity::find_by_id(&entry.jam_id)
             .one(&state.db)
             .await?
@@ -932,6 +975,7 @@ pub async fn dashboard(
     state: &State<PortState>,
     user: AuthUser,
 ) -> Result<Json<DashboardInfo>, ApiError> {
+    user.require_full_scope()?;
     let cart_models = crate::entities::carts::Entity::find()
         .filter(crate::entities::carts::Column::OwnerId.eq(&user.id))
         .all(&state.db)
