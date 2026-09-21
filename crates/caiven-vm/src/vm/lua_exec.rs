@@ -1698,7 +1698,7 @@ fn register_builtins<'scope, 'env>(
     impls.set(
         "set_master_volume",
         scope.create_function_mut(move |_, v: f64| {
-            if let Ok(mut s) = sound_for_master_volume.try_lock() {
+            if let Ok(mut s) = sound_for_master_volume.lock() {
                 s.master_volume = (v as f32).clamp(0.0, 1.0);
             }
             Ok(())
@@ -1709,7 +1709,7 @@ fn register_builtins<'scope, 'env>(
     impls.set(
         "set_music_volume",
         scope.create_function_mut(move |_, v: f64| {
-            if let Ok(mut s) = sound_for_music_volume.try_lock() {
+            if let Ok(mut s) = sound_for_music_volume.lock() {
                 s.music_volume = (v as f32).clamp(0.0, 1.0);
             }
             Ok(())
@@ -1719,7 +1719,7 @@ fn register_builtins<'scope, 'env>(
     impls.set(
         "set_sfx_volume",
         scope.create_function_mut(move |_, v: f64| {
-            if let Ok(mut s) = sound.try_lock() {
+            if let Ok(mut s) = sound.lock() {
                 s.sfx_volume = (v as f32).clamp(0.0, 1.0);
             }
             Ok(())

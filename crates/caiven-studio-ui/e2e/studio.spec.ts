@@ -365,7 +365,7 @@ test('discard cancellation keeps dirty cart open', async ({ page, e2e }) => {
   await titleInput.fill('dirty title'); await titleInput.blur();
   await page.getByTitle('Start screen').click();
   await e2e.queueDialog('open', '/carts/blocked');
-  page.once('dialog', (dialog) => dialog.dismiss());
+  await e2e.queueDialog('confirm', 'No');
   await page.getByRole('button', { name: 'Open project' }).click();
   expect((await e2e.calls()).some((call) => call.command === 'studio_open_project')).toBeFalsy();
   await expect(page.getByText('dirty title', { exact: true }).first()).toBeVisible();

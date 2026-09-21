@@ -765,7 +765,7 @@ pub const PRELUDE: &[ApiEntry] = &[
         name: "Camera.update",
         params: &[],
         returns: "nil",
-        doc: "Advances follow smoothing and shake decay by one frame, then calls set_camera() with the result. A no-op position-wise if Camera.follow() was never called. The computed position is clamped to >= 0 before calling set_camera (which takes unsigned coordinates).",
+        doc: "Advances follow smoothing and shake decay by one frame, then calls set_camera() with the result. A no-op position-wise if Camera.follow() was never called. The computed position is clamped to >= 0 before calling set_camera, so the view never scrolls past the world origin.",
     },
 ];
 

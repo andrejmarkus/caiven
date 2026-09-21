@@ -352,7 +352,7 @@ fn release_sfx_voice(
     }
 
     pool[slot].player.stop();
-    if let Ok(mut s) = sound.try_lock() {
+    if let Ok(mut s) = sound.lock() {
         s.voices[audio::SFX_VOICE_START + slot].gate = false;
     }
 }

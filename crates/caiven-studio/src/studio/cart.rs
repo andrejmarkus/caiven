@@ -351,25 +351,39 @@ pub fn section_ram_base(kind: SectionKind) -> Option<usize> {
     })
 }
 
+/// Bank a section restores into, with `true` when its bytes are a named-bank
+/// envelope rather than the raw default-bank payload.
+fn section_bank(kind: SectionKind) -> Option<(AssetBankKind, bool)> {
+    Some(match kind {
+        SectionKind::SpriteSheet => (AssetBankKind::Sprites, false),
+        SectionKind::Map => (AssetBankKind::Map, false),
+        SectionKind::Collision => (AssetBankKind::Collision, false),
+        SectionKind::Palette => (AssetBankKind::Palette, false),
+        SectionKind::SfxBank => (AssetBankKind::Sfx, false),
+        SectionKind::MusicBank => (AssetBankKind::Music, false),
+        SectionKind::SpriteBank => (AssetBankKind::Sprites, true),
+        SectionKind::MapBank => (AssetBankKind::Map, true),
+        SectionKind::CollisionBank => (AssetBankKind::Collision, true),
+        SectionKind::PaletteBank => (AssetBankKind::Palette, true),
+        SectionKind::SfxBanks => (AssetBankKind::Sfx, true),
+        SectionKind::MusicBanks => (AssetBankKind::Music, true),
+        _ => return None,
+    })
+}
+
+/// Restores every bank, so a named bank that was active (or mutated by
+/// gameplay) comes back too, not just the default one.
 pub fn apply_sections(vm: &mut Vm, sections: &[(SectionKind, Vec<u8>)]) {
     for (kind, data) in sections {
-        match kind {
-            SectionKind::SpriteSheet => {
-                vm.replace_asset_bank(AssetBankKind::Sprites, DEFAULT_BANK_NAME, data);
-                continue;
-            }
-            SectionKind::Map => {
-                vm.replace_asset_bank(AssetBankKind::Map, DEFAULT_BANK_NAME, data);
-                continue;
-            }
-            _ => {}
-        }
-        let Some(ram_base) = section_ram_base(*kind) else {
+        let Some((bank, named)) = section_bank(*kind) else {
             continue;
         };
-        vm.load_section_to_ram(ram_base, data);
-        if *kind == SectionKind::Palette {
-            vm.set_palette_from_bytes(data);
+        if named {
+            if let Some((name, bytes)) = caiven_cart::decode_asset_bank(data) {
+                vm.replace_asset_bank(bank, name, bytes);
+            }
+        } else {
+            vm.replace_asset_bank(bank, DEFAULT_BANK_NAME, data);
         }
     }
 }
@@ -443,6 +457,28 @@ mod tests {
         ));
         std::fs::create_dir(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn apply_sections_restores_a_mutated_active_named_bank() {
+        use super::apply_sections;
+        use caiven_vm::AssetBankKind;
+        let mut vm = Vm::new(VmConfig::default());
+        assert!(vm.create_asset_bank(AssetBankKind::Sprites, "forest"));
+        let pristine = vm
+            .asset_bank_bytes(AssetBankKind::Sprites, "forest")
+            .expect("bank bytes");
+        let snapshot = vec![(
+            SectionKind::SpriteBank,
+            caiven_cart::encode_asset_bank("forest", &pristine),
+        )];
+        vm.replace_asset_bank(AssetBankKind::Sprites, "forest", &vec![7; pristine.len()]);
+        apply_sections(&mut vm, &snapshot);
+        assert_eq!(
+            vm.asset_bank_bytes(AssetBankKind::Sprites, "forest"),
+            Some(pristine)
+        );
+        assert_eq!(vm.active_asset_bank(AssetBankKind::Sprites), "forest");
     }
 
     #[test]

@@ -86,7 +86,7 @@ impl Vm {
         // Each music channel's timbre is fixed by its column, so the per-step
         // `wave` byte the SFX editor writes is ignored here — it only does
         // something when the same SFX is played through a voice of its own.
-        if let Ok(mut s) = self.sound.try_lock() {
+        if let Ok(mut s) = self.sound.lock() {
             for (channel, player) in self.music_player.channels.iter_mut().enumerate() {
                 let (Some(voice), Some(kind)) = (
                     s.voices.get_mut(audio::MUSIC_VOICE_START + channel),
@@ -126,7 +126,7 @@ impl Vm {
     }
 
     fn tick_sfx_pool(&mut self) {
-        if let Ok(mut s) = self.sound.try_lock() {
+        if let Ok(mut s) = self.sound.lock() {
             for (i, pooled) in self.sfx_pool.iter_mut().enumerate() {
                 tick_sfx_channel(
                     &mut pooled.player,

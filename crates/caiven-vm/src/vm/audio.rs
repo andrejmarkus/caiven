@@ -278,6 +278,7 @@ const DESIRED_BUFFER_FRAMES: u16 = 512;
 #[cfg(any(feature = "sdl2-bundled", feature = "sdl2-dynamic"))]
 struct ConsoleCallback {
     sound: Arc<Mutex<Sound>>,
+    local: Sound,
     synth: Synth,
     sample_rate: f32,
     channels: usize,
@@ -288,15 +289,14 @@ impl AudioCallback for ConsoleCallback {
     type Channel = i16;
 
     fn callback(&mut self, out: &mut [i16]) {
-        // Never block the audio thread. If the VM holds the lock this
-        // frame, emit silence rather than stalling playback.
-        let Ok(sound) = self.sound.try_lock() else {
-            out.fill(0);
-            return;
-        };
+        // Copy under a short lock and render outside it; on contention keep
+        // the previous copy rather than stalling or going silent.
+        if let Ok(sound) = self.sound.try_lock() {
+            self.local.clone_from(&sound);
+        }
 
         for frame in out.chunks_mut(self.channels) {
-            let (l, r) = self.synth.next_sample(&sound, self.sample_rate);
+            let (l, r) = self.synth.next_sample(&self.local, self.sample_rate);
             if self.channels <= 1 {
                 let mono = to_i16((l + r) * 0.5);
                 for slot in frame.iter_mut() {
@@ -353,6 +353,7 @@ impl SdlAudio {
         let device = audio
             .open_playback(None, &desired, |spec| ConsoleCallback {
                 sound,
+                local: Sound::default(),
                 synth: Synth::new(),
                 // Honour what the device granted, not what was asked for —
                 // getting this wrong detunes every sound.

@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 
 /// Glyphs available in the built-in font sheet, in sheet order.
-pub const FONT_GLYPHS: &str = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!?\"'()+-=.:,[]<>";
+pub const FONT_GLYPHS: &str = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!?\"'()+-=.:,[]<>/%_";
 
 pub struct Glyph {
     pub pixels: Vec<bool>,
@@ -107,6 +107,20 @@ impl Font {
             glyphs,
             width: glyph_width,
             height: glyph_height,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_listed_glyph_has_ink_in_the_builtin_font() {
+        let font = Font::builtin().expect("builtin font");
+        for ch in FONT_GLYPHS.chars().filter(|c| *c != ' ') {
+            let glyph = font.get_glyph(ch).expect("glyph present");
+            assert!(glyph.pixels.iter().any(|p| *p), "{ch:?} is blank");
         }
     }
 }

@@ -39,7 +39,6 @@ for (const kind of kinds) {
     expect(selected.active[kind]).toBe('second');
     expect(selected.banks[kind]['second'][0]).toBe(kind === 'sprites' ? 3 : kind === 'map' ? 9 : kind === 'palette' ? 0 : kind === 'sfx' ? 55 : 8);
 
-    page.once('dialog', (dialog) => dialog.accept());
     await deleteButton.click();
     await expect(picker).toHaveValue('default');
     await expect(deleteButton).toBeDisabled();
@@ -96,7 +95,6 @@ test('bank create, select, and delete failures preserve active data and report t
 
   await page.locator('.bank-picker select').selectOption('second');
   await e2e.failNext('studio_asset_bank:palette:delete', 'delete denied');
-  page.once('dialog', (dialog) => dialog.accept());
   await page.getByTitle('Delete palette bank second').click();
   await expect(page.getByText('Bank delete failed: delete denied')).toBeVisible();
   await expect(page.locator('.bank-picker select')).toHaveValue('second');

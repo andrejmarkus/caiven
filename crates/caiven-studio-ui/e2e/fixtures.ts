@@ -6,7 +6,7 @@ export interface E2EControl {
   calls(): Promise<{ command: string; args: Record<string, unknown> }[]>;
   failNext(key: string, message: string): Promise<void>;
   delayNext(key: string, milliseconds: number): Promise<void>;
-  queueDialog(kind: 'open' | 'save', value: string | null): Promise<void>;
+  queueDialog(kind: 'open' | 'save' | 'confirm', value: string | null): Promise<void>;
   emit(event: string, payload: unknown): Promise<void>;
   setTickBanks(active: Partial<Record<BankKind, string>>): Promise<void>;
   setBankData(kind: BankKind, name: string, data: number[]): Promise<void>;
@@ -36,7 +36,7 @@ function installBridge() {
   const calls: { command: string; args: Record<string, unknown> }[] = [];
   const faults = new Map<string, string[]>();
   const delays = new Map<string, number[]>();
-  const dialogs = { open: [] as (string | null)[], save: [] as (string | null)[] };
+  const dialogs = { open: [] as (string | null)[], save: [] as (string | null)[], confirm: [] as (string | null)[] };
   const callbacks = new Map<number, (event: unknown) => void>();
   const listeners = new Map<string, Set<number>>();
   let callbackId = 0;
@@ -187,6 +187,7 @@ function installBridge() {
     }
     if (command === 'plugin:dialog|open') return dialogs.open.shift() ?? null;
     if (command === 'plugin:dialog|save') return dialogs.save.shift() ?? null;
+    if (command === 'plugin:dialog|message') return dialogs.confirm.shift() ?? 'Yes';
     if (command === 'studio_bootstrap') return bootstrap();
     if (command === 'studio_list_templates') return [
       { id: 'top-down-mover', name: 'Top-down mover', description: 'Move a sprite' },
