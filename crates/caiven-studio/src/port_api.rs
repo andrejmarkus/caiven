@@ -3,6 +3,8 @@ use caiven_vm::VmConfig;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+use std::time::Duration;
 use tauri_plugin_opener::OpenerExt;
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -115,6 +117,8 @@ pub(crate) struct PublishProgress {
 pub(crate) struct PublishResult {
     pub cart_id: String,
     pub version: Option<i32>,
+    /// True when this publish added a version to an already-published cart.
+    pub new_version: bool,
 }
 
 pub(crate) struct PublishMeta {
@@ -124,6 +128,28 @@ pub(crate) struct PublishMeta {
     pub changelog: String,
     pub target_cart_id: Option<String>,
     pub frames: u32,
+}
+
+/// Shared agent with timeouts — ureq's default agent has none, so a stalled
+/// Port server would hang the calling command forever.
+fn agent() -> &'static ureq::Agent {
+    static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
+    AGENT.get_or_init(|| {
+        ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(5))
+            .timeout_read(Duration::from_secs(20))
+            .timeout_write(Duration::from_secs(20))
+            .build()
+    })
+}
+
+/// Cart ids come from the server and end up in URLs and file names.
+fn is_safe_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 fn config_dir() -> Option<PathBuf> {
@@ -179,13 +205,13 @@ fn load_saved_url() -> Option<String> {
 }
 
 fn port_url() -> String {
-    if let Some(saved) = load_saved_url() {
+    if let Some(saved) = load_saved_url().and_then(|url| validate_port_url(&url).ok()) {
         return saved;
     }
     std::env::var("CAIVEN_PORT_URL")
-        .unwrap_or_else(|_| "http://localhost:8080".to_string())
-        .trim_end_matches('/')
-        .to_string()
+        .ok()
+        .and_then(|url| validate_port_url(&url).ok())
+        .unwrap_or_else(|| "http://localhost:8080".to_string())
 }
 
 fn parse_saved_token(text: &str, base: &str) -> Option<(String, String)> {
@@ -237,6 +263,41 @@ fn save_token(base: &str, username: &str, token: &str) -> Result<(), String> {
         .map_err(|error| format!("Could not save port token: {error}"))
 }
 
+fn published_file_path() -> Option<PathBuf> {
+    config_dir().map(|dir| dir.join("published_carts.json"))
+}
+
+fn published_key(base: &str, project: &Path) -> String {
+    format!("{base}|{}", project.display())
+}
+
+/// The cart id this project last published to `base`, so republishing adds a
+/// version instead of forking a new cart and splitting its ratings.
+pub(crate) fn published_cart_id(base: &str, project: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(published_file_path()?).ok()?;
+    let map: std::collections::BTreeMap<String, String> = serde_json::from_str(&text).ok()?;
+    map.get(&published_key(base, project))
+        .filter(|id| is_safe_id(id))
+        .cloned()
+}
+
+fn remember_published(base: &str, project: &Path, cart_id: &str) {
+    let Some(path) = published_file_path() else {
+        return;
+    };
+    let mut map: std::collections::BTreeMap<String, String> = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default();
+    map.insert(published_key(base, project), cart_id.to_string());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(text) = serde_json::to_string_pretty(&map) {
+        let _ = std::fs::write(path, text);
+    }
+}
+
 fn url_encode(value: &str) -> String {
     value
         .bytes()
@@ -274,10 +335,11 @@ pub(crate) fn port_session() -> PortSession {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn port_link_start(app: tauri::AppHandle) -> Result<PortLinkPending, String> {
     let base = port_url();
-    let response = ureq::post(&format!("{base}/api/v2/auth/studio-link"))
+    let response = agent()
+        .post(&format!("{base}/api/v2/auth/studio-link"))
         .send_string("")
         .map_err(error_message)?;
     let link: StudioLinkStart = serde_json::from_reader(response.into_reader())
@@ -293,13 +355,14 @@ pub(crate) fn port_link_start(app: tauri::AppHandle) -> Result<PortLinkPending, 
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn port_link_poll(
     request_id: String,
     poll_secret: String,
 ) -> Result<Option<PortSession>, String> {
     let base = port_url();
-    let response = ureq::post(&format!("{base}/api/v2/auth/studio-link/poll"))
+    let response = agent()
+        .post(&format!("{base}/api/v2/auth/studio-link/poll"))
         .set("Content-Type", "application/json")
         .send_string(
             &serde_json::json!({ "request_id": request_id, "poll_secret": poll_secret })
@@ -325,17 +388,22 @@ pub(crate) fn port_link_poll(
     }))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn port_link_cancel(request_id: String, poll_secret: String) -> Result<(), String> {
+    if !is_safe_id(&request_id) {
+        return Err("Invalid request id".to_string());
+    }
     let base = port_url();
-    ureq::post(&format!(
-        "{base}/api/v2/auth/studio-link/{request_id}/cancel"
-    ))
-    .set("Content-Type", "application/json")
-    .send_string(
-        &serde_json::json!({ "request_id": request_id, "poll_secret": poll_secret }).to_string(),
-    )
-    .map_err(error_message)?;
+    agent()
+        .post(&format!(
+            "{base}/api/v2/auth/studio-link/{request_id}/cancel"
+        ))
+        .set("Content-Type", "application/json")
+        .send_string(
+            &serde_json::json!({ "request_id": request_id, "poll_secret": poll_secret })
+                .to_string(),
+        )
+        .map_err(error_message)?;
     Ok(())
 }
 
@@ -374,7 +442,7 @@ pub(crate) fn port_set_url(url: String) -> Result<PortSession, String> {
     Ok(port_session())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn port_list_carts(
     query: String,
     sort: String,
@@ -390,11 +458,11 @@ pub(crate) fn port_list_carts(
         url.push_str("&q=");
         url.push_str(&url_encode(query.trim()));
     }
-    let response = ureq::get(&url).call().map_err(error_message)?;
+    let response = agent().get(&url).call().map_err(error_message)?;
     let mut list: PortCartListWire = serde_json::from_reader(response.into_reader())
         .map_err(|error| format!("Invalid cart list: {error}"))?;
     for cart in &mut list.carts {
-        if cart.has_screenshot {
+        if cart.has_screenshot && is_safe_id(&cart.id) {
             cart.screenshot_url = format!("{base}/api/v2/carts/{}/screenshot", cart.id);
         }
     }
@@ -407,16 +475,24 @@ pub(crate) fn port_list_carts(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn port_download(id: String, title: String) -> Result<String, String> {
+    if !is_safe_id(&id) {
+        return Err("Invalid cart id".to_string());
+    }
     let url = format!("{}/api/v2/carts/{id}/cart", port_url());
     let mut bytes = Vec::new();
-    ureq::get(&url)
+    agent()
+        .get(&url)
         .call()
         .map_err(error_message)?
         .into_reader()
+        .take(caiven_cart::MAX_CART_BYTES as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|error| error.to_string())?;
+    if bytes.len() > caiven_cart::MAX_CART_BYTES {
+        return Err("Cart is larger than the size limit".to_string());
+    }
     let safe: String = title
         .chars()
         .map(|char| {
@@ -435,7 +511,7 @@ pub(crate) fn port_download(id: String, title: String) -> Result<String, String>
     Ok(path.display().to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn studio_scan_library(path: PathBuf) -> Result<Vec<LocalCart>, String> {
     let mut carts = Vec::new();
     let entries = std::fs::read_dir(&path)
@@ -478,12 +554,25 @@ pub(crate) fn studio_scan_library(path: PathBuf) -> Result<Vec<LocalCart>, Strin
 
 pub(crate) fn publish(
     packed: &Path,
-    meta: PublishMeta,
+    project: &Path,
+    as_new: bool,
+    mut meta: PublishMeta,
     mut progress: impl FnMut(PublishProgress),
 ) -> Result<PublishResult, String> {
     let base = port_url();
     let (_, token) =
         load_token(&base).ok_or_else(|| "Log in to port before publishing".to_string())?;
+    if meta.target_cart_id.is_none() && !as_new {
+        meta.target_cart_id = published_cart_id(&base, project);
+    }
+    if meta
+        .target_cart_id
+        .as_deref()
+        .is_some_and(|id| !is_safe_id(id))
+    {
+        return Err("Invalid cart id".to_string());
+    }
+    let new_version = meta.target_cart_id.is_some();
     let cart =
         caiven_cart::load(packed).map_err(|error| format!("Packed cart invalid: {error}"))?;
     let cart_bytes = std::fs::read(packed).map_err(|error| error.to_string())?;
@@ -528,7 +617,8 @@ pub(crate) fn publish(
             ),
         ],
     );
-    let response = ureq::post(&url)
+    let response = agent()
+        .post(&url)
         .set("X-Api-Key", &token)
         .set(
             "Content-Type",
@@ -563,7 +653,8 @@ pub(crate) fn publish(
             &screenshot,
         )],
     );
-    ureq::post(&format!("{base}/api/v2/carts/{cart_id}/screenshot"))
+    agent()
+        .post(&format!("{base}/api/v2/carts/{cart_id}/screenshot"))
         .set("X-Api-Key", &token)
         .set(
             "Content-Type",
@@ -576,7 +667,9 @@ pub(crate) fn publish(
         pct: 100,
         note: "Published".into(),
     });
+    remember_published(&base, project, &cart_id);
     Ok(PublishResult {
+        new_version,
         cart_id,
         version: payload
             .get("latest_version")
@@ -588,8 +681,8 @@ pub(crate) fn publish(
 #[cfg(test)]
 mod tests {
     use super::{
-        PortCartListWire, load_saved_url, parse_saved_token, port_set_url, url_encode,
-        validate_port_url,
+        PortCartListWire, is_safe_id, load_saved_url, parse_saved_token, port_set_url,
+        published_cart_id, remember_published, url_encode, validate_port_url,
     };
     use std::sync::Mutex;
 
@@ -613,6 +706,14 @@ mod tests {
         assert_eq!(ipc["cartSize"], 4096);
         assert_eq!(ipc["hasScreenshot"], true);
         assert!(ipc.get("rating_avg").is_none());
+    }
+
+    #[test]
+    fn cart_ids_reject_path_and_query_characters() {
+        assert!(is_safe_id("abc-123_X"));
+        for bad in ["", "../x", "a/b", "a?b", "a b", &"x".repeat(65)] {
+            assert!(!is_safe_id(bad), "accepted {bad}");
+        }
     }
 
     #[test]
@@ -703,6 +804,46 @@ mod tests {
         assert_eq!(cleared.port_url, "http://localhost:8080");
         assert_eq!(load_saved_url(), None);
 
+        // SAFETY: same serialization guard as above, restoring prior state.
+        unsafe {
+            match previous_home {
+                Some(value) => std::env::set_var("HOME", value),
+                None => std::env::remove_var("HOME"),
+            }
+            match previous_appdata {
+                Some(value) => std::env::set_var("APPDATA", value),
+                None => std::env::remove_var("APPDATA"),
+            }
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn remembers_published_cart_per_server_and_project() {
+        let _guard = HOME_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "caiven-published-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let previous_home = std::env::var("HOME").ok();
+        let previous_appdata = std::env::var("APPDATA").ok();
+        // SAFETY: serialized by HOME_ENV_LOCK.
+        unsafe {
+            std::env::set_var("HOME", &dir);
+            std::env::remove_var("APPDATA");
+        }
+        let project = dir.join("game");
+        assert_eq!(published_cart_id("http://a", &project), None);
+        remember_published("http://a", &project, "cart-1");
+        assert_eq!(
+            published_cart_id("http://a", &project),
+            Some("cart-1".to_string())
+        );
+        assert_eq!(published_cart_id("http://b", &project), None);
         // SAFETY: same serialization guard as above, restoring prior state.
         unsafe {
             match previous_home {

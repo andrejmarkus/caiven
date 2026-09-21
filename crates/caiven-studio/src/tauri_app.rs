@@ -523,7 +523,7 @@ enum CoreCommand {
         name: Option<String>,
         reply: mpsc::Sender<Result<AssetBankPayload, String>>,
     },
-    PreparePublish(mpsc::Sender<Result<PathBuf, String>>),
+    PreparePublish(mpsc::Sender<Result<(PathBuf, PathBuf), String>>),
     IsDirty(mpsc::Sender<bool>),
 }
 
@@ -692,6 +692,7 @@ impl StudioCore {
             }
         }
         self.console.reset_vm();
+        self.console.vm.set_prelude_modules(template.modules)?;
         // Seed the sprite sheet so the template's first Run shows something
         // visible instead of an invisible `sprite(0, ...)` — the template's
         // own _init() still sets the palette colors these pixels reference.
@@ -721,6 +722,23 @@ impl StudioCore {
             sections: cart::default_section_layout(),
             lua_source: Some(source.to_string()),
         });
+        if !template.modules.is_empty()
+            && let Some(cart) = self.cart.as_mut()
+        {
+            let bytes = template
+                .modules
+                .join(
+                    "
+",
+                )
+                .into_bytes();
+            cart.sections.push(crate::app::cart_io::SectionLayout {
+                kind: SectionKind::PreludeModules,
+                ram_base: 0,
+                len: bytes.len(),
+                preserved_data: Some(bytes),
+            });
+        }
         let entry_source = self.source_name(0);
         self.debugger.set_dbg_path(debug_path(path), entry_source);
         self.diagnostics.clear();
@@ -786,6 +804,8 @@ impl StudioCore {
     }
 
     fn compile(&mut self) -> Result<(), String> {
+        // Roots pin the previous run's Lua values; drop them with that run.
+        self.console.vm.clear_debug_roots();
         // Every fresh compile — Run from Stopped, Reset, Step from Stopped —
         // restores the pristine asset snapshot into RAM before `_init()`
         // runs, so gameplay's mutations from a previous play session (e.g.
@@ -1568,6 +1588,7 @@ impl StudioCore {
     }
 
     fn close_project(&mut self) {
+        self.console.vm.clear_debug_roots();
         self.console.reset_vm();
         self.cart = None;
         self.sources.clear();
@@ -2205,7 +2226,12 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
         }
         CoreCommand::PreparePublish(reply) => {
             let path = cart::temp_cav_path();
-            let result = studio.export(&path).map(|()| path);
+            let project = studio.cart.as_ref().map(|cart| cart.path.clone());
+            let result = studio.export(&path).and_then(|()| {
+                project
+                    .map(|project| (path, project))
+                    .ok_or_else(|| "No cart open".to_string())
+            });
             let _ = reply.send(result);
         }
     }
@@ -2633,7 +2659,7 @@ fn studio_asset_bank(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[tauri::command]
+#[tauri::command(async)]
 fn studio_port_publish(
     app: tauri::AppHandle,
     state: State<'_, StudioBridge>,
@@ -2642,6 +2668,7 @@ fn studio_port_publish(
     tags: Vec<String>,
     changelog: String,
     target_cart_id: Option<String>,
+    as_new: Option<bool>,
     frames: u32,
 ) -> Result<crate::port_api::PublishResult, String> {
     let emit = |progress: crate::port_api::PublishProgress| {
@@ -2652,7 +2679,7 @@ fn studio_port_publish(
         pct: 5,
         note: "Packing live buffers".into(),
     });
-    let packed = state.request(CoreCommand::PreparePublish)?;
+    let (packed, project) = state.request(CoreCommand::PreparePublish)?;
     emit(crate::port_api::PublishProgress {
         step: "pack".into(),
         pct: 20,
@@ -2660,6 +2687,8 @@ fn studio_port_publish(
     });
     let result = crate::port_api::publish(
         &packed,
+        &project,
+        as_new.unwrap_or(false),
         crate::port_api::PublishMeta {
             title,
             description,

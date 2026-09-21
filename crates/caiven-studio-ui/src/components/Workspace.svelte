@@ -20,7 +20,7 @@
     moveRegion, nextMapZoom, pasteRegion, regionValues, rotateClockwise, rotateCounterClockwise,
     type CollisionBrush, type CollisionEdit, type PixelRegion,
   } from '../lib/editorMath';
-  import { emptyHistory, pushEntry, undoEntry, redoEntry, type HistoryState } from '../lib/history';
+  import { emptyHistory, pushEntry, undoEntry, redoEntry, type HistoryEntry, type HistoryState } from '../lib/history';
   import type LuaEditorModule from './LuaEditor.svelte';
   import MapCanvas from './MapCanvas.svelte';
   import SpriteCanvas, { type Pixel, type SpriteTool } from './SpriteCanvas.svelte';
@@ -596,18 +596,51 @@
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   }
 
-  function addCollisionType() {
-    const id = nextCollisionTypeId();
-    onCollisionTypes([...collisionTypes, { id, name: `type_${id}`, color: [128, 128, 128], shape: 'none' }]);
+  // Type-table edits share the map history; typing a name or dragging a color
+  // is one undo step per type, not one per keystroke.
+  let typeEditTip: { key: string; entry: HistoryEntry; prev: CollisionType[] } | null = null;
+
+  function commitCollisionTypes(
+    label: string, key: string | null, next: CollisionType[],
+    cells: { offset: number; before: number; after: number }[] = [],
+  ) {
+    const tip = typeEditTip;
+    const coalesce = key !== null && tip !== null && tip.key === key && mapHistory.undo.at(-1) === tip.entry;
+    const prev = coalesce && tip ? tip.prev : collisionTypes;
+    const entry: HistoryEntry = {
+      label,
+      undo: () => {
+        onCollisionTypes(prev);
+        if (cells.length) onCollision(cells.map(({ offset, before }) => ({ offset, value: before })));
+      },
+      redo: () => {
+        onCollisionTypes(next);
+        if (cells.length) onCollision(cells.map(({ offset, after }) => ({ offset, value: after })));
+      },
+    };
+    mapHistory = coalesce
+      ? { undo: [...mapHistory.undo.slice(0, -1), entry], redo: [] }
+      : pushEntry(mapHistory, entry);
+    typeEditTip = key !== null ? { key, entry, prev } : null;
+    onCollisionTypes(next);
+    if (cells.length) onCollision(cells.map(({ offset, after }) => ({ offset, value: after })));
   }
 
-  function updateCollisionType(id: number, patch: Partial<CollisionType>) {
-    onCollisionTypes(collisionTypes.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  function addCollisionType() {
+    const id = nextCollisionTypeId();
+    commitCollisionTypes('Add collision type', null, [...collisionTypes, { id, name: `type_${id}`, color: [128, 128, 128], shape: 'none' }]);
+  }
+
+  function updateCollisionType(id: number, patch: Partial<CollisionType>, field = 'edit') {
+    commitCollisionTypes('Edit collision type', `${id}:${field}`, collisionTypes.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   }
 
   function removeCollisionType(id: number) {
     if (isBuiltinCollisionType(id)) return;
-    onCollisionTypes(collisionTypes.filter((t) => t.id !== id));
+    // Cells still pointing at a deleted type would silently become non-solid.
+    const cells: { offset: number; before: number; after: number }[] = [];
+    collision.forEach((value, offset) => { if (value === id) cells.push({ offset, before: id, after: 0 }); });
+    commitCollisionTypes('Remove collision type', null, collisionTypes.filter((t) => t.id !== id), cells);
     if (collisionBrush === id) collisionBrush = 0;
   }
 
@@ -1802,13 +1835,13 @@
                   type="color"
                   aria-label={`${ctype.name} color`}
                   value={rgbToHex(ctype.color)}
-                  oninput={(event) => updateCollisionType(ctype.id, { color: hexToRgb((event.target as HTMLInputElement).value) })}
+                  oninput={(event) => updateCollisionType(ctype.id, { color: hexToRgb((event.target as HTMLInputElement).value) }, 'color')}
                 /></span>
                 <input
                   class="collision-types-name"
                   value={ctype.name}
                   disabled={isBuiltinCollisionType(ctype.id)}
-                  oninput={(event) => updateCollisionType(ctype.id, { name: (event.target as HTMLInputElement).value })}
+                  oninput={(event) => updateCollisionType(ctype.id, { name: (event.target as HTMLInputElement).value }, 'name')}
                 />
                 <div class="collision-types-shape" role="radiogroup" aria-label={`${ctype.name} shape`}>
                   {#each [['none', 'None'], ['solid', 'Solid'], ['one_way', 'One-way'], ['slope_left', 'Slope L'], ['slope_right', 'Slope R']] as [value, label] (value)}
@@ -1819,7 +1852,7 @@
                         value={value}
                         checked={ctype.shape === value}
                         disabled={isBuiltinCollisionType(ctype.id)}
-                        onchange={() => updateCollisionType(ctype.id, { shape: value as CollisionShape })}
+                        onchange={() => updateCollisionType(ctype.id, { shape: value as CollisionShape }, 'shape')}
                       />{label}
                     </label>
                   {/each}

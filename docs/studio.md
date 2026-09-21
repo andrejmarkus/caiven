@@ -61,3 +61,18 @@ files are readable and writable only by your user.
 
 `CAIVEN_PORT_API_KEY` applies to `CAIVEN_PORT_URL` (or localhost when that URL is
 unset); it is not forwarded to a different server selected in Studio.
+
+## Debugger
+
+A breakpoint aborts the running `_update` at that line, so state changes made
+earlier in the same frame stay applied. Resuming runs `_update` again from the
+top, which means code above the breakpoint executes twice for that frame.
+Watches read plain globals and table fields only; they never call `__index`
+or any other cart code.
+
+## Publishing
+
+Studio remembers the Port cart each project last published to, per server.
+Publishing again adds a version to that cart, keeping its ratings and
+downloads together; tick "Publish as a new cart" in the dialog to fork instead.
+`caiven-studio publish --cart-id <id>` does the same from the command line.

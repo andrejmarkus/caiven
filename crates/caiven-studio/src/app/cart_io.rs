@@ -264,27 +264,46 @@ fn zip_dir(dir: &Path, dest: &Path) -> Result<()> {
     let mut writer = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
+    zip_dir_into(&mut writer, dir, dir, options)?;
+    writer.finish().context("failed to finalize zip")?;
+    Ok(())
+}
 
-    let entries = std::fs::read_dir(dir)
-        .with_context(|| format!("failed to read project dir {}", dir.display()))?;
-    for entry in entries {
-        let entry = entry.with_context(|| format!("failed to read entry in {}", dir.display()))?;
-        let path = entry.path();
-        if !path.is_file() {
+/// Adds every file under `current` with a `/`-separated path relative to
+/// `root`, so nested modules (`ui/panel.lua`) survive the export.
+fn zip_dir_into(
+    writer: &mut zip::ZipWriter<std::fs::File>,
+    root: &Path,
+    current: &Path,
+    options: zip::write::SimpleFileOptions,
+) -> Result<()> {
+    let entries = std::fs::read_dir(current)
+        .with_context(|| format!("failed to read project dir {}", current.display()))?;
+    let mut paths: Vec<PathBuf> = entries
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .collect();
+    paths.sort();
+    for path in paths {
+        if path.is_dir() {
+            zip_dir_into(writer, root, &path, options)?;
             continue;
         }
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        let Ok(relative) = path.strip_prefix(root) else {
             continue;
         };
+        let name = relative
+            .components()
+            .map(|part| part.as_os_str().to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join("/");
         writer
-            .start_file(name, options)
+            .start_file(&name, options)
             .with_context(|| format!("failed to add {name} to zip"))?;
         let bytes =
             std::fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
-        std::io::Write::write_all(&mut writer, &bytes)
+        std::io::Write::write_all(writer, &bytes)
             .with_context(|| format!("failed to write {name} to zip"))?;
     }
-    writer.finish().context("failed to finalize zip")?;
     Ok(())
 }
 
@@ -425,5 +444,22 @@ mod tests {
 
         std::fs::remove_file(&cav_path).ok();
         std::fs::remove_file(&export_path).ok();
+    }
+
+    #[test]
+    fn zip_export_includes_nested_module_directories() {
+        let root = temp_path("zip-src").with_extension("");
+        std::fs::create_dir_all(root.join("ui")).unwrap();
+        std::fs::write(root.join("main.lua"), "return 1").unwrap();
+        std::fs::write(root.join("ui").join("panel.lua"), "return 2").unwrap();
+        let dest = temp_path("zip-out").with_extension("zip");
+        zip_dir(&root, &dest).unwrap();
+        let mut archive = zip::ZipArchive::new(std::fs::File::open(&dest).unwrap()).unwrap();
+        let mut names: Vec<String> = archive.file_names().map(str::to_string).collect();
+        names.sort();
+        assert_eq!(names, ["main.lua", "ui/panel.lua"]);
+        assert!(archive.by_name("ui/panel.lua").is_ok());
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_file(&dest).ok();
     }
 }

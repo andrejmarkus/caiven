@@ -37,7 +37,7 @@
     publishProgress: PublishProgress | null;
     publishError: string;
     publishDone: string;
-    onStartPublish: (changelog: string) => void;
+    onStartPublish: (changelog: string, asNew: boolean) => void;
     onLinkPort: () => void;
     onTourDone: () => void;
     onOpenProject: () => void;
@@ -71,6 +71,7 @@
   let listeningForButton = $state<number | null>(null);
   let query = $state('');
   let changelog = $state('');
+  let publishAsNew = $state(false);
   let tourStep = $state(0);
   let tourWasOpen = $state(false);
   let tourLayout = $state('');
@@ -99,7 +100,9 @@
   const publishSteps = ['pack', 'cover', 'upload', 'notify'] as const;
   const currentStep = $derived(publishProgress ? publishSteps.indexOf(publishProgress.step) : -1);
 
-  const commands = $derived([
+  const matchesQuery = (command: { name: string; detail: string }) => `${command.name} ${command.detail}`.toLowerCase().includes(query.toLowerCase());
+
+  const commandsBase = $derived([
     { group: 'Suggested', name: running ? 'Pause cart' : 'Run cart', detail: 'compile and start', keys: '⌘R', icon: Play, action: onRun },
     ...(canUndo ? [{ group: 'Suggested', name: 'Undo', detail: 'active editor', keys: '⌘Z', icon: Undo2, action: onUndo }] : []),
     ...(canRedo ? [{ group: 'Suggested', name: 'Redo', detail: 'active editor', keys: '⇧⌘Z', icon: Redo2, action: onRedo }] : []),
@@ -115,8 +118,14 @@
     { group: 'Go to', name: 'Sprites', detail: '', keys: 'F2', icon: Image, screen: 'sprites' as Screen },
     { group: 'Go to', name: 'Map', detail: '', keys: 'F3', icon: Layers, screen: 'map' as Screen },
     { group: 'Go to', name: 'main.lua', detail: title, keys: '', icon: ChevronsLeftRight, screen: 'code' as Screen },
-    ...api.slice(0, 12).map((entry) => ({ group: 'Insert a builtin', name: entry.name, detail: entry.params.map((param) => param.name).join(', '), keys: '', icon: ChevronsLeftRight, action: () => onInsertBuiltin(entry.name) })),
-  ].filter((command) => `${command.name} ${command.detail}`.toLowerCase().includes(query.toLowerCase())));
+  ].filter(matchesQuery));
+
+  // Filter the whole API first, then cap: slicing first hid every builtin past the 12th from search.
+  const builtinCommands = $derived(api
+    .map((entry) => ({ group: 'Insert a builtin', name: entry.name, detail: entry.params.map((param) => param.name).join(', '), keys: '', icon: ChevronsLeftRight, screen: undefined as Screen | undefined, action: () => onInsertBuiltin(entry.name) }))
+    .filter(matchesQuery)
+    .slice(0, 12));
+  const commands = $derived([...commandsBase, ...builtinCommands]);
 
   function activate(command: typeof commands[number]) {
     onClose();
@@ -139,6 +148,18 @@
     onRebindButton(listeningForButton, event.key);
     listeningForButton = null;
   }
+
+  // The dialog is portalled out of the backdrop, so its keydown never bubbles
+  // there; listen on the window (capture) while a rebind is pending.
+  $effect(() => {
+    if (listeningForButton === null) return;
+    const handler = (event: KeyboardEvent) => {
+      event.stopPropagation();
+      captureKeymapKey(event);
+    };
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  });
 
   function keyLabel(key: string): string {
     return key === ' ' ? 'Space' : key.length === 1 ? key.toUpperCase() : key.replace('Arrow', '');
@@ -283,7 +304,6 @@
     transition:fade={{ duration: 120 }}
     onclick={(event) => { if (event.currentTarget === event.target) onClose(); }}
     onkeydown={(event) => {
-      if (listeningForButton !== null) { captureKeymapKey(event); return; }
       if (event.key === 'Escape') onClose();
     }}
   >
@@ -384,7 +404,7 @@
           <div>{#each Array(64) as _,p}<i style={`background:${palette[(p * 7 + 3) % 16]}`}></i>{/each}</div>
           <span><strong>{title}</strong><small>by {portAccount.authenticated ? portAccount.username : author}</small><code>{meta.tags.join(' · ') || 'untagged'}</code></span>
         </div>
-        {#if !publishProgress && !publishDone}<label class="publish-changelog">Changelog<Input bind:value={changelog} placeholder="What changed?" /></label>{/if}
+        {#if !publishProgress && !publishDone}<label class="publish-changelog">Changelog<Input bind:value={changelog} placeholder="What changed?" /></label><label class="publish-as-new"><input type="checkbox" bind:checked={publishAsNew} /> Publish as a new cart (default adds a version to this project's existing cart)</label>{/if}
         <Progress class="publish-progress" value={publishProgress?.pct ?? (publishDone ? 100 : 0)} />
         <div class="publish-steps">
           {#each [['Pack cartridge','live buffers'],['Capture cover','30 frames'],['Upload to port','cartridge + PNG'],['Notify followers','server-side']] as row, index}
@@ -393,7 +413,7 @@
             </div>
           {/each}
         </div>
-        <footer><Button variant="outline" onclick={onClose}>{publishProgress && !publishDone ? 'Keep working' : 'Close'}</Button>{#if !publishProgress && !publishDone}{#if portAccount.authenticated}<Button onclick={() => onStartPublish(changelog)}>Publish</Button>{:else}<Button onclick={onLinkPort}>Open Account</Button>{/if}{/if}</footer>
+        <footer><Button variant="outline" onclick={onClose}>{publishProgress && !publishDone ? 'Keep working' : 'Close'}</Button>{#if !publishProgress && !publishDone}{#if portAccount.authenticated}<Button onclick={() => onStartPublish(changelog, publishAsNew)}>Publish</Button>{:else}<Button onclick={onLinkPort}>Open Account</Button>{/if}{/if}</footer>
       </section>
       </Dialog.Content>
       </Dialog.Root>

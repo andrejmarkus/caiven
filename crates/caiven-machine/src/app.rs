@@ -172,7 +172,7 @@ impl App {
             .flat_map(|c| c.to_rgb())
             .collect();
         let path = save_state::save_path(dir, id);
-        std::fs::write(&path, save_state::encode(ram, &palette))
+        save_data_io::write_atomic(&path, &save_state::encode(ram, &palette))
             .with_context(|| format!("failed to write {}", path.display()))
     }
 
@@ -982,7 +982,7 @@ pub fn run() -> Result<()> {
             if let Some(id) = &app.cart_id {
                 let _ = std::fs::create_dir_all(&dir);
                 let path = save_data_io::save_data_path(&dir, id);
-                if std::fs::write(&path, app.core.vm.save_data().encode()).is_ok() {
+                if save_data_io::write_atomic(&path, &app.core.vm.save_data().encode()).is_ok() {
                     app.core.vm.save_data_mut().clear_dirty();
                 }
             }

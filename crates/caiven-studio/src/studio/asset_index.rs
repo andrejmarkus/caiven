@@ -1,5 +1,8 @@
+use caiven_core::memory::{MUSIC_PATTERN_COUNT, MUSIC_PATTERN_DATA_LEN};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
+
+const MUSIC_PATTERN_BYTES: usize = MUSIC_PATTERN_DATA_LEN / MUSIC_PATTERN_COUNT;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -115,7 +118,8 @@ pub fn build(
     }
 
     let mut map_sprites = BTreeSet::new();
-    for &tile in map {
+    // Tile 0 is the empty cell, not a use of sprite 0.
+    for &tile in map.iter().filter(|&&tile| tile != 0) {
         map_sprites.insert(tile as usize);
     }
     for sprite in map_sprites {
@@ -129,7 +133,8 @@ pub fn build(
             });
     }
 
-    for (pattern, bytes) in music.chunks(32).enumerate() {
+    let pattern_data = &music[..music.len().min(MUSIC_PATTERN_DATA_LEN)];
+    for (pattern, bytes) in pattern_data.chunks(MUSIC_PATTERN_BYTES).enumerate() {
         for &value in bytes {
             if value > 0 && value <= 16 {
                 refs.entry(("sfx".to_string(), (value - 1) as usize))
@@ -145,7 +150,8 @@ pub fn build(
     }
 
     let mut color_counts = [0usize; 16];
-    for &color in sprite_sheet {
+    // Color 0 is transparent in sprites, so it is not a use of palette slot 0.
+    for &color in sprite_sheet.iter().filter(|&&color| color != 0) {
         if let Some(count) = color_counts.get_mut(color as usize) {
             *count += 1;
         }
@@ -166,7 +172,14 @@ pub fn build(
     let mut entries = Vec::with_capacity(296);
     add_entries(&mut entries, &mut refs, "sprite", 256, 64, sprite_sheet);
     add_entries(&mut entries, &mut refs, "sfx", 16, 64, sfx);
-    add_entries(&mut entries, &mut refs, "music", 8, 32, music);
+    add_entries(
+        &mut entries,
+        &mut refs,
+        "music",
+        MUSIC_PATTERN_COUNT,
+        MUSIC_PATTERN_BYTES,
+        music,
+    );
     add_entries(&mut entries, &mut refs, "color", 16, 3, palette);
 
     AssetIndex {
@@ -213,8 +226,9 @@ mod tests {
         sprites[7 * 64] = 1;
         let map = vec![7, 9];
         let sfx = vec![0; 16 * 64];
-        let mut music = vec![0; 8 * 32];
+        let mut music = vec![0; 8 * 64];
         music[2] = 4;
+        music[64 + 2] = 5;
         let palette = vec![0; 48];
 
         let index = build(&sources, &sprites, &map, &sfx, &music, &palette);
@@ -227,6 +241,26 @@ mod tests {
         assert!(sprite.nonzero);
         assert_eq!(sprite.refs.len(), 2);
         assert_eq!(index.computed_refs, 1);
+        let refs_music = |sfx_id: usize, label: &str| {
+            index.entries.iter().any(|entry| {
+                entry.kind == "sfx"
+                    && entry.id == sfx_id
+                    && entry.refs.iter().any(|reference| reference.label == label)
+            })
+        };
+        assert!(
+            refs_music(4, "music 01"),
+            "second pattern starts at byte 64"
+        );
+        let sprite_zero = index
+            .entries
+            .iter()
+            .find(|entry| entry.kind == "sprite" && entry.id == 0)
+            .unwrap();
+        assert!(
+            !sprite_zero.used,
+            "empty map cells are not uses of sprite 0"
+        );
         assert!(index.entries.iter().any(|entry| {
             entry.kind == "sfx"
                 && entry.id == 3

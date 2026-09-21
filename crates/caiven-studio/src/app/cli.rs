@@ -91,6 +91,12 @@ enum Command {
         /// Comma-separated tags
         #[arg(long, default_value = "")]
         tags: String,
+        /// Publish as a new version of this existing cart instead of a new cart
+        #[arg(long)]
+        cart_id: Option<String>,
+        /// Changelog for a new version (with --cart-id)
+        #[arg(long, default_value = "")]
+        changelog: String,
         /// Frames to run before capturing screenshot
         #[arg(long, default_value_t = 30)]
         frames: u32,
@@ -108,6 +114,8 @@ struct PublishArgs<'a> {
     author: Option<&'a str>,
     description: &'a str,
     tags: &'a str,
+    cart_id: Option<&'a str>,
+    changelog: &'a str,
     frames: u32,
     no_screenshot: bool,
 }
@@ -121,6 +129,8 @@ fn publish_cart(args: PublishArgs) -> Result<()> {
         author,
         description,
         tags,
+        cart_id,
+        changelog,
         frames,
         no_screenshot,
     } = args;
@@ -141,12 +151,23 @@ fn publish_cart(args: PublishArgs) -> Result<()> {
         .filter(|s| !s.is_empty())
         .collect();
 
-    let meta_str = serde_json::json!({
-        "title": title,
-        "author": author,
-        "description": description,
-        "tags": tags_vec,
-    })
+    if let Some(id) = cart_id
+        && (id.is_empty()
+            || !id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+    {
+        anyhow::bail!("--cart-id must be a Port cart id");
+    }
+    let meta_str = match cart_id {
+        Some(_) => serde_json::json!({ "changelog": changelog }),
+        None => serde_json::json!({
+            "title": title,
+            "author": author,
+            "description": description,
+            "tags": tags_vec,
+        }),
+    }
     .to_string();
 
     let cart_bytes = std::fs::read(cart_path)
@@ -172,7 +193,10 @@ fn publish_cart(args: PublishArgs) -> Result<()> {
     );
 
     let content_type = format!("multipart/form-data; boundary={boundary}");
-    let upload_url = format!("{port_url}/api/carts");
+    let upload_url = match cart_id {
+        Some(id) => format!("{port_url}/api/v2/carts/{id}/versions"),
+        None => format!("{port_url}/api/v2/carts"),
+    };
 
     let response = ureq::post(&upload_url)
         .set("X-Api-Key", api_key)
@@ -180,16 +204,19 @@ fn publish_cart(args: PublishArgs) -> Result<()> {
         .send_bytes(&body)
         .context("failed to upload cart")?;
 
-    let cart_id: String = {
-        let val: serde_json::Value = serde_json::from_reader(response.into_reader())
-            .context("failed to parse upload response")?;
-        val["id"]
-            .as_str()
-            .context("upload response missing 'id'")?
-            .to_string()
+    let cart_id: String = match cart_id {
+        Some(id) => id.to_string(),
+        None => {
+            let val: serde_json::Value = serde_json::from_reader(response.into_reader())
+                .context("failed to parse upload response")?;
+            val["id"]
+                .as_str()
+                .context("upload response missing 'id'")?
+                .to_string()
+        }
     };
 
-    println!("published: {port_url}/api/carts/{cart_id}");
+    println!("published: {port_url}/api/v2/carts/{cart_id}");
 
     if !no_screenshot {
         let config = VmConfig::default();
@@ -206,7 +233,7 @@ fn publish_cart(args: PublishArgs) -> Result<()> {
             )],
         );
         let ct2 = format!("multipart/form-data; boundary={boundary2}");
-        let screenshot_url = format!("{port_url}/api/carts/{cart_id}/screenshot");
+        let screenshot_url = format!("{port_url}/api/v2/carts/{cart_id}/screenshot");
 
         ureq::post(&screenshot_url)
             .set("X-Api-Key", api_key)
@@ -305,6 +332,8 @@ pub fn run() -> Result<()> {
             author,
             description,
             tags,
+            cart_id,
+            changelog,
             frames,
             no_screenshot,
         }) => {
@@ -337,6 +366,8 @@ pub fn run() -> Result<()> {
                 author: author.as_deref(),
                 description,
                 tags,
+                cart_id: cart_id.as_deref(),
+                changelog,
                 frames: *frames,
                 no_screenshot: *no_screenshot,
             });

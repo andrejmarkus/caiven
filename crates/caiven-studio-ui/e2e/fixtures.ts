@@ -280,7 +280,7 @@ function installBridge() {
     if (command === 'port_set_url') { port = { authenticated: false, username: '', portUrl: String(args.url) }; return port; }
     if (command === 'port_list_carts') return { carts: [{ id: 'cart-1', title: 'Moon', author: 'maker', description: 'Demo', tags: ['arcade'], downloads: 4, owner: null, ratingAvg: 5, ratingCount: 1, latestVersion: 2, cartSize: 2048, hasScreenshot: false, screenshotUrl: '' }], total: 1, page: 0, perPage: 20, portUrl: port.portUrl };
     if (command === 'port_download') return '/downloads/moon';
-    if (command === 'studio_port_publish') { emit('publish:progress', { step: 'upload', pct: 75, note: 'Uploading' }); return { cartId: 'cart-1', version: 3 }; }
+    if (command === 'studio_port_publish') { emit('publish:progress', { step: 'upload', pct: 75, note: 'Uploading' }); return { cartId: 'cart-1', version: 3, newVersion: false }; }
     throw new Error(`Unexpected IPC command: ${command}`);
   }
 

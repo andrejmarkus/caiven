@@ -2641,11 +2641,13 @@ impl Vm {
         let mut value: mlua::Value = script
             .lua
             .globals()
-            .get(parts[0])
+            .raw_get(parts[0])
             .map_err(|error| error.to_string())?;
         for part in &parts[1..] {
             value = match value {
-                mlua::Value::Table(table) => table.get(*part).map_err(|error| error.to_string())?,
+                mlua::Value::Table(table) => {
+                    table.raw_get(*part).map_err(|error| error.to_string())?
+                }
                 _ => return Err(format!("{} is not a table", expression)),
             };
         }
@@ -2662,6 +2664,21 @@ mod watch_tests {
     use crate::input::Input;
     use crate::rendering::font::Font;
     use crate::{Vm, VmConfig};
+
+    #[test]
+    fn watch_does_not_fire_index_metamethods() {
+        let mut vm = Vm::new(VmConfig::default());
+        vm.load_lua_source(
+            "hits = 0
+player = setmetatable({}, { __index = function(_, k) hits = hits + 1 return 1 end })
+function _update() end",
+            &Input::new(),
+            &Font::empty(),
+        )
+        .expect("watch fixture should load");
+        assert!(vm.lua_watch("player.missing").is_err());
+        assert_eq!(vm.lua_watch("hits").map(|v| v.text), Ok("0".to_string()));
+    }
 
     #[test]
     fn dotted_watch_reads_without_executing_code() {

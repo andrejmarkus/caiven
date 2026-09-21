@@ -727,7 +727,7 @@
     catch (error) { portError = error instanceof Error ? error.message : String(error); }
   }
 
-  async function doPublish(changelog: string) {
+  async function doPublish(changelog: string, asNew: boolean) {
     publishError = '';
     publishDone = '';
     publishProgress = { step: 'pack', pct: 0, note: 'Starting' };
@@ -736,9 +736,9 @@
       await Promise.all(studio.sources.filter((source) => source.dirty).map((source) => writeBuffer(source.path, source.text)));
       const result = await portPublish({
         title: studio.title, description: studio.meta.description,
-        tags: studio.meta.tags, changelog,
+        tags: studio.meta.tags, changelog, asNew,
       });
-      publishDone = `${result.cartId}${result.version ? ` · v${result.version}` : ''}`;
+      publishDone = `${result.cartId}${result.version ? ` · v${result.version}` : ''}${result.newVersion ? ' · new version of your existing cart' : ''}`;
     } catch (error) { publishError = error instanceof Error ? error.message : String(error); }
   }
 
@@ -932,7 +932,7 @@
   }
 
   function releaseInputs() {
-    for (let button = 0; button < 6; button += 1) void setInput(button, false);
+    for (let button = 0; button < 7; button += 1) void setInput(button, false);
     heldButtons = [];
   }
 
@@ -1243,7 +1243,7 @@
     {publishProgress}
     {publishError}
     {publishDone}
-    onStartPublish={(changelog) => void doPublish(changelog)}
+    onStartPublish={(changelog, asNew) => void doPublish(changelog, asNew)}
     onLinkPort={openPortAccount}
     onTourDone={() => { localStorage.setItem('caiven-studio-tour-complete', '1'); tourDone = true; }}
     onOpenProject={() => void doOpen()}

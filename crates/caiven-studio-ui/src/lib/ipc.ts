@@ -498,11 +498,12 @@ export async function scanLibrary(path: string): Promise<LocalCart[]> {
 
 export async function portPublish(input: {
   title: string; description: string; tags: string[];
-  changelog: string; targetCartId?: string; frames?: number;
+  changelog: string; targetCartId?: string; asNew?: boolean; frames?: number;
 }): Promise<PublishResult> {
   return invoke<PublishResult>('studio_port_publish', {
     ...input,
     targetCartId: input.targetCartId ?? null,
+    asNew: input.asNew ?? false,
     frames: input.frames ?? 30,
   });
 }
