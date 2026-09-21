@@ -1,4 +1,4 @@
-Scenes = { stack = {} }
+Scenes = Scenes or { stack = {} }
 
 function Scenes.push(scene)
   if scene.enter then scene.enter(scene) end

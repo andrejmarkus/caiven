@@ -1,4 +1,4 @@
-Particles = { list = {} }
+Particles = Particles or { list = {} }
 
 function Particles.spawn(x, y, vx, vy, color, life)
   table.insert(Particles.list, { x = x, y = y, vx = vx, vy = vy, color = color, life = life, age = 0 })

@@ -738,57 +738,52 @@ fn is_reload_join_candidate(name: &str, active_prelude_names: &[&str]) -> bool {
     matches!(name, "_init" | "_update" | "_draw") || !STDLIB_NAMES.contains(&name)
 }
 
-/// Rebinds `new_fn`'s upvalues onto `old_fn`'s upvalue cells wherever the
-/// names match, via raw `lua_upvaluejoin` — this is what makes a chunk-scope
-/// `local` variable survive [`Vm::hot_reload_lua_source`] instead of
-/// resetting to its initializer: after this call, `new_fn` reads and writes
-/// the exact same storage `old_fn` did, for every upvalue name they share.
-/// mlua doesn't expose upvalue introspection/joining at the safe API level
-/// (the `debug` stdlib isn't loaded — it's flagged unsafe — and isn't
-/// available to call from Lua either), so this drops to the raw C API mlua
-/// re-exports as `mlua::ffi`, scoped via `Lua::exec_raw` so the stack is
-/// restored regardless of outcome.
+/// Rebinds `new_fn`'s non-function upvalues onto `old_fn`'s cells wherever the
+/// names match, via raw `lua_upvaluejoin`, so chunk-scope `local` state survives
+/// [`Vm::hot_reload_lua_source`]. Function-valued upvalues are not joined (the
+/// edited body must win); instead their own upvalues are joined recursively, so
+/// state stays one cell between `_update` and the helpers it calls.
+/// `mlua` has no safe upvalue-join API, hence the raw `mlua::ffi` calls.
 fn join_matching_upvalues(
     lua: &Lua,
     old_fn: &mlua::Function,
     new_fn: &mlua::Function,
 ) -> mlua::Result<()> {
-    use std::ffi::CStr;
-    use std::os::raw::c_int;
+    let mut seen = std::collections::HashSet::new();
+    join_upvalues_rec(lua, old_fn, new_fn, &mut seen)
+}
 
-    unsafe {
-        lua.exec_raw::<()>((old_fn.clone(), new_fn.clone()), |state| {
-            // Args land at stack indices 1 (old_fn) and 2 (new_fn), per
-            // `exec_raw`'s contract.
-            let mut old_names = Vec::new();
-            let mut i: c_int = 1;
-            loop {
-                let name = mlua::ffi::lua_getupvalue(state, 1, i);
-                if name.is_null() {
-                    break;
-                }
-                mlua::ffi::lua_pop(state, 1);
-                old_names.push((i, CStr::from_ptr(name).to_string_lossy().into_owned()));
-                i += 1;
-            }
-
-            let mut j: c_int = 1;
-            loop {
-                let name = mlua::ffi::lua_getupvalue(state, 2, j);
-                if name.is_null() {
-                    break;
-                }
-                mlua::ffi::lua_pop(state, 1);
-                let new_name = CStr::from_ptr(name).to_string_lossy().into_owned();
-                if let Some((old_index, _)) =
-                    old_names.iter().find(|(_, old_name)| *old_name == new_name)
-                {
-                    mlua::ffi::lua_upvaluejoin(state, 2, j, 1, *old_index);
-                }
-                j += 1;
-            }
-        })
+fn join_upvalues_rec(
+    lua: &Lua,
+    old_fn: &mlua::Function,
+    new_fn: &mlua::Function,
+    seen: &mut std::collections::HashSet<*const std::ffi::c_void>,
+) -> mlua::Result<()> {
+    if !seen.insert(new_fn.to_pointer()) {
+        return Ok(());
     }
+    let old_ups = list_function_upvalues_indexed(lua, old_fn);
+    let new_ups = list_function_upvalues_indexed(lua, new_fn);
+    for (new_index, name, new_value) in &new_ups {
+        let Some((old_index, _, old_value)) = old_ups.iter().find(|(_, n, _)| n == name) else {
+            continue;
+        };
+        match (new_value, old_value) {
+            (mlua::Value::Function(new_child), mlua::Value::Function(old_child)) => {
+                join_upvalues_rec(lua, old_child, new_child, seen)?;
+            }
+            (mlua::Value::Function(_), _) | (_, mlua::Value::Function(_)) => {}
+            _ => {
+                let (new_index, old_index) = (*new_index, *old_index);
+                unsafe {
+                    lua.exec_raw::<()>((old_fn.clone(), new_fn.clone()), move |state| {
+                        mlua::ffi::lua_upvaluejoin(state, 2, new_index, 1, old_index);
+                    })?;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Lists a function's upvalues by name with their current values, for the
@@ -802,6 +797,16 @@ fn join_matching_upvalues(
 /// locals. Unknown-index fetches are skipped rather than erroring; this is
 /// a best-effort debugger view, not a correctness-critical path.
 fn list_function_upvalues(lua: &Lua, function: &mlua::Function) -> Vec<(String, mlua::Value)> {
+    list_function_upvalues_indexed(lua, function)
+        .into_iter()
+        .map(|(_, name, value)| (name, value))
+        .collect()
+}
+
+fn list_function_upvalues_indexed(
+    lua: &Lua,
+    function: &mlua::Function,
+) -> Vec<(std::os::raw::c_int, String, mlua::Value)> {
     use std::ffi::CStr;
     use std::os::raw::c_int;
 
@@ -835,7 +840,7 @@ fn list_function_upvalues(lua: &Lua, function: &mlua::Function) -> Vec<(String, 
                     mlua::ffi::lua_remove(state, 1);
                 })
             };
-            value.ok().map(|value| (name, value))
+            value.ok().map(|value| (i, name, value))
         })
         .collect()
 }
@@ -2460,7 +2465,8 @@ impl Vm {
     /// executes on the *same* live `Lua` instance (upvalues cannot be joined
     /// across two separate `Lua` states), and for every script-defined
     /// function whose name exists both before and after the reload, the new
-    /// closure's upvalues are rebound (matched by name) onto the old
+    /// closure's non-function upvalues are rebound (matched by name, recursing
+    /// through function-valued ones so edited helpers stay live) onto the old
     /// closure's upvalue cells via `lua_upvaluejoin`, so `_update`/`_draw` —
     /// looked up fresh from globals every frame — pick up the preserved state
     /// on the very next frame. Unmatched names (renamed/removed/new
@@ -3001,5 +3007,68 @@ function get_score() return score end
             4,
             "old _update must still be callable after a failed reload"
         );
+    }
+
+    fn eval_i64(vm: &Vm, expr: &str) -> i64 {
+        vm.script
+            .as_ref()
+            .expect("script should be loaded")
+            .lua
+            .load(format!("return {expr}"))
+            .eval::<i64>()
+            .expect("expression should evaluate")
+    }
+
+    #[test]
+    fn edited_local_function_body_takes_effect_and_state_stays_shared() {
+        let input = Input::new();
+        let font = Font::empty();
+        let mut vm = Vm::new(VmConfig::default());
+        let src = |step: i32| {
+            format!(
+                "local score = 0
+local function bump() score = score + {step} end
+                 function _update() bump() end
+function get_score() return score end
+"
+            )
+        };
+        vm.load_lua_source(&src(1), &input, &font)
+            .expect("chunk A should load");
+        vm.run_frame_lua(&input, &font);
+        vm.run_frame_lua(&input, &font);
+        assert_eq!(get_score(&vm), 2);
+
+        vm.hot_reload_lua_source(&src(10), &input, &font)
+            .expect("reload should succeed");
+        assert_eq!(get_score(&vm), 2, "state survives");
+        vm.run_frame_lua(&input, &font);
+        assert_eq!(get_score(&vm), 12, "edited helper body is live");
+    }
+
+    #[test]
+    fn prelude_state_and_metatables_survive_reload() {
+        let input = Input::new();
+        let font = Font::empty();
+        let mut vm = Vm::new(VmConfig::default());
+        let src = "function _update() end";
+        vm.set_prelude_modules(&["vec2", "particles", "scenes", "entities", "camera"])
+            .expect("modules should exist");
+        vm.load_lua_source(src, &input, &font)
+            .expect("chunk should load");
+        let lua = &vm.script.as_ref().expect("script").lua;
+        lua.load(
+            "Scenes.push({}) Particles.spawn(1, 1, 0, 0, 1, 99) Camera.x = 7              Entities.add({}) held = Vec2.new(1, 2)",
+        )
+        .exec()
+        .expect("setup should run");
+
+        vm.hot_reload_lua_source(src, &input, &font)
+            .expect("reload should succeed");
+        assert_eq!(eval_i64(&vm, "#Scenes.stack"), 1);
+        assert_eq!(eval_i64(&vm, "Particles.count()"), 1);
+        assert_eq!(eval_i64(&vm, "Camera.x"), 7);
+        assert_eq!(eval_i64(&vm, "Entities.count()"), 1);
+        assert_eq!(eval_i64(&vm, "(held + Vec2.new(1, 1)).x"), 2);
     }
 }

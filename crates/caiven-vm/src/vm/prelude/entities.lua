@@ -53,5 +53,5 @@ local function make_entity_list()
   return self
 end
 
-Entities = make_entity_list()
+Entities = Entities or make_entity_list()
 Entities.new = make_entity_list

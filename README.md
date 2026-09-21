@@ -21,7 +21,7 @@ independently, so check both:
 Install like any normal app and launch **Caiven Studio**, or unpack **Caiven Machine** and run:
 
 ```bash
-./caiven-machine my-game/    # project dir, hot-reloads with Ctrl+R
+./caiven-machine my-game/    # project dir, Ctrl+R restarts the cart
 ./caiven-machine game.cav    # distribution cartridge
 ```
 

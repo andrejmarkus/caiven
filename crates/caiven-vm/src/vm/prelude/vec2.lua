@@ -1,4 +1,4 @@
-Vec2 = {}
+Vec2 = Vec2 or {}
 Vec2.__index = Vec2
 
 local function is_vec2(v)
@@ -68,7 +68,7 @@ function Vec2:distance(other)
   return (self - other):length()
 end
 
-Sprite = {}
+Sprite = Sprite or {}
 Sprite.__index = Sprite
 
 function Sprite.new(opts)

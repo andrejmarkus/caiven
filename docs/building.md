@@ -53,7 +53,7 @@ cargo run -p caiven-studio -- [command]
 To just run a cart (no editor), use `caiven-machine`:
 
 ```bash
-cargo run -p caiven-machine -- my-game/    # project dir, hot-reloads with Ctrl+R
+cargo run -p caiven-machine -- my-game/    # project dir, Ctrl+R restarts the cart
 cargo run -p caiven-machine -- game.cav    # distribution cartridge
 ```
 
@@ -82,7 +82,7 @@ Cargo workspace with eight Rust crates and two frontend packages:
 | `crates/caiven-studio`    | Tauri shell, VM actor, Studio IPC, and CLI (`build`/`unpack`/`inspect`/`publish`)                                                              |
 | `crates/caiven-studio-ui` | Svelte 5 + Vite Studio frontend shared with Port brand tokens                                                                                  |
 | `crates/caiven-ui`        | Shared Svelte components and theme consumed by Studio and Port                                                                                 |
-| `crates/caiven-machine`   | Standalone cart runner (run mode: project dir or `.cav`, no editor/port; `Ctrl+R` hot-reloads)                                                 |
+| `crates/caiven-machine`   | Standalone cart runner (run mode: project dir or `.cav`, no editor/port; `Ctrl+R` restarts the cart)                                                 |
 | `crates/caiven-port`      | Cart sharing server                                                                                                                            |
 | `crates/caiven-web`       | WASM cart player (`wasm32-unknown-emscripten`) served by caiven-port's `/play/:id`                                                             |
 | `crates/migration`        | `sea-orm` database migrations for caiven-port                                                                                                  |

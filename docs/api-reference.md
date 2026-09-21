@@ -207,6 +207,19 @@ RNG is deterministic by default — the prelude core seeds `math.randomseed(1)` 
 | :-------------------------------------------------------------------------------------------| :---------------------------------------------------------------------------- |
 | `Camera.follow(entity, opts)` / `.unfollow()` / `.shake(amount, duration)` / `.update()` | Wraps set_camera() with smoothed follow (opts.lerp, default 1) and decaying shake |
 
+## Hot reload (Studio)
+
+Saving while a cart runs reloads its code without restarting it. `Ctrl+R` in `caiven-machine` is a full restart, not a hot reload.
+
+| Kept | Refreshed | Needs Reset |
+| :-- | :-- | :-- |
+| Top-level `local` values, matched by name | Function bodies, including `local function` helpers | `_init` does not re-run: state built there stays as it was |
+| Prelude state (`Scenes`, `Entities`, `Particles`, `Camera`, `Vec2` metatable) | Global functions | A renamed or newly added `local` starts from its initializer |
+| RNG stream | | Edited constants: a kept `local` keeps its old value |
+| | | Methods on objects built in `_init` keep their old code |
+
+Top-level global assignments run again on reload, so a global set at file scope resets to its initializer. Keep state in `local`s or set it in `_init`. Reset when unsure.
+
 ## System Specifications
 
 > [!IMPORTANT]

@@ -1,4 +1,4 @@
-Camera = { target = nil, opts = nil, x = 0, y = 0, shake_amount = 0, shake_duration = 0, shake_timer = 0 }
+Camera = Camera or { target = nil, opts = nil, x = 0, y = 0, shake_amount = 0, shake_duration = 0, shake_timer = 0 }
 
 local function camera_entity_position(entity)
   if entity.pos then

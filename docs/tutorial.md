@@ -55,7 +55,7 @@ end
 
 4. **Iterate** — click the code editor's gutter to set a line breakpoint, the toolbar's Run/Pause/Reset drives execution (or `Ctrl+R` to rerun). Lua errors show with a line number and message straight in the status bar.
 
-5. **Ship it** — `Ctrl+S` writes code + sprites + map + audio into the project dir (set title/author on the `F7` meta tab), then run it standalone with `caiven-machine my-game/` (hot-reloads with `Ctrl+R`, no editor needed), or build + publish a distribution cartridge: File → Export → Pack Cartridge (.cav), then `publish game.cav` to share it on a port.
+5. **Ship it** — `Ctrl+S` writes code + sprites + map + audio into the project dir (set title/author on the `F7` meta tab), then run it standalone with `caiven-machine my-game/` (restart it with `Ctrl+R`, no editor needed), or build + publish a distribution cartridge: File → Export → Pack Cartridge (.cav), then `publish game.cav` to share it on a port.
 
 ## Cart lifecycle functions
 
