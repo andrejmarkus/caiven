@@ -20,6 +20,11 @@ START belongs to the console, not to the cart: it opens the pause menu. On a
 device with no physical START, **holding B for about half a second** does the
 same thing, so the menu is always reachable. A short B press is unaffected.
 
+**Save state** and **Load state** in that menu snapshot the cart's RAM and
+palette only. Lua variables (globals, locals, upvalues) are not captured, so a
+cart that keeps state in Lua rather than RAM can resume inconsistent. Carts
+that need dependable persistence should use `save_data` / `load_data`.
+
 Override by creating `controls.toml` next to the binary:
 
 ```toml

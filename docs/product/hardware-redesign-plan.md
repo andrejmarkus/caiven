@@ -343,8 +343,9 @@ Split, not cut. `crates/caiven-vm/src/vm/prelude/collision.lua` now keeps the
 `point_in_circle`, `tile_solid`, `box_touches_solid` — 38 lines. The
 swept-movement solver (`move_and_collide` plus its local helpers
 `solid_blocks_column`, `solid_blocks_row`, `slope_floor_y`) moved verbatim
-into a new `crates/caiven-vm/src/vm/prelude/movement.lua`, 108 lines (roughly
-at the cap, per the charter's "roughly ≤ 100"). Neither file's logic
+into a new `crates/caiven-vm/src/vm/prelude/movement.lua`, 108 lines when split;
+it has since grown to 229 lines (134 non-blank, non-comment), over the
+charter's "roughly ≤ 100". Neither file's logic
 changed — this is an organizational split, not a rewrite.
 
 `crates/caiven-vm/src/vm/lua_exec.rs`'s `PRELUDE_MODULES` gained a
@@ -589,11 +590,10 @@ it as documented behavior.
   number in both directions, no partial trailing column)"; RAM row's total
   addressable space corrected to 112 KiB.
 
-No `CART_FORMAT_VERSION` bump: like 2.2, the map/collision PNG and hex assets
-are self-describing (checked against `MAP_W`/`MAP_H`/`COLLISION_LEN` at load
-time with a clear error, not a version field), so an old cart with a
-128-wide map simply fails that dimension check with a readable message
-rather than silently misloading.
+`CART_FORMAT_VERSION` was bumped 4 → 5 for this change (`format.rs`): the
+map/collision assets are also checked against `MAP_W`/`MAP_H`/`COLLISION_LEN`
+at load time, so an old cart with a 128-wide map is rejected with a readable
+message rather than silently misloading.
 
 Test: a tile written at (191, 127) lands, one at (192, 0) is dropped rather
 than wrapping onto row 1, and the collision region still starts exactly past

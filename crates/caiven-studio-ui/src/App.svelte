@@ -240,20 +240,25 @@
     }
   }
 
+  // Reassigning an equal array still re-renders every consumer; skip the no-op polls.
+  function differs(a: unknown, b: unknown): boolean {
+    return JSON.stringify(a) !== JSON.stringify(b);
+  }
+
   function applyTick(tick: TickSnapshot) {
     const wasRunning = studio.runState === 'running';
     studio.runState = tick.runState;
     studio.frame = tick.frame;
     studio.fps = tick.fps;
     frameTime = tick.frameTimeMs;
-    studio.globals = tick.globals;
-    studio.watches = tick.watches;
-    studio.callStack = tick.callStack;
-    studio.locals = tick.locals;
-    studio.pauseReason = tick.pauseReason;
-    studio.audio = tick.audio;
-    studio.diagnostics = tick.diagnostics;
-    studio.output = tick.output;
+    if (differs(studio.globals, tick.globals)) studio.globals = tick.globals;
+    if (differs(studio.watches, tick.watches)) studio.watches = tick.watches;
+    if (differs(studio.callStack, tick.callStack)) studio.callStack = tick.callStack;
+    if (differs(studio.locals, tick.locals)) studio.locals = tick.locals;
+    if (differs(studio.pauseReason, tick.pauseReason)) studio.pauseReason = tick.pauseReason;
+    if (differs(studio.audio, tick.audio)) studio.audio = tick.audio;
+    if (differs(studio.diagnostics, tick.diagnostics)) studio.diagnostics = tick.diagnostics;
+    if (differs(studio.output, tick.output)) studio.output = tick.output;
     studio.assetDirty = tick.assetDirty;
     if (tick.activeSpriteBank !== studio.activeSpriteBank) void refreshAssetBank('sprites');
     if (tick.activeMapBank !== studio.activeMapBank) void refreshAssetBank('map');

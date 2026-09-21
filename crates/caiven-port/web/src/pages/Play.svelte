@@ -41,7 +41,7 @@
       await tick();
       if (generation !== bootGeneration) return;
       if (!canvas) throw new Error('canvas did not mount');
-      const loadedPlayer = await CartPlayer.load(canvas, bytes);
+      const loadedPlayer = await CartPlayer.load(canvas, bytes, cartId);
       if (generation !== bootGeneration) { loadedPlayer.stop(); return; }
       player = loadedPlayer;
       player.setMuted(muted);

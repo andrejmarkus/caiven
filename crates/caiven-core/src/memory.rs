@@ -12,7 +12,7 @@
 //! naming any frontend/README literal that's now out of sync.
 //!
 //! Address space layout (112 KiB). The console's *general-purpose* RAM is the
-//! 64 KiB of Work + Heap; the asset windows (sprite sheet, map, palette, sfx,
+//! ~45 KiB of Work + Heap; the asset windows (sprite sheet, map, palette, sfx,
 //! music, collision) sit alongside it in their own regions, so enlarging one of
 //! them never costs a cart the memory it writes its own data into.
 //! ```text
@@ -55,7 +55,7 @@ pub const MAP_W: usize = 192;
 /// Tile map height in tiles.
 pub const MAP_H: usize = 128;
 
-/// Total addressable memory in bytes. Larger than the 64 KiB of general-purpose
+/// Total addressable memory in bytes. Larger than the ~45 KiB of general-purpose
 /// RAM (Work + Heap) because the asset windows are mapped alongside it rather
 /// than carved out of it.
 pub const RAM_SIZE: usize = 112 * 1024;

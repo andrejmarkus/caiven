@@ -124,6 +124,21 @@
     };
   });
 
+  let breakpointTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // Edits move gutter markers; push the moved lines back so the backend does not stop on stale ones.
+  function reconcileBreakpoints() {
+    if (!view) return;
+    const doc = view.state.doc;
+    const markerLines = new Set<number>();
+    view.state.field(breakpointField).between(0, doc.length, (from) => {
+      markerLines.add(doc.lineAt(from).number);
+    });
+    const known = new Set(breakpoints.filter((breakpoint) => breakpoint.source === path).map((breakpoint) => breakpoint.line));
+    for (const line of known) if (!markerLines.has(line)) onToggleBreakpoint(path, line);
+    for (const line of markerLines) if (!known.has(line)) onToggleBreakpoint(path, line);
+  }
+
   function syncBreakpoints() {
     view?.dispatch({
       effects: setBreakpoints.of(
@@ -242,6 +257,10 @@
             }
             if (update.selectionSet || update.docChanged) onCursor(path, update.state.selection.main.head);
             if (update.docChanged) syncDiagnostics();
+            if (update.docChanged && !update.transactions.some((transaction) => transaction.annotation(externalDocument))) {
+              clearTimeout(breakpointTimer);
+              breakpointTimer = setTimeout(reconcileBreakpoints, 400);
+            }
           }),
           EditorView.theme({
             '&': { height: '100%', backgroundColor: 'var(--color-void-900)', color: 'var(--color-ink)', fontSize: '13px' },
@@ -260,7 +279,10 @@
     syncDiagnostics();
     applyInsert();
     applyReveal();
-    return () => view?.destroy();
+    return () => {
+      clearTimeout(breakpointTimer);
+      view?.destroy();
+    };
   });
 
   $effect(() => {

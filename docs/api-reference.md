@@ -235,7 +235,7 @@ Top-level global assignments run again on reload, so a global set at file scope 
 | :-----------------| :------------------------------------------------------------------------------------|
 | **Script engine** | Lua 5.4 via `mlua` (vendored)                                                     |
 | **Resolution**    | 192×128, 24×16 tiles (upscaled 4×)                                                |
-| **RAM**           | 64 KiB general purpose (Work + Heap); the asset windows below are mapped alongside it, not carved out of it. Script state lives in the Lua VM, not guest RAM |
+| **RAM**           | ~45 KiB general purpose (Work 16 KiB + Heap ~29 KiB), not reachable from Lua (no `peek`/`poke`); the asset windows below are mapped alongside it, not carved out of it. Script state lives in the Lua VM, not guest RAM |
 | **Cartridge**     | 128 KiB maximum packed `.cav` size                                                |
 | **Palette**       | 16 colors: 4 hue ramps × 3 shades, plus black, white and 2 accents (see below)     |
 | **Sprites**       | 256 × 8×8 pixels per bank; `"default"` bank always available                      |

@@ -44,7 +44,7 @@ until the redesign phases land. Do not propose changes to these values.
 | Screen | 192 × 128 (24 × 16 tiles) |
 | Palette | 16 colors |
 | Sprites | 8 × 8, 256 per bank |
-| Map | 128 × 128 tiles + collision layer |
+| Map | 192 × 128 tiles + collision layer |
 | Frame rate | 60 Hz fixed |
 | Audio | 6 voices: 4 typed music (2 pulse, 1 triangle, 1 noise) + 2 sfx |
 | Input | 4 directions + 2 actions + Select; START reserved |

@@ -46,6 +46,8 @@ struct Player {
     audio_buf: Vec<f32>,
     fault: bool,
     fault_bytes: Vec<u8>,
+    load_error: Vec<u8>,
+    save_bytes: Vec<u8>,
 }
 
 impl Player {
@@ -68,6 +70,8 @@ impl Player {
             audio_buf: Vec::new(),
             fault: false,
             fault_bytes: Vec::new(),
+            load_error: Vec::new(),
+            save_bytes: Vec::new(),
         })
     }
 
@@ -210,10 +214,13 @@ pub unsafe extern "C" fn caiven_load_cart(ptr: *const u8, len: usize) -> i32 {
             Ok(Ok(())) => 0,
             Ok(Err(e)) => {
                 eprintln!("caiven_load_cart failed: {e}");
+                player.load_error = format!("{e:#}").into_bytes();
                 -1
             }
             Err(payload) => {
-                eprintln!("caiven_load_cart panicked: {}", panic_message(payload));
+                let message = format!("engine panic: {}", panic_message(payload));
+                eprintln!("caiven_load_cart panicked: {message}");
+                player.load_error = message.into_bytes();
                 -1
             }
         }
@@ -313,6 +320,82 @@ pub extern "C" fn caiven_fault_len() -> u32 {
         cell.borrow()
             .as_ref()
             .map_or(0, |p| p.fault_bytes.len() as u32)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn caiven_load_error_ptr() -> *const u8 {
+    PLAYER.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .map_or(std::ptr::null(), |p| p.load_error.as_ptr())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn caiven_load_error_len() -> u32 {
+    PLAYER.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .map_or(0, |p| p.load_error.len() as u32)
+    })
+}
+
+/// Restores a blob previously returned by [`caiven_save_data_export`].
+/// Returns 0 on success, -1 if the bytes are not valid save data.
+///
+/// # Safety
+/// Caller must ensure `ptr` ..`ptr + len` is a valid, initialized region of
+/// the wasm linear memory for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn caiven_save_data_load(ptr: *const u8, len: usize) -> i32 {
+    let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
+    PLAYER.with(|cell| {
+        let mut guard = cell.borrow_mut();
+        let Some(player) = guard.as_mut() else {
+            return -1;
+        };
+        match caiven_vm::vm::SaveData::decode(bytes) {
+            Some(data) => {
+                *player.vm.save_data_mut() = data;
+                0
+            }
+            None => -1,
+        }
+    })
+}
+
+/// Non-zero when the cart wrote save data since the last export.
+#[unsafe(no_mangle)]
+pub extern "C" fn caiven_save_data_dirty() -> i32 {
+    PLAYER.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .is_some_and(|p| p.vm.save_data().is_dirty()) as i32
+    })
+}
+
+/// Encodes the save data into an internal buffer (read via
+/// [`caiven_save_data_ptr`]), clears the dirty flag and returns its length.
+#[unsafe(no_mangle)]
+pub extern "C" fn caiven_save_data_export() -> u32 {
+    PLAYER.with(|cell| {
+        let mut guard = cell.borrow_mut();
+        let Some(player) = guard.as_mut() else {
+            return 0;
+        };
+        player.save_bytes = player.vm.save_data().encode();
+        player.vm.save_data_mut().clear_dirty();
+        player.save_bytes.len() as u32
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn caiven_save_data_ptr() -> *const u8 {
+    PLAYER.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .map_or(std::ptr::null(), |p| p.save_bytes.as_ptr())
     })
 }
 

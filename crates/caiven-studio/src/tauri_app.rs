@@ -601,8 +601,13 @@ impl StudioCore {
             removed_banks: Vec::new(),
             asset_dirty: false,
         };
-        if let Some(path) = initial_path {
-            studio.open(&path)?;
+        if let Some(path) = initial_path
+            && let Err(error) = studio.open(&path)
+        {
+            log::warn!("could not open {}: {error:#}", path.display());
+            studio
+                .output
+                .push(format!("Could not open {}: {error:#}", path.display()));
         }
         Ok(studio)
     }
@@ -1250,6 +1255,10 @@ impl StudioCore {
             .vm
             .expand_debug_node(node_id)
             .map(|children| children.into_iter().map(DebugChildPayload::from).collect())
+    }
+
+    fn audio_active(&self) -> bool {
+        self.console.vm.sfx_player().active || self.console.vm.music_player().active
     }
 
     fn audio_payload(&self) -> AudioPayload {
@@ -2280,17 +2289,23 @@ fn spawn_core(initial_path: Option<PathBuf>) -> StudioBridge {
             let mut last_snapshot = Instant::now() - Duration::from_secs(1);
             let mut fps_started = Instant::now();
             let mut fps_frames = 0_u32;
+            let mut snapshot_stale = true;
 
             loop {
                 match rx.recv_timeout(Duration::from_millis(2)) {
-                    Ok(command) => handle_command(&mut studio, command),
+                    Ok(command) => {
+                        handle_command(&mut studio, command);
+                        snapshot_stale = true;
+                    }
                     Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     Err(mpsc::RecvTimeoutError::Timeout) => {}
                 }
                 while let Ok(command) = rx.try_recv() {
                     handle_command(&mut studio, command);
+                    snapshot_stale = true;
                 }
 
+                let was_running = studio.run_state == RunState::Running;
                 let steps = studio.console.frame_steps();
                 for _ in 0..steps {
                     if studio.run_state == RunState::Running {
@@ -2315,9 +2330,11 @@ fn spawn_core(initial_path: Option<PathBuf>) -> StudioBridge {
                     fps_frames = 0;
                     fps_started = Instant::now();
                 }
-                if last_snapshot.elapsed() >= Duration::from_millis(16) {
+                snapshot_stale |= was_running || studio.audio_active();
+                if snapshot_stale && last_snapshot.elapsed() >= Duration::from_millis(16) {
                     write_shared_snapshot(&mut studio, &actor_snapshot);
                     last_snapshot = Instant::now();
+                    snapshot_stale = false;
                 }
             }
         })
@@ -3351,6 +3368,19 @@ mod tests {
     }
 
     // -- handle_command: breakpoints / input ---------------------------------
+
+    #[test]
+    fn core_starts_when_initial_project_is_missing() {
+        let missing = std::env::temp_dir().join("caiven-missing-project-does-not-exist");
+        let studio = StudioCore::new(Some(missing)).expect("core starts without project");
+        assert!(studio.cart.is_none());
+        assert!(
+            studio
+                .output
+                .iter()
+                .any(|line| line.contains("Could not open"))
+        );
+    }
 
     #[test]
     fn toggle_breakpoint_rejects_line_zero() {

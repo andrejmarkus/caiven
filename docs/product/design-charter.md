@@ -80,14 +80,14 @@ Target hardware:
 
 | Spec | Value | Why |
 | --- | --- | --- |
-| **Screen** | 192 × 128 (24 × 16 tiles) | 24 text columns fits a real sentence; 128 px gives 16 and breaks a beginner's first `draw_text`. 3:2 suits side-scrollers. 1.5× the tiles keeps scarcity intact. Unique among fantasy consoles. |
+| **Screen** | 192 × 128 (24 × 16 tiles) | 48 text columns (3 px glyph + 1 px gap) fits a real sentence; 128 px gives 32 and breaks a beginner's first `draw_text`. 3:2 suits side-scrollers. 1.5× the tiles keeps scarcity intact. Unique among fantasy consoles. |
 | **Palette** | 16 colors, hand-designed | More colors means more sprite-editor time, and one-sitting is the metric. Identity comes from *which* 16: 4 hue ramps × 3 shades + black + white + 2 accents, so shading works without color theory. |
 | **Sprites** | 8 × 8, 256 per bank | 16×16 costs 4× the art time per sprite — the wall a no-patience beginner hits in the first ten minutes. Four 8×8 sprites make a 16×16 hero. The pain is paid off in tooling, not hardware. |
 | **Map** | 192 × 128 tiles + collision layer | At 192×128 a 64×64 map is ~10 screens, which one platformer level exhausts in a sitting — the exact failure the spine forbids. 192×128 is exactly 8 × 8 screens (a whole number in both directions, no partial trailing column) and ~64 screens total, generous for a full level. |
 | **Frame rate** | 60 Hz fixed | Non-negotiable for game feel. |
 | **Audio** | 6 voices: 4 typed music (2 pulse, 1 triangle, 1 noise) + 2 dedicated sfx | Typed channels make the tracker four scannable columns and answer "which channel?" by timbre. Reserved sfx voices mean a jump sound can never cut the melody — the most confusing audio bug a beginner meets. Classic consoles stole channels; authenticity loses to one-sitting. |
 | **Input** | 4 directions + 2 actions + Select; START reserved | Retro-correct, works on handhelds, and spares every cart a pointer-input branch. |
-| **RAM** | 64 KiB general purpose | Screen, map and collision occupy their own regions outside it, so widening them does not eat the memory a cart writes its own data into. Total addressable space is 112 KiB. |
+| **RAM** | ~45 KiB general purpose (Work 16 KiB + Heap ~29 KiB), reached from Studio's memory view, not from Lua (no `peek`/`poke`) | Screen, map and collision occupy their own regions outside it, so widening them does not eat the memory a cart writes its own data into. Total addressable space is 112 KiB. |
 | **Save** | one blob (`save_data` / `load_data`) | Two save APIs violate "one obvious way". The blob is table-shaped, real Lua, and transferable. |
 | **Watchdog** | per-frame execution budget | An infinite loop must fail with a line number and a plain-language message, not hang the console. |
 
@@ -201,7 +201,7 @@ Measured from `crates/caiven-vm/src/vm/prelude/*.lua`, not estimated.
 | `entities` | 57 | PASS |
 | `vec2` | 86 | PASS |
 | `collision` | 38 | PASS (post-split) |
-| `movement` | 108 | PASS (post-split, roughly at the cap) |
+| `movement` | 229 (134 non-blank, non-comment) | OVER the ~100-line cap; kept as one solver, needs a further split or an explicit exception |
 
 `collision.lua` was originally 147 lines and the only breach, caused by one
 function: `move_and_collide`, carrying its slope solver

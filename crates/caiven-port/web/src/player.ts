@@ -8,6 +8,33 @@ interface CaivenModuleInstance {
   _free: (ptr: number) => void;
   HEAPU8: Uint8Array;
   HEAPF32: Float32Array;
+  [name: string]: unknown;
+}
+
+const SAVE_PREFIX = 'caiven:save:';
+
+function hasExport(module: CaivenModuleInstance, name: string): boolean {
+  return typeof module[`_${name}`] === 'function';
+}
+
+function readSaved(saveKey: string): Uint8Array | null {
+  try {
+    const text = localStorage.getItem(SAVE_PREFIX + saveKey);
+    if (!text) return null;
+    return Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+  } catch {
+    return null;
+  }
+}
+
+function writeSaved(saveKey: string, bytes: Uint8Array): void {
+  try {
+    let binary = '';
+    for (const b of bytes) binary += String.fromCharCode(b);
+    localStorage.setItem(SAVE_PREFIX + saveKey, btoa(binary));
+  } catch {
+    // Storage full or blocked: play on without persistence.
+  }
 }
 
 declare global {
@@ -173,6 +200,14 @@ class AudioEngine {
   }
 }
 
+function readLoadError(module: CaivenModuleInstance): string | null {
+  if (!hasExport(module, 'caiven_load_error_len')) return null;
+  const len = module.ccall('caiven_load_error_len', 'number', [], []) as number;
+  if (len === 0) return null;
+  const ptr = module.ccall('caiven_load_error_ptr', 'number', [], []) as number;
+  return new TextDecoder().decode(module.HEAPU8.subarray(ptr, ptr + len));
+}
+
 export class CartPlayer {
   private module: CaivenModuleInstance;
   private canvas: HTMLCanvasElement;
@@ -189,9 +224,17 @@ export class CartPlayer {
   private touchEls: HTMLElement[] = [];
   private clock = new FrameClock();
   private running = false;
+  private saveKey: string | null;
 
-  private constructor(module: CaivenModuleInstance, canvas: HTMLCanvasElement, width: number, height: number) {
+  private constructor(
+    module: CaivenModuleInstance,
+    canvas: HTMLCanvasElement,
+    width: number,
+    height: number,
+    saveKey: string | null,
+  ) {
     this.module = module;
+    this.saveKey = saveKey;
     this.canvas = canvas;
     this.width = width;
     this.height = height;
@@ -201,7 +244,7 @@ export class CartPlayer {
     this.audio = new AudioEngine(module);
   }
 
-  static async load(canvas: HTMLCanvasElement, cartBytes: Uint8Array): Promise<CartPlayer> {
+  static async load(canvas: HTMLCanvasElement, cartBytes: Uint8Array, saveKey: string | null = null): Promise<CartPlayer> {
     await loadScript('/wasm/caiven_web.js');
     if (!window.CaivenModule) throw new Error('caiven_web.js did not register CaivenModule');
     const module = await window.CaivenModule();
@@ -213,12 +256,22 @@ export class CartPlayer {
     module.HEAPU8.set(cartBytes, ptr);
     const loadRc = module.ccall('caiven_load_cart', 'number', ['number', 'number'], [ptr, cartBytes.length]);
     module._free(ptr);
-    if (loadRc !== 0) throw new Error(`caiven_load_cart failed: ${loadRc}`);
+    if (loadRc !== 0) throw new Error(readLoadError(module) ?? `caiven_load_cart failed: ${loadRc}`);
+
+    if (saveKey && hasExport(module, 'caiven_save_data_load')) {
+      const saved = readSaved(saveKey);
+      if (saved) {
+        const savePtr = module._malloc(saved.length);
+        module.HEAPU8.set(saved, savePtr);
+        module.ccall('caiven_save_data_load', 'number', ['number', 'number'], [savePtr, saved.length]);
+        module._free(savePtr);
+      }
+    }
 
     const width = module.ccall('caiven_width', 'number', [], []) as number;
     const height = module.ccall('caiven_height', 'number', [], []) as number;
 
-    return new CartPlayer(module, canvas, width, height);
+    return new CartPlayer(module, canvas, width, height, saveKey);
   }
 
   setButton(button: number, down: boolean): void {
@@ -322,6 +375,14 @@ export class CartPlayer {
     this.touchEls.push(dpad, face);
   }
 
+  private flushSave(): void {
+    if (!this.saveKey || !hasExport(this.module, 'caiven_save_data_dirty')) return;
+    if (!this.module.ccall('caiven_save_data_dirty', 'number', [], [])) return;
+    const len = this.module.ccall('caiven_save_data_export', 'number', [], []) as number;
+    const ptr = this.module.ccall('caiven_save_data_ptr', 'number', [], []) as number;
+    writeSaved(this.saveKey, this.module.HEAPU8.slice(ptr, ptr + len));
+  }
+
   setMuted(muted: boolean): void {
     this.audio.setMuted(muted);
   }
@@ -358,6 +419,7 @@ export class CartPlayer {
       if (!this.faulted) {
         this.module.ccall('caiven_tick', null, ['number'], [steps]);
         this.audio.pump();
+        this.flushSave();
         const hasFault = this.module.ccall('caiven_has_fault', 'number', [], []) as number;
         if (hasFault) {
           this.faulted = true;
@@ -378,6 +440,7 @@ export class CartPlayer {
 
   stop(): void {
     this.running = false;
+    this.flushSave();
     cancelAnimationFrame(this.rafId);
     this.onBlur();
     window.removeEventListener('keydown', this.onKeyDown);
