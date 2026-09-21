@@ -360,7 +360,8 @@ mod tests {
             sections: cart::default_section_layout(),
             lua_source: Some(template.source.to_string()),
         };
-        cart_io::save(&console.vm, &meta, &[]).expect("save project");
+        let extra = cart_io::gather_sections(&console.vm, &meta);
+        cart_io::save_pristine(&extra, &meta, &[], &[]).expect("save project");
 
         let mut reloaded = ConsoleCore::new().expect("console core");
         reloaded.reset_vm();

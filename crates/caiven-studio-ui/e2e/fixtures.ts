@@ -194,7 +194,7 @@ function installBridge() {
     ];
     if (command === 'studio_cart_size') return { packedBytes: 8192 + ++cartSizeReads, maxBytes: 131072 };
     if (command === 'studio_asset_index') { assetIndexReads += 1; return index(); }
-    if (command === 'studio_tick') return { runState, frame: frame++, fps: 60, frameTimeMs: 4.2, globals: [{ name: 'score', value: '7' }, { name: 'player', value: '{table}', nodeId: 'global:player' }], watches, callStack: [], pauseReason: null, audio: audio(), diagnostics: [], output: ['mock runtime ready'], activeSpriteBank: tickActive.sprites, activeMapBank: tickActive.map, activePaletteBank: tickActive.palette, activeSfxBank: tickActive.sfx, activeMusicBank: tickActive.music };
+    if (command === 'studio_tick') return { runState, frame: frame++, fps: 60, frameTimeMs: 4.2, globals: [{ name: 'score', value: '7' }, { name: 'player', value: '{table}', nodeId: 'global:player' }], watches, callStack: [], pauseReason: null, audio: audio(), diagnostics: [], output: ['mock runtime ready'], activeSpriteBank: tickActive.sprites, activeMapBank: tickActive.map, activePaletteBank: tickActive.palette, activeSfxBank: tickActive.sfx, activeMusicBank: tickActive.music, assetDirty: false };
     if (command === 'studio_frame') return Array(128 * 128).fill(0);
     if (command === 'studio_read_memory') return ram.slice(Number(args.address), Number(args.address) + Number(args.len));
     if (command === 'studio_asset_bank') {
@@ -259,6 +259,7 @@ function installBridge() {
     if (command === 'studio_write_meta') return null;
     if (command === 'studio_create_module') { const name = String(args.name); if (!/^[\w/-]+\.lua$/.test(name)) throw new Error('Module name must end in .lua'); const source = { path: `/carts/test/${name}`, name, text: '', dirty: true }; sources.push(source); persistSources(); return source; }
     if (command === 'studio_open_project' || command === 'studio_new_project') { if (command === 'studio_new_project') { sources = [{ path: `${args.path}/main.lua`, name: 'main.lua', text: '', dirty: false }]; persistSources(); } return { ...bootstrap(), path: String(args.path), title: command === 'studio_new_project' ? 'new-cart' : 'test-cart' }; }
+    if (command === 'studio_force_close') return null;
     if (command === 'studio_close_project') return { ...bootstrap(), connected: false, title: '', path: '', sources: [] };
     if (command === 'studio_export') return null;
     if (command === 'studio_export_web') return null;

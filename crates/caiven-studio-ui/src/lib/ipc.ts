@@ -171,6 +171,7 @@ const fallback: StudioBootstrap = {
   activeSfxBank: 'default',
   musicBanks: ['default'],
   activeMusicBank: 'default',
+  assetDirty: false,
   ram: Array(RAM_SIZE).fill(0),
   globals: [{ name: 'player', value: '{x=60, y=60, score=0}' }],
   watches: [],
@@ -309,7 +310,7 @@ export async function transport(action: 'run' | 'pause' | 'reset' | 'step'): Pro
     fallback.pauseReason = action === 'pause' || action === 'step'
       ? { kind: 'manual', source: null, line: null, message: null }
       : null;
-    return { runState: fallback.runState, frame: fallback.frame, fps: fallback.fps, frameTimeMs: 5.2, globals: fallback.globals, watches: fallback.watches, callStack: fallback.callStack, locals: fallback.locals, pauseReason: fallback.pauseReason, audio: fallback.audio, diagnostics: fallback.diagnostics, output: fallback.output, activeSpriteBank: fallback.activeSpriteBank, activeMapBank: fallback.activeMapBank, activePaletteBank: fallback.activePaletteBank, activeSfxBank: fallback.activeSfxBank, activeMusicBank: fallback.activeMusicBank };
+    return { runState: fallback.runState, frame: fallback.frame, fps: fallback.fps, frameTimeMs: 5.2, globals: fallback.globals, watches: fallback.watches, callStack: fallback.callStack, locals: fallback.locals, pauseReason: fallback.pauseReason, audio: fallback.audio, diagnostics: fallback.diagnostics, output: fallback.output, activeSpriteBank: fallback.activeSpriteBank, activeMapBank: fallback.activeMapBank, activePaletteBank: fallback.activePaletteBank, activeSfxBank: fallback.activeSfxBank, activeMusicBank: fallback.activeMusicBank, assetDirty: false };
   }
   return invoke<TickSnapshot>('studio_transport', { action });
 }
@@ -331,7 +332,7 @@ export async function readFrame(): Promise<Uint8Array | null> {
 
 export async function readTick(): Promise<TickSnapshot> {
   if (isTauri()) return invoke<TickSnapshot>('studio_tick');
-  return { runState: fallback.runState, frame: fallback.frame++, fps: 60, frameTimeMs: 5.2, globals: fallback.globals, watches: fallback.watches, callStack: fallback.callStack, locals: fallback.locals, pauseReason: fallback.pauseReason, audio: fallback.audio, diagnostics: fallback.diagnostics, output: fallback.output, activeSpriteBank: fallback.activeSpriteBank, activeMapBank: fallback.activeMapBank, activePaletteBank: fallback.activePaletteBank, activeSfxBank: fallback.activeSfxBank, activeMusicBank: fallback.activeMusicBank };
+  return { runState: fallback.runState, frame: fallback.frame++, fps: 60, frameTimeMs: 5.2, globals: fallback.globals, watches: fallback.watches, callStack: fallback.callStack, locals: fallback.locals, pauseReason: fallback.pauseReason, audio: fallback.audio, diagnostics: fallback.diagnostics, output: fallback.output, activeSpriteBank: fallback.activeSpriteBank, activeMapBank: fallback.activeMapBank, activePaletteBank: fallback.activePaletteBank, activeSfxBank: fallback.activeSfxBank, activeMusicBank: fallback.activeMusicBank, assetDirty: false };
 }
 
 export async function setInput(button: number, pressed: boolean): Promise<void> {
@@ -437,6 +438,10 @@ export async function writeMeta(title: string, author: string, meta: CartMeta): 
 export async function createModule(name: string): Promise<SourceBuffer> {
   if (!isTauri()) throw new Error('Module creation requires desktop Studio');
   return invoke<SourceBuffer>('studio_create_module', { name });
+}
+
+export async function forceClose(): Promise<void> {
+  if (isTauri()) await invoke<void>('studio_force_close');
 }
 
 export async function closeProject(): Promise<StudioBootstrap> {

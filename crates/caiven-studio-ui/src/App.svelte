@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { ask } from '@tauri-apps/plugin-dialog';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { PanelRightOpen, WifiOff } from '@lucide/svelte';
   import { Button } from '@caiven/ui/button';
@@ -20,7 +21,7 @@
     openProject, readAssetIndex, readCartSize, readFrame, readMemory, readTick, remixExample, saveProject, setInput, setStdlibModule, transport,
     addWatch, assetBank, audioTransport, clearOutput, closeProject, COLLISION_LEN, createModule, expandDebugValue, MEMORY, MUSIC_BANK_LEN, MUSIC_ORDER_OFFSET, MUSIC_PATTERN_LEN, portDownload, RAM_SIZE, portLinkCancel, portLinkPoll, portLinkStart, portListCarts,
     portLogout, portPublish, portSession, portSetUrl, scanLibrary, toggleBreakpoint, writeBuffer,
-    removeRecent, removeWatch, writeCollisionCells, writeCollisionTypes, writeMapCells, writeMemory, writeMeta, writePalette, writeSprite,
+    forceClose, removeRecent, removeWatch, writeCollisionCells, writeCollisionTypes, writeMapCells, writeMemory, writeMeta, writePalette, writeSprite,
   } from './lib/ipc';
   import { plural, tidyPath } from './lib/format';
   import { createGamepadInput } from './lib/gamepad';
@@ -31,7 +32,7 @@
     sfx: [], music: [], paletteBanks: ['default'], activePaletteBank: 'default', sfxBanks: ['default'], activeSfxBank: 'default', musicBanks: ['default'], activeMusicBank: 'default', ram: [], globals: [], watches: [], callStack: [], locals: [], breakpoints: [], pauseReason: null, diagnostics: [], output: [],
     meta: { description: '', tags: [] }, assetIndex: { entries: [], computedRefs: 0 },
     audio: { sfxActive: false, sfxId: 0, sfxStep: 0, musicActive: false, musicPattern: 0, musicRow: 0, musicLoop: true },
-    recent: [], api: [], preludeModules: [],
+    recent: [], api: [], preludeModules: [], assetDirty: false,
   });
   let screen = $state<Screen>('code');
   let activeSource = $state(0);
@@ -153,7 +154,7 @@
   const consoleRelevant = $derived(consoleScreens.includes(screen));
   let tourDone = $state(false);
 
-  const dirty = $derived(metaDirty || studio.sources.some((source) => source.dirty));
+  const dirty = $derived(metaDirty || studio.assetDirty || studio.sources.some((source) => source.dirty));
   const running = $derived(studio.runState === 'running');
   const allDiagnostics = $derived<Diagnostic[]>([
     ...studio.diagnostics,
@@ -199,9 +200,21 @@
     toast(message);
   }
 
-  function confirmDiscard(action: string) {
-    return !dirty || window.confirm(`${action} and discard unsaved changes?`);
+  // `window.confirm` is replaced by an always-truthy Promise under Tauri's
+  // dialog plugin, so every prompt must go through this awaited helper.
+  async function confirmAction(message: string, title = 'Caiven Studio'): Promise<boolean> {
+    if (!isTauri()) return window.confirm(message);
+    try { return await ask(message, { title, kind: 'warning' }); }
+    catch { return false; }
   }
+
+  async function confirmDiscard(action: string) {
+    return !dirty || await confirmAction(`${action} and discard unsaved changes?`);
+  }
+
+  // Bumped by every local asset edit or bank switch; a memory poll that began
+  // before the bump is stale and must not overwrite the edit. Review STU-18.
+  let editGeneration = 0;
 
   function errorText(error: unknown) {
     return error instanceof Error ? error.message : String(error);
@@ -214,6 +227,8 @@
 
   async function commitMutation(label: string, write: () => Promise<void>, rollback: () => void) {
     pendingWrites += 1;
+    editGeneration += 1;
+    studio.assetDirty = true;
     try {
       await write();
       await refreshCartSize();
@@ -239,6 +254,7 @@
     studio.audio = tick.audio;
     studio.diagnostics = tick.diagnostics;
     studio.output = tick.output;
+    studio.assetDirty = tick.assetDirty;
     if (tick.activeSpriteBank !== studio.activeSpriteBank) void refreshAssetBank('sprites');
     if (tick.activeMapBank !== studio.activeMapBank) void refreshAssetBank('map');
     if (tick.activePaletteBank !== studio.activePaletteBank) void refreshAssetBank('palette');
@@ -320,7 +336,8 @@
   };
 
   async function changeAssetBank(kind: BankKind, action: 'select' | 'create' | 'delete', name?: string) {
-    if (action === 'delete' && !window.confirm(`Delete ${kind} bank "${name}"?`)) return;
+    if (action === 'delete' && !(await confirmAction(`Delete ${kind} bank "${name}"?`))) return;
+    editGeneration += 1;
     const request = ++bankRequestSerial[kind];
     try {
       const next = await assetBank(kind, action, name);
@@ -367,7 +384,7 @@
       status = `Saved ${plural(output.length, 'file')} · ${tidyPath(studio.path)}`;
       showToast(`Saved ${plural(output.length, 'file')} to ${tidyPath(studio.path)}`);
       for (const module of unusedModules) {
-        if (window.confirm(`Module '${module}' looks unused — disable it?`)) {
+        if (await confirmAction(`Module '${module}' looks unused — disable it?`)) {
           await doSetStdlibModule(module, false);
         }
       }
@@ -645,7 +662,7 @@
   }
 
   async function openPath(path: string) {
-    if (!confirmDiscard('Open another cart')) return;
+    if (!(await confirmDiscard('Open another cart'))) return;
     clearTimeout(writeTimer);
     try { studio = await openProject(path); metaDirty = false; activeSource = 0; handledPause = ''; handledDiagnostic = ''; screen = 'code'; status = `Loaded ${tidyPath(studio.path)}`; }
     catch (error) { showToast(String(error)); }
@@ -733,7 +750,7 @@
   }
 
   async function doOpen() {
-    if (!confirmDiscard('Open another cart')) return;
+    if (!(await confirmDiscard('Open another cart'))) return;
     try {
       const path = await chooseProject();
       if (!path) return;
@@ -750,8 +767,8 @@
     }
   }
 
-  function showNew() {
-    if (!confirmDiscard('Create a new cart')) return;
+  async function showNew() {
+    if (!(await confirmDiscard('Create a new cart'))) return;
     overlay = 'new-cart';
   }
 
@@ -771,7 +788,7 @@
   }
 
   async function doRemix(exampleId: string) {
-    if (!confirmDiscard('Remix this example')) return;
+    if (!(await confirmDiscard('Remix this example'))) return;
     const path = await chooseProject('Choose an empty folder for the remix');
     if (!path) return;
     clearTimeout(writeTimer);
@@ -790,7 +807,7 @@
   }
 
   async function doClose() {
-    if (dirty && !window.confirm('Close cart with unsaved changes?')) return;
+    if (dirty && !(await confirmAction('Close cart with unsaved changes?'))) return;
     clearTimeout(writeTimer);
     try { studio = await closeProject(); metaDirty = false; activeSource = 0; handledPause = ''; handledDiagnostic = ''; screen = 'welcome'; status = 'No cart open'; }
     catch (error) { showToast(String(error)); }
@@ -926,6 +943,7 @@
     let stateTimer: ReturnType<typeof setInterval>;
     let unlistenPublish: UnlistenFn | undefined;
     let unlistenMenu: UnlistenFn | undefined;
+    let unlistenClose: UnlistenFn | undefined;
 
     window.addEventListener('keydown', handleKeys);
     window.addEventListener('keyup', handleKeyUp);
@@ -933,6 +951,9 @@
     gamepad.attach();
     if (isTauri()) {
       void listen<PublishProgress>('publish:progress', (event) => { publishProgress = event.payload; }).then((fn) => { unlistenPublish = fn; });
+      void listen('close-requested', () => {
+        void confirmAction('Quit with unsaved changes?').then((ok) => { if (ok) void forceClose(); });
+      }).then((fn) => { unlistenClose = fn; });
       void listen<string>('menu-action', (event) => {
         switch (event.payload) {
           case 'new': showNew(); break;
@@ -987,10 +1008,11 @@
       stateTimer = setInterval(() => {
         if (pendingWrites > 0 || stateInFlight) return;
         stateInFlight = true;
+        const generation = editGeneration;
         // Whole address space, not a hardcoded 64 KiB: collision and heap sit
         // above that mark, so a short read silently truncated them.
         void Promise.all([readMemory(0, RAM_SIZE), readAssetIndex()]).then(([ram, index]) => {
-          if (!alive) return;
+          if (!alive || generation !== editGeneration || pendingWrites > 0) return;
           studio.ram = ram;
           studio.spriteSheet = ram.slice(MEMORY.sprites, MEMORY.map);
           studio.map = ram.slice(MEMORY.map, MEMORY.palette);
@@ -1037,6 +1059,7 @@
       gamepad.detach();
       unlistenPublish?.();
       unlistenMenu?.();
+      unlistenClose?.();
     };
   });
 </script>

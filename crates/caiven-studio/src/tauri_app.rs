@@ -19,7 +19,7 @@ use caiven_vm::input::Button;
 use caiven_vm::runtime::ConsoleCore;
 use caiven_vm::vm::SaveData;
 use caiven_vm::vm::api_registry;
-use caiven_vm::{AssetBankKind, LuaBreakpoint, LuaRunOutcome};
+use caiven_vm::{AssetBankKind, LuaBreakpoint, LuaRunOutcome, Vm};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock, mpsc};
@@ -312,6 +312,10 @@ struct BootstrapPayload {
     recent: Vec<String>,
     api: Vec<ApiEntryPayload>,
     prelude_modules: Vec<PreludeModulePayload>,
+    /// Whether an asset/meta edit (sprite, palette, map, collision, bank,
+    /// title/author, stdlib module) happened since the last save — code
+    /// edits are tracked separately per-`SourcePayload`. See review STU-04.
+    asset_dirty: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -334,6 +338,7 @@ struct TickPayload {
     active_palette_bank: String,
     active_sfx_bank: String,
     active_music_bank: String,
+    asset_dirty: bool,
 }
 
 #[derive(Clone)]
@@ -372,6 +377,7 @@ impl Default for SharedSnapshot {
                 active_palette_bank: DEFAULT_BANK_NAME.to_string(),
                 active_sfx_bank: DEFAULT_BANK_NAME.to_string(),
                 active_music_bank: DEFAULT_BANK_NAME.to_string(),
+                asset_dirty: false,
             },
         }
     }
@@ -518,6 +524,7 @@ enum CoreCommand {
         reply: mpsc::Sender<Result<AssetBankPayload, String>>,
     },
     PreparePublish(mpsc::Sender<Result<PathBuf, String>>),
+    IsDirty(mpsc::Sender<bool>),
 }
 
 struct StudioBridge {
@@ -554,6 +561,22 @@ struct StudioCore {
     needs_compile: bool,
     diagnostics: Vec<DiagnosticPayload>,
     output: Vec<String>,
+    /// Pristine copy of the cart's asset sections, refreshed only by an
+    /// explicit editor edit (sprite/palette/map/collision write, asset-bank
+    /// change, meta/stdlib change) or a fresh compile — never by gameplay.
+    /// `save()` writes this instead of reading live VM RAM, and Run/Reset
+    /// restore it into RAM before compiling, so a mid-play mutation (e.g.
+    /// `set_tile` clearing a collected coin) can never reach disk and never
+    /// survives a Reset. See `.claude/rules/vm-runtime.md` / review ST-01.
+    asset_snapshot: Vec<(SectionKind, Vec<u8>)>,
+    /// Asset banks deleted this session but not yet flushed to disk — passed
+    /// to `caiven_cart::save_project` so it deletes exactly these files
+    /// instead of sweeping the project directory for anything bank-shaped
+    /// (see review CART-04). Cleared once a save actually persists them.
+    removed_banks: Vec<(SectionKind, String)>,
+    /// True once an asset/meta edit happened since the last save (code edits
+    /// are tracked per-`SourceFile`). Drives the unsaved-changes prompts.
+    asset_dirty: bool,
 }
 
 impl StudioCore {
@@ -574,6 +597,9 @@ impl StudioCore {
             needs_compile: false,
             diagnostics: Vec::new(),
             output: Vec::new(),
+            asset_snapshot: Vec::new(),
+            removed_banks: Vec::new(),
+            asset_dirty: false,
         };
         if let Some(path) = initial_path {
             studio.open(&path)?;
@@ -581,15 +607,33 @@ impl StudioCore {
         Ok(studio)
     }
 
+    /// Recaptures `asset_snapshot` from the VM's current RAM/bank state.
+    /// Call this after any editor-driven edit (never after a Lua frame ran),
+    /// so the pristine copy always reflects the last thing a human authored.
+    fn mark_asset_edit(&mut self) {
+        self.asset_dirty = true;
+        self.refresh_asset_snapshot();
+    }
+
+    fn refresh_asset_snapshot(&mut self) {
+        if let Some(meta) = self.cart.as_ref() {
+            self.asset_snapshot = cart_io::gather_sections(&self.console.vm, meta);
+        }
+    }
+
     fn open(&mut self, path: &Path) -> anyhow::Result<()> {
-        self.console.reset_vm();
-        let meta = cart::load_cart(
-            &mut self.console.vm,
-            path,
-            &self.console.input,
-            &self.console.font,
-        )?;
-        self.sources = if caiven_cart::is_project(path) {
+        // Validate into a scratch VM first — load_cart and reading project
+        // sources can both fail. Committing to `self.console`/`self.cart`
+        // only after both succeed means a failed open leaves the previously
+        // open cart's VM and metadata untouched, instead of a `reset_vm`'d
+        // blank VM paired with the old cart's still-in-place metadata (a
+        // follow-up Ctrl+S would then write that old metadata's project
+        // over blank RAM). See review STU-01.
+        let capture_lua_output = self.console.vm.lua_output_capture_enabled();
+        let mut vm = Vm::new(self.console.config);
+        vm.set_lua_output_capture(capture_lua_output);
+        let meta = cart::load_cart(&mut vm, path, &self.console.input, &self.console.font)?;
+        let sources = if caiven_cart::is_project(path) {
             cart::load_project_sources(path)?
         } else {
             meta.lua_source
@@ -603,6 +647,9 @@ impl StudioCore {
                 })
                 .unwrap_or_default()
         };
+
+        self.console.adopt_vm(vm);
+        self.sources = sources;
         self.cart = Some(meta);
         if let Ok(bytes) = std::fs::read(save_data_path(path))
             && let Some(data) = SaveData::decode(&bytes)
@@ -622,6 +669,9 @@ impl StudioCore {
         self.fps = 0.0;
         self.frame_time_ms = 0.0;
         self.console.vm.stop_audio();
+        self.removed_banks.clear();
+        self.asset_dirty = false;
+        self.refresh_asset_snapshot();
         recent::push(&mut recent::load(), path);
         Ok(())
     }
@@ -682,6 +732,9 @@ impl StudioCore {
         self.frame = 0;
         self.fps = 0.0;
         self.frame_time_ms = 0.0;
+        self.removed_banks.clear();
+        self.asset_dirty = false;
+        self.refresh_asset_snapshot();
         self.save()?;
         recent::push(&mut recent::load(), path);
         Ok(())
@@ -733,6 +786,15 @@ impl StudioCore {
     }
 
     fn compile(&mut self) -> Result<(), String> {
+        // Every fresh compile — Run from Stopped, Reset, Step from Stopped —
+        // restores the pristine asset snapshot into RAM before `_init()`
+        // runs, so gameplay's mutations from a previous play session (e.g.
+        // `set_tile` clearing a collected coin) never leak into the next
+        // run. `hot_reload` deliberately skips this: it's the
+        // state-preserving Ctrl+S-while-running path. See review ST-01.
+        if !self.asset_snapshot.is_empty() {
+            cart::apply_sections(&mut self.console.vm, &self.asset_snapshot);
+        }
         let project_dir = self.project_dir().map(Path::to_path_buf);
         match cart::compile_sources_into_vm(
             &mut self.console.vm,
@@ -748,6 +810,7 @@ impl StudioCore {
                 self.collect_vm_output();
                 self.output.push("Build succeeded".to_string());
                 trim_output(&mut self.output);
+                self.refresh_asset_snapshot();
                 Ok(())
             }
             Err(error) => {
@@ -900,6 +963,7 @@ impl StudioCore {
                 .collect(),
             api: self.api_payload(),
             prelude_modules: self.prelude_modules_payload(),
+            asset_dirty: self.asset_dirty,
         }
     }
 
@@ -955,6 +1019,7 @@ impl StudioCore {
                 .vm
                 .active_asset_bank(AssetBankKind::Music)
                 .to_string(),
+            asset_dirty: self.asset_dirty,
         }
     }
 
@@ -1107,8 +1172,19 @@ impl StudioCore {
                         !(tracked_kind && matches_name)
                     });
                 }
+                // Explicit removal list for `save_project` (review CART-04):
+                // it deletes exactly these bank files, never sweeps the
+                // project directory for anything bank-name-shaped.
+                self.removed_banks.push((section_kind, name.clone()));
+                if let Some(companion_kind) = bank_kind.companion() {
+                    self.removed_banks
+                        .push((section_kind_for_bank(companion_kind), name));
+                }
             }
             _ => return Err(format!("Unknown asset bank action: {action}")),
+        }
+        if action != "read" {
+            self.mark_asset_edit();
         }
         let active = self.console.vm.active_asset_bank(bank_kind).to_string();
         let data = self
@@ -1353,6 +1429,7 @@ impl StudioCore {
                 preserved_data: Some(bytes),
             });
         }
+        self.mark_asset_edit();
         Ok(())
     }
 
@@ -1411,6 +1488,7 @@ impl StudioCore {
             });
         }
         self.needs_compile = true;
+        self.mark_asset_edit();
         Ok(())
     }
 
@@ -1502,6 +1580,9 @@ impl StudioCore {
         self.frame_time_ms = 0.0;
         self.diagnostics.clear();
         self.debugger.clear();
+        self.asset_snapshot.clear();
+        self.removed_banks.clear();
+        self.asset_dirty = false;
         self.output.push("Closed project".to_string());
         trim_output(&mut self.output);
     }
@@ -1542,7 +1623,14 @@ impl StudioCore {
         if let Some(entry) = entry {
             meta.lua_source = Some(entry);
         }
-        cart_io::save(&self.console.vm, meta, &modules).map_err(|error| format!("{error:#}"))?;
+        // Writes the pristine `asset_snapshot`, not live VM RAM: a cart
+        // running mid-play may have mutated map/sprite RAM (collected
+        // coins, procedural changes), and none of that gameplay state may
+        // reach disk. See review ST-01.
+        cart_io::save_pristine(&self.asset_snapshot, meta, &modules, &self.removed_banks)
+            .map_err(|error| format!("{error:#}"))?;
+        self.removed_banks.clear();
+        self.asset_dirty = false;
         for source in &mut self.sources {
             source.dirty = false;
         }
@@ -1891,6 +1979,7 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
                 for (offset, value) in pixels.into_iter().enumerate() {
                     studio.console.vm.poke_memory(base + offset, value.min(15));
                 }
+                studio.mark_asset_edit();
                 Ok(())
             };
             let _ = reply.send(result);
@@ -1910,6 +1999,7 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
                         .vm
                         .poke_memory(PALETTE_RAM_BASE + slot * 3 + offset, value);
                 }
+                studio.mark_asset_edit();
                 Ok(())
             });
             let _ = reply.send(result);
@@ -2008,6 +2098,7 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
                             read_region(&studio.console, PALETTE_RAM_BASE, PALETTE_SIZE * 3);
                         studio.console.vm.set_palette_from_bytes(&palette);
                     }
+                    studio.mark_asset_edit();
                 });
             let _ = reply.send(result);
         }
@@ -2021,6 +2112,7 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
                         .vm
                         .poke_memory(MAP_RAM_BASE + cell.offset, cell.tile);
                 }
+                studio.mark_asset_edit();
                 Ok(())
             };
             let _ = reply.send(result);
@@ -2036,6 +2128,7 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
                         .vm
                         .poke_memory(COLLISION_RAM_BASE + cell.offset, cell.value);
                 }
+                studio.mark_asset_edit();
                 Ok(())
             };
             let _ = reply.send(result);
@@ -2055,6 +2148,7 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
                 .console
                 .vm
                 .set_collision_types(types.into_iter().map(Into::into).collect());
+            studio.mark_asset_edit();
             let _ = reply.send(Ok(()));
         }
         CoreCommand::WriteMeta {
@@ -2105,6 +2199,9 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
             reply,
         } => {
             let _ = reply.send(studio.asset_bank(&kind, &action, name));
+        }
+        CoreCommand::IsDirty(reply) => {
+            let _ = reply.send(studio.asset_dirty || studio.sources.iter().any(|s| s.dirty));
         }
         CoreCommand::PreparePublish(reply) => {
             let path = cart::temp_cav_path();
@@ -2201,6 +2298,13 @@ fn spawn_core(initial_path: Option<PathBuf>) -> StudioBridge {
         .expect("failed to spawn Studio core actor");
 
     StudioBridge { tx, snapshot }
+}
+
+/// Frontend calls this after the user confirms discarding unsaved changes;
+/// `destroy` skips the close-requested guard so it cannot loop.
+#[tauri::command]
+fn studio_force_close(window: tauri::Window) -> Result<(), String> {
+    window.destroy().map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -2741,6 +2845,21 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
             };
             let _ = app.emit("menu-action", action);
         })
+        .on_window_event(|window, event| {
+            use tauri::{Emitter, Manager};
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let (tx, rx) = mpsc::channel();
+                let bridge = window.state::<StudioBridge>();
+                // Unreachable core counts as dirty: better an extra prompt
+                // than a silent loss. Review STU-05.
+                let dirty = bridge.tx.send(CoreCommand::IsDirty(tx)).is_ok()
+                    && rx.recv_timeout(Duration::from_secs(2)).unwrap_or(true);
+                if dirty {
+                    api.prevent_close();
+                    let _ = window.emit("close-requested", ());
+                }
+            }
+        })
         .setup(|app| {
             #[cfg(debug_assertions)]
             {
@@ -2756,6 +2875,7 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
         })
         .invoke_handler(tauri::generate_handler![
             studio_bootstrap,
+            studio_force_close,
             studio_cart_size,
             studio_open_project,
             studio_new_project,
@@ -2958,6 +3078,92 @@ mod tests {
         let mut studio = StudioCore::new(None).expect("studio core");
         let dir = std::env::temp_dir().join("caiven-remix-unknown-test");
         assert!(studio.remix_example(&dir, "not-an-example").is_err());
+    }
+
+    #[test]
+    fn a_failed_open_leaves_the_previous_cart_and_vm_untouched() {
+        // Review STU-01: `open` used to `reset_vm()` before validating the
+        // new cart, so a failed open still left the VM blank even though
+        // `self.cart` kept pointing at the previous project — a follow-up
+        // Ctrl+S would then write that project's metadata out over blank
+        // RAM. Loading into a scratch VM first and only committing on
+        // success means a failed open must change nothing.
+        let good = temp_dir("stu01-good");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&good, "blank").expect("new project");
+        let path_before = studio.cart.as_ref().unwrap().path.clone();
+        let sprite_before = studio
+            .console
+            .vm
+            .asset_bank_bytes(AssetBankKind::Sprites, DEFAULT_BANK_NAME)
+            .unwrap();
+
+        // A directory that looks like a project (has caiven.toml) but whose
+        // manifest version this build cannot load — load_cart is guaranteed
+        // to fail on it.
+        let broken = temp_dir("stu01-broken");
+        std::fs::create_dir_all(&broken).expect("create broken dir");
+        std::fs::write(
+            broken.join("caiven.toml"),
+            "[cart]\ntitle = \"Broken\"\nversion = 9999\n",
+        )
+        .expect("write broken manifest");
+
+        assert!(studio.open(&broken).is_err());
+
+        assert_eq!(studio.cart.as_ref().unwrap().path, path_before);
+        assert_eq!(
+            studio
+                .console
+                .vm
+                .asset_bank_bytes(AssetBankKind::Sprites, DEFAULT_BANK_NAME)
+                .unwrap(),
+            sprite_before
+        );
+
+        std::fs::remove_dir_all(&good).ok();
+        std::fs::remove_dir_all(&broken).ok();
+    }
+
+    #[test]
+    fn saving_mid_play_never_writes_gameplay_mutated_map_state() {
+        // Review ST-01: a running cart's own `set_tile` mutates live map RAM
+        // directly, and `save()` used to read that live RAM — so a mid-play
+        // Ctrl+S baked whatever gameplay had just done (e.g. clearing a
+        // collected coin) into the saved map. `save()` must instead write
+        // the pristine `asset_snapshot`, captured before any frame ran.
+        let dir = temp_dir("st01-map-mutation");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+        studio.sources[0].text =
+            "function _init() end\nfunction _update() set_tile(0, 0, 5) end\n".to_string();
+        studio.needs_compile = true;
+
+        studio.transport("run").expect("run");
+        assert!(studio.run_one_frame(), "the update frame must not fault");
+        assert_eq!(
+            studio
+                .console
+                .vm
+                .peek_memory(caiven_core::memory::MAP_RAM_BASE),
+            5,
+            "gameplay did mutate live map RAM, as expected"
+        );
+
+        studio.save().expect("save mid-play");
+
+        let mut reopened = StudioCore::new(None).expect("studio core");
+        reopened.open(&dir).expect("reopen saved project");
+        assert_eq!(
+            reopened
+                .console
+                .vm
+                .peek_memory(caiven_core::memory::MAP_RAM_BASE),
+            0,
+            "the saved map must not contain the mid-play mutation"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     // -- normalized_module_path -------------------------------------------
@@ -3283,6 +3489,68 @@ mod tests {
                 .contains(&"forest".to_string()),
             "known bug: the VM bank is created before the cart-open check"
         );
+    }
+
+    #[test]
+    fn asset_edits_set_dirty_until_saved() {
+        // Review STU-04: only code edits used to count as unsaved.
+        let dir = temp_dir("stu04-dirty");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+        assert!(!studio.bootstrap().asset_dirty);
+
+        dispatch(&mut studio, |reply| CoreCommand::WriteSprite {
+            sprite: 0,
+            pixels: vec![1; caiven_core::memory::SPRITE_BYTES],
+            reply,
+        })
+        .expect("write sprite");
+        assert!(studio.bootstrap().asset_dirty);
+
+        studio.save().expect("save");
+        assert!(!studio.bootstrap().asset_dirty);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn deleting_a_bank_removes_only_that_banks_files_on_save() {
+        // Review CART-04: `save_project` used to sweep the whole project
+        // directory for anything matching `{stem}_{name}.png`, deleting a
+        // hand-placed same-shaped file (e.g. reference art) that was never
+        // one of the cart's own banks. `removed_banks` now names exactly
+        // the banks Studio itself deleted this session.
+        let dir = temp_dir("cart04-bank-delete");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+
+        dispatch(&mut studio, |reply| CoreCommand::AssetBank {
+            kind: "sprites".to_string(),
+            action: "create".to_string(),
+            name: Some("forest".to_string()),
+            reply,
+        })
+        .expect("create bank");
+        studio.save().expect("save with new bank");
+        assert!(dir.join("sprites_forest.png").is_file());
+
+        // A file that merely looks like a bank but was never loaded/created
+        // through Studio — must survive every future save untouched.
+        std::fs::write(dir.join("sprites_reference.png"), b"not a real bank")
+            .expect("write reference file");
+
+        dispatch(&mut studio, |reply| CoreCommand::AssetBank {
+            kind: "sprites".to_string(),
+            action: "delete".to_string(),
+            name: Some("forest".to_string()),
+            reply,
+        })
+        .expect("delete bank");
+        studio.save().expect("save after delete");
+
+        assert!(!dir.join("sprites_forest.png").exists());
+        assert!(dir.join("sprites_reference.png").is_file());
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     // -- StudioCore::new_project ----------------------------------------------

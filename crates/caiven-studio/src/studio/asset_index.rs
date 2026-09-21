@@ -76,8 +76,9 @@ pub fn build(
                     let mut from = 0;
                     while let Some(relative) = code[from..].find(name) {
                         let at = from + relative;
-                        if at > 0 && code.as_bytes()[at - 1].is_ascii_alphanumeric()
-                            || at > 0 && code.as_bytes()[at - 1] == b'_'
+                        if at > 0
+                            && (code.as_bytes()[at - 1].is_ascii_alphanumeric()
+                                || code.as_bytes()[at - 1] == b'_')
                         {
                             from = at + name.len();
                             continue;

@@ -315,7 +315,7 @@ pub(crate) fn unpack_cart(cart: &Path, out: &Path) -> Result<()> {
         .into_iter()
         .map(|s| (s.kind, s.data))
         .collect();
-    caiven_cart::save_project(out, &loaded.header, &lua, &[], &extra)
+    caiven_cart::save_project(out, &loaded.header, &lua, &[], &extra, &[])
         .with_context(|| format!("failed to write project to {}", out.display()))?;
     Ok(())
 }
@@ -410,12 +410,27 @@ pub fn default_section_layout() -> Vec<SectionLayout> {
 #[cfg(test)]
 mod tests {
     use super::{load_cart, stored_cart_path, unpack_cart};
-    use crate::app::cart_io::save;
+    use crate::app::cart_io::{CartMeta, gather_sections, save_pristine};
     use caiven_cart::{CartHeader, SectionKind};
     use caiven_core::memory::{COLLISION_LEN, COLLISION_RAM_BASE};
     use caiven_vm::input::Input;
     use caiven_vm::rendering::font::Font;
     use caiven_vm::{Vm, VmConfig};
+    use std::path::PathBuf;
+
+    /// Test stand-in for the removed `cart_io::save`: gathers the current
+    /// live VM state and writes it straight through, unlike the real
+    /// `StudioCore::save`, which writes its pristine `asset_snapshot`
+    /// instead (see ST-01).
+    fn save(
+        vm: &Vm,
+        meta: &CartMeta,
+        modules: &[(PathBuf, String)],
+        removed_banks: &[(SectionKind, String)],
+    ) -> anyhow::Result<()> {
+        let extra = gather_sections(vm, meta);
+        save_pristine(&extra, meta, modules, removed_banks)
+    }
 
     fn temp_dir(label: &str) -> std::path::PathBuf {
         let unique = std::time::SystemTime::now()
@@ -458,7 +473,7 @@ mod tests {
         std::fs::create_dir(&project).unwrap();
         let mut meta = meta;
         meta.path = project.clone();
-        save(&vm, &meta, &[]).unwrap();
+        save(&vm, &meta, &[], &[]).unwrap();
 
         let mut vm2 = Vm::new(VmConfig::default());
         load_cart(&mut vm2, &project, &Input::new(), &Font::empty()).unwrap();
@@ -497,7 +512,7 @@ mod tests {
         std::fs::create_dir(&project).unwrap();
         let mut meta = meta;
         meta.path = project.clone();
-        save(&vm, &meta, &[]).unwrap();
+        save(&vm, &meta, &[], &[]).unwrap();
         assert!(project.join("collision_types.json").is_file());
 
         let mut vm2 = Vm::new(VmConfig::default());

@@ -1482,7 +1482,7 @@
         <div class="breadcrumbs"><span>{title}</span><b>›</b><span>src</span><b>›</b><strong>{active?.name}</strong><code>Lua 5.4</code></div>
         <div class="code-editor">
           {#if LuaEditorComponent}
-            {#key active?.name ?? ''}
+            {#key active?.path ?? active?.name ?? ''}
               <LuaEditorComponent
                 value={active?.text ?? ''}
                 path={active?.name ?? ''}

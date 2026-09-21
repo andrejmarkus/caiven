@@ -28,8 +28,10 @@ pub struct CartMeta {
 }
 
 /// Reads each tracked RAM asset section back from the VM while retaining
-/// metadata sections that were never mapped into RAM.
-fn gather_sections(vm: &Vm, meta: &CartMeta) -> Vec<(SectionKind, Vec<u8>)> {
+/// metadata sections that were never mapped into RAM. Also used by
+/// `StudioCore` to (re)capture its pristine `asset_snapshot` at a moment it
+/// knows VM RAM reflects only editor/compile-time state, not gameplay.
+pub(crate) fn gather_sections(vm: &Vm, meta: &CartMeta) -> Vec<(SectionKind, Vec<u8>)> {
     meta.sections
         .iter()
         .map(|s| {
@@ -98,21 +100,46 @@ fn gather_sections(vm: &Vm, meta: &CartMeta) -> Vec<(SectionKind, Vec<u8>)> {
         .collect()
 }
 
-/// Reads each tracked RAM section from the VM and writes them back to disk.
-/// Only sections that were copied into RAM (e.g. SpriteSheet) are round-tripped.
-/// `modules` are the entry buffer's sibling `.lua` files (project-relative
-/// path -> live buffer text) — ignored when `meta.path` is a binary `.cav`,
-/// since `write_binary` bundles them into the single `LuaSource` section
-/// instead of writing separate files.
-pub(crate) fn save(vm: &Vm, meta: &CartMeta, modules: &[(PathBuf, String)]) -> Result<()> {
-    let extra = gather_sections(vm, meta);
+/// Writes already-gathered asset sections (e.g. from [`gather_sections`] or
+/// `StudioCore::asset_snapshot`) back to disk. Only sections that were
+/// copied into RAM (e.g. SpriteSheet) are round-tripped. `modules` are the
+/// entry buffer's sibling `.lua` files (project-relative path -> live buffer
+/// text) — ignored when `meta.path` is a binary `.cav`, since `write_binary`
+/// bundles them into the single `LuaSource` section instead of writing
+/// separate files.
+///
+/// Callers pass a *pristine* snapshot rather than a live `gather_sections`
+/// read: Studio's editor keeps `asset_snapshot` separate from live VM RAM
+/// specifically so a mid-play gameplay mutation (e.g. `set_tile` clearing a
+/// collected coin) can never leak into a save.
+pub(crate) fn save_pristine(
+    snapshot: &[(SectionKind, Vec<u8>)],
+    meta: &CartMeta,
+    modules: &[(PathBuf, String)],
+    removed_banks: &[(SectionKind, String)],
+) -> Result<()> {
+    save_extra(snapshot, meta, modules, removed_banks)
+}
+
+fn save_extra(
+    extra: &[(SectionKind, Vec<u8>)],
+    meta: &CartMeta,
+    modules: &[(PathBuf, String)],
+    removed_banks: &[(SectionKind, String)],
+) -> Result<()> {
     let is_binary = meta.path.extension().and_then(|e| e.to_str()) == Some("cav");
 
     if is_binary {
-        write_binary(&extra, meta, &meta.path, modules)
+        // Never minify here: this is an in-place edit of the author's own
+        // `.cav` (Studio only reaches this branch for a cart opened
+        // directly, not unpacked to a project dir first), so Ctrl+S must
+        // not silently strip the source's comments and formatting on disk.
+        // Minification is for `export_binary`/`export_web`/publish, which
+        // build a separate distribution artifact. See review STU-03.
+        write_binary(extra, meta, &meta.path, modules, false)
     } else {
         let lua = meta.lua_source.as_deref().unwrap_or_default();
-        caiven_cart::save_project(&meta.path, &meta.header, lua, modules, &extra)
+        caiven_cart::save_project(&meta.path, &meta.header, lua, modules, extra, removed_banks)
             .with_context(|| format!("failed to write project to {}", meta.path.display()))
     }
 }
@@ -128,7 +155,7 @@ pub(crate) fn export_binary(
     modules: &[(PathBuf, String)],
 ) -> Result<()> {
     let extra = gather_sections(vm, meta);
-    write_binary(&extra, meta, dest, modules)
+    write_binary(&extra, meta, dest, modules, true)
 }
 
 /// Packs a cart to bytes via a throwaway temp `.cav` file, read back
@@ -160,7 +187,8 @@ pub(crate) fn export_web(
     modules: &[(PathBuf, String)],
 ) -> Result<()> {
     let extra = gather_sections(vm, meta);
-    let (program, extra) = distribution_content(&extra, meta, meta.lua_source.as_deref(), modules);
+    let (program, extra) =
+        distribution_content(&extra, meta, meta.lua_source.as_deref(), modules, true);
     let packed = pack_to_bytes(&meta.header, &program, &extra)?;
 
     let html = crate::app::web_export::build_web_html(&packed, &meta.header.title);
@@ -182,7 +210,8 @@ pub(crate) fn export_screenshot(
     modules: &[(PathBuf, String)],
 ) -> Result<()> {
     let extra = gather_sections(vm, meta);
-    let (program, extra) = distribution_content(&extra, meta, meta.lua_source.as_deref(), modules);
+    let (program, extra) =
+        distribution_content(&extra, meta, meta.lua_source.as_deref(), modules, true);
 
     let temp = crate::studio::cart::temp_cav_path();
     caiven_cart::write(&temp, &meta.header, &program, &extra)
@@ -221,8 +250,9 @@ pub(crate) fn export_source_zip(
     let extra = gather_sections(vm, meta);
     let lua = meta.lua_source.as_deref().unwrap_or_default();
     let temp_dir = crate::studio::cart::temp_project_dir_path();
-    let write_result = caiven_cart::save_project(&temp_dir, &meta.header, lua, modules, &extra)
-        .with_context(|| format!("failed to write project to {}", temp_dir.display()));
+    let write_result =
+        caiven_cart::save_project(&temp_dir, &meta.header, lua, modules, &extra, &[])
+            .with_context(|| format!("failed to write project to {}", temp_dir.display()));
     let zip_result = write_result.and_then(|()| zip_dir(&temp_dir, dest));
     let _ = std::fs::remove_dir_all(&temp_dir);
     zip_result
@@ -263,8 +293,10 @@ fn write_binary(
     meta: &CartMeta,
     dest: &Path,
     modules: &[(PathBuf, String)],
+    minify: bool,
 ) -> Result<()> {
-    let (program, extra) = distribution_content(extra, meta, meta.lua_source.as_deref(), modules);
+    let (program, extra) =
+        distribution_content(extra, meta, meta.lua_source.as_deref(), modules, minify);
     caiven_cart::write(dest, &meta.header, &program, &extra)
         .with_context(|| format!("failed to write cart to {}", dest.display()))
 }
@@ -278,7 +310,11 @@ pub(crate) fn packed_size(
     modules: &[(PathBuf, String)],
 ) -> usize {
     let extra = gather_sections(vm, meta);
-    let (program, extra) = distribution_content(&extra, meta, entry, modules);
+    // The 128 KiB cap applies to the distributed cartridge regardless of
+    // authoring format, so the size indicator always estimates the
+    // minified/bundled artifact — unlike a save-in-place `.cav`, which no
+    // longer minifies (see review STU-03).
+    let (program, extra) = distribution_content(&extra, meta, entry, modules, true);
     caiven_cart::packed_len(&program, &extra)
 }
 
@@ -287,6 +323,7 @@ fn distribution_content(
     meta: &CartMeta,
     entry: Option<&str>,
     modules: &[(PathBuf, String)],
+    minify: bool,
 ) -> (Vec<u8>, Vec<(SectionKind, Vec<u8>)>) {
     let mut extra = extra.to_vec();
     let program = match entry {
@@ -304,15 +341,82 @@ fn distribution_content(
         }
         None => meta.program.clone(),
     };
-    // Both callers (GUI "Export Cartridge" and the publish flow's temp pack)
-    // produce a distribution artifact meant for someone other than the
-    // author, so strip comments/formatting from the bundled Lua here.
     let mut sections: Vec<CartSection> = extra
         .into_iter()
         .map(|(kind, data)| CartSection { kind, data })
         .collect();
-    caiven_cart::minify_cart_lua(&mut sections);
+    if minify {
+        // Export/publish build a distribution artifact meant for someone
+        // other than the author, so strip comments/formatting from the
+        // bundled Lua here. A save-in-place `.cav` passes `minify: false`.
+        caiven_cart::minify_cart_lua(&mut sections);
+    }
     let extra: Vec<(SectionKind, Vec<u8>)> =
         sections.into_iter().map(|s| (s.kind, s.data)).collect();
     (program, extra)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use caiven_vm::VmConfig;
+
+    fn temp_path(label: &str) -> PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "caiven-cart-io-{label}-{}-{unique}.cav",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn saving_a_cav_in_place_preserves_comments_but_export_still_minifies() {
+        // Review STU-03: Ctrl+S on a cart opened directly as a `.cav` used
+        // to go through the same minifying path as "Export Cartridge",
+        // silently stripping the author's own comments/formatting from the
+        // file they're editing. Save-in-place and export must diverge here.
+        let lua = "-- a helpful comment\nfunction _init() end\nfunction _update() end\n";
+        let cav_path = temp_path("save-in-place");
+        let meta = CartMeta {
+            path: cav_path.clone(),
+            header: CartHeader::new("Test", ""),
+            program: Vec::new(),
+            sections: Vec::new(),
+            lua_source: Some(lua.to_string()),
+        };
+
+        save_pristine(&[], &meta, &[], &[]).expect("save in place");
+        let saved = caiven_cart::load(&cav_path).expect("reload saved cav");
+        let saved_lua = saved
+            .sections
+            .iter()
+            .find(|s| s.kind == SectionKind::LuaSource)
+            .map(|s| String::from_utf8_lossy(&s.data).into_owned())
+            .unwrap();
+        assert!(
+            saved_lua.contains("a helpful comment"),
+            "save-in-place must not minify: {saved_lua}"
+        );
+
+        let export_path = temp_path("export");
+        let vm = Vm::new(VmConfig::default());
+        export_binary(&vm, &meta, &export_path, &[]).expect("export");
+        let exported = caiven_cart::load(&export_path).expect("reload exported cav");
+        let exported_lua = exported
+            .sections
+            .iter()
+            .find(|s| s.kind == SectionKind::LuaSource)
+            .map(|s| String::from_utf8_lossy(&s.data).into_owned())
+            .unwrap();
+        assert!(
+            !exported_lua.contains("a helpful comment"),
+            "export must still minify: {exported_lua}"
+        );
+
+        std::fs::remove_file(&cav_path).ok();
+        std::fs::remove_file(&export_path).ok();
+    }
 }

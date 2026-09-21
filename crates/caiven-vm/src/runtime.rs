@@ -100,6 +100,15 @@ impl ConsoleCore {
         let capture_lua_output = self.vm.lua_output_capture_enabled();
         let mut vm = Vm::new(self.config);
         vm.set_lua_output_capture(capture_lua_output);
+        self.adopt_vm(vm);
+    }
+
+    /// Replaces the VM with one already built and validated elsewhere,
+    /// rewiring audio exactly like `reset_vm`. Lets a caller load/validate a
+    /// candidate cart into a scratch `Vm` off to the side and only commit it
+    /// here once loading fully succeeded — the current VM (and whatever cart
+    /// it holds) is left untouched by a failed load.
+    pub fn adopt_vm(&mut self, vm: Vm) {
         // Drop the old output before opening a new one: some backends only
         // allow a single stream on the default device.
         self.audio = None;

@@ -424,12 +424,20 @@ pub fn load_project(path: &Path) -> Result<Cart, CartError> {
 /// Asset sections that trim to empty have their `.hex`/`.png` file removed
 /// if present, so deleting all sprites in the editor cleans up the file
 /// instead of leaving zeros.
+///
+/// `removed_banks` names the additional-name banks (`SpriteBank`, `MapBank`,
+/// …) the caller knows were dropped this session — an explicit "delete
+/// exactly these" list, not a directory sweep: a bank-shaped filename the
+/// caller never loaded or created (e.g. a hand-placed `sprites_reference.png`
+/// kept for reference art) is never in this list, so it survives a save
+/// instead of being swept away just for matching the naming pattern.
 pub fn save_project(
     dir: &Path,
     header: &CartHeader,
     lua: &str,
     modules: &[(PathBuf, String)],
     sections: &[(SectionKind, Vec<u8>)],
+    removed_banks: &[(SectionKind, String)],
 ) -> Result<(), CartError> {
     std::fs::create_dir_all(dir)?;
 
@@ -457,11 +465,19 @@ pub fn save_project(
         }
     }
 
+    // Preserve an already-declared entry path instead of forcing it back to
+    // `main.lua` on every save — a manifest hand-edited (or created before
+    // Studio existed) to point `entry` elsewhere must keep pointing there.
+    let entry_rel = parse_manifest(dir)
+        .ok()
+        .map(|m| m.cart.entry)
+        .unwrap_or_else(default_entry);
+
     let manifest = CaivenToml {
         cart: CartTable {
             title: header.title.clone(),
             author: header.author.clone(),
-            entry: DEFAULT_ENTRY.to_string(),
+            entry: entry_rel.clone(),
             entry_point: header.entry_point,
             flags: header.flags,
             version: CURRENT_MANIFEST_VERSION,
@@ -472,29 +488,16 @@ pub fn save_project(
     let manifest_text =
         toml::to_string_pretty(&manifest).map_err(|e| CartError::MissingEntry(e.to_string()))?;
     std::fs::write(dir.join(MANIFEST_FILE), manifest_text)?;
-    std::fs::write(dir.join(DEFAULT_ENTRY), lua)?;
+    let entry_path = dir.join(&entry_rel);
+    if let Some(parent) = entry_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&entry_path, lua)?;
 
-    let expected_banks: Vec<(&str, Vec<String>)> = BANK_KINDS
-        .iter()
-        .map(|(kind, _, stem)| {
-            let names = sections
-                .iter()
-                .filter(|(k, _)| k == kind)
-                .filter_map(|(_, data)| decode_asset_bank(data).map(|(name, _)| name.to_string()))
-                .collect();
-            (*stem, names)
-        })
-        .collect();
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        let stale = expected_banks.iter().any(|(stem, names)| {
-            bank_file_name(&name, stem)
-                .is_some_and(|bank_name| !names.iter().any(|n| n == bank_name))
-        });
-        if stale {
-            std::fs::remove_file(entry.path())?;
+    for (kind, name) in removed_banks {
+        if let Some((_, _, stem)) = BANK_KINDS.iter().find(|(k, _, _)| k == kind) {
+            let _ = std::fs::remove_file(dir.join(format!("{stem}_{name}.png")));
+            let _ = std::fs::remove_file(dir.join(format!("{stem}_{name}.hex")));
         }
     }
 
@@ -640,7 +643,7 @@ mod tests {
             (SectionKind::ModManifest, b"rtc\ninput".to_vec()),
         ];
 
-        save_project(dir.path(), &header, lua, &[], &sections).unwrap();
+        save_project(dir.path(), &header, lua, &[], &sections, &[]).unwrap();
         let cart = load_project(dir.path()).unwrap();
 
         assert_eq!(cart.header.title, "My Game");
@@ -687,6 +690,7 @@ mod tests {
             "function _update() end\n",
             &[],
             &sections,
+            &[],
         )
         .unwrap();
 
@@ -717,7 +721,7 @@ mod tests {
         // table, and re-loading produces no PreludeModules section either —
         // this is the "cart predates [stdlib]" case, distinct from a cart
         // that explicitly declared zero extra modules.
-        save_project(dir.path(), &header, "-- empty\n", &[], &[]).unwrap();
+        save_project(dir.path(), &header, "-- empty\n", &[], &[], &[]).unwrap();
         let manifest_text = std::fs::read_to_string(dir.path().join(MANIFEST_FILE)).unwrap();
         assert!(!manifest_text.contains("[stdlib]"));
 
@@ -733,7 +737,7 @@ mod tests {
         // so it survives a second round trip instead of collapsing back to
         // "absent".
         let explicit_empty = vec![(SectionKind::PreludeModules, Vec::new())];
-        save_project(dir.path(), &header, "-- empty\n", &[], &explicit_empty).unwrap();
+        save_project(dir.path(), &header, "-- empty\n", &[], &explicit_empty, &[]).unwrap();
         let manifest_text = std::fs::read_to_string(dir.path().join(MANIFEST_FILE)).unwrap();
         assert!(manifest_text.contains("[stdlib]"));
 
@@ -749,7 +753,7 @@ mod tests {
     fn missing_asset_files_are_simply_absent() {
         let dir = tempfile::tempdir().unwrap();
         let header = CartHeader::new("Blank", "");
-        save_project(dir.path(), &header, "-- empty\n", &[], &[]).unwrap();
+        save_project(dir.path(), &header, "-- empty\n", &[], &[], &[]).unwrap();
 
         let cart = load_project(dir.path()).unwrap();
         assert!(
@@ -795,6 +799,7 @@ mod tests {
             "-- empty\n",
             &[],
             &[(SectionKind::CollisionTypes, encode_collision_types(&types))],
+            &[],
         )
         .unwrap();
 
@@ -815,7 +820,7 @@ mod tests {
     fn collision_types_json_with_old_solid_field_still_loads() {
         let dir = tempfile::tempdir().unwrap();
         let header = CartHeader::new("Blank", "");
-        save_project(dir.path(), &header, "-- empty\n", &[], &[]).unwrap();
+        save_project(dir.path(), &header, "-- empty\n", &[], &[], &[]).unwrap();
 
         std::fs::write(
             dir.path().join(COLLISION_TYPES_FILE),
@@ -856,6 +861,7 @@ mod tests {
                 SectionKind::CollisionTypes,
                 encode_collision_types(&caiven_core::builtin_collision_types()),
             )],
+            &[],
         )
         .unwrap();
         assert!(!dir.path().join(COLLISION_TYPES_FILE).is_file());
@@ -881,6 +887,7 @@ mod tests {
             "-- empty\n",
             &[],
             &[(SectionKind::CollisionTypes, encode_collision_types(&types))],
+            &[],
         )
         .unwrap();
         assert!(dir.path().join(COLLISION_TYPES_FILE).is_file());
@@ -928,7 +935,7 @@ mod tests {
     fn saved_manifest_roundtrips_current_version() {
         let dir = tempfile::tempdir().unwrap();
         let header = CartHeader::new("Game", "");
-        save_project(dir.path(), &header, "-- code\n", &[], &[]).unwrap();
+        save_project(dir.path(), &header, "-- code\n", &[], &[], &[]).unwrap();
 
         let manifest_text = std::fs::read_to_string(dir.path().join(MANIFEST_FILE)).unwrap();
         assert!(manifest_text.contains(&format!("version = {CURRENT_MANIFEST_VERSION}")));
@@ -953,6 +960,29 @@ mod tests {
     }
 
     #[test]
+    fn save_project_honors_an_already_declared_custom_entry_path() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(MANIFEST_FILE),
+            "[cart]\ntitle = \"X\"\nentry = \"game.lua\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("game.lua"), "-- original\n").unwrap();
+
+        let header = CartHeader::new("X", "");
+        save_project(dir.path(), &header, "-- updated\n", &[], &[], &[]).unwrap();
+
+        // The entry stays at its declared path, not forced back to main.lua.
+        assert!(!dir.path().join(DEFAULT_ENTRY).exists());
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("game.lua")).unwrap(),
+            "-- updated\n"
+        );
+        let manifest_text = std::fs::read_to_string(dir.path().join(MANIFEST_FILE)).unwrap();
+        assert!(manifest_text.contains("entry = \"game.lua\""));
+    }
+
+    #[test]
     fn is_project_detects_dir_and_manifest_path() {
         let dir = tempfile::tempdir().unwrap();
         assert!(!is_project(dir.path()));
@@ -971,6 +1001,7 @@ mod tests {
             "-- code\n",
             &[],
             &[(SectionKind::Collision, vec![1, 2, 3])],
+            &[],
         )
         .unwrap();
         assert!(dir.path().join("collision.hex").is_file());
@@ -981,6 +1012,7 @@ mod tests {
             "-- code\n",
             &[],
             &[(SectionKind::Collision, vec![0, 0, 0])],
+            &[],
         )
         .unwrap();
         assert!(!dir.path().join("collision.hex").is_file());
@@ -996,6 +1028,7 @@ mod tests {
             "-- code\n",
             &[],
             &[(SectionKind::SpriteSheet, vec![9u8; 64])],
+            &[],
         )
         .unwrap();
         assert!(dir.path().join("sprites.png").is_file());
@@ -1016,6 +1049,7 @@ mod tests {
             "-- code\n",
             &[],
             &[(SectionKind::SpriteSheet, vec![9u8; 64])],
+            &[],
         )
         .unwrap();
 
@@ -1027,7 +1061,7 @@ mod tests {
     fn load_prefers_png_over_hex_when_both_present() {
         let dir = tempfile::tempdir().unwrap();
         let header = CartHeader::new("Game", "");
-        save_project(dir.path(), &header, "-- code\n", &[], &[]).unwrap();
+        save_project(dir.path(), &header, "-- code\n", &[], &[], &[]).unwrap();
 
         let palette = vec![0u8; 48];
         let mut sheet = vec![0u8; 64];
@@ -1063,6 +1097,7 @@ mod tests {
             "local p = require('ui.panel')\n",
             &modules,
             &[],
+            &[],
         )
         .unwrap();
 
@@ -1090,6 +1125,7 @@ mod tests {
             "-- code\n",
             &[],
             &[(SectionKind::SpriteBank, bank)],
+            &[],
         )
         .unwrap();
         assert!(dir.path().join("sprites_forest.png").is_file());
@@ -1107,8 +1143,32 @@ mod tests {
         // trips as [3, 4].
         assert_eq!(pixels, &[3, 4]);
 
-        save_project(dir.path(), &header, "-- code\n", &[], &[]).unwrap();
+        save_project(
+            dir.path(),
+            &header,
+            "-- code\n",
+            &[],
+            &[],
+            &[(SectionKind::SpriteBank, "forest".to_string())],
+        )
+        .unwrap();
         assert!(!dir.path().join("sprites_forest.png").exists());
+    }
+
+    #[test]
+    fn a_bank_shaped_file_never_loaded_or_removed_this_session_survives_save() {
+        // `sprites_reference.png` matches the additional-bank naming pattern
+        // but was never one of the cart's own banks (e.g. reference art a
+        // creator keeps next to the project) — a save must never delete a
+        // file just because its name matches the pattern; only an explicit
+        // `removed_banks` entry may remove one.
+        let dir = tempfile::tempdir().unwrap();
+        let header = CartHeader::new("Banks", "");
+        save_project(dir.path(), &header, "-- code\n", &[], &[], &[]).unwrap();
+        std::fs::write(dir.path().join("sprites_reference.png"), b"not a bank").unwrap();
+
+        save_project(dir.path(), &header, "-- code\n", &[], &[], &[]).unwrap();
+        assert!(dir.path().join("sprites_reference.png").is_file());
     }
 
     #[test]
@@ -1126,6 +1186,7 @@ mod tests {
                 (SectionKind::PaletteBank, palette_bank),
                 (SectionKind::SfxBanks, sfx_bank),
             ],
+            &[],
         )
         .unwrap();
         // Palette supports PNG; SFX is hex-only.
@@ -1152,7 +1213,18 @@ mod tests {
         assert_eq!(name, "night");
         assert_eq!(&bytes[..4], &[5, 6, 7, 8]);
 
-        save_project(dir.path(), &header, "-- code\n", &[], &[]).unwrap();
+        save_project(
+            dir.path(),
+            &header,
+            "-- code\n",
+            &[],
+            &[],
+            &[
+                (SectionKind::PaletteBank, "night".to_string()),
+                (SectionKind::SfxBanks, "night".to_string()),
+            ],
+        )
+        .unwrap();
         assert!(!dir.path().join("palette_night.png").exists());
         assert!(!dir.path().join("sfx_night.hex").exists());
     }
@@ -1168,6 +1240,7 @@ mod tests {
             "-- code\n",
             &[],
             &[(SectionKind::CollisionBank, collision_bank)],
+            &[],
         )
         .unwrap();
         // Collision is index data, not an image: hex-only, like sprite flags.
@@ -1184,7 +1257,15 @@ mod tests {
         assert_eq!(name, "forest");
         assert_eq!(&cells[..4], &[0, 1, 2, 1]);
 
-        save_project(dir.path(), &header, "-- code\n", &[], &[]).unwrap();
+        save_project(
+            dir.path(),
+            &header,
+            "-- code\n",
+            &[],
+            &[],
+            &[(SectionKind::CollisionBank, "forest".to_string())],
+        )
+        .unwrap();
         assert!(!dir.path().join("collision_forest.hex").exists());
     }
 
@@ -1201,6 +1282,7 @@ mod tests {
                 SectionKind::MapBank,
                 encode_asset_bank("cave", &vec![0; caiven_core::memory::MAP_LEN]),
             )],
+            &[],
         )
         .unwrap();
         let cart = load_project(dir.path()).unwrap();
@@ -1214,7 +1296,7 @@ mod tests {
     fn a_file_with_an_invalid_bank_name_is_ignored_on_load() {
         let dir = tempfile::tempdir().unwrap();
         let header = CartHeader::new("Banks", "");
-        save_project(dir.path(), &header, "-- code\n", &[], &[]).unwrap();
+        save_project(dir.path(), &header, "-- code\n", &[], &[], &[]).unwrap();
         // Neither a path-traversal attempt nor a name over the length cap
         // is a valid bank name, so a hand-placed file using either should
         // be skipped rather than smuggled into a section.

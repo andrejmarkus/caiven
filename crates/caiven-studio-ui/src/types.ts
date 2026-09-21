@@ -147,6 +147,7 @@ export interface StudioBootstrap {
   recent: string[];
   api: ApiEntry[];
   preludeModules: PreludeModule[];
+  assetDirty: boolean;
 }
 
 export interface TickSnapshot {
@@ -167,6 +168,7 @@ export interface TickSnapshot {
   activePaletteBank: string;
   activeSfxBank: string;
   activeMusicBank: string;
+  assetDirty: boolean;
 }
 
 declare global {
