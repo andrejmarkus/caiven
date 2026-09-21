@@ -8,10 +8,9 @@
 //! helpers (`sub`/`tostring`/`..`) aren't bound here — Lua's own `math` and
 //! `string` stdlibs already cover them.
 //!
-//! Builtins are registered both at load time (so top-level script code and
-//! `_init()` can use them, same as any real Lua environment) and once per
-//! frame before `_update()` — `register_builtins` is shared between the two
-//! call sites so the API surface can't drift between them.
+//! Builtin globals are installed once per Lua state as trampolines; each
+//! scope (load, frame, hot reload) fills their implementations through
+//! `register_builtins`, so the API surface can't drift between call sites.
 
 use super::audio::{SFX_VOICE_COUNT, Sound};
 use super::memory::Memory;
@@ -20,15 +19,15 @@ use super::save_data::SaveData;
 use super::sfx::{MusicPlayer, resolve_song_step};
 use super::{
     AssetBankKind, AssetBanks, Camera, PooledSfx, Vm, VmFault, allocate_sfx_voice,
-    release_sfx_voice, unpack_sfx_handle,
+    release_sfx_voice, silence_music_voices, unpack_sfx_handle,
 };
 use crate::input::{Button, Input};
 use crate::rendering::font::Font;
 use crate::rendering::screen::ScreenLayer;
-use crate::rendering::text::draw_text;
+use crate::rendering::text::draw_text_at;
 use caiven_core::memory::{
     COLLISION_RAM_BASE, MAP_H, MAP_RAM_BASE, MAP_W, MUSIC_ORDER_STEPS, PALETTE_RAM_BASE,
-    RTC_RAM_BASE, SPRITE_BYTES, SPRITE_COUNT, SPRITE_SHEET_COLS, SPRITE_SHEET_RAM_BASE,
+    RTC_RAM_BASE, SFX_COUNT, SPRITE_BYTES, SPRITE_COUNT, SPRITE_SHEET_COLS, SPRITE_SHEET_RAM_BASE,
 };
 use caiven_core::{Color, Vec2};
 use mlua::{Debug, HookTriggers, Lua, LuaSerdeExt, MultiValue, Scope, StdLib, Table, VmState};
@@ -1018,14 +1017,38 @@ fn circle_points(cx: i64, cy: i64, r: i64, mut f: impl FnMut(i64, i64)) {
     }
 }
 
-/// Registers the full builtin API surface as Lua globals scoped to this
-/// call's borrowed VM state. Shared by [`Vm::load_lua_source`] (so top-level
-/// script code and `_init()` see the same globals as `_update()`) and
-/// [`Vm::run_frame_lua`].
+const BUILTIN_IMPL_KEY: &str = "caiven_builtin_impl";
+
+/// The hidden table holding this frame's scoped builtin implementations.
+fn builtin_impls(lua: &Lua) -> mlua::Result<Table> {
+    lua.named_registry_value(BUILTIN_IMPL_KEY)
+}
+
+/// Installs the permanent builtin globals once per Lua state. Each is a
+/// stable trampoline into the per-frame scoped implementation, so a cart's
+/// aliases (`local d = draw_text`) and wrappers survive across frames.
+fn install_builtin_trampolines(lua: &Lua, sprite_size: u32) -> mlua::Result<()> {
+    let impls = lua.create_table()?;
+    lua.set_named_registry_value(BUILTIN_IMPL_KEY, impls.clone())?;
+    let globals = lua.globals();
+    globals.set("SPRITE_SIZE", sprite_size)?;
+    for &name in BUILTIN_NAMES.iter().filter(|&&n| n != "SPRITE_SIZE") {
+        let impls = impls.clone();
+        let trampoline = lua.create_function(move |_, args: MultiValue| {
+            impls.get::<mlua::Function>(name)?.call::<MultiValue>(args)
+        })?;
+        globals.set(name, trampoline)?;
+    }
+    Ok(())
+}
+
+/// Fills `impls` with the full builtin API surface, scoped to this call's
+/// borrowed VM state. Shared by [`Vm::load_lua_source`], hot reload and
+/// [`Vm::run_frame_lua`]; the permanent globals dispatch into it.
 #[allow(clippy::too_many_arguments)]
 fn register_builtins<'scope, 'env>(
     scope: &'scope Scope<'scope, 'env>,
-    globals: &Table,
+    impls: &Table,
     world: &'env RefCell<&'env mut ScreenLayer>,
     ui: &'env RefCell<&'env mut ScreenLayer>,
     memory: &'env RefCell<&'env mut Memory>,
@@ -1045,9 +1068,7 @@ fn register_builtins<'scope, 'env>(
     height: u32,
     frame_count: u32,
 ) -> mlua::Result<()> {
-    globals.set("SPRITE_SIZE", sprite_size)?;
-
-    globals.set(
+    impls.set(
         "clear_screen",
         scope.create_function_mut(|_, ()| {
             world.borrow_mut().clear();
@@ -1056,7 +1077,7 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "set_pixel",
         scope.create_function_mut(|_, (x, y, color_index): (i64, i64, u8)| {
             let color = palette.borrow().get_color(color_index as usize);
@@ -1158,72 +1179,60 @@ fn register_builtins<'scope, 'env>(
             Ok(())
         },
     )?;
-    globals.set("sprite", sprite_fn)?;
+    impls.set("sprite", sprite_fn)?;
 
-    globals.set(
+    impls.set(
         "button_down",
-        scope.create_function(|_, button_index: u8| {
-            Ok(Button::from_u8(button_index)
+        scope.create_function(|_, button_index: i64| {
+            Ok(u8::try_from(button_index)
+                .ok()
+                .and_then(Button::from_u8)
                 .map(|b| input.is_pressed(b))
                 .unwrap_or(false))
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "button_pressed",
-        scope.create_function(|_, button_index: u8| {
-            Ok(Button::from_u8(button_index)
+        scope.create_function(|_, button_index: i64| {
+            Ok(u8::try_from(button_index)
+                .ok()
+                .and_then(Button::from_u8)
                 .map(|b| input.just_pressed(b))
                 .unwrap_or(false))
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "button_released",
-        scope.create_function(|_, button_index: u8| {
-            Ok(Button::from_u8(button_index)
+        scope.create_function(|_, button_index: i64| {
+            Ok(u8::try_from(button_index)
+                .ok()
+                .and_then(Button::from_u8)
                 .map(|b| input.just_released(b))
                 .unwrap_or(false))
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "draw_text",
         scope.create_function_mut(|_, (text, x, y, color_index): (String, i64, i64, u8)| {
-            if x < 0 || y < 0 {
-                return Ok(());
-            }
             let color = palette.borrow().get_color(color_index as usize);
-            draw_text(
-                font,
-                &mut ui.borrow_mut(),
-                &text,
-                Vec2::new(x as u32, y as u32),
-                color,
-            );
+            draw_text_at(font, &mut ui.borrow_mut(), &text, x, y, color);
             Ok(())
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "draw_number",
         scope.create_function_mut(|_, (value, x, y, color_index): (i64, i64, i64, u8)| {
-            if x < 0 || y < 0 {
-                return Ok(());
-            }
             let color = palette.borrow().get_color(color_index as usize);
-            draw_text(
-                font,
-                &mut ui.borrow_mut(),
-                &value.to_string(),
-                Vec2::new(x as u32, y as u32),
-                color,
-            );
+            draw_text_at(font, &mut ui.borrow_mut(), &value.to_string(), x, y, color);
             Ok(())
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "fill_screen",
         scope.create_function_mut(move |_, color_index: u8| {
             let color = palette.borrow().get_color(color_index as usize);
@@ -1237,7 +1246,7 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "draw_line",
         scope.create_function_mut(
             |_, (x0, y0, x1, y1, color_index): (i64, i64, i64, i64, u8)| {
@@ -1256,7 +1265,7 @@ fn register_builtins<'scope, 'env>(
         )?,
     )?;
 
-    globals.set(
+    impls.set(
         "draw_rect",
         scope.create_function_mut(
             move |_, (x, y, w, h, color_index): (i64, i64, i64, i64, u8)| {
@@ -1283,7 +1292,7 @@ fn register_builtins<'scope, 'env>(
         )?,
     )?;
 
-    globals.set(
+    impls.set(
         "fill_rect",
         scope.create_function_mut(
             move |_, (x, y, w, h, color_index): (i64, i64, i64, i64, u8)| {
@@ -1307,7 +1316,7 @@ fn register_builtins<'scope, 'env>(
         )?,
     )?;
 
-    globals.set(
+    impls.set(
         "draw_circle",
         scope.create_function_mut(move |_, (cx, cy, r, color_index): (i64, i64, i64, u8)| {
             if r < 0 {
@@ -1323,7 +1332,7 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "fill_circle",
         scope.create_function_mut(move |_, (cx, cy, r, color_index): (i64, i64, i64, u8)| {
             if r < 0 {
@@ -1345,25 +1354,33 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "set_camera",
-        scope.create_function_mut(|_, (x, y): (u32, u32)| {
-            camera.borrow_mut().set_position(x, y);
+        scope.create_function_mut(|_, (x, y): (i64, i64)| {
+            // Stored as i32 bit patterns so negative scroll survives the u32 slot.
+            let to_slot = |v: i64| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32 as u32;
+            camera.borrow_mut().set_position(to_slot(x), to_slot(y));
             Ok(())
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "set_palette_color",
         scope.create_function_mut(|_, (index, r, g, b): (usize, u8, u8, u8)| {
             palette
                 .borrow_mut()
                 .set_color(index, Color::new_rgb(r, g, b));
+            if index < 16 {
+                let mut mem = memory.borrow_mut();
+                for (offset, byte) in [r, g, b].into_iter().enumerate() {
+                    let _ = mem.write(PALETTE_RAM_BASE + index * 3 + offset, byte);
+                }
+            }
             Ok(())
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "draw_map",
         scope.create_function_mut(
             move |_, (cx, cy, sx, sy, w, h): (i64, i64, i64, i64, i64, i64)| {
@@ -1412,7 +1429,7 @@ fn register_builtins<'scope, 'env>(
         )?,
     )?;
 
-    globals.set(
+    impls.set(
         "get_tile",
         scope.create_function(|_, (x, y): (i64, i64)| {
             if !(0..MAP_W as i64).contains(&x) || !(0..MAP_H as i64).contains(&y) {
@@ -1425,7 +1442,7 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "set_tile",
         scope.create_function_mut(|_, (x, y, tile): (i64, i64, u8)| {
             if (0..MAP_W as i64).contains(&x) && (0..MAP_H as i64).contains(&y) {
@@ -1437,7 +1454,7 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "get_collision",
         scope.create_function(|_, (tx, ty): (i64, i64)| {
             if !(0..MAP_W as i64).contains(&tx) || !(0..MAP_H as i64).contains(&ty) {
@@ -1450,7 +1467,7 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "set_collision",
         scope.create_function_mut(|_, (tx, ty, value): (i64, i64, u8)| {
             if (0..MAP_W as i64).contains(&tx) && (0..MAP_H as i64).contains(&ty) {
@@ -1463,7 +1480,7 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "collision_type_id",
         scope.create_function(move |_, name: String| {
             Ok(caiven_core::collision_type_by_name(collision_types, &name)
@@ -1472,7 +1489,7 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "collision_type_name",
         scope.create_function(move |_, id: u8| {
             Ok(caiven_core::collision_type_by_id(collision_types, id)
@@ -1481,13 +1498,13 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "collision_is_solid",
         scope
             .create_function(move |_, id: u8| Ok(caiven_core::is_solid_id(collision_types, id)))?,
     )?;
 
-    globals.set(
+    impls.set(
         "collision_is_one_way",
         scope.create_function(move |_, id: u8| {
             Ok(caiven_core::collision_type_by_id(collision_types, id)
@@ -1495,7 +1512,7 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "collision_is_slope_left",
         scope.create_function(move |_, id: u8| {
             Ok(caiven_core::collision_type_by_id(collision_types, id)
@@ -1503,7 +1520,7 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "collision_is_slope_right",
         scope.create_function(move |_, id: u8| {
             Ok(caiven_core::collision_type_by_id(collision_types, id)
@@ -1511,7 +1528,7 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "load_sprite_bank",
         scope.create_function_mut(|_, name: String| {
             Ok(asset_banks.borrow_mut().select_with_companion(
@@ -1522,7 +1539,7 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "load_map_bank",
         scope.create_function_mut(|_, name: String| {
             Ok(asset_banks.borrow_mut().select_with_companion(
@@ -1533,7 +1550,7 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "load_palette_bank",
         scope.create_function_mut(|_, name: String| {
             let selected = asset_banks.borrow_mut().select_with_companion(
@@ -1559,7 +1576,7 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "load_sfx_bank",
         scope.create_function_mut(|_, name: String| {
             Ok(asset_banks.borrow_mut().select_with_companion(
@@ -1570,7 +1587,7 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "load_music_bank",
         scope.create_function_mut(|_, name: String| {
             Ok(asset_banks.borrow_mut().select_with_companion(
@@ -1581,13 +1598,19 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "play_sfx",
         scope.create_function_mut(move |_, (id, opts): (u8, Option<mlua::Table>)| {
             let volume = match &opts {
                 Some(t) => t.get::<Option<f64>>("volume")?.unwrap_or(1.0) as f32,
                 None => 1.0,
             };
+            if id as usize >= SFX_COUNT {
+                return Err(mlua::Error::RuntimeError(format!(
+                    "play_sfx: id must be 0-{} (got {id})",
+                    SFX_COUNT - 1
+                )));
+            }
             let handle = allocate_sfx_voice(
                 &mut sfx_pool.borrow_mut(),
                 &mut next_sfx_age.borrow_mut(),
@@ -1599,7 +1622,7 @@ fn register_builtins<'scope, 'env>(
     )?;
 
     let sound_for_stop_sfx = sound.clone();
-    globals.set(
+    impls.set(
         "stop_sfx",
         scope.create_function_mut(move |_, handle: u32| {
             release_sfx_voice(&mut sfx_pool.borrow_mut(), &sound_for_stop_sfx, handle);
@@ -1607,7 +1630,7 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "is_sfx_playing",
         scope.create_function(move |_, handle: u32| {
             let (slot, epoch) = unpack_sfx_handle(handle);
@@ -1617,7 +1640,7 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "play_music",
         scope.create_function_mut(|_, id: u8| {
             music_player.borrow_mut().start(id);
@@ -1625,10 +1648,12 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "play_music_song",
-        scope.create_function_mut(|_, start_step: Option<u8>| {
-            let step = start_step.unwrap_or(0).min(MUSIC_ORDER_STEPS as u8 - 1);
+        scope.create_function_mut(|_, start_step: Option<i64>| {
+            let step = start_step
+                .unwrap_or(0)
+                .clamp(0, MUSIC_ORDER_STEPS as i64 - 1) as u8;
             let resolved = resolve_song_step(&memory.borrow(), step);
             let mut player = music_player.borrow_mut();
             match resolved {
@@ -1649,21 +1674,23 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    let sound_for_stop_music = sound.clone();
+    impls.set(
         "stop_music",
-        scope.create_function_mut(|_, ()| {
+        scope.create_function_mut(move |_, ()| {
             music_player.borrow_mut().stop();
+            silence_music_voices(&sound_for_stop_music);
             Ok(())
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "is_music_playing",
         scope.create_function(move |_, ()| Ok(music_player.borrow().active))?,
     )?;
 
     let sound_for_master_volume = sound.clone();
-    globals.set(
+    impls.set(
         "set_master_volume",
         scope.create_function_mut(move |_, v: f64| {
             if let Ok(mut s) = sound_for_master_volume.try_lock() {
@@ -1674,7 +1701,7 @@ fn register_builtins<'scope, 'env>(
     )?;
 
     let sound_for_music_volume = sound.clone();
-    globals.set(
+    impls.set(
         "set_music_volume",
         scope.create_function_mut(move |_, v: f64| {
             if let Ok(mut s) = sound_for_music_volume.try_lock() {
@@ -1684,7 +1711,7 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "set_sfx_volume",
         scope.create_function_mut(move |_, v: f64| {
             if let Ok(mut s) = sound.try_lock() {
@@ -1694,7 +1721,7 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "real_time",
         scope.create_function(|_, ()| {
             let mem = memory.borrow();
@@ -1705,17 +1732,17 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "frame_count",
         scope.create_function(move |_, ()| Ok(frame_count))?,
     )?;
 
-    globals.set(
+    impls.set(
         "time",
         scope.create_function(move |_, ()| Ok(frame_count as f64 / TARGET_FPS))?,
     )?;
 
-    globals.set(
+    impls.set(
         "save_data",
         scope.create_function(move |lua, table: mlua::Table| {
             let value: serde_json::Value = lua.from_value(mlua::Value::Table(table))?;
@@ -1726,7 +1753,7 @@ fn register_builtins<'scope, 'env>(
         })?,
     )?;
 
-    globals.set(
+    impls.set(
         "load_data",
         scope.create_function(move |lua, ()| lua.to_value(save_data.borrow().blob()))?,
     )?;
@@ -1810,6 +1837,7 @@ impl Vm {
         // KiB cart cap so legitimate carts — including ones bundling several
         // prelude modules — never come close.
         lua.set_memory_limit(LUA_MEMORY_LIMIT_BYTES)?;
+        install_builtin_trampolines(&lua, self.config.sprite_size)?;
         {
             let globals = lua.globals();
             let package: Table = globals.get("package")?;
@@ -1916,7 +1944,7 @@ impl Vm {
             let globals = lua.globals();
             register_builtins(
                 scope,
-                &globals,
+                &builtin_impls(&lua)?,
                 &world,
                 &ui,
                 &memory,
@@ -1986,11 +2014,9 @@ impl Vm {
         self.script.is_some()
     }
 
-    /// One Lua-driven frame: re-registers the builtin set against this
-    /// frame's borrowed VM state via `Lua::scope`, then calls the script's
-    /// `_update()`. Re-registering per frame avoids needing `'static`/`Send`
-    /// closures or unsafe aliasing for host state that changes every frame
-    /// (screen buffers, input).
+    /// One Lua-driven frame: refills the builtin implementations against this
+    /// frame's borrowed VM state via `Lua::scope` (the permanent globals are
+    /// trampolines into them), then calls the script's `_update()`/`_draw()`.
     pub(super) fn run_frame_lua(&mut self, input: &Input, font: &Font) {
         let Some(script) = self.script.as_ref() else {
             return;
@@ -2038,7 +2064,7 @@ impl Vm {
             let globals = lua.globals();
             register_builtins(
                 scope,
-                &globals,
+                &builtin_impls(lua)?,
                 &world,
                 &ui,
                 &memory,
@@ -2220,7 +2246,7 @@ impl Vm {
             let globals = lua.globals();
             register_builtins(
                 scope,
-                &globals,
+                &builtin_impls(lua)?,
                 &world,
                 &ui,
                 &memory,
@@ -2530,10 +2556,9 @@ impl Vm {
         );
 
         let result: mlua::Result<()> = lua.scope(|scope| {
-            let globals = lua.globals();
             register_builtins(
                 scope,
-                &globals,
+                &builtin_impls(lua)?,
                 &world,
                 &ui,
                 &memory,
@@ -2705,6 +2730,132 @@ function _update() print("frame") end
         .expect("native print fixture should load");
 
         assert!(vm.take_lua_output().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod builtin_identity_tests {
+    use crate::input::Input;
+    use crate::rendering::font::Font;
+    use crate::{Vm, VmConfig};
+
+    #[test]
+    fn builtin_aliases_and_user_wrappers_survive_frames() {
+        let input = Input::new();
+        let font = Font::empty();
+        let mut vm = Vm::new(VmConfig::default());
+        vm.load_lua_source(
+            r#"
+local alias = fill_rect
+local orig = set_pixel
+calls = 0
+function set_pixel(...) calls = calls + 1 return orig(...) end
+function _update() alias(0, 0, 2, 2, 1) set_pixel(5, 5, 1) end
+"#,
+            &input,
+            &font,
+        )
+        .expect("chunk should load");
+        for _ in 0..3 {
+            vm.run_frame_lua(&input, &font);
+        }
+        assert!(
+            vm.get_fault().is_none(),
+            "aliased builtin must keep working"
+        );
+        let calls: i64 = vm
+            .script
+            .as_ref()
+            .expect("script should be loaded")
+            .lua
+            .globals()
+            .get("calls")
+            .expect("calls global");
+        assert_eq!(calls, 3, "user wrapper must not be re-clobbered per frame");
+    }
+}
+
+#[cfg(test)]
+mod audio_builtin_tests {
+    use crate::input::Input;
+    use crate::rendering::font::Font;
+    use crate::vm::audio::{MUSIC_VOICE_COUNT, MUSIC_VOICE_START};
+    use crate::{Vm, VmConfig};
+
+    fn vm_with(src: &str) -> (Vm, Input, Font) {
+        let input = Input::new();
+        let font = Font::empty();
+        let mut vm = Vm::new(VmConfig::default());
+        vm.load_lua_source(src, &input, &font)
+            .expect("chunk should load");
+        (vm, input, font)
+    }
+
+    #[test]
+    fn lua_stop_music_closes_voice_gates() {
+        let (mut vm, input, font) = vm_with("function _update() stop_music() end");
+        {
+            let sound = vm.get_sound_shared();
+            let mut s = sound.lock().expect("sound lock");
+            for v in s
+                .voices
+                .iter_mut()
+                .skip(MUSIC_VOICE_START)
+                .take(MUSIC_VOICE_COUNT)
+            {
+                v.gate = true;
+            }
+        }
+        vm.run_frame_lua(&input, &font);
+        let sound = vm.get_sound_shared();
+        let s = sound.lock().expect("sound lock");
+        assert!(
+            s.voices
+                .iter()
+                .skip(MUSIC_VOICE_START)
+                .take(MUSIC_VOICE_COUNT)
+                .all(|v| !v.gate),
+            "stop_music must silence held notes"
+        );
+    }
+
+    #[test]
+    fn play_sfx_rejects_ids_past_the_bank() {
+        let (mut vm, input, font) = vm_with("function _update() play_sfx(16) end");
+        vm.run_frame_lua(&input, &font);
+        assert!(
+            vm.get_fault().is_some(),
+            "id 16 is outside the 16-slot bank"
+        );
+    }
+}
+
+#[cfg(test)]
+mod arg_range_tests {
+    use crate::input::Input;
+    use crate::rendering::font::Font;
+    use crate::{Vm, VmConfig};
+
+    #[test]
+    fn out_of_range_numbers_follow_the_documented_contract() {
+        let input = Input::new();
+        let font = Font::empty();
+        let mut vm = Vm::new(VmConfig::default());
+        vm.load_lua_source(
+            r#"
+function _update()
+  assert(button_down(300) == false)
+  assert(button_pressed(-1) == false)
+  play_music_song(999)
+  set_camera(-5, -7)
+end
+"#,
+            &input,
+            &font,
+        )
+        .expect("chunk should load");
+        vm.run_frame_lua(&input, &font);
+        assert!(vm.get_fault().is_none(), "{:?}", vm.fault_message());
     }
 }
 

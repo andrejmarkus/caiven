@@ -64,8 +64,10 @@ pub const RAM_SIZE: usize = 112 * 1024;
 pub const SPRITE_SHEET_LEN: usize = SPRITE_COUNT * SPRITE_BYTES;
 /// Tile map length in bytes (192 × 128 tiles).
 pub const MAP_LEN: usize = MAP_W * MAP_H;
-/// SFX bank length in bytes (16 sfx × 64 bytes).
-pub const SFX_BANK_LEN: usize = 16 * 64;
+/// SFX slots per bank.
+pub const SFX_COUNT: usize = 16;
+/// SFX bank length in bytes (`SFX_COUNT` sfx × 64 bytes).
+pub const SFX_BANK_LEN: usize = SFX_COUNT * 64;
 /// Music patterns per bank.
 pub const MUSIC_PATTERN_COUNT: usize = 8;
 /// Rows per music pattern.

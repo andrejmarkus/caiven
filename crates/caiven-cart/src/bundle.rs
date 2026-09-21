@@ -81,7 +81,7 @@ pub fn bundle_lua(entry_src: &str, modules: &[(String, String)]) -> String {
         let quoted_slash_key = lua_string(&slash_key);
         let chunk_name = lua_string(&format!("@{slash_key}.lua"));
         out.push_str(&format!(
-            "  __pre[{quoted_key}] = assert(load([{eq}[\n{src}]{eq}], {chunk_name}))\n"
+            "  __pre[{quoted_key}] = assert(load([{eq}[\n{src}\n]{eq}], {chunk_name}))\n"
         ));
         if slash_key != *key {
             out.push_str(&format!(
@@ -96,7 +96,7 @@ pub fn bundle_lua(entry_src: &str, modules: &[(String, String)]) -> String {
     let level = bracket_level(entry_src);
     let eq = "=".repeat(level);
     out.push_str(&format!(
-        "return assert(load([{eq}[\n{entry_src}]{eq}], \"=cart\"))()\n"
+        "return assert(load([{eq}[\n{entry_src}\n]{eq}], \"=cart\"))()\n"
     ));
     out
 }

@@ -331,11 +331,20 @@ fn distribution_content(
             // A distributed .cav has no filesystem, so sibling modules
             // can't stay separate files — bundle them into one LuaSource
             // section exactly like the project loader does from disk.
+            // Minify each source before bundling: minifying the bundle would
+            // copy every module's long-string body through untouched.
+            let prep = |text: &str| {
+                if minify {
+                    caiven_cart::minify_lua(text)
+                } else {
+                    text.to_string()
+                }
+            };
             let bundle_modules: Vec<(String, String)> = modules
                 .iter()
-                .map(|(rel, text)| (caiven_cart::module_key(Path::new(""), rel), text.clone()))
+                .map(|(rel, text)| (caiven_cart::module_key(Path::new(""), rel), prep(text)))
                 .collect();
-            let bundled = caiven_cart::bundle_lua(entry, &bundle_modules);
+            let bundled = caiven_cart::bundle_lua(&prep(entry), &bundle_modules);
             extra.push((SectionKind::LuaSource, bundled.into_bytes()));
             Vec::new()
         }
@@ -345,10 +354,8 @@ fn distribution_content(
         .into_iter()
         .map(|(kind, data)| CartSection { kind, data })
         .collect();
-    if minify {
-        // Export/publish build a distribution artifact meant for someone
-        // other than the author, so strip comments/formatting from the
-        // bundled Lua here. A save-in-place `.cav` passes `minify: false`.
+    if minify && entry.is_none() {
+        // Legacy carts have no per-file sources to minify ahead of time.
         caiven_cart::minify_cart_lua(&mut sections);
     }
     let extra: Vec<(SectionKind, Vec<u8>)> =

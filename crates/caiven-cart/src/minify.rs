@@ -3,10 +3,10 @@ use crate::section::{CartSection, SectionKind};
 /// Strips comments and collapses whitespace/indentation in Lua source, so a
 /// distributed cart doesn't hand out commented, formatted source to anyone
 /// who opens the `.cav`. Deliberately conservative: string/long-string
-/// contents are copied verbatim, and every line break collapses to exactly
-/// one `\n` (never dropped entirely) to avoid Lua's statement-adjacency
-/// ambiguity, e.g. `a = b` followed by `(f)()` on the next line must not
-/// become `a = b(f)()`.
+/// contents are copied verbatim and every line break is kept, so line numbers
+/// in errors and breakpoints still match the source. Breaks are never dropped
+/// (Lua's statement-adjacency ambiguity: `a = b` then `(f)()` must not become
+/// `a = b(f)()`).
 pub fn minify_lua(src: &str) -> String {
     let bytes = src.as_bytes();
     let mut out = String::with_capacity(src.len());
@@ -55,7 +55,15 @@ pub fn minify_lua(src: &str) -> String {
                 && bytes[after_dashes] == b'['
                 && let Some(level) = long_bracket_level(bytes, after_dashes)
             {
-                i = skip_long_bracket(bytes, after_dashes, level);
+                let end = skip_long_bracket(bytes, after_dashes, level);
+                // Keep the comment's line breaks so later lines keep their
+                // numbers; a one-line comment still separates its neighbours.
+                let breaks = bytes[i..end].iter().filter(|&&b| b == b'\n').count();
+                out.push_str(&"\n".repeat(breaks));
+                if breaks == 0 {
+                    out.push(' ');
+                }
+                i = end;
                 continue;
             }
             // Line comment: skip to end of line (newline handled next loop).
@@ -66,17 +74,21 @@ pub fn minify_lua(src: &str) -> String {
             continue;
         }
 
-        // Whitespace run: collapse to one '\n' if it contains a newline,
-        // else a single space.
+        // Whitespace run: drop indentation but keep every line break, so
+        // minified line numbers match the original's.
         if c == b' ' || c == b'\t' || c == b'\r' || c == b'\n' {
-            let mut has_newline = false;
+            let mut breaks = 0;
             while i < n && matches!(bytes[i], b' ' | b'\t' | b'\r' | b'\n') {
                 if bytes[i] == b'\n' {
-                    has_newline = true;
+                    breaks += 1;
                 }
                 i += 1;
             }
-            out.push(if has_newline { '\n' } else { ' ' });
+            if breaks == 0 {
+                out.push(' ');
+            } else {
+                out.push_str(&"\n".repeat(breaks));
+            }
             continue;
         }
 
@@ -213,7 +225,7 @@ mod tests {
     }
 
     #[test]
-    fn collapses_indentation_and_blank_lines() {
+    fn strips_indentation() {
         let src = "function f()\n\n    local x = 1\n\n    return x\nend\n";
         let out = minify_lua(src);
         assert!(!out.contains("    "));
@@ -221,6 +233,15 @@ mod tests {
         assert!(out.contains("local x = 1"));
         assert!(out.contains("return x"));
         assert!(out.contains("end"));
+    }
+
+    #[test]
+    fn line_numbers_survive_minification() {
+        let src = "-- a\n--[[ b\nc ]]\n\n    local x = 1\nprint(x)\n";
+        let out = minify_lua(src);
+        let line_of = |text: &str| text.lines().position(|l| l.contains("print(x)"));
+        assert_eq!(line_of(&out), line_of(src));
+        assert_eq!(out.matches('\n').count(), src.matches('\n').count());
     }
 
     #[test]

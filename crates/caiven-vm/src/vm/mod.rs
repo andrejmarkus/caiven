@@ -292,6 +292,24 @@ fn unpack_sfx_handle(handle: u32) -> (u32, u32) {
 /// `Vm::play_sfx_voice` and the Lua `play_sfx` closure in `lua_exec.rs`
 /// (which can only borrow individual fields, never `&mut Vm`, from inside
 /// `lua.scope`) share one implementation.
+/// Gates the four music voices off and bumps their epochs so a held note
+/// can't ring on after the player stops. Blocks on the lock: a dropped
+/// write here leaves a note sounding forever.
+fn silence_music_voices(sound: &Mutex<Sound>) {
+    let mut s = sound
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    for v in s
+        .voices
+        .iter_mut()
+        .skip(audio::MUSIC_VOICE_START)
+        .take(audio::MUSIC_VOICE_COUNT)
+    {
+        v.gate = false;
+        v.epoch = v.epoch.wrapping_add(1);
+    }
+}
+
 fn allocate_sfx_voice(
     pool: &mut [PooledSfx; SFX_VOICE_COUNT],
     next_age: &mut u64,
@@ -345,6 +363,13 @@ impl Vm {
         let mut peripherals = PeripheralRegistry::new();
         peripherals.register(rtc::RealTimeClock);
         peripherals.init_all(&mut memory);
+        // RAM is the palette's source of truth; seed it so a save or bank
+        // switch before any cart poke sees the real default colors.
+        for (i, &(r, g, b)) in palette::DEFAULT_COLORS.iter().enumerate() {
+            for (offset, byte) in [r, g, b].into_iter().enumerate() {
+                let _ = memory.write(PALETTE_RAM_BASE + i * 3 + offset, byte);
+            }
+        }
 
         Self {
             memory,
@@ -845,17 +870,7 @@ impl Vm {
 
     pub fn stop_music(&mut self) {
         self.music_player.stop();
-        if let Ok(mut s) = self.sound.try_lock() {
-            for v in s
-                .voices
-                .iter_mut()
-                .skip(audio::MUSIC_VOICE_START)
-                .take(audio::MUSIC_VOICE_COUNT)
-            {
-                v.gate = false;
-                v.epoch = v.epoch.wrapping_add(1);
-            }
-        }
+        silence_music_voices(&self.sound);
     }
 
     /// Snapshot of the voice Studio's SFX-editor preview is holding. Idle

@@ -34,7 +34,7 @@ pub const BUILTINS: &[ApiEntry] = &[
         name: "clear_screen",
         params: &[],
         returns: "nil",
-        doc: "Clear the world and UI layers to transparent.",
+        doc: "Clear the world and UI layers to transparent, which shows as pure black — not palette color 0. Use fill_screen(0) for the palette background.",
     },
     ApiEntry {
         name: "set_pixel",

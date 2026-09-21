@@ -403,7 +403,7 @@
     onNavigate(assetScreen(entry.kind));
   }
 
-  const noteNames = ['---', ...Array.from({ length: 96 }, (_, i) => `${['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'][i % 12]}${Math.floor(i / 12)}`)];
+  const noteNames = ['---', ...Array.from({ length: 96 }, (_, i) => `${['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'][(i + 9) % 12]}${Math.floor((i + 9) / 12)}`)];
   const assetStats = $derived(['sprite','sfx','music','color'].map((kind) => {
     const entries = assetIndex.entries.filter((entry) => entry.kind === kind);
     return { kind, used: entries.filter((entry) => entry.used || entry.nonzero).length, count: entries.length, bytes: entries.reduce((sum, entry) => sum + entry.bytes, 0), refs: entries.reduce((sum, entry) => sum + entry.refs.length, 0) };

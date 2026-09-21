@@ -8,33 +8,72 @@ pub fn draw_character(
     position: Vec2,
     color: Color,
 ) {
+    draw_character_at(
+        font,
+        layer,
+        ch,
+        position.get_x() as i64,
+        position.get_y() as i64,
+        color,
+    );
+}
+
+/// Signed-position glyph draw: pixels off any edge are clipped one by one,
+/// so text straddling the screen edge still shows its visible part.
+pub fn draw_character_at(
+    font: &Font,
+    layer: &mut ScreenLayer,
+    ch: char,
+    x: i64,
+    y: i64,
+    color: Color,
+) {
     let glyph = font
         .get_glyph(ch)
         .or_else(|| font.get_glyph(ch.to_ascii_uppercase()));
-    if let Some(glyph) = glyph {
-        for j in 0..font.get_height() {
-            for i in 0..font.get_width() {
-                if glyph.pixels[j * font.get_width() + i] {
-                    layer.set_pixel(
-                        Vec2::new(position.get_x() + i as u32, position.get_y() + j as u32),
-                        Color::new_rgb(color.get_r(), color.get_g(), color.get_b()),
-                    );
-                }
+    let Some(glyph) = glyph else {
+        return;
+    };
+    for j in 0..font.get_height() {
+        for i in 0..font.get_width() {
+            if !glyph.pixels[j * font.get_width() + i] {
+                continue;
+            }
+            let (px, py) = (x + i as i64, y + j as i64);
+            if let (Ok(px), Ok(py)) = (u32::try_from(px), u32::try_from(py)) {
+                layer.set_pixel(Vec2::new(px, py), color);
             }
         }
     }
 }
 
 pub fn draw_text(font: &Font, layer: &mut ScreenLayer, text: &str, position: Vec2, color: Color) {
+    draw_text_at(
+        font,
+        layer,
+        text,
+        position.get_x() as i64,
+        position.get_y() as i64,
+        color,
+    );
+}
+
+pub fn draw_text_at(
+    font: &Font,
+    layer: &mut ScreenLayer,
+    text: &str,
+    x: i64,
+    y: i64,
+    color: Color,
+) {
+    let advance = font.get_width() as i64 + 1;
     for (i, ch) in text.chars().enumerate() {
-        draw_character(
+        draw_character_at(
             font,
             layer,
             ch,
-            Vec2::new(
-                position.get_x() + i as u32 * (font.get_width() as u32 + 1),
-                position.get_y(),
-            ),
+            x.saturating_add(i as i64 * advance),
+            y,
             color,
         );
     }
@@ -72,6 +111,15 @@ mod tests {
         draw_character(&font, &mut layer, 'a', Vec2::new(0, 0), white());
         // Falls back to 'A's glyph, so the same 15 pixels light up.
         assert_eq!(drawn_pixel_count(&layer), 15);
+    }
+
+    #[test]
+    fn text_starting_off_the_left_edge_is_clipped_not_dropped() {
+        let font = font_with_a_only();
+        let mut layer = ScreenLayer::new(16, 16);
+        // First glyph keeps only its rightmost column (5 px); the second, at x = 2, is whole.
+        draw_text_at(&font, &mut layer, "AA", -2, 0, white());
+        assert_eq!(drawn_pixel_count(&layer), 5 + 15);
     }
 
     #[test]

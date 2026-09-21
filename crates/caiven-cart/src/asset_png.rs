@@ -14,6 +14,8 @@ const SHEET_COLS: u32 = 16;
 const SHEET_W: u32 = SHEET_COLS * SPRITE_SIZE;
 const SHEET_H: u32 = SHEET_COLS * SPRITE_SIZE;
 const SHEET_LEN: usize = (SHEET_W * SHEET_H) as usize;
+/// Well above any real asset (the map is 1024 px wide); rejects decompression bombs.
+const MAX_PNG_SIDE: u32 = 4096;
 
 /// Encodes the sprite sheet RAM section (sprite-major: `sheet[id*64 + sy*8 +
 /// sx]`) as a 128×128 indexed PNG using `palette` (16×RGB bytes) as PLTE.
@@ -151,6 +153,13 @@ fn decode(bytes: &[u8]) -> Result<Decoded, String> {
     // palette indices rather than re-matching expanded RGB values.
     decoder.set_transformations(png::Transformations::IDENTITY);
     let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
+    // Header dimensions are checked before any frame buffer is allocated.
+    let (w, h) = (reader.info().width, reader.info().height);
+    if w > MAX_PNG_SIDE || h > MAX_PNG_SIDE {
+        return Err(format!(
+            "PNG is too large ({w}x{h}, max {MAX_PNG_SIDE} per side)"
+        ));
+    }
     let buf_size = reader
         .output_buffer_size()
         .ok_or_else(|| "PNG has no decodable frame".to_string())?;
@@ -357,6 +366,21 @@ mod tests {
         (0..PALETTE_SIZE)
             .flat_map(|i| [i as u8 * 10, i as u8 * 5, i as u8 * 3])
             .collect()
+    }
+
+    #[test]
+    fn oversized_png_is_rejected_before_allocating() {
+        let mut out = Vec::new();
+        let mut encoder = png::Encoder::new(&mut out, MAX_PNG_SIDE + 1, 1);
+        encoder.set_color(png::ColorType::Grayscale);
+        encoder.set_depth(png::BitDepth::One);
+        let mut writer = encoder.write_header().unwrap();
+        writer
+            .write_image_data(&vec![0u8; (MAX_PNG_SIDE as usize + 8) / 8])
+            .unwrap();
+        drop(writer);
+        let err = decode(&out).err().unwrap();
+        assert!(err.contains("too large"), "{err}");
     }
 
     #[test]

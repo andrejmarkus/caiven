@@ -7,7 +7,7 @@ use crate::input::Input;
 use crate::rendering::font::Font;
 use crate::vm::audio;
 use crate::vm::audio::{MUSIC_VOICE_KINDS, Voice, VoiceKind};
-use caiven_core::memory::MUSIC_PATTERN_ROWS;
+use caiven_core::memory::{MUSIC_PATTERN_ROWS, SFX_COUNT};
 
 fn tick_sfx_channel(
     player: &mut SfxPlayer,
@@ -66,6 +66,8 @@ impl Vm {
             // this row" rather than "SFX 0".
             match self.memory.read(base + channel).unwrap_or(0) {
                 0 => player.active = false,
+                // A cell past the SFX bank would read music/RTC bytes as a sound.
+                sfx_ref if (sfx_ref as usize) > SFX_COUNT => player.active = false,
                 sfx_ref => player.start(sfx_ref - 1),
             }
         }
