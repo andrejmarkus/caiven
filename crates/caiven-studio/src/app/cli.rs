@@ -379,6 +379,17 @@ pub fn run() -> Result<()> {
             Ok(())
         }
         Some(Command::Edit { file }) => crate::studio::run_studio(file.clone()),
+        // Debug-only escape hatch for WebDriver-based UI automation: some
+        // drivers append their own argv when launching the target process,
+        // which our subcommand parser then rejects, so the automated path
+        // can't reach `edit <path>` via argv at all. An env var sidesteps
+        // that without changing what's reachable (the CLI already opens any
+        // path a caller names).
+        #[cfg(debug_assertions)]
+        None if std::env::var_os("CAIVEN_STUDIO_EDIT_PATH").is_some() => {
+            let path = std::env::var_os("CAIVEN_STUDIO_EDIT_PATH").map(PathBuf::from);
+            crate::studio::run_studio(path)
+        }
         None => crate::studio::run_studio(None),
     }
 }

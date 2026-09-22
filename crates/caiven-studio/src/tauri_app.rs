@@ -3212,6 +3212,91 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    #[test]
+    fn full_edit_run_mutate_save_reset_reopen_round_trip_preserves_authored_state() {
+        // Manual smoke test from the review plan, automated: draw a sprite in
+        // the editor, Run, let gameplay mutate the map via set_tile, Ctrl+S
+        // mid-play, Reset, close and reopen from disk. The authored sprite
+        // must survive and the runtime map mutation must not leak into the
+        // save (ST-01), and Reset must return to a fresh, unmutated run.
+        let dir = temp_dir("smoke-full-round-trip");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+
+        let drawn_sprite: Vec<u8> = (0..caiven_core::memory::SPRITE_BYTES)
+            .map(|i| (i % 16) as u8)
+            .collect();
+        dispatch(&mut studio, |reply| CoreCommand::WriteSprite {
+            sprite: 3,
+            pixels: drawn_sprite.clone(),
+            reply,
+        })
+        .expect("draw sprite");
+
+        studio.sources[0].text = "function _init() end
+function _update() set_tile(0, 0, 5) end
+"
+        .to_string();
+        studio.needs_compile = true;
+        studio.transport("run").expect("run");
+        assert!(studio.run_one_frame(), "the update frame must not fault");
+        assert_eq!(
+            studio
+                .console
+                .vm
+                .peek_memory(caiven_core::memory::MAP_RAM_BASE),
+            5,
+            "gameplay did mutate live map RAM, as expected"
+        );
+
+        studio.save().expect("save mid-play");
+
+        studio.transport("reset").expect("reset");
+        assert_eq!(
+            studio
+                .console
+                .vm
+                .peek_memory(caiven_core::memory::MAP_RAM_BASE),
+            0,
+            "Reset must return to the pristine, unmutated map"
+        );
+        assert_eq!(
+            studio
+                .console
+                .vm
+                .asset_bank_bytes(AssetBankKind::Sprites, DEFAULT_BANK_NAME)
+                .map(|bytes| bytes
+                    [3 * caiven_core::memory::SPRITE_BYTES..4 * caiven_core::memory::SPRITE_BYTES]
+                    .to_vec()),
+            Some(drawn_sprite.clone()),
+            "Reset must not lose the authored sprite"
+        );
+
+        let mut reopened = StudioCore::new(None).expect("studio core");
+        reopened.open(&dir).expect("reopen saved project");
+        assert_eq!(
+            reopened
+                .console
+                .vm
+                .peek_memory(caiven_core::memory::MAP_RAM_BASE),
+            0,
+            "the saved map must not contain the mid-play mutation"
+        );
+        assert_eq!(
+            reopened
+                .console
+                .vm
+                .asset_bank_bytes(AssetBankKind::Sprites, DEFAULT_BANK_NAME)
+                .map(|bytes| bytes
+                    [3 * caiven_core::memory::SPRITE_BYTES..4 * caiven_core::memory::SPRITE_BYTES]
+                    .to_vec()),
+            Some(drawn_sprite),
+            "the reopened project must keep the authored sprite"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     // -- normalized_module_path -------------------------------------------
 
     #[test]
