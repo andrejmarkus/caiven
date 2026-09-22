@@ -77,7 +77,7 @@ test('real SQLite contracts: auth, bytes, community, security, Studio link, pass
 
   const studioStart = await ok(await page.request.post('/api/v2/auth/studio-link'));
   const link = await studioStart.json();
-  await ok(await page.request.post(`/api/v2/auth/studio-link/${link.request_id}/approve`, { headers: await csrf(page) }));
+  await ok(await page.request.post(`/api/v2/auth/studio-link/${link.request_id}/approve`, { headers: await csrf(page), data: { code: link.user_code } }));
   const studioPoll = await ok(await page.request.post('/api/v2/auth/studio-link/poll', { data: { request_id: link.request_id, poll_secret: link.poll_secret } }));
   expect(await studioPoll.json()).toMatchObject({ status: 'linked', username: admin.username });
 
