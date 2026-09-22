@@ -316,7 +316,7 @@
             {@const items = commands.filter((command) => command.group === group)}
             {#if items.length}
               <Command.Group heading={group}>
-              {#each items as command}
+              {#each items as command (`${group}:${command.name}`)}
                 {@const Icon = command.icon}
                 <Command.Item value={`${group}:${command.name}`} onSelect={() => activate(command)}>
                   <i><Icon size={15} /></i><span><strong>{command.name}</strong><small>{command.detail}</small></span>{#if command.keys}<kbd>{command.keys}</kbd>{/if}
