@@ -22,3 +22,18 @@ paths:
   component locally instead of updating the shared one.
 - Run `npm run check` (svelte-check + tsc) before considering a UI change
   done.
+
+## Verifying Studio's live behavior (CDP/Playwright/manual)
+
+The debug binary only loads from Vite's `devUrl` when launched through the
+real dev-mode supervisor (`npm run tauri dev` / `cargo tauri dev`, per
+`crates/caiven-studio/CLAUDE.md`). Launching `caiven-studio.exe` directly —
+even a freshly-built debug binary — silently falls back to whatever
+`crates/caiven-studio-ui/dist` last built, and WebView2 will happily serve a
+_cached_ copy of an old `devUrl` response if the dev server isn't actually
+running when the window loads. Either looks like a normal, working app.
+
+Before trusting any DOM-level finding (a bug report, a "this is fixed"
+verification, a screenshot) against a running Studio instance: confirm
+`netstat` shows something actually `LISTENING` on `:1420`, not just that the
+app opened and rendered something.

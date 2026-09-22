@@ -308,7 +308,11 @@
     }}
   >
     {#if overlay === 'palette'}
-      <Command.Dialog open title="Command palette" description="Search or run a Studio command" class="command-palette" onOpenChange={handleOpenChange}>
+      <!-- `commands` below is already filtered by `matchesQuery`, so bits-ui's own
+           fuzzy filter (which scores against `value`, i.e. name only, ignoring
+           `detail`) must stay off — its scoring otherwise disagreed with ours and
+           produced duplicated/wrong results. See .claude/rules/studio-ui.md. -->
+      <Command.Dialog open shouldFilter={false} title="Command palette" description="Search or run a Studio command" class="command-palette" onOpenChange={handleOpenChange}>
         <Command.Input bind:value={query} placeholder="Search or run a command" />
         <Command.List class="command-results">
           <Command.Empty>No matching commands.</Command.Empty>

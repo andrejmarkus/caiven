@@ -26,6 +26,24 @@ test('command palette exports a self-contained web build via studio_export_web',
   expect(call?.args.path).toBe('/carts/test-cart/game.html');
 });
 
+test('command palette search shows only matching commands, no duplicates', async ({ page, e2e: _e2e }) => {
+  // Regression: bits-ui's own default fuzzy filter (shouldFilter, on by
+  // default) re-scored the already-filtered `commands` array against its
+  // bare `value` prop and disagreed with that filtering, surfacing
+  // unrelated commands and duplicate rows once a query narrowed the list.
+  await page.keyboard.press('Control+K');
+  await page.getByPlaceholder('Search or run a command').fill('Controls');
+  const options = page.getByRole('option');
+  await expect(options).toHaveCount(1);
+  await expect(options.first()).toHaveText(/Controls/);
+
+  await page.getByPlaceholder('Search or run a command').fill('zzzznomatch');
+  await expect(options).toHaveCount(0);
+  await expect(page.getByText('No matching commands.')).toBeVisible();
+
+  await page.keyboard.press('Escape');
+});
+
 test('code, runtime, shortcuts, watches, module, drawer, and console flow', async ({ page, e2e }) => {
   const editor = page.locator('.cm-content');
   await editor.click();
