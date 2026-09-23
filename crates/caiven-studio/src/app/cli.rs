@@ -103,6 +103,10 @@ enum Command {
         /// Skip screenshot capture and upload
         #[arg(long)]
         no_screenshot: bool,
+        /// Let others remix this cart in the browser; keeps a project's
+        /// Lua readable (no minify)
+        #[arg(long)]
+        remixable: bool,
     },
 }
 
@@ -118,6 +122,7 @@ struct PublishArgs<'a> {
     changelog: &'a str,
     frames: u32,
     no_screenshot: bool,
+    remixable: bool,
 }
 
 fn publish_cart(args: PublishArgs) -> Result<()> {
@@ -133,6 +138,7 @@ fn publish_cart(args: PublishArgs) -> Result<()> {
         changelog,
         frames,
         no_screenshot,
+        remixable,
     } = args;
     if api_key.is_empty() {
         anyhow::bail!(
@@ -166,6 +172,7 @@ fn publish_cart(args: PublishArgs) -> Result<()> {
             "author": author,
             "description": description,
             "tags": tags_vec,
+            "remixable": remixable,
         }),
     }
     .to_string();
@@ -336,6 +343,7 @@ pub fn run() -> Result<()> {
             changelog,
             frames,
             no_screenshot,
+            remixable,
         }) => {
             // Publish always uploads a packed .cav — a project dir arg is
             // packed to a throwaway temp file first so the port never sees
@@ -344,7 +352,10 @@ pub fn run() -> Result<()> {
                 let temp = crate::studio::cart::temp_cav_path();
                 let mut project = caiven_cart::load_project(cart)
                     .with_context(|| format!("failed to load project from {}", cart.display()))?;
-                caiven_cart::minify_cart_lua(&mut project.sections);
+                // Remixers read this source in the browser.
+                if !remixable {
+                    caiven_cart::minify_cart_lua(&mut project.sections);
+                }
                 let extra: Vec<(caiven_cart::SectionKind, Vec<u8>)> = project
                     .sections
                     .into_iter()
@@ -370,6 +381,7 @@ pub fn run() -> Result<()> {
                 changelog,
                 frames: *frames,
                 no_screenshot: *no_screenshot,
+                remixable: *remixable,
             });
 
             if let Some(temp) = &packed_temp {

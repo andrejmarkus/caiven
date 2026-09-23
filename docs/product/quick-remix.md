@@ -47,9 +47,26 @@ checked). The remixer can uncheck it.
 
 Studio's `publish` and `build` minify Lua by default (comments and
 indentation stripped, line numbers kept). A remixable cart published that
-way is real Lua but unpleasant to read. For this slice the Upload page tells
-creators to build with `--no-minify`. Follow-up: Studio publish should skip
-minification when the creator allows remixing.
+way is real Lua but unpleasant to read. `caiven-studio publish --remixable`
+marks the cart remixable and skips minification. The Upload page tells
+creators who upload a `.cav` to build it with `--no-minify`. Follow-up: the
+same choice in Studio's publish dialog.
+
+### Starter carts
+
+Every existing cart is closed by default, so the loop needs carts that are
+open from day one. `projects/remix/` holds four: Juggle, Meteor, Hop and
+Chain. They're built to hook in the first second: instant action, screen
+shake, particles, sound and music, a speed ramp and a one-button restart.
+Each is one file with no sprites. Its top six lines are the constants that
+show up as **Change one thing** chips, and each carries a `-- try N` hint
+with a wild value, because an absurd first change is the most shareable.
+
+A test plays each starter with scripted input: 15 s as shipped, then 10 s
+with every `try` value applied at once. The audio (`sfx.hex`, `music.hex`)
+is shared: six effects and two looping tracks. To publish, run
+`scripts/remix-seeds/publish.sh` with `CAIVEN_PORT_URL` and
+`CAIVEN_PORT_API_KEY` set. Each starter is tagged `remix-starter`.
 
 ### Multiple source files
 

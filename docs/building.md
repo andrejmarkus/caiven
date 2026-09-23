@@ -69,6 +69,7 @@ cargo run -p caiven-machine -- game.cav    # distribution cartridge
 | `--tags`           | _(empty)_                     | Comma-separated tags                                                                                                                         |
 | `--frames`         | `30`                          | Frames to run before screenshot                                                                                                              |
 | `--no-screenshot`  | —                              | Skip screenshot capture                                                                                                                      |
+| `--remixable`      | —                              | Let others remix the new cart in the browser (Quick Remix); a project dir is uploaded unminified so its Lua stays readable                  |
 
 ## Project Structure
 

@@ -8,6 +8,9 @@ independent sets, not shared files even where names overlap:
   in Caiven Studio's Examples gallery
   (`crates/caiven-studio/src/studio/examples.rs`). Builds to
   `crates/caiven-studio/resources/examples/<name>.cav`.
+- `remix/` — Quick Remix starters: single-file, shapes only, a few top-level
+  constants to change. Published to a Port as remixable carts with
+  `scripts/remix-seeds/publish.sh`; not built to a checked-in `.cav`.
 - `dev/` — technical/edge-case projects for manual developer testing and
   automated tests/CI in equal measure (handheld packaging, cart-format
   compat checks, Port e2e smoke test). Builds to `carts/dev/<name>.cav`.

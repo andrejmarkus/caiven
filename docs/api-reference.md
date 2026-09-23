@@ -7,7 +7,7 @@ Math (`sin`/`cos`/`abs`/`floor`/`sqrt`/`max`/`min`/`random`), strings (`..`, `su
 | Function                                                          | Description                                                                                                          |
 | :----------------------------------------------------------------| :----------------------------------------------------------------------------------------------------------------- |
 | `clear_screen()`                                                  | Clear screen and UI layer to pure black (not palette color 0; use `fill_screen(0)` for that)                          |
-| `fill_screen(color)`                                              | Fill screen with a palette color                                                                                     |
+| `fill_screen(color)`                                              | Fill screen with a palette color; text from `draw_text`/`draw_number` stays until `clear_screen()`                  |
 | `set_pixel(x, y, color)`                                          | Set pixel (signed coords)                                                                                            |
 | `draw_line(x0, y0, x1, y1, color)`                                | Line (camera-aware)                                                                                                  |
 | `draw_rect(x, y, w, h, color)` / `fill_rect(x, y, w, h, color)`   | Rectangle outline / filled                                                                                           |

@@ -126,6 +126,81 @@ mod tests {
         assert!(image.pixels().any(|pixel| *pixel != background));
     }
 
+    // Remix starters are published remixable, so each must survive real
+    // play (A presses, left/right sweeps) and offer Quick Remix's constant
+    // chips (`local NAME = number`).
+    #[test]
+    fn remix_starters_play_cleanly_and_expose_constants() {
+        use caiven_vm::input::Button;
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../projects/remix");
+        let font = Font::builtin().unwrap();
+        let mut seen = 0;
+        for entry in std::fs::read_dir(&root).unwrap() {
+            let dir = entry.unwrap().path();
+            let cart = caiven_cart::load_project(&dir).unwrap();
+            let source = Vm::new(VmConfig::default())
+                .load_cart_sections(&cart.sections)
+                .unwrap();
+            // The `-- try N` hints are the first remix most people make, so
+            // run with every one of them applied too.
+            let wild: String = source
+                .lines()
+                .map(|line| match line.split_once(" -- try ") {
+                    Some((code, value)) => match code.split_once(" = ") {
+                        Some((name, _)) => format!("{name} = {}\n", value.trim()),
+                        None => format!("{line}\n"),
+                    },
+                    None => format!("{line}\n"),
+                })
+                .collect();
+            for (label, lua, frames) in [
+                ("as shipped", &source, 900u32),
+                ("with try values", &wild, 600),
+            ] {
+                let mut vm = Vm::new(VmConfig::default());
+                vm.load_cart_sections(&cart.sections).unwrap();
+                let mut input = Input::new();
+                vm.load_lua_source(lua, &input, &font)
+                    .unwrap_or_else(|e| panic!("{} {label}: {e}", dir.display()));
+                for frame in 0..frames {
+                    input.set_button(Button::A, frame % 25 == 0);
+                    input.set_button(Button::Left, frame % 120 < 60);
+                    input.set_button(Button::Right, frame % 120 >= 60);
+                    vm.run_frame(&input, &font);
+                    input.end_frame();
+                    assert!(
+                        vm.get_fault().is_none(),
+                        "{} {label} faulted at frame {frame}: {:?}",
+                        dir.display(),
+                        vm.get_fault()
+                    );
+                }
+            }
+
+            let lua = std::fs::read_to_string(dir.join("main.lua")).unwrap();
+            let constants = lua
+                .lines()
+                .filter(|line| {
+                    line.strip_prefix("local ")
+                        .and_then(|rest| rest.split_once(" = "))
+                        .is_some_and(|(name, value)| {
+                            let value = value.split("--").next().unwrap_or("").trim();
+                            name.chars().all(|c| c.is_ascii_uppercase() || c == '_')
+                                && value.parse::<f64>().is_ok()
+                        })
+                })
+                .count();
+            assert!(
+                constants >= 6,
+                "{} has {constants} constants",
+                dir.display()
+            );
+            seen += 1;
+        }
+        assert!(seen >= 4, "expected the remix starters, found {seen}");
+    }
+
     #[test]
     fn screenshot_reports_runtime_failure() {
         let error = capture_screenshot(
