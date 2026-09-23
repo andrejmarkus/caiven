@@ -393,7 +393,15 @@ pub enum Sort {
     Popular,
     Trending,
     Top,
+    /// Carts with at least one remix, most remixed first.
+    MostRemixed,
+    /// Remixes only, newest first.
+    NewRemixes,
 }
+
+/// Direct remixes of the row's cart; `parent_cart_id` is indexed.
+const REMIX_COUNT_SQL: &str =
+    "(SELECT COUNT(*) FROM carts AS child WHERE child.parent_cart_id = carts.id)";
 
 impl Sort {
     pub fn parse(s: Option<&str>) -> Self {
@@ -401,6 +409,8 @@ impl Sort {
             Some("popular") => Sort::Popular,
             Some("trending") => Sort::Trending,
             Some("top") => Sort::Top,
+            Some("remixed") => Sort::MostRemixed,
+            Some("remixes") => Sort::NewRemixes,
             _ => Sort::New,
         }
     }
@@ -441,6 +451,13 @@ pub async fn list(
         Sort::New => select.order_by_desc(carts::Column::UploadedAt),
         Sort::Popular => select.order_by_desc(carts::Column::Downloads),
         Sort::Trending => select.order_by_desc(carts::Column::Plays),
+        Sort::MostRemixed => select
+            .filter(Expr::cust(format!("{REMIX_COUNT_SQL} > 0")))
+            .order_by(Expr::cust(REMIX_COUNT_SQL), Order::Desc)
+            .order_by_desc(carts::Column::UploadedAt),
+        Sort::NewRemixes => select
+            .filter(carts::Column::ParentCartId.is_not_null())
+            .order_by_desc(carts::Column::UploadedAt),
         Sort::Top => {
             // `MAX(a, b)` is a SQLite 2-arg scalar; Postgres needs `GREATEST`.
             let top_expr = match db.get_database_backend() {

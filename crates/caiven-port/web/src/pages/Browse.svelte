@@ -14,6 +14,8 @@
     { value: 'trending', label: 'Trending' },
     { value: 'top', label: 'Top rated' },
     { value: 'new', label: 'Newest' },
+    { value: 'remixes', label: 'New remixes' },
+    { value: 'remixed', label: 'Most remixed' },
   ];
   let carts = $state<Cart[]>([]);
   let tags = $state<TagCount[]>([]);

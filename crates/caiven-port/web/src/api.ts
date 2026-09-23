@@ -160,7 +160,7 @@ export interface CommentInfo {
   created_at: string;
 }
 
-export type Sort = 'new' | 'popular' | 'trending' | 'top';
+export type Sort = 'new' | 'popular' | 'trending' | 'top' | 'remixed' | 'remixes';
 
 export interface CollectionInfo {
   slug: string;

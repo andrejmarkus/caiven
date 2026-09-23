@@ -4,7 +4,7 @@ test('home, discovery, detail, history navigation, and 404', async ({ page, mock
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Ember Quest', level: 1 })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Trending this week' })).toBeVisible();
-  expect(mock.calls('GET', '/api/v2/carts')).toHaveLength(3);
+  expect(mock.calls('GET', '/api/v2/carts')).toHaveLength(5);
   expect(mock.calls('GET', '/api/v2/carts')[0].query).toMatchObject({ sort: 'top', per_page: '6' });
 
   if (testInfo.project.name.startsWith('desktop')) {

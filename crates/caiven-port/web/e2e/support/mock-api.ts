@@ -257,6 +257,10 @@ export class MockApi {
       let rows = [...this.carts]; const q = url.searchParams.get('q')?.toLowerCase(); const tag = url.searchParams.get('tag'); const author = url.searchParams.get('author');
       if (q) rows = rows.filter((x) => `${x.title} ${x.description}`.toLowerCase().includes(q));
       if (tag) rows = rows.filter((x) => x.tags.includes(tag)); if (author) rows = rows.filter((x) => x.owner === author);
+      const remixCount = (id: string) => this.carts.filter((x) => x.parent_cart_id === id).length;
+      const sort = url.searchParams.get('sort');
+      if (sort === 'remixed') rows = rows.filter((x) => remixCount(x.id) > 0).sort((a, b) => remixCount(b.id) - remixCount(a.id));
+      if (sort === 'remixes') rows = rows.filter((x) => x.parent_cart_id);
       const page = Number(url.searchParams.get('page') ?? 0); const per_page = Number(url.searchParams.get('per_page') ?? 20);
       return this.json(route, { carts: rows.slice(page * per_page, (page + 1) * per_page), total: rows.length, page, per_page });
     }

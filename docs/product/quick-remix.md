@@ -163,6 +163,9 @@ To remove: delete `handlers/funnel.rs` and its two routes, drop
 - **Challenges** (one button, 32 lines, "change this seed"): a jam can name
   a seed cart. Entries are remixes whose `root_cart_id` matches, so no
   constraint engine is needed to find them.
-- **Discovery rows** (most remixed, new remixes, from this cartridge,
-  remixed from this creator): a `GROUP BY parent_cart_id` / `root_cart_id`
-  over indexed columns.
+- **Discovery rows:** "New remixes" (`sort=remixes`, remixes only, newest
+  first) and "Most remixed" (`sort=remixed`, carts with at least one remix,
+  by direct remix count) ship on Home and Browse. The count is a correlated
+  subquery on the indexed `parent_cart_id`. "From this cartridge" and
+  "remixed from this creator" are the same kind of query on
+  `root_cart_id` / the parent's owner.

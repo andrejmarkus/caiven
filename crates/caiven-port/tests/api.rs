@@ -3191,3 +3191,64 @@ async fn shared_cart_links_carry_escaped_preview_tags() {
         .unwrap();
     assert!(plain.contains("<title>Caiven Port</title>") && !plain.contains("og:"));
 }
+
+#[rocket::async_test]
+async fn list_sorts_by_remix_activity() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    let owner = register_get_token_and_logout(&client, "owner").await;
+    let remixer = register_get_token_and_logout(&client, "remixer").await;
+
+    let seed = |title: &str| serde_json::json!({ "title": title, "remixable": true }).to_string();
+    let popular = json_of(upload(&client, &owner, &sample_cart(), &seed("Popular")).await).await;
+    let quiet =
+        json_of(upload(&client, &owner, &build_cart(&[9u8; 64]), &seed("Quiet")).await).await;
+    json_of(upload(&client, &owner, &build_cart(&[8u8; 64]), &seed("Alone")).await).await;
+    let popular_id = popular["id"].as_str().unwrap();
+    let quiet_id = quiet["id"].as_str().unwrap();
+    for (i, parent) in [popular_id, popular_id, quiet_id].into_iter().enumerate() {
+        let remix = upload(
+            &client,
+            &remixer,
+            &build_cart(&[i as u8 + 1; 64]),
+            &remix_meta(parent, true),
+        )
+        .await;
+        assert_eq!(remix.status(), Status::Ok);
+    }
+
+    let list = |sort: &'static str| {
+        let client = &client;
+        async move {
+            let body = client
+                .get(format!("/api/v2/carts?sort={sort}"))
+                .dispatch()
+                .await
+                .into_string()
+                .await
+                .unwrap();
+            let list: serde_json::Value = serde_json::from_str(&body).unwrap();
+            list["carts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| {
+                    (
+                        c["title"].as_str().unwrap().to_string(),
+                        c["parent_cart_id"].clone(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        }
+    };
+
+    // Only carts that were remixed, most remixes first.
+    let most = list("remixed").await;
+    let titles: Vec<&str> = most.iter().map(|(t, _)| t.as_str()).collect();
+    assert_eq!(titles, ["Popular", "Quiet"]);
+
+    // Only remixes.
+    let remixes = list("remixes").await;
+    assert_eq!(remixes.len(), 3);
+    assert!(remixes.iter().all(|(_, parent)| parent.is_string()));
+}

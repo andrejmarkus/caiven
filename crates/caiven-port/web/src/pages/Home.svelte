@@ -14,6 +14,8 @@
   let top = $state<Cart[]>([]);
   let trending = $state<Cart[]>([]);
   let recent = $state<Cart[]>([]);
+  let newRemixes = $state<Cart[]>([]);
+  let mostRemixed = $state<Cart[]>([]);
   let collections = $state<CollectionInfo[]>([]);
   let jams = $state<JamInfo[]>([]);
   let tags = $state<TagCount[]>([]);
@@ -33,13 +35,15 @@
       loading = true;
       error = '';
       try {
-        const [a, b, c, d, e, f] = await Promise.all([
+        const [a, b, c, d, e, f, g, h] = await Promise.all([
           api.listCarts({ per_page: 6, sort: 'top' }),
           api.listCarts({ per_page: 6, sort: 'trending' }),
           api.listCarts({ per_page: 6, sort: 'new' }),
           api.listCollections({ kind: 'editorial', per_page: 10 }),
           api.listJams(),
           api.listTags(),
+          api.listCarts({ per_page: 6, sort: 'remixes' }),
+          api.listCarts({ per_page: 6, sort: 'remixed' }),
         ]);
         top = a.carts;
         trending = b.carts;
@@ -47,6 +51,8 @@
         collections = d;
         jams = e;
         tags = f;
+        newRemixes = g.carts;
+        mostRemixed = h.carts;
       } catch (e) {
         error = e instanceof Error ? e.message : String(e);
       } finally {
@@ -165,6 +171,8 @@
 
   {#each [
     { title: 'Trending this week', sub: 'Most played in the last seven days', carts: trending, href: '/browse?sort=trending' },
+    { title: 'New remixes', sub: 'Someone changed a game and made it theirs', carts: newRemixes, href: '/browse?sort=remixes' },
+    { title: 'Most remixed', sub: 'The games people keep changing', carts: mostRemixed, href: '/browse?sort=remixed' },
     { title: 'Fresh off Studio', sub: 'New and recently updated carts', carts: recent, href: '/browse?sort=new' },
   ] as section}
     {#if section.carts.length}

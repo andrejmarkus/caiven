@@ -149,3 +149,24 @@ test('a shared remix shows its lineage and invites the next remix', async ({ pag
   await page.getByTestId('remix-invite').getByRole('link', { name: 'Remix it' }).click();
   await expect(page).toHaveURL(/\/remix\/demo$/);
 });
+
+test('home and browse surface new and most remixed carts', async ({ page, mock }) => {
+  // Before any remix, neither row shows.
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Trending this week' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'New remixes' })).toHaveCount(0);
+
+  mock.carts[0].remixable = true;
+  Object.assign(mock.carts[1], { parent_cart_id: 'demo', root_cart_id: 'demo', owner: 'player' });
+  await page.reload();
+  const fresh = page.locator('section', { has: page.getByRole('heading', { name: 'New remixes' }) });
+  await expect(fresh.getByText('Tiny Orbit')).toBeVisible();
+  await expect(fresh.getByText('Ember Quest')).toHaveCount(0);
+  const most = page.locator('section', { has: page.getByRole('heading', { name: 'Most remixed' }) });
+  await expect(most.getByText('Ember Quest')).toBeVisible();
+
+  await most.getByRole('link', { name: 'See all' }).click();
+  await expect(page).toHaveURL(/\/browse\?.*sort=remixed/);
+  await expect(page.getByText('Ember Quest').first()).toBeVisible();
+  await expect(page.getByText('Pocket Garden')).toHaveCount(0);
+});
