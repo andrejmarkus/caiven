@@ -89,3 +89,21 @@ test('carts that are not opted in offer no remix', async ({ page, mock }) => {
   await page.goto('/remix/orbit');
   await expect(page.getByRole('heading', { name: "This cart isn't open for remixing" })).toBeVisible();
 });
+
+test('home Start here row lists curated remixable carts and opens Quick Remix', async ({ page, mock }) => {
+  mock.carts[0].remixable = true;
+  mock.collections.push({
+    slug: 'start-here', title: 'Start here', description: '', kind: 'editorial',
+    featured_rank: 0, owner: 'admin', cart_count: 2, follower_count: 0, followed_by_me: false,
+    carts: [mock.carts[0], mock.carts[1]], created_at: mock.carts[0].uploaded_at, updated_at: mock.carts[0].uploaded_at,
+  });
+
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Change one number. Make it yours.' })).toBeVisible();
+  // The curated row never takes over the editorial shelf.
+  await expect(page.getByRole('heading', { name: 'Staff Picks' })).toBeVisible();
+  // Closed carts stay out even when curated.
+  await expect(page.getByRole('link', { name: 'Remix Tiny Orbit' })).toHaveCount(0);
+  await page.getByRole('link', { name: 'Remix Ember Quest' }).click();
+  await expect(page).toHaveURL(/\/remix\/demo$/);
+});

@@ -68,6 +68,13 @@ is shared: six effects and two looping tracks. To publish, run
 `scripts/remix-seeds/publish.sh` with `CAIVEN_PORT_URL` and
 `CAIVEN_PORT_API_KEY` set. Each starter is tagged `remix-starter`.
 
+Home shows a **Start here** row: the editorial collection with slug
+`start-here`, remixable carts only, each with a Remix button straight into
+`/remix/:id`. It's a curated collection, not the tag, so nobody can put a
+cart on Home by tagging it. The seed script creates the collection and adds
+the starters when its token belongs to an admin; otherwise it skips that
+step.
+
 ### Multiple source files
 
 A `.cav` holds exactly one `LuaSource` section. Multi-file projects are

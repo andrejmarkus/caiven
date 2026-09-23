@@ -9,6 +9,7 @@
   import StarIcon from '@lucide/svelte/icons/star';
   import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
   import TrophyIcon from '@lucide/svelte/icons/trophy';
+  import CodeIcon from '@lucide/svelte/icons/code';
 
   let top = $state<Cart[]>([]);
   let trending = $state<Cart[]>([]);
@@ -19,8 +20,11 @@
   let loading = $state(true);
   let error = $state('');
 
+  // Admin-curated, so a user tag can't claim this row; only opted-in carts show.
+  const START_HERE = 'start-here';
   const editorial = $derived(collections.filter((c) => c.kind === 'editorial').sort((a, b) => (a.featured_rank ?? 999) - (b.featured_rank ?? 999)));
-  const shelf = $derived(editorial[0] ?? null);
+  const starters = $derived((editorial.find((c) => c.slug === START_HERE)?.carts ?? []).filter((c) => c.remixable).slice(0, 6));
+  const shelf = $derived(editorial.find((c) => c.slug !== START_HERE) ?? null);
   const featured = $derived(shelf?.carts[0] ?? top[0] ?? trending[0] ?? null);
   const openJam = $derived(jams.find((j) => j.status === 'open') ?? null);
 
@@ -99,6 +103,26 @@
           <div class="scanline-overlay pointer-events-none absolute inset-0 opacity-30"></div>
           <span class="label-mono absolute top-3 left-3 rounded bg-black/60 px-2 py-1 text-[10px] text-white/60">192 × 128 · 16 col</span>
         </a>
+      </div>
+    </section>
+  {/if}
+
+  {#if starters.length}
+    <section>
+      <div class="mb-5">
+        <div class="label-mono mb-1.5 text-[10px] text-primary">Start here</div>
+        <h2 class="text-xl font-semibold">Change one number. Make it yours.</h2>
+        <p class="mt-1 text-sm text-muted-foreground">Tiny games built to be remixed in your browser. No install, no account until you publish.</p>
+      </div>
+      <div class="cart-grid">
+        {#each starters as cart (cart.id)}
+          <div class="flex flex-col gap-2">
+            <CartCard {cart} compact />
+            <a href="/remix/{cart.id}" use:link aria-label="Remix {cart.title}" class={buttonVariants({ variant: 'secondary', size: 'sm' })}>
+              <CodeIcon data-icon="inline-start" />Remix
+            </a>
+          </div>
+        {/each}
       </div>
     </section>
   {/if}
