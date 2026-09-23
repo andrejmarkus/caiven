@@ -69,7 +69,7 @@
           <h1 class="text-3xl font-bold md:text-4xl">{cart.title}</h1>
           {#if cart.parent_cart_id}
             <p class="mt-2 flex items-center gap-2 text-sm text-muted-foreground"><GitForkIcon class="size-4" />
-              {#if cart.parent}Remixed from <a href="/cart/{cart.parent.id}" use:link class="text-foreground hover:text-primary">{cart.parent.title}</a>{#if cart.parent.owner} by <a href="/author/{cart.parent.owner}" use:link class="text-foreground hover:text-primary">@{cart.parent.owner}</a>{/if}
+              {#if cart.parent}Remixed from <a href="/cart/{cart.parent.id}" use:link class="text-foreground hover:text-primary">{cart.parent.title}</a>{#if cart.parent.owner}{' by '}<a href="/author/{cart.parent.owner}" use:link class="text-foreground hover:text-primary">@{cart.parent.owner}</a>{/if}
               {:else}Remixed from a cart that was removed{/if}
             </p>
           {/if}

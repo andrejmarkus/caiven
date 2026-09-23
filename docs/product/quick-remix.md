@@ -21,6 +21,7 @@ friction?
 | Errors | same page | The real Lua message, the line number, a highlighted line, a one-line plain-language hint for common errors (`src/lib/remix.js`), and the edit is kept. On a load error the last working build keeps running. |
 | Publish | same page | Enabled only after a changed version has run cleanly. Creates a **new cart** with a structured parent link, uploads the current frame as its screenshot, and shows a share URL. |
 | Lineage | `/cart/:id` | "Remixed from *X* by @y", "N remixes", and a list of recent remixes. |
+| Share | `/play/:id` | A remix shows "@you remixed *X* by @y" plus what changed, linking to the original. Every remixable cart shows a **Your turn** card under the game. The server puts `og:`/`twitter:` preview tags (title, lineage line, cover) into `/play/:id` and `/cart/:id`, so a pasted link unfurls as the game. All user text in them is HTML-escaped. |
 
 No WASM rebuild, no cart-format change and no hardware change: the reload
 path uses the existing `caiven_new` + `caiven_load_cart` exports.

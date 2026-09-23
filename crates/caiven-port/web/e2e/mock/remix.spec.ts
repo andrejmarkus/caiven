@@ -128,3 +128,24 @@ test('typed edits rerun on their own once typing pauses', async ({ page, mock })
   await expect(page.getByRole('alert')).toContainText('Line 4');
   await expect.poll(() => pixel(page)).toEqual(changed);
 });
+
+test('a shared remix shows its lineage and invites the next remix', async ({ page, mock }) => {
+  mock.carts[0].remixable = true;
+  Object.assign(mock.carts[1], {
+    remixable: true, parent_cart_id: 'demo', root_cart_id: 'demo', owner: 'player', description: 'Doubled the speed',
+  });
+
+  await page.goto('/play/orbit');
+  const lineage = page.getByTestId('remix-lineage');
+  await expect(lineage).toContainText('@player remixed Ember Quest by @admin');
+  await expect(lineage).toContainText('Doubled the speed');
+  await expect(page.getByTestId('remix-invite')).toContainText('Your turn');
+
+  // The original counts the remix and still invites another.
+  await lineage.getByRole('link', { name: 'Ember Quest' }).click();
+  await expect(page).toHaveURL(/\/play\/demo$/);
+  await expect(page.getByTestId('remix-lineage')).toHaveCount(0);
+  await expect(page.getByTestId('remix-invite')).toContainText('1 remix so far');
+  await page.getByTestId('remix-invite').getByRole('link', { name: 'Remix it' }).click();
+  await expect(page).toHaveURL(/\/remix\/demo$/);
+});

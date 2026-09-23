@@ -3121,3 +3121,73 @@ async fn funnel_events_dedup_per_viewer_and_feed_admin_metrics() {
     assert_eq!(metrics["remixes_with_external_play"], 1);
     assert_eq!(metrics["remixes_remixed"], 0);
 }
+
+#[rocket::async_test]
+async fn shared_cart_links_carry_escaped_preview_tags() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    std::fs::write(
+        dir.path().join("web/index.html"),
+        "<html><head><title>Caiven Port</title></head><body></body></html>",
+    )
+    .unwrap();
+    let owner = register_get_token_and_logout(&client, "owner").await;
+    let remixer = register_get_token_and_logout(&client, "remixer").await;
+
+    let parent = json_of(
+        upload(
+            &client,
+            &owner,
+            &sample_cart(),
+            r#"{"title":"Seed","remixable":true}"#,
+        )
+        .await,
+    )
+    .await;
+    let parent_id = parent["id"].as_str().unwrap().to_string();
+    let child = json_of(
+        upload(
+            &client,
+            &remixer,
+            &build_cart(&[1u8; 64]),
+            &serde_json::json!({
+                "title": "</title><script>x()</script>",
+                "description": "Doubled \"speed\"",
+                "parent_cart_id": parent_id,
+                "remixable": true,
+            })
+            .to_string(),
+        )
+        .await,
+    )
+    .await;
+    let child_id = child["id"].as_str().unwrap();
+
+    let page = client
+        .get(format!("/play/{child_id}"))
+        .dispatch()
+        .await
+        .into_string()
+        .await
+        .unwrap();
+    assert!(!page.contains("<script>"), "title must be escaped: {page}");
+    assert!(
+        page.contains("<title>&lt;/title&gt;&lt;script&gt;x()&lt;/script&gt; · Caiven</title>")
+    );
+    assert!(page.contains(
+        r#"<meta property="og:description" content="@remixer remixed Seed by @owner. Doubled &quot;speed&quot; Play it in your browser, then remix it." />"#
+    ));
+    assert!(page.contains(&format!(
+        r#"<meta property="og:url" content="http://localhost:8080/play/{child_id}" />"#
+    )));
+
+    // Unknown carts and other routes still get the plain SPA shell.
+    let plain = client
+        .get("/cart/missing")
+        .dispatch()
+        .await
+        .into_string()
+        .await
+        .unwrap();
+    assert!(plain.contains("<title>Caiven Port</title>") && !plain.contains("og:"));
+}

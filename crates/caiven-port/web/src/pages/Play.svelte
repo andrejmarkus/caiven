@@ -11,6 +11,7 @@
   import VolumeOffIcon from '@lucide/svelte/icons/volume-x';
   import RotateIcon from '@lucide/svelte/icons/rotate-ccw';
   import CodeIcon from '@lucide/svelte/icons/code-xml';
+  import GitForkIcon from '@lucide/svelte/icons/git-fork';
   import { buttonVariants } from '@caiven/ui/button';
 
   let { id }: { id: string } = $props();
@@ -85,6 +86,14 @@
       <button onclick={toggleFullscreen} class="flex h-9 items-center gap-2 rounded-md border border-void-700 px-3 text-sm font-semibold text-foreground hover:bg-void-800">{#if fullscreen}<MinimizeIcon class="size-4" />Exit{:else}<MaximizeIcon class="size-4" />Fullscreen{/if}</button>
     </div>
   </div>
+  {#if cart?.parent_cart_id}
+    <div class="flex flex-wrap items-center gap-2 border-b border-void-800 px-4 py-2 text-sm text-muted-foreground md:px-7" data-testid="remix-lineage">
+      <GitForkIcon class="size-4 text-primary" />
+      {#if cart.parent}<span>@{cart.owner ?? cart.author} remixed <a href="/play/{cart.parent.id}" use:link class="text-foreground hover:text-primary">{cart.parent.title}</a>{#if cart.parent.owner}{' by '}<a href="/author/{cart.parent.owner}" use:link class="text-foreground hover:text-primary">@{cart.parent.owner}</a>{/if}</span>
+      {:else}<span>Remixed from a cart that was removed</span>{/if}
+      {#if cart.description}<span class="truncate italic">“{cart.description}”</span>{/if}
+    </div>
+  {/if}
   {#if error}<div class="m-5 rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-destructive">{error}</div>{/if}
   {#if loading}<div class="flex flex-1 items-center justify-center text-sm text-muted-foreground">Booting cart…</div>
   {:else}
@@ -96,6 +105,15 @@
         <div bind:this={touchContainer} class="touch-overlay pointer-events-none absolute inset-0"></div>
       </div>
     </div>
+    {#if cart?.remixable}
+      <div class="mx-auto mb-5 flex w-[min(620px,calc(100%-2rem))] flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3" data-testid="remix-invite">
+        <div class="min-w-0 flex-1">
+          <p class="font-semibold text-foreground">Your turn. Change one number and make it yours.</p>
+          <p class="text-xs text-muted-foreground">Edit the real code right here. No install{cart.remix_count ? ` · ${cart.remix_count} ${cart.remix_count === 1 ? 'remix' : 'remixes'} so far` : ''}.</p>
+        </div>
+        <a href="/remix/{id}" use:link class={buttonVariants({ size: 'sm' })}><CodeIcon class="size-4" />Remix it</a>
+      </div>
+    {/if}
     <div class="flex flex-wrap justify-center gap-3 px-5 pb-7 text-sm text-muted-foreground">{#each [['← →','move'],['↑ ↓','aim'],['J / Z','A'],['K / X','B'],['Gamepad','supported'],['Touch','mobile']] as control}<span><kbd class="mr-1 rounded border border-void-700 px-2 py-1 font-mono text-xs">{control[0]}</kbd>{control[1]}</span>{/each}</div>
   {/if}
 </div>

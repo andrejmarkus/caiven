@@ -301,6 +301,8 @@ pub fn build_rocket(config: rocket::Config, state: PortState) -> rocket::Rocket<
                 handlers::admin::unban_user,
                 handlers::admin::promote_user,
                 handlers::admin::demote_user,
+                handlers::spa::play_page,
+                handlers::spa::cart_detail_page,
                 handlers::spa::fallback,
             ],
         )
