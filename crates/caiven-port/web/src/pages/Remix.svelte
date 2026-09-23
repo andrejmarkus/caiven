@@ -19,6 +19,8 @@
   type Draft = { source: string; title: string; description: string; remixable: boolean; saved_at: string };
 
   const LINE_HEIGHT = 20;
+  // Long enough to skip half-typed words, short enough to feel live.
+  const AUTO_RUN_MS = 700;
   const draftKey = $derived(`caiven:remix-draft:${id}`);
 
   let cart = $state<CartDetail | null>(null);
@@ -36,6 +38,8 @@
   let player: CartPlayer | null = null;
   let bootGeneration = 0;
   let reportedRan = false;
+  // Last source handed to the VM, so a broken edit isn't retried every pause.
+  let attempted = '';
 
   let publishOpen = $state(false);
   let title = $state('');
@@ -123,6 +127,7 @@
 
   function run(focusGame = true) {
     if (!player || !cav) return;
+    attempted = source;
     let bytes: Uint8Array;
     try {
       bytes = withLuaSource(cav, source);
@@ -234,6 +239,15 @@
   });
 
   $effect(() => {
+    const text = source;
+    if (loading) return;
+    const timer = setTimeout(() => {
+      if (text !== ranSource && text !== attempted) run(false);
+    }, AUTO_RUN_MS);
+    return () => clearTimeout(timer);
+  });
+
+  $effect(() => {
     source; title; description; remixable;
     if (!loading && cav) saveDraft();
   });
@@ -309,14 +323,14 @@
         <div class="flex items-center gap-2">
           <span class="text-sm font-semibold">Lua</span>
           {#if restored}<span class="text-xs text-muted-foreground">Restored your saved edit</span>{/if}
-          <span class="ml-auto text-xs text-muted-foreground">Ctrl+Enter</span>
+          <span class="ml-auto text-xs text-muted-foreground">Reruns as you type · Ctrl+Enter</span>
           <Button size="sm" onclick={() => run()} class={changed && ranSource !== source ? 'ember-glow' : ''}><PlayIcon class="size-4" fill="currentColor" />Run</Button>
         </div>
         {#if runError}
           <div class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm" role="alert">
             <p class="font-semibold text-destructive">{runError.line ? `Line ${runError.line}: ` : ''}{runError.detail}</p>
             {#if runError.hint}<p class="mt-1 text-foreground">{runError.hint}</p>{/if}
-            <p class="mt-1 text-xs text-muted-foreground">{runError.runtime ? 'The game stopped here. Fix the line and press Run.' : 'Your last working version is still running. Your edit is kept. Fix it and press Run.'}</p>
+            <p class="mt-1 text-xs text-muted-foreground">{runError.runtime ? 'The game stopped here. Fix the line and it reruns.' : 'Your last working version is still running. Your edit is kept. Fix it and it reruns.'}</p>
           </div>
         {:else if changed && runOk}
           <p class="text-sm text-primary" role="status">It runs. That's your change on the left.</p>

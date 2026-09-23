@@ -107,3 +107,24 @@ test('home Start here row lists curated remixable carts and opens Quick Remix', 
   await page.getByRole('link', { name: 'Remix Ember Quest' }).click();
   await expect(page).toHaveURL(/\/remix\/demo$/);
 });
+
+test('typed edits rerun on their own once typing pauses', async ({ page, mock }) => {
+  mock.carts[0].remixable = true;
+  mock.cartBytes = Buffer.from(withLuaSource(parseCav(new Uint8Array(mock.cartBytes)), SEED));
+
+  await page.goto('/remix/demo');
+  await expect.poll(() => pixel(page), { timeout: 30_000 }).not.toEqual([0, 0, 0, 0]);
+  const before = await pixel(page);
+
+  // No Run, no Ctrl+Enter: the pause alone reruns it.
+  await page.getByLabel('Lua source').fill(SEED.replace('= 8', '= 12'));
+  await expect.poll(() => pixel(page)).not.toEqual(before);
+  await expect(page.getByText("It runs. That's your change on the left.")).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Publish my version' })).toBeEnabled();
+  const changed = await pixel(page);
+
+  // A half-typed line shows the error and leaves the working build alone.
+  await page.getByLabel('Lua source').fill('local COLOR = 3\nfunction _update()\n  fill_screen(COLOR\nend\n');
+  await expect(page.getByRole('alert')).toContainText('Line 4');
+  await expect.poll(() => pixel(page)).toEqual(changed);
+});
