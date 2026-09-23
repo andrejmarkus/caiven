@@ -13,6 +13,7 @@ pub mod collections;
 pub mod comments;
 pub mod email_tokens;
 pub mod follows;
+pub mod funnel_events;
 pub mod jam_entries;
 pub mod jams;
 pub mod mfa_backup_codes;

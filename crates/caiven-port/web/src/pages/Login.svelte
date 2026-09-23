@@ -1,7 +1,7 @@
 <script lang="ts">
   import { api, ApiError, type AuthConfigInfo } from '../api';
   import { setUser } from '../stores.svelte';
-  import { navigate, link, route } from '../router.svelte';
+  import { navigate, link, route, safeNext } from '../router.svelte';
   import * as Card from '@caiven/ui/card';
   import * as Field from '@caiven/ui/field';
   import { Input } from '@caiven/ui/input';
@@ -33,8 +33,7 @@
   if (oauthMfaPending) pendingToken = oauthMfaPending;
 
   function goNext() {
-    const next = route.search.get('next') ?? (route.path !== '/login' ? route.path : null);
-    navigate(next?.startsWith('/') ? next : '/');
+    navigate(safeNext(route.path !== '/login' ? route.path : '/'));
   }
 
   async function submit(e: Event) {
@@ -156,6 +155,6 @@
   </Card.Root>
   {#if !pendingToken}
     <p class="mt-2 text-center text-sm text-muted-foreground"><a href="/forgot-password" use:link>Forgot password?</a></p>
-    <p class="mt-2 text-center text-sm text-muted-foreground">No account? <a href="/register" use:link>Register</a></p>
+    <p class="mt-2 text-center text-sm text-muted-foreground">No account? <a href={route.search.get('next') ? `/register?next=${encodeURIComponent(safeNext())}` : '/register'} use:link>Register</a></p>
   {/if}
 </div>

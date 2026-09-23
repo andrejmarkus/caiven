@@ -10,6 +10,8 @@
   import VolumeIcon from '@lucide/svelte/icons/volume-2';
   import VolumeOffIcon from '@lucide/svelte/icons/volume-x';
   import RotateIcon from '@lucide/svelte/icons/rotate-ccw';
+  import CodeIcon from '@lucide/svelte/icons/code-xml';
+  import { buttonVariants } from '@caiven/ui/button';
 
   let { id }: { id: string } = $props();
   let cart = $state<CartDetail | null>(null);
@@ -24,11 +26,14 @@
   let fps = $state(60);
   let player: CartPlayer | null = null;
   let bootGeneration = 0;
+  let qualifyTimer = 0;
+  // Long enough to have actually played, short enough for a tiny game.
+  const QUALIFIED_PLAY_MS = 20_000;
 
   async function boot() {
     const generation = ++bootGeneration;
     const cartId = id;
-    player?.stop(); player = null; loading = true; error = ''; fault = '';
+    player?.stop(); player = null; loading = true; error = ''; fault = ''; clearTimeout(qualifyTimer);
     try {
       const loadedCart = await api.getCart(cartId);
       if (generation !== bootGeneration) return;
@@ -50,6 +55,9 @@
       rememberCart(cart);
       // A metrics request must not interrupt an already running game.
       void api.recordPlay(cartId, playSessionId()).catch(() => {});
+      qualifyTimer = window.setTimeout(() => {
+        if (!fault && generation === bootGeneration) void api.recordFunnel(cartId, 'qualified_play').catch(() => {});
+      }, QUALIFIED_PLAY_MS);
     } catch (e) {
       if (generation !== bootGeneration) return;
       error = e instanceof Error ? e.message : String(e); loading = false;
@@ -61,7 +69,7 @@
     id; boot();
     const onFull = () => (fullscreen = document.fullscreenElement === stage);
     document.addEventListener('fullscreenchange', onFull);
-    return () => { ++bootGeneration; document.removeEventListener('fullscreenchange', onFull); player?.stop(); player = null; };
+    return () => { ++bootGeneration; clearTimeout(qualifyTimer); document.removeEventListener('fullscreenchange', onFull); player?.stop(); player = null; };
   });
 </script>
 
@@ -70,6 +78,7 @@
     <a href="/cart/{id}" use:link class="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeftIcon class="size-4" />{cart?.title ?? 'Back to cart'}</a>
     {#if cart}<span class="font-mono text-xs text-muted-foreground">{cart.owner ?? cart.author} · v{cart.latest_version}</span>{/if}
     <div class="ml-auto flex items-center gap-2">
+      {#if cart?.remixable}<a href="/remix/{id}" use:link class={buttonVariants({ size: 'sm', class: 'ember-glow' })}><CodeIcon class="size-4" />Remix this</a>{/if}
       <span class="label-mono mr-1 flex items-center gap-2 text-[10px] text-muted-foreground"><span class="size-2 rounded-full bg-primary shadow-[0_0_8px_var(--color-ember)]"></span>{fps} fps</span>
       <button onclick={toggleMute} aria-label={muted ? 'Unmute' : 'Mute'} class="flex size-9 items-center justify-center rounded-md border border-void-700 text-muted-foreground hover:bg-void-800">{#if muted}<VolumeOffIcon class="size-4" />{:else}<VolumeIcon class="size-4" />{/if}</button>
       <button onclick={boot} aria-label="Restart cart" class="flex size-9 items-center justify-center rounded-md border border-void-700 text-muted-foreground hover:bg-void-800"><RotateIcon class="size-4" /></button>

@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::Result;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DatabaseBackend, DatabaseConnection,
-    EntityTrait, ExprTrait, PaginatorTrait, QueryFilter, QueryOrder, Set, Statement,
+    EntityTrait, ExprTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, Statement,
     TransactionTrait,
     sea_query::{Expr, Order},
 };
@@ -16,7 +16,7 @@ use crate::entities::{
     ratings::{self, Entity as RatingEntity},
     users::{self, Entity as UserEntity},
 };
-use crate::models::{Cart, CartMeta, CartPatch, TagCount};
+use crate::models::{Cart, CartMeta, CartPatch, CartRef, TagCount};
 
 /// Sentinel owner id used for carts whose original account no longer
 /// exists — both pre-account carts migrated by `m20260715_000003_carts_v2`
@@ -143,13 +143,22 @@ pub async fn backfill_legacy_cart_content_hashes(
     Ok(updated)
 }
 
+/// Where a remix came from; fixed at create time, never updated.
+pub struct Lineage {
+    pub parent_cart_id: String,
+    pub parent_version: i32,
+    pub root_cart_id: String,
+}
+
 /// Create a new cart owned by `owner_id`, plus its version-1 row and blob.
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_cart(
     db: &DatabaseConnection,
     owner_id: &str,
     author: &str,
     id: &str,
     meta: &CartMeta,
+    lineage: Option<&Lineage>,
     cart_bytes: &[u8],
     content_hash: Option<&str>,
 ) -> Result<()> {
@@ -168,6 +177,10 @@ pub async fn insert_cart(
         rating_count: Set(0),
         rating_sum: Set(0),
         plays: Set(0),
+        remixable: Set(meta.remixable),
+        parent_cart_id: Set(lineage.map(|l| l.parent_cart_id.clone())),
+        parent_version: Set(lineage.map(|l| l.parent_version)),
+        root_cart_id: Set(lineage.map(|l| l.root_cart_id.clone())),
     }
     .insert(&txn)
     .await?;
@@ -345,6 +358,36 @@ pub async fn get(db: &DatabaseConnection, id: &str) -> Result<Option<Cart>> {
     Ok(Some(to_cart(db, m).await?))
 }
 
+/// Direct remix count plus the newest few, for the cart detail page.
+pub async fn remixes_of(
+    db: &DatabaseConnection,
+    id: &str,
+    limit: u64,
+) -> Result<(u64, Vec<CartRef>)> {
+    let children = CartEntity::find().filter(carts::Column::ParentCartId.eq(id));
+    let count = children.clone().count(db).await?;
+    let recent = children
+        .order_by_desc(carts::Column::UploadedAt)
+        .limit(limit)
+        .all(db)
+        .await?;
+    let mut refs = Vec::with_capacity(recent.len());
+    for m in recent {
+        refs.push(cart_ref(db, m).await?);
+    }
+    Ok((count, refs))
+}
+
+pub async fn cart_ref(db: &DatabaseConnection, m: carts::Model) -> Result<CartRef> {
+    let owner = owner_username(db, m.owner_id.as_deref()).await?;
+    Ok(CartRef {
+        id: m.id,
+        title: m.title,
+        owner,
+        uploaded_at: m.uploaded_at,
+    })
+}
+
 pub enum Sort {
     New,
     Popular,
@@ -448,6 +491,9 @@ pub async fn update_cart(db: &DatabaseConnection, id: &str, patch: &CartPatch) -
     }
     if let Some(tags) = &patch.tags {
         active.tags = Set(normalize_tags(tags));
+    }
+    if let Some(remixable) = patch.remixable {
+        active.remixable = Set(remixable);
     }
     active.update(db).await?;
     Ok(())

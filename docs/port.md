@@ -46,8 +46,10 @@ cookie; the same account can also mint per-user API tokens (Profile page) for
 | `GET`                 | `/api/v2/auth/me`                              | Current user                                                         |
 | `GET`/`POST`/`DELETE` | `/api/v2/auth/tokens`                          | Manage per-user API tokens                                           |
 | `GET`                 | `/api/v2/carts`                                | List/search carts (`page`, `per_page`, `q`, `tag`, `author`, `sort`) |
-| `POST`                | `/api/v2/carts`                                | Upload new cart (multipart: `cart` + JSON `meta`)                    |
-| `GET`/`DELETE`        | `/api/v2/carts/:id`                            | Cart detail / delete (owner or admin)                                |
+| `POST`                | `/api/v2/carts`                                | Upload new cart (multipart: `cart` + JSON `meta`; `meta.remixable`, `meta.parent_cart_id` for a remix) |
+| `GET`/`PATCH`/`DELETE`| `/api/v2/carts/:id`                            | Cart detail (incl. `parent`, `remix_count`, `recent_remixes`) / edit incl. `remixable` / delete (owner or admin) |
+| `POST`                | `/api/v2/carts/:id/funnel`                     | Record one remix-loop step (`{event}`), deduped per viewer — see `docs/product/quick-remix.md` |
+| `GET`                 | `/api/v2/admin/metrics/remix-funnel?days=7`    | Admin: remix funnel and weekly social creations                      |
 | `POST`                | `/api/v2/carts/:id/versions`                   | Upload a new version of an owned cart                                |
 | `GET`                 | `/api/v2/carts/:id/cart` \| `/screenshot`      | Download cart/screenshot (`?version=n`, defaults to latest)          |
 | `PUT`/`DELETE`        | `/api/v2/carts/:id/rating`                     | Rate a cart (1-5)                                                    |
@@ -74,6 +76,14 @@ build of the VM that fetches the cart over the same REST API and renders to a
   and line number over the last frame, instead of hanging silently.
 - Click the canvas or press a key once to start audio — browsers require a
   user gesture before playing sound.
+
+## Quick Remix
+
+Carts whose owner ticked **Let others remix** show **Remix this** on Play
+and on the cart page. `/remix/:id` shows the game next to its real Lua. You
+can edit it, rerun with Ctrl+Enter and publish your version as a new cart
+linked to the original. No install is needed, and no account until you
+publish. Details and decisions: `docs/product/quick-remix.md`.
 
 Rebuilding `caiven-web` requires the Emscripten SDK (`emcc`/`emar` on `PATH`).
 A throwaway Docker recipe (run from the repo root):

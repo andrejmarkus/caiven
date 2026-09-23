@@ -273,6 +273,8 @@ pub fn build_rocket(config: rocket::Config, state: PortState) -> rocket::Rocket<
                 handlers::social::add_comment,
                 handlers::social::delete_comment,
                 handlers::community::record_play,
+                handlers::funnel::record_funnel_event,
+                handlers::funnel::remix_funnel,
                 handlers::community::follow_user,
                 handlers::community::unfollow_user,
                 handlers::community::list_collections,

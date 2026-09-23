@@ -39,7 +39,7 @@ function writeSaved(saveKey: string, bytes: Uint8Array): void {
 
 declare global {
   interface Window {
-    CaivenModule?: () => Promise<CaivenModuleInstance>;
+    CaivenModule?: (overrides?: { printErr?: (text: string) => void }) => Promise<CaivenModuleInstance>;
   }
 }
 
@@ -208,6 +208,17 @@ function readLoadError(module: CaivenModuleInstance): string | null {
   return new TextDecoder().decode(module.HEAPU8.subarray(ptr, ptr + len));
 }
 
+/// Fresh VM + cart load; returns the load error, or null on success.
+function bootCart(module: CaivenModuleInstance, cartBytes: Uint8Array): string | null {
+  const newRc = module.ccall('caiven_new', 'number', [], []);
+  if (newRc !== 0) return `caiven_new failed: ${newRc}`;
+  const ptr = module._malloc(cartBytes.length);
+  module.HEAPU8.set(cartBytes, ptr);
+  const loadRc = module.ccall('caiven_load_cart', 'number', ['number', 'number'], [ptr, cartBytes.length]);
+  module._free(ptr);
+  return loadRc === 0 ? null : (readLoadError(module) ?? `caiven_load_cart failed: ${loadRc}`);
+}
+
 export class CartPlayer {
   private module: CaivenModuleInstance;
   private canvas: HTMLCanvasElement;
@@ -225,6 +236,7 @@ export class CartPlayer {
   private clock = new FrameClock();
   private running = false;
   private saveKey: string | null;
+  private lastGood: Uint8Array | null = null;
 
   private constructor(
     module: CaivenModuleInstance,
@@ -247,16 +259,12 @@ export class CartPlayer {
   static async load(canvas: HTMLCanvasElement, cartBytes: Uint8Array, saveKey: string | null = null): Promise<CartPlayer> {
     await loadScript('/wasm/caiven_web.js');
     if (!window.CaivenModule) throw new Error('caiven_web.js did not register CaivenModule');
-    const module = await window.CaivenModule();
+    // Load and Lua errors reach the page through the load/fault exports;
+    // stderr is a duplicate, and a typo in Quick Remix is not a page error.
+    const module = await window.CaivenModule({ printErr: (text) => console.info(`[caiven] ${text}`) });
 
-    const newRc = module.ccall('caiven_new', 'number', [], []);
-    if (newRc !== 0) throw new Error(`caiven_new failed: ${newRc}`);
-
-    const ptr = module._malloc(cartBytes.length);
-    module.HEAPU8.set(cartBytes, ptr);
-    const loadRc = module.ccall('caiven_load_cart', 'number', ['number', 'number'], [ptr, cartBytes.length]);
-    module._free(ptr);
-    if (loadRc !== 0) throw new Error(readLoadError(module) ?? `caiven_load_cart failed: ${loadRc}`);
+    const loadError = bootCart(module, cartBytes);
+    if (loadError) throw new Error(loadError);
 
     if (saveKey && hasExport(module, 'caiven_save_data_load')) {
       const saved = readSaved(saveKey);
@@ -271,7 +279,21 @@ export class CartPlayer {
     const width = module.ccall('caiven_width', 'number', [], []) as number;
     const height = module.ccall('caiven_height', 'number', [], []) as number;
 
-    return new CartPlayer(module, canvas, width, height, saveKey);
+    const player = new CartPlayer(module, canvas, width, height, saveKey);
+    player.lastGood = cartBytes;
+    return player;
+  }
+
+  /// Restarts on new cart bytes in the same WASM module. If they fail to
+  /// load, the last cart that did load is booted again so the game keeps
+  /// running, and the load error is returned.
+  reload(cartBytes: Uint8Array): string | null {
+    const error = bootCart(this.module, cartBytes);
+    if (error === null) this.lastGood = cartBytes;
+    else if (this.lastGood) bootCart(this.module, this.lastGood);
+    this.faulted = false;
+    this.clock.reset();
+    return error;
   }
 
   setButton(button: number, down: boolean): void {

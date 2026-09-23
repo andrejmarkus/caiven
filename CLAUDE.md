@@ -26,6 +26,11 @@ themselves) that still reaches playable in one sitting.
   authorship? Friction is bought freely. Authorship is never traded for
   speed.
 
+**The remix loop.** Caiven is a network of tiny playable programs; the loop
+to optimise is play → remix → change → publish → get remixed → return.
+Browser Quick Remix (`docs/product/quick-remix.md`) is Clock A; remixing is
+opt-in per cart.
+
 **Seven-point gate.** A proposed API must pass all seven:
 
 1. Removes friction (Clock A), not authorship (Clock B).

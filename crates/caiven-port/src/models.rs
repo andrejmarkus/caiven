@@ -22,6 +22,9 @@ pub struct Cart {
     pub latest_version: i32,
     pub cart_size: i64,
     pub has_screenshot: bool,
+    pub remixable: bool,
+    pub parent_cart_id: Option<String>,
+    pub root_cart_id: Option<String>,
 }
 
 impl Cart {
@@ -54,6 +57,9 @@ impl Cart {
             latest_version: latest.map(|v| v.version).unwrap_or(0),
             cart_size: latest.map(|v| v.cart_size).unwrap_or(0),
             has_screenshot: latest.map(|v| v.has_screenshot).unwrap_or(false),
+            remixable: m.remixable,
+            parent_cart_id: m.parent_cart_id,
+            root_cart_id: m.root_cart_id,
         }
     }
 }
@@ -66,6 +72,11 @@ pub struct CartMeta {
     pub description: String,
     #[serde(default)]
     pub tags: Vec<String>,
+    #[serde(default)]
+    pub remixable: bool,
+    /// Set by Quick Remix; the server derives version and root from it.
+    #[serde(default)]
+    pub parent_cart_id: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -81,6 +92,7 @@ pub struct CartPatch {
     pub title: Option<String>,
     pub description: Option<String>,
     pub tags: Option<Vec<String>>,
+    pub remixable: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -150,6 +162,19 @@ pub struct CartDetail {
     pub cart: Cart,
     pub versions: Vec<CartVersionInfo>,
     pub own_rating: Option<i32>,
+    /// `None` with `parent_cart_id` set means the parent was deleted.
+    pub parent: Option<CartRef>,
+    pub remix_count: u64,
+    pub recent_remixes: Vec<CartRef>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct CartRef {
+    pub id: String,
+    pub title: String,
+    pub owner: Option<String>,
+    pub uploaded_at: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -614,4 +639,29 @@ pub struct AdminUserList {
 #[serde(crate = "rocket::serde")]
 pub struct BanInput {
     pub reason: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+pub struct FunnelInput {
+    pub event: String,
+}
+
+/// Remix-loop funnel over the last `days`. `social_creations` is the North
+/// Star: carts published in the window with a qualified play from someone
+/// other than their owner.
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct RemixFunnel {
+    pub days: i64,
+    pub plays: u64,
+    pub qualified_plays: u64,
+    pub remix_opened: u64,
+    pub remix_ran: u64,
+    pub publish_started: u64,
+    pub carts_published: u64,
+    pub remixes_published: u64,
+    pub social_creations: u64,
+    pub remixes_with_external_play: u64,
+    pub remixes_remixed: u64,
 }

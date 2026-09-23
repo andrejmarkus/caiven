@@ -17,3 +17,9 @@ paths:
 - Auth-adjacent UI (login, session, publish flow) is security-sensitive —
   coordinate with `.claude/rules/port-backend.md` and
   `.claude/rules/security.md` when touching it.
+- Mock e2e: `route.fulfill({ status: 204 })` with no body is reported by
+  Chromium as `requestfailed … net::ERR_ABORTED`, which trips the browser
+  guard. New fire-and-forget mock routes answer 200 with an empty body.
+- Canvas pixel assertions that poll must read through a copy canvas made
+  with `willReadFrequently`, or Chrome logs a readback warning the guard
+  flags (see `e2e/mock/remix.spec.ts`).

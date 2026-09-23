@@ -31,6 +31,7 @@ type Cart = {
   uploaded_at: string; downloads: number; plays: number; owner: string | null;
   rating_avg: number; rating_count: number; latest_version: number;
   cart_size: number; has_screenshot: boolean; versions?: unknown[]; own_rating?: number | null;
+  remixable: boolean; parent_cart_id: string | null; root_cart_id: string | null;
 };
 
 type Collection = {
@@ -69,6 +70,7 @@ export const UI_CONTRACTS = [
   'PUT /api/v2/carts/:id/rating', 'DELETE /api/v2/carts/:id/rating',
   'GET /api/v2/carts/:id/comments', 'POST /api/v2/carts/:id/comments',
   'DELETE /api/v2/carts/:id/comments/:commentId', 'POST /api/v2/carts/:id/play',
+  'POST /api/v2/carts/:id/funnel', 'POST /api/v2/carts/:id/screenshot',
   'GET /api/v2/tags', 'GET /api/v2/users/:username', 'PUT /api/v2/users/:username/follow',
   'DELETE /api/v2/users/:username/follow', 'GET /api/v2/feed', 'GET /api/v2/dashboard',
   'GET /api/v2/collections', 'POST /api/v2/collections', 'POST /api/v2/admin/collections',
@@ -87,7 +89,9 @@ const cart = (id: string, title: string, tags: string[], owner = 'admin'): Cart 
   uploaded_at: now, downloads: 12, plays: id === 'demo' ? 321 : 42, owner,
   rating_avg: 4.5, rating_count: 8, latest_version: 1, cart_size: 4096,
   has_screenshot: false, versions: [version()], own_rating: null,
+  remixable: false, parent_cart_id: null, root_cart_id: null,
 });
+const cartRef = (c: Cart) => ({ id: c.id, title: c.title, owner: c.owner, uploaded_at: c.uploaded_at });
 
 export class MockApi {
   readonly invocations: Invocation[] = [];
@@ -256,9 +260,18 @@ export class MockApi {
       const page = Number(url.searchParams.get('page') ?? 0); const per_page = Number(url.searchParams.get('per_page') ?? 20);
       return this.json(route, { carts: rows.slice(page * per_page, (page + 1) * per_page), total: rows.length, page, per_page });
     }
-    if (path === '/api/v2/carts' && method === 'POST') { const created = cart(`uploaded-${this.carts.length}`, 'Uploaded Cart', ['new'], this.user?.username ?? 'admin'); this.carts.unshift(created); return this.json(route, created); }
+    if (path === '/api/v2/carts' && method === 'POST') {
+      const meta = JSON.parse(/name="meta"\r\n\r\n([^\r]*)\r\n/.exec(request.postData() ?? '')?.[1] ?? '{}');
+      const created = cart(`uploaded-${this.carts.length}`, 'Uploaded Cart', ['new'], this.user?.username ?? 'admin');
+      const parent = this.carts.find((x) => x.id === meta.parent_cart_id);
+      if (meta.parent_cart_id && !parent?.remixable) return this.json(route, { error: "this cart's creator has not allowed remixes" }, 403);
+      Object.assign(created, { remixable: !!meta.remixable, parent_cart_id: parent?.id ?? null, root_cart_id: parent ? (parent.root_cart_id ?? parent.id) : null, plays: 0 });
+      this.carts.unshift(created); return this.json(route, created);
+    }
+    // Chromium reports a bodiless 204 fulfil as net::ERR_ABORTED, which the browser guard would flag.
+    if (/^\/api\/v2\/carts\/[^/]+\/(funnel|screenshot)$/.test(path) && method === 'POST') return route.fulfill({ status: 200, contentType: 'application/json', body: '' });
     const cartMatch = path.match(/^\/api\/v2\/carts\/([^/]+)$/);
-    if (cartMatch && method === 'GET') { const found = this.carts.find((x) => x.id === cartMatch[1]); return found ? this.json(route, { ...found, versions: found.versions ?? [version()], own_rating: found.own_rating ?? null }) : this.json(route, { error: 'cart not found' }, 404); }
+    if (cartMatch && method === 'GET') { const found = this.carts.find((x) => x.id === cartMatch[1]); if (!found) return this.json(route, { error: 'cart not found' }, 404); const parent = this.carts.find((x) => x.id === found.parent_cart_id); const remixes = this.carts.filter((x) => x.parent_cart_id === found.id); return this.json(route, { ...found, versions: found.versions ?? [version()], own_rating: found.own_rating ?? null, parent: parent ? cartRef(parent) : null, remix_count: remixes.length, recent_remixes: remixes.slice(0, 6).map(cartRef) }); }
     if (cartMatch && method === 'PATCH') { const found = this.carts.find((x) => x.id === cartMatch[1]); if (!found) return this.json(route, { error: 'cart not found' }, 404); Object.assign(found, JSON.parse(request.postData() ?? '{}')); return this.json(route, found); }
     if (cartMatch && method === 'DELETE') { this.carts = this.carts.filter((x) => x.id !== cartMatch[1]); return route.fulfill({ status: 204 }); }
     const binaryMatch = path.match(/^\/api\/v2\/carts\/([^/]+)\/(cart|screenshot)$/);

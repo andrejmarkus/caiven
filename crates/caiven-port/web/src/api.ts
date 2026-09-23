@@ -15,6 +15,26 @@ export interface Cart {
   latest_version: number;
   cart_size: number;
   has_screenshot: boolean;
+  remixable: boolean;
+  parent_cart_id: string | null;
+  root_cart_id: string | null;
+}
+
+export interface CartRef {
+  id: string;
+  title: string;
+  owner: string | null;
+  uploaded_at: string;
+}
+
+export type FunnelEvent = 'qualified_play' | 'remix_opened' | 'remix_ran' | 'publish_started';
+
+export interface CartMetaInput {
+  title: string;
+  description: string;
+  tags: string[];
+  remixable?: boolean;
+  parent_cart_id?: string;
 }
 
 export interface CartVersionInfo {
@@ -29,6 +49,9 @@ export interface CartVersionInfo {
 export interface CartDetail extends Cart {
   versions: CartVersionInfo[];
   own_rating: number | null;
+  parent: CartRef | null;
+  remix_count: number;
+  recent_remixes: CartRef[];
 }
 
 export interface CartList {
@@ -368,13 +391,13 @@ export const api = {
   listCarts: (opts: { page?: number; per_page?: number; q?: string; tag?: string; author?: string; sort?: Sort } = {}) =>
     request<CartList>(`/carts${qs(opts)}`),
   getCart: (id: string) => request<CartDetail>(`/carts/${id}`),
-  createCart: (cart: File, meta: { title: string; description: string; tags: string[] }) => {
+  createCart: (cart: File, meta: CartMetaInput) => {
     const form = new FormData();
     form.set('cart', cart);
     form.set('meta', JSON.stringify(meta));
     return request<Cart>('/carts', { method: 'POST', body: form });
   },
-  updateCart: (id: string, patch: { title?: string; description?: string; tags?: string[] }) =>
+  updateCart: (id: string, patch: { title?: string; description?: string; tags?: string[]; remixable?: boolean }) =>
     request<Cart>(`/carts/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteCart: (id: string) => request<void>(`/carts/${id}`, { method: 'DELETE' }),
   createVersion: (id: string, cart: File, changelog: string) => {
@@ -385,6 +408,13 @@ export const api = {
   },
   cartUrl: (id: string, version?: number) => `${BASE}/carts/${id}/cart${qs({ version })}`,
   screenshotUrl: (id: string, version?: number) => `${BASE}/carts/${id}/screenshot${qs({ version })}`,
+  uploadScreenshot: (id: string, png: Blob) => {
+    const form = new FormData();
+    form.set('screenshot', png, 'screenshot.png');
+    return request<void>(`/carts/${id}/screenshot`, { method: 'POST', body: form });
+  },
+  recordFunnel: (id: string, event: FunnelEvent) =>
+    request<void>(`/carts/${id}/funnel`, { method: 'POST', body: JSON.stringify({ event }), keepalive: true }),
 
   rateCart: (id: string, score: number) =>
     request<void>(`/carts/${id}/rating`, { method: 'PUT', body: JSON.stringify({ score }) }),

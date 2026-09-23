@@ -24,6 +24,13 @@ export function navigate(to: string): void {
   search = url.search;
 }
 
+/// Same-origin path from `?next=`, or `fallback` for anything that could
+/// leave the site (`//host`, `http:`, `/\host`).
+export function safeNext(fallback = '/'): string {
+  const next = new URLSearchParams(search).get('next');
+  return next && /^\/(?![/\\])/.test(next) ? next : fallback;
+}
+
 export function link(node: HTMLAnchorElement): { destroy(): void } {
   function onClick(e: MouseEvent) {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -68,6 +75,7 @@ export function matchRoute(p: string): RouteMatch {
   if (segs[0] === 'link-studio') return { name: 'link-studio', params: {} };
   if (segs[0] === 'cart' && segs[1]) return { name: 'cart', params: { id: segs[1] } };
   if (segs[0] === 'play' && segs[1]) return { name: 'play', params: { id: segs[1] } };
+  if (segs[0] === 'remix' && segs[1]) return { name: 'remix', params: { id: segs[1] } };
   if (segs[0] === 'author' && segs[1]) return { name: 'author', params: { username: segs[1] } };
   return { name: 'notfound', params: {} };
 }

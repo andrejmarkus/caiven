@@ -16,6 +16,7 @@
   let busy = $state(false);
   let jams = $state<JamInfo[]>([]);
   let jamSlug = $state('');
+  let remixable = $state(false);
 
   $effect(() => { api.listJams().then((rows) => (jams = rows.filter((j) => j.status === 'open'))).catch(() => {}); });
   function pick(file?: File) { if (file) cartFile = file; }
@@ -28,7 +29,7 @@
         await api.createVersion(cartId, cartFile, changelog);
         navigate(`/cart/${cartId}`);
       } else {
-        const cart = await api.createCart(cartFile, { title, description, tags: tags.split(',').map((x) => x.trim()).filter(Boolean) });
+        const cart = await api.createCart(cartFile, { title, description, tags: tags.split(',').map((x) => x.trim()).filter(Boolean), remixable });
         if (jamSlug) await api.enterJam(jamSlug, cart.id);
         navigate(`/cart/${cart.id}`);
       }
@@ -68,6 +69,7 @@
         <p class="text-sm font-semibold">Author<span class="mt-1 block text-sm font-normal">Publishing as <strong>@{currentUser.value?.username}</strong></span><span class="mt-1 block text-xs font-normal text-muted-foreground">Creator identity is your account and can't be changed here.</span></p>
         <label class="block text-sm font-semibold">Short description<textarea bind:value={description} maxlength={512} rows={3} class="mt-2 w-full rounded-md border border-border bg-background p-3 font-normal"></textarea><span class="mt-1 block text-xs font-normal text-muted-foreground">Say what player does, not what game is about.</span></label>
         <label class="block text-sm font-semibold">Tags<input bind:value={tags} placeholder="platformer, dark" class="mt-2 h-10 w-full rounded-md border border-border bg-background px-3 font-normal" /><span class="mt-1 block text-xs font-normal text-muted-foreground">Comma separated.</span></label>
+        <label class="flex items-start gap-2 text-sm font-semibold"><input type="checkbox" bind:checked={remixable} class="mt-1" /><span>Let others remix this cart<span class="mt-1 block text-xs font-normal text-muted-foreground">Anyone can open its Lua in the browser, change it and publish their own version, credited to you. Publish with <code>caiven-studio build --no-minify</code> so the code stays readable.</span></span></label>
         {#if jams.length}
           <label class="block border-t border-[var(--border-subtle)] pt-5 text-sm font-semibold">Enter open jam<select bind:value={jamSlug} class="mt-2 h-10 w-full rounded-md border border-border bg-background px-3 font-normal"><option value="">No jam</option>{#each jams as jam}<option value={jam.slug}>{jam.title} · closes {new Date(jam.submissions_close_at).toLocaleDateString()}</option>{/each}</select></label>
         {/if}

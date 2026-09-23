@@ -179,7 +179,20 @@ Recorded so they are not re-argued:
 - **Long descriptive API names stay** (`draw_line`, not `line`). Readability
   serves both audiences; abbreviations serve neither.
 
-## 9. Revision policy
+## 9. The remix loop
+
+Recorded 2026-09-23 by the project owner. Caiven is a network of tiny
+playable programs. The loop it optimises is **play → remix → change →
+publish → get remixed → return**, and a remix is a stronger response than a
+like or a comment. The browser Quick Remix surface (`quick-remix.md`) is
+Clock A work: it deletes install, download, file and account steps between
+playing a game and changing it. The change itself is still typed in real
+Lua, so Clock B is untouched. Remixing is opt-in per cart, which keeps the
+creator-rights promise that source stays the creator's call. Loop
+measurement is first-party counts in Port's own database, which the §7
+"no telemetry SDK" rule allows.
+
+## 10. Revision policy
 
 This charter changes only by an explicit, recorded decision from the project
 owner. It does not change through a judgement call taken mid-task, through an

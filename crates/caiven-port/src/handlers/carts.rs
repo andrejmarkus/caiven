@@ -85,6 +85,10 @@ pub(crate) async fn create_cart_impl(
 
     let meta: CartMeta = serde_json::from_str(&upload.meta)?;
     validate_meta(&meta)?;
+    let lineage = match meta.parent_cart_id.as_deref() {
+        Some(parent_id) => Some(remix_lineage(state, parent_id, &content_hash).await?),
+        None => None,
+    };
 
     if let Some((title, author)) =
         db::find_other_owner_by_content_hash(&state.db, &content_hash, &user.id).await?
@@ -101,6 +105,7 @@ pub(crate) async fn create_cart_impl(
         &user.username,
         &id,
         &meta,
+        lineage.as_ref(),
         &bytes,
         Some(&content_hash),
     )
@@ -108,6 +113,39 @@ pub(crate) async fn create_cart_impl(
     db::get(&state.db, &id)
         .await?
         .ok_or_else(|| ApiError::internal("insert failed"))
+}
+
+/// Resolves a remix's parent. Only carts whose owner opted in can be
+/// remixed, and a remix must differ from the version it was taken from.
+async fn remix_lineage(
+    state: &PortState,
+    parent_id: &str,
+    content_hash: &str,
+) -> Result<db::Lineage, ApiError> {
+    if !valid_id(parent_id) {
+        return Err(ApiError::bad_request("invalid parent cart id"));
+    }
+    let parent = db::get_cart_model(&state.db, parent_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("the cart you remixed no longer exists"))?;
+    if !parent.remixable {
+        return Err(ApiError::forbidden(
+            "this cart's creator has not allowed remixes",
+        ));
+    }
+    let parent_version = db::latest_version(&state.db, parent_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("the cart you remixed has no versions"))?;
+    if parent_version.content_hash.as_deref() == Some(content_hash) {
+        return Err(ApiError::bad_request(
+            "your remix is identical to the original — change something before publishing",
+        ));
+    }
+    Ok(db::Lineage {
+        root_cart_id: parent.root_cart_id.unwrap_or_else(|| parent.id.clone()),
+        parent_cart_id: parent.id,
+        parent_version: parent_version.version,
+    })
 }
 
 pub(crate) fn cart_too_large() -> ApiError {
@@ -145,6 +183,8 @@ pub async fn list_carts(
     }))
 }
 
+const RECENT_REMIXES: u64 = 6;
+
 #[get("/api/v2/carts/<id>")]
 pub async fn get_cart(
     state: &State<PortState>,
@@ -166,10 +206,21 @@ pub async fn get_cart(
         Some(u) => db::get_own_rating(&state.db, id, &u.id).await?,
         None => None,
     };
+    let parent = match cart.parent_cart_id.as_deref() {
+        Some(parent_id) => match db::get_cart_model(&state.db, parent_id).await? {
+            Some(m) => Some(db::cart_ref(&state.db, m).await?),
+            None => None,
+        },
+        None => None,
+    };
+    let (remix_count, recent_remixes) = db::remixes_of(&state.db, id, RECENT_REMIXES).await?;
     Ok(Json(CartDetail {
         cart,
         versions,
         own_rating,
+        parent,
+        remix_count,
+        recent_remixes,
     }))
 }
 

@@ -18,6 +18,10 @@ pub struct Model {
     pub rating_count: i64,
     pub rating_sum: i64,
     pub plays: i64,
+    pub remixable: bool,
+    pub parent_cart_id: Option<String>,
+    pub parent_version: Option<i32>,
+    pub root_cart_id: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

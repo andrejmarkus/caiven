@@ -1,7 +1,7 @@
 <script lang="ts">
   import { api, ApiError, type AuthConfigInfo } from '../api';
   import { setUser } from '../stores.svelte';
-  import { navigate, link } from '../router.svelte';
+  import { navigate, link, route, safeNext } from '../router.svelte';
   import * as Card from '@caiven/ui/card';
   import * as Field from '@caiven/ui/field';
   import { Input } from '@caiven/ui/input';
@@ -29,7 +29,7 @@
     try {
       const u = await api.register(username, email, password, turnstileToken);
       setUser(u);
-      navigate('/');
+      navigate(safeNext());
     } catch (e) {
       error = e instanceof ApiError ? e.message : 'Registration failed';
     } finally {
@@ -82,5 +82,5 @@
       </form>
     </Card.Content>
   </Card.Root>
-  <p class="mt-4 text-center text-sm text-muted-foreground">Have an account? <a href="/login" use:link>Log in</a></p>
+  <p class="mt-4 text-center text-sm text-muted-foreground">Have an account? <a href={route.search.get('next') ? `/login?next=${encodeURIComponent(safeNext())}` : '/login'} use:link>Log in</a></p>
 </div>

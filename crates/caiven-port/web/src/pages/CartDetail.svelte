@@ -10,6 +10,8 @@
   import PlayIcon from '@lucide/svelte/icons/play';
   import DownloadIcon from '@lucide/svelte/icons/download';
   import FolderPlusIcon from '@lucide/svelte/icons/folder-plus';
+  import CodeIcon from '@lucide/svelte/icons/code-xml';
+  import GitForkIcon from '@lucide/svelte/icons/git-fork';
 
   let { id }: { id: string } = $props();
   let cart = $state<CartDetail | null>(null);
@@ -48,6 +50,11 @@
     adding = !adding;
     if (adding) collections = await api.listCollections({ owner: currentUser.value.username, per_page: 100 });
   }
+  async function toggleRemixable() {
+    if (!cart) return;
+    await api.updateCart(cart.id, { remixable: !cart.remixable });
+    await load();
+  }
   async function add(slug: string) { await api.addCollectionCart(slug, id); adding = false; }
 </script>
 
@@ -60,20 +67,28 @@
         <div class="min-w-0 flex-1 basis-[460px]">
           <div class="mb-4 flex gap-2 text-sm text-muted-foreground"><a href="/browse" use:link>Browse</a><span>/</span><span>{cart.tags[0] ?? 'cart'}</span><span>/</span><span>{cart.title}</span></div>
           <h1 class="text-3xl font-bold md:text-4xl">{cart.title}</h1>
+          {#if cart.parent_cart_id}
+            <p class="mt-2 flex items-center gap-2 text-sm text-muted-foreground"><GitForkIcon class="size-4" />
+              {#if cart.parent}Remixed from <a href="/cart/{cart.parent.id}" use:link class="text-foreground hover:text-primary">{cart.parent.title}</a>{#if cart.parent.owner} by <a href="/author/{cart.parent.owner}" use:link class="text-foreground hover:text-primary">@{cart.parent.owner}</a>{/if}
+              {:else}Remixed from a cart that was removed{/if}
+            </p>
+          {/if}
           <div class="mt-5 flex flex-wrap items-center gap-4">
             <a href="/author/{cart.owner ?? cart.author}" use:link class="flex items-center gap-2 text-foreground"><span class="flex size-8 items-center justify-center rounded-full bg-secondary font-display font-semibold">{(cart.owner ?? cart.author)[0]?.toUpperCase()}</span><strong class="text-sm">{cart.owner ?? cart.author}</strong></a>
             {#if cart.owner && currentUser.value?.username !== cart.owner}<Button size="sm" variant="secondary" onclick={follow}>{creator?.followed_by_me ? 'Following' : 'Follow'}</Button>{/if}
             <span class="h-6 w-px bg-border"></span><RatingStars value={cart.rating_avg} /><span class="text-sm text-muted-foreground">{cart.rating_avg.toFixed(1)} · {cart.rating_count} ratings</span>
-            <span class="h-6 w-px bg-border"></span><span class="font-mono text-sm text-muted-foreground">{cart.plays.toLocaleString()} plays</span><span class="font-mono text-sm text-muted-foreground">v{cart.latest_version}</span>
+            <span class="h-6 w-px bg-border"></span><span class="font-mono text-sm text-muted-foreground">{cart.plays.toLocaleString()} plays</span><span class="font-mono text-sm text-muted-foreground">v{cart.latest_version}</span>{#if cart.remix_count}<span class="font-mono text-sm text-muted-foreground">{cart.remix_count} {cart.remix_count === 1 ? 'remix' : 'remixes'}</span>{/if}
           </div>
           <p class="mt-5 max-w-[70ch] text-base leading-relaxed text-muted-foreground">{cart.description}</p>
           <div class="mt-5 flex flex-wrap gap-2">{#each cart.tags as tag}<a href="/browse?tag={encodeURIComponent(tag)}" use:link class="rounded-full border border-border px-3 py-1 text-sm text-muted-foreground hover:border-primary hover:text-primary">{tag}</a>{/each}</div>
           <div class="mt-7 flex flex-wrap gap-2">
             <a href="/play/{cart.id}" use:link class={buttonVariants({ size: 'lg', class: 'ember-glow' })}><PlayIcon fill="currentColor" />Play now</a>
+            {#if cart.remixable}<a href="/remix/{cart.id}" use:link class={buttonVariants({ variant: 'secondary', size: 'lg' })}><CodeIcon />Remix this</a>{/if}
             <a href={api.cartUrl(cart.id)} class={buttonVariants({ variant: 'secondary', size: 'lg' })}><DownloadIcon />.cav</a>
             <Button variant="secondary" size="lg" onclick={openCollections}><FolderPlusIcon />Add to collection</Button>
             {#if isOwner}<a href="/upload?cart={cart.id}" use:link class={buttonVariants({ variant: 'secondary', size: 'lg' })}>New version</a>{/if}
           </div>
+          {#if isOwner}<label class="mt-4 flex items-center gap-2 text-sm text-muted-foreground"><input type="checkbox" checked={cart.remixable} onchange={toggleRemixable} />Let others remix this cart (shows its Lua source in the browser)</label>{/if}
           {#if adding}<div class="surface-panel mt-3 max-w-md rounded-lg p-3">{#each collections.filter((c) => !c.carts.some((x) => x.id === id)) as collection}<button onclick={() => add(collection.slug)} class="flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm hover:bg-secondary"><span>{collection.title}</span><span>+</span></button>{:else}<p class="p-2 text-sm text-muted-foreground">No available owned collections.</p>{/each}</div>{/if}
         </div>
         <div class="min-w-0 flex-1 basis-[340px] md:max-w-[430px]">
@@ -93,6 +108,7 @@
           <div class="space-y-8 py-7">
             <section><h2 class="mb-3 font-semibold">Controls</h2><div class="flex flex-wrap gap-2">{#each [['← →','move'],['↑ ↓','aim'],['J / Z','A'],['K / X','B'],['Gamepad','supported'],['Touch','mobile']] as control}<span class="rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground"><kbd class="mr-2 font-mono text-xs text-foreground">{control[0]}</kbd>{control[1]}</span>{/each}</div></section>
             {#if currentUser.value}<section><h2 class="mb-3 font-semibold">Rate this cart</h2><div class="surface-panel flex items-center gap-4 rounded-lg p-4"><RatingStars value={cart.own_rating ?? 0} interactive onrate={rate} /><span class="text-sm text-muted-foreground">Ratings shape Top rated.</span></div></section>{/if}
+            {#if cart.recent_remixes.length}<section><h2 class="mb-3 font-semibold">Remixes · {cart.remix_count}</h2><ul class="space-y-2">{#each cart.recent_remixes as remix (remix.id)}<li class="flex items-center gap-3 text-sm"><GitForkIcon class="size-4 text-muted-foreground" /><a href="/cart/{remix.id}" use:link class="font-semibold hover:text-primary">{remix.title}</a>{#if remix.owner}<span class="text-muted-foreground">@{remix.owner}</span>{/if}<a href="/play/{remix.id}" use:link class="ml-auto text-primary">Play</a></li>{/each}</ul></section>{/if}
             {#if creatorCarts.length}<section><h2 class="mb-4 font-semibold">More from {cart.owner}</h2><div class="cart-grid">{#each creatorCarts.slice(0,4) as item}<CartCard cart={item} compact />{/each}</div></section>{/if}
           </div>
         {:else if tab === 'comments'}

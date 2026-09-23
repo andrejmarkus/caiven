@@ -2889,3 +2889,230 @@ async fn promote_then_demote_second_admin() {
     let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(body["is_admin"], false);
 }
+// ── remix lineage ───────────────────────────────────────────────────────────
+
+async fn json_of(response: rocket::local::asynchronous::LocalResponse<'_>) -> serde_json::Value {
+    serde_json::from_str(&response.into_string().await.unwrap()).unwrap()
+}
+
+async fn cart_detail(client: &Client, id: &str) -> serde_json::Value {
+    let response = client.get(format!("/api/v2/carts/{id}")).dispatch().await;
+    assert_eq!(response.status(), Status::Ok);
+    json_of(response).await
+}
+
+async fn set_remixable(client: &Client, token: &str, id: &str, remixable: bool) {
+    let response = client
+        .patch(format!("/api/v2/carts/{id}"))
+        .header(Header::new("X-Api-Key", token.to_string()))
+        .header(ContentType::JSON)
+        .body(serde_json::json!({ "remixable": remixable }).to_string())
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Ok);
+}
+
+fn remix_meta(parent: &str, remixable: bool) -> String {
+    serde_json::json!({
+        "title": "My remix",
+        "parent_cart_id": parent,
+        "remixable": remixable,
+    })
+    .to_string()
+}
+
+async fn record_funnel(client: &Client, id: &str, event: &str) -> Status {
+    client
+        .post(format!("/api/v2/carts/{id}/funnel"))
+        .header(ContentType::JSON)
+        .body(serde_json::json!({ "event": event }).to_string())
+        .dispatch()
+        .await
+        .status()
+}
+
+#[rocket::async_test]
+async fn remix_lineage_requires_opt_in_and_survives_versions() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    let owner = register_get_token_and_logout(&client, "owner").await;
+    let remixer = register_get_token_and_logout(&client, "remixer").await;
+
+    let parent =
+        json_of(upload(&client, &owner, &sample_cart(), r#"{"title":"Seed"}"#).await).await;
+    let parent_id = parent["id"].as_str().unwrap().to_string();
+    assert_eq!(parent["remixable"], false);
+
+    let child_cart = build_cart(&[1u8; 64]);
+    let closed = upload(
+        &client,
+        &remixer,
+        &child_cart,
+        &remix_meta(&parent_id, true),
+    )
+    .await;
+    assert_eq!(closed.status(), Status::Forbidden);
+
+    set_remixable(&client, &owner, &parent_id, true).await;
+    let unchanged = upload(
+        &client,
+        &remixer,
+        &sample_cart(),
+        &remix_meta(&parent_id, true),
+    )
+    .await;
+    assert_eq!(unchanged.status(), Status::BadRequest);
+    assert!(unchanged.into_string().await.unwrap().contains("identical"));
+
+    let missing = upload(
+        &client,
+        &remixer,
+        &child_cart,
+        &remix_meta("00000000-0000-4000-8000-000000000000", true),
+    )
+    .await;
+    assert_eq!(missing.status(), Status::NotFound);
+
+    let child = upload(
+        &client,
+        &remixer,
+        &child_cart,
+        &remix_meta(&parent_id, true),
+    )
+    .await;
+    assert_eq!(child.status(), Status::Ok);
+    let child = json_of(child).await;
+    let child_id = child["id"].as_str().unwrap().to_string();
+    assert_eq!(child["parent_cart_id"], parent_id.as_str());
+    assert_eq!(child["root_cart_id"], parent_id.as_str());
+    assert_eq!(child["owner"], "remixer");
+
+    let grandchild = json_of(
+        upload(
+            &client,
+            &owner,
+            &build_cart(&[2u8; 64]),
+            &remix_meta(&child_id, false),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(grandchild["parent_cart_id"], child_id.as_str());
+    assert_eq!(grandchild["root_cart_id"], parent_id.as_str());
+    let closed_grandchild = grandchild["id"].as_str().unwrap();
+    let blocked = upload(
+        &client,
+        &remixer,
+        &build_cart(&[3u8; 64]),
+        &remix_meta(closed_grandchild, true),
+    )
+    .await;
+    assert_eq!(blocked.status(), Status::Forbidden);
+
+    let detail = cart_detail(&client, &parent_id).await;
+    assert_eq!(detail["remix_count"], 1);
+    assert_eq!(detail["recent_remixes"][0]["id"], child_id.as_str());
+    assert!(detail["parent"].is_null());
+
+    // A later version of the child keeps its lineage.
+    let version = client
+        .post(format!("/api/v2/carts/{child_id}/versions"))
+        .header(Header::new("X-Api-Key", remixer.clone()))
+        .header(multipart_content_type())
+        .body(multipart_body(
+            &build_cart(&[4u8; 64]),
+            r#"{"changelog":"faster"}"#,
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(version.status(), Status::Ok);
+    let detail = cart_detail(&client, &child_id).await;
+    assert_eq!(detail["latest_version"], 2);
+    assert_eq!(detail["parent"]["id"], parent_id.as_str());
+    assert_eq!(detail["parent"]["owner"], "owner");
+    assert_eq!(detail["remix_count"], 1);
+
+    // Deleting the parent keeps the structured link, minus the parent ref.
+    let deleted = client
+        .delete(format!("/api/v2/carts/{parent_id}"))
+        .header(Header::new("X-Api-Key", owner.clone()))
+        .dispatch()
+        .await;
+    assert_eq!(deleted.status(), Status::Ok);
+    let detail = cart_detail(&client, &child_id).await;
+    assert_eq!(detail["parent_cart_id"], parent_id.as_str());
+    assert!(detail["parent"].is_null());
+}
+
+#[rocket::async_test]
+async fn funnel_events_dedup_per_viewer_and_feed_admin_metrics() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    let admin = register_get_token_and_logout(&client, "admin").await;
+    let creator = register_get_token_and_logout(&client, "creator").await;
+
+    let seed = json_of(
+        upload(
+            &client,
+            &admin,
+            &sample_cart(),
+            r#"{"title":"Seed","remixable":true}"#,
+        )
+        .await,
+    )
+    .await;
+    let seed_id = seed["id"].as_str().unwrap().to_string();
+    let remix = json_of(
+        upload(
+            &client,
+            &creator,
+            &build_cart(&[9u8; 64]),
+            &remix_meta(&seed_id, true),
+        )
+        .await,
+    )
+    .await;
+    let remix_id = remix["id"].as_str().unwrap().to_string();
+
+    for _ in 0..2 {
+        assert_eq!(
+            record_funnel(&client, &remix_id, "qualified_play").await,
+            Status::NoContent
+        );
+        assert_eq!(
+            record_funnel(&client, &seed_id, "remix_opened").await,
+            Status::NoContent
+        );
+    }
+    assert_eq!(
+        record_funnel(&client, &seed_id, "clicked_anything").await,
+        Status::BadRequest
+    );
+    assert_eq!(
+        record_funnel(&client, "00000000-0000-4000-8000-000000000000", "remix_ran").await,
+        Status::NotFound
+    );
+
+    let forbidden = client
+        .get("/api/v2/admin/metrics/remix-funnel")
+        .header(Header::new("X-Api-Key", creator.clone()))
+        .dispatch()
+        .await;
+    assert_eq!(forbidden.status(), Status::Forbidden);
+
+    let metrics = client
+        .get("/api/v2/admin/metrics/remix-funnel?days=7")
+        .header(Header::new("X-Api-Key", admin.clone()))
+        .dispatch()
+        .await;
+    assert_eq!(metrics.status(), Status::Ok);
+    let metrics = json_of(metrics).await;
+    assert_eq!(metrics["qualified_plays"], 1);
+    assert_eq!(metrics["remix_opened"], 1);
+    assert_eq!(metrics["remix_ran"], 0);
+    assert_eq!(metrics["carts_published"], 2);
+    assert_eq!(metrics["remixes_published"], 1);
+    assert_eq!(metrics["social_creations"], 1);
+    assert_eq!(metrics["remixes_with_external_play"], 1);
+    assert_eq!(metrics["remixes_remixed"], 0);
+}
