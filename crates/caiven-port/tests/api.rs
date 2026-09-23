@@ -896,7 +896,10 @@ async fn versioning_upload_list_download_and_delete() {
         .post(format!("/api/v2/carts/{id}/versions"))
         .header(Header::new("X-Api-Key", token.clone()))
         .header(multipart_content_type())
-        .body(multipart_body(&cart_v2, r#"{"changelog":"fix bug"}"#))
+        .body(multipart_body(
+            &cart_v2,
+            r#"{"changelog":"fix bug","remixable":true}"#,
+        ))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok);
@@ -907,6 +910,8 @@ async fn versioning_upload_list_download_and_delete() {
     let resp = client.get(format!("/api/v2/carts/{id}")).dispatch().await;
     let detail: serde_json::Value =
         serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    // Studio opens remixing through the version upload.
+    assert_eq!(detail["remixable"], true);
     assert_eq!(detail["versions"].as_array().unwrap().len(), 2);
     assert_eq!(detail["latest_version"], 2);
 

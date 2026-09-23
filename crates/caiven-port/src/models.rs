@@ -84,6 +84,10 @@ pub struct CartMeta {
 pub struct VersionMeta {
     #[serde(default)]
     pub changelog: String,
+    /// Lets a publish-scoped client (Studio) open or close remixing; absent
+    /// leaves the cart as it is.
+    #[serde(default)]
+    pub remixable: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]

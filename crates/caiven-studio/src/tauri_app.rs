@@ -523,7 +523,10 @@ enum CoreCommand {
         name: Option<String>,
         reply: mpsc::Sender<Result<AssetBankPayload, String>>,
     },
-    PreparePublish(mpsc::Sender<Result<(PathBuf, PathBuf), String>>),
+    PreparePublish {
+        minify: bool,
+        reply: mpsc::Sender<Result<(PathBuf, PathBuf), String>>,
+    },
     IsDirty(mpsc::Sender<bool>),
 }
 
@@ -1761,7 +1764,7 @@ impl StudioCore {
         }
     }
 
-    fn export(&mut self, path: &Path) -> Result<(), String> {
+    fn export(&mut self, path: &Path, minify: bool) -> Result<(), String> {
         let modules = self.modules();
         let entry = self.sources.first().map(|source| source.text.clone());
         let Some(meta) = self.cart.as_mut() else {
@@ -1770,7 +1773,7 @@ impl StudioCore {
         if let Some(entry) = entry {
             meta.lua_source = Some(entry);
         }
-        cart_io::export_binary(&self.console.vm, meta, path, &modules)
+        cart_io::export_binary(&self.console.vm, meta, path, &modules, minify)
             .map_err(|error| format!("{error:#}"))
     }
 
@@ -1968,7 +1971,7 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
             let _ = reply.send(studio.save());
         }
         CoreCommand::Export { path, reply } => {
-            let _ = reply.send(studio.export(&path));
+            let _ = reply.send(studio.export(&path, true));
         }
         CoreCommand::ExportWeb { path, reply } => {
             let _ = reply.send(studio.export_web(&path));
@@ -2233,10 +2236,10 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
         CoreCommand::IsDirty(reply) => {
             let _ = reply.send(studio.asset_dirty || studio.sources.iter().any(|s| s.dirty));
         }
-        CoreCommand::PreparePublish(reply) => {
+        CoreCommand::PreparePublish { minify, reply } => {
             let path = cart::temp_cav_path();
             let project = studio.cart.as_ref().map(|cart| cart.path.clone());
-            let result = studio.export(&path).and_then(|()| {
+            let result = studio.export(&path, minify).and_then(|()| {
                 project
                     .map(|project| (path, project))
                     .ok_or_else(|| "No cart open".to_string())
@@ -2686,8 +2689,10 @@ fn studio_port_publish(
     changelog: String,
     target_cart_id: Option<String>,
     as_new: Option<bool>,
+    remixable: Option<bool>,
     frames: u32,
 ) -> Result<crate::port_api::PublishResult, String> {
+    let remixable = remixable.unwrap_or(false);
     let emit = |progress: crate::port_api::PublishProgress| {
         let _ = app.emit("publish:progress", progress);
     };
@@ -2696,7 +2701,11 @@ fn studio_port_publish(
         pct: 5,
         note: "Packing live buffers".into(),
     });
-    let (packed, project) = state.request(CoreCommand::PreparePublish)?;
+    // Remixers read this source in the browser.
+    let (packed, project) = state.request(|reply| CoreCommand::PreparePublish {
+        minify: !remixable,
+        reply,
+    })?;
     emit(crate::port_api::PublishProgress {
         step: "pack".into(),
         pct: 20,
@@ -2707,6 +2716,7 @@ fn studio_port_publish(
         &project,
         as_new.unwrap_or(false),
         crate::port_api::PublishMeta {
+            remixable,
             title,
             description,
             tags,
@@ -2965,6 +2975,7 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
             crate::port_api::port_logout,
             crate::port_api::port_set_url,
             crate::port_api::port_list_carts,
+            crate::port_api::port_publish_target,
             crate::port_api::port_download,
             crate::port_api::studio_scan_library,
             studio_frame,

@@ -48,9 +48,13 @@ checked). The remixer can uncheck it.
 Studio's `publish` and `build` minify Lua by default (comments and
 indentation stripped, line numbers kept). A remixable cart published that
 way is real Lua but unpleasant to read. `caiven-studio publish --remixable`
-marks the cart remixable and skips minification. The Upload page tells
-creators who upload a `.cav` to build it with `--no-minify`. Follow-up: the
-same choice in Studio's publish dialog.
+marks the cart remixable and skips minification. Studio's publish dialog has
+the same choice, **Allow remix**. It defaults to the published cart's current
+setting, so a new version never closes an open cart by accident. Studio's
+token can only publish, so the setting travels in the upload's `meta`
+(`remixable` on a new cart or a new version) instead of a cart PATCH. The
+Upload page tells creators who upload a `.cav` to build it with
+`--no-minify`.
 
 ### Starter carts
 

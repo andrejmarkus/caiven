@@ -69,6 +69,7 @@ export interface PortCartList { carts: PortCart[]; total: number; page: number; 
 export interface LocalCart { path: string; name: string; title: string; author: string; modified: number; project: boolean; }
 export interface PublishProgress { step: 'pack' | 'cover' | 'upload' | 'notify'; pct: number; note: string; }
 export interface PublishResult { cartId: string; version: number | null; newVersion: boolean; }
+export interface PublishTarget { cartId: string | null; remixable: boolean; }
 
 export interface CartTemplateSummary {
   id: string;

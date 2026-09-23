@@ -11,7 +11,7 @@ use crate::{
     entities::{cart_blobs, cart_versions},
     error::ApiError,
     handlers::carts::{read_and_validate_cart_upload, require_owner},
-    models::{CartVersionInfo, VersionMeta},
+    models::{CartPatch, CartVersionInfo, VersionMeta},
 };
 
 #[derive(FromForm)]
@@ -249,6 +249,15 @@ pub async fn create_version(
         Some(&content_hash),
     )
     .await?;
+    if meta.remixable.is_some() {
+        let patch = CartPatch {
+            title: None,
+            description: None,
+            tags: None,
+            remixable: meta.remixable,
+        };
+        db::update_cart(&state.db, id, &patch).await?;
+    }
     let v = db::get_version(&state.db, id, version)
         .await?
         .ok_or_else(|| ApiError::internal("insert failed"))?;

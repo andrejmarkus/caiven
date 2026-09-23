@@ -122,6 +122,7 @@ pub(crate) struct PublishResult {
 }
 
 pub(crate) struct PublishMeta {
+    pub remixable: bool,
     pub title: String,
     pub description: String,
     pub tags: Vec<String>,
@@ -442,6 +443,33 @@ pub(crate) fn port_set_url(url: String) -> Result<PortSession, String> {
     Ok(port_session())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PublishTarget {
+    pub cart_id: Option<String>,
+    pub remixable: bool,
+}
+
+/// Where a publish of `project` lands, so the dialog can show the cart's
+/// current remix setting instead of silently closing an open cart.
+#[tauri::command(async)]
+pub(crate) fn port_publish_target(project: PathBuf) -> PublishTarget {
+    let base = port_url();
+    let cart_id = published_cart_id(&base, &project);
+    let remixable = cart_id.as_deref().is_some_and(|id| {
+        agent()
+            .get(&format!("{base}/api/v2/carts/{id}"))
+            .call()
+            .ok()
+            .and_then(|response| {
+                serde_json::from_reader::<_, serde_json::Value>(response.into_reader()).ok()
+            })
+            .and_then(|cart| cart.get("remixable").and_then(|value| value.as_bool()))
+            .unwrap_or(false)
+    });
+    PublishTarget { cart_id, remixable }
+}
+
 #[tauri::command(async)]
 pub(crate) fn port_list_carts(
     query: String,
@@ -597,11 +625,16 @@ pub(crate) fn publish(
     let (url, metadata) = match &meta.target_cart_id {
         Some(id) => (
             format!("{base}/api/v2/carts/{id}/versions"),
-            serde_json::json!({ "changelog": meta.changelog }),
+            serde_json::json!({ "changelog": meta.changelog, "remixable": meta.remixable }),
         ),
         None => (
             format!("{base}/api/v2/carts"),
-            serde_json::json!({ "title": meta.title, "description": meta.description, "tags": meta.tags }),
+            serde_json::json!({
+                "title": meta.title,
+                "description": meta.description,
+                "tags": meta.tags,
+                "remixable": meta.remixable,
+            }),
         ),
     };
     let metadata = metadata.to_string();

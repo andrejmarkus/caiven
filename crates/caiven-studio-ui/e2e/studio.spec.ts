@@ -358,9 +358,14 @@ test('project, library, Port account, download, and publish flow', async ({ page
 
   await page.getByRole('button', { name: 'Publish', exact: true }).click();
   await page.getByPlaceholder('What changed?').fill('E2E release');
+  // Defaults to the published cart's setting so a new version can't close it by accident.
+  const allowRemix = page.getByRole('checkbox', { name: /Allow remix/ });
+  await expect(allowRemix).toBeChecked();
   await page.locator('.publish-dialog').getByRole('button', { name: 'Publish', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Cart shipped' })).toBeVisible();
   await expect(page.getByText('cart-1 · v3')).toBeVisible();
+  const publish = (await e2e.calls()).find((call) => call.command === 'studio_port_publish');
+  expect(publish?.args).toMatchObject({ remixable: true, changelog: 'E2E release' });
 
   const commands = (await e2e.calls()).map((call) => call.command);
   expect(commands).toEqual(expect.arrayContaining(['studio_write_meta', 'studio_scan_library', 'port_list_carts', 'port_download', 'port_link_start', 'port_link_poll', 'studio_port_publish']));

@@ -37,7 +37,9 @@
     publishProgress: PublishProgress | null;
     publishError: string;
     publishDone: string;
-    onStartPublish: (changelog: string, asNew: boolean) => void;
+    /** The published cart's current remix setting, the checkbox default. */
+    publishRemixable: boolean;
+    onStartPublish: (changelog: string, asNew: boolean, remixable: boolean) => void;
     onLinkPort: () => void;
     onTourDone: () => void;
     onOpenProject: () => void;
@@ -63,7 +65,7 @@
   }
 
   let { overlay, running, pauseReason, palette, onClose, onNavigate, onRun, onExport, onExportWeb, onExportScreenshot, onExportSourceZip, isProjectDir, onPublish,
-    title, author, meta, portAccount, publishProgress, publishError, publishDone,
+    title, author, meta, portAccount, publishProgress, publishError, publishDone, publishRemixable,
     onStartPublish, onLinkPort, onTourDone, onOpenProject, onNewProject, onCloseProject,
     templates, onCreateProject, frameData, api, onInsertBuiltin, onCreateModule,
     canUndo, canRedo, onUndo, onRedo,
@@ -72,6 +74,8 @@
   let query = $state('');
   let changelog = $state('');
   let publishAsNew = $state(false);
+  let allowRemix = $state(false);
+  $effect(() => { allowRemix = publishRemixable; });
   let tourStep = $state(0);
   let tourWasOpen = $state(false);
   let tourLayout = $state('');
@@ -408,7 +412,7 @@
           <div>{#each Array(64) as _,p}<i style={`background:${palette[(p * 7 + 3) % 16]}`}></i>{/each}</div>
           <span><strong>{title}</strong><small>by {portAccount.authenticated ? portAccount.username : author}</small><code>{meta.tags.join(' · ') || 'untagged'}</code></span>
         </div>
-        {#if !publishProgress && !publishDone}<label class="publish-changelog">Changelog<Input bind:value={changelog} placeholder="What changed?" /></label><label class="publish-as-new"><input type="checkbox" bind:checked={publishAsNew} /> Publish as a new cart (default adds a version to this project's existing cart)</label>{/if}
+        {#if !publishProgress && !publishDone}<label class="publish-changelog">Changelog<Input bind:value={changelog} placeholder="What changed?" /></label><label class="publish-as-new"><input type="checkbox" bind:checked={publishAsNew} /> Publish as a new cart (default adds a version to this project's existing cart)</label><label class="publish-as-new"><input type="checkbox" bind:checked={allowRemix} /> Allow remix: anyone can change your Lua in the browser and publish their own version</label>{/if}
         <Progress class="publish-progress" value={publishProgress?.pct ?? (publishDone ? 100 : 0)} />
         <div class="publish-steps">
           {#each [['Pack cartridge','live buffers'],['Capture cover','30 frames'],['Upload to port','cartridge + PNG'],['Notify followers','server-side']] as row, index}
@@ -417,7 +421,7 @@
             </div>
           {/each}
         </div>
-        <footer><Button variant="outline" onclick={onClose}>{publishProgress && !publishDone ? 'Keep working' : 'Close'}</Button>{#if !publishProgress && !publishDone}{#if portAccount.authenticated}<Button onclick={() => onStartPublish(changelog, publishAsNew)}>Publish</Button>{:else}<Button onclick={onLinkPort}>Open Account</Button>{/if}{/if}</footer>
+        <footer><Button variant="outline" onclick={onClose}>{publishProgress && !publishDone ? 'Keep working' : 'Close'}</Button>{#if !publishProgress && !publishDone}{#if portAccount.authenticated}<Button onclick={() => onStartPublish(changelog, publishAsNew, allowRemix)}>Publish</Button>{:else}<Button onclick={onLinkPort}>Open Account</Button>{/if}{/if}</footer>
       </section>
       </Dialog.Content>
       </Dialog.Root>

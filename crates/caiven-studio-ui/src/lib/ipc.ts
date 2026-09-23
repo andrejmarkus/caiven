@@ -1,6 +1,6 @@
 import type {
   ApiEntry, AssetBankState, AssetIndex, AudioAction, AudioState, Breakpoint, CartMeta, CartSize, CartTemplateSummary, CollisionType, DebugChild, ExampleSummary, GlobalValue, LocalCart, PortCartList, PortSession,
-  PreludeModule, PublishResult, SourceBuffer, StudioBootstrap, TickSnapshot,
+  PreludeModule, PublishResult, PublishTarget, SourceBuffer, StudioBootstrap, TickSnapshot,
 } from '../types';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 
@@ -498,12 +498,17 @@ export async function scanLibrary(path: string): Promise<LocalCart[]> {
 
 export async function portPublish(input: {
   title: string; description: string; tags: string[];
-  changelog: string; targetCartId?: string; asNew?: boolean; frames?: number;
+  changelog: string; targetCartId?: string; asNew?: boolean; remixable?: boolean; frames?: number;
 }): Promise<PublishResult> {
   return invoke<PublishResult>('studio_port_publish', {
     ...input,
     targetCartId: input.targetCartId ?? null,
     asNew: input.asNew ?? false,
+    remixable: input.remixable ?? false,
     frames: input.frames ?? 30,
   });
+}
+
+export async function portPublishTarget(project: string): Promise<PublishTarget> {
+  return invoke<PublishTarget>('port_publish_target', { project });
 }

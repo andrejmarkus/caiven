@@ -20,7 +20,7 @@
     bootstrap, chooseExportPath, chooseExportWebPath, chooseExportScreenshotPath, chooseExportSourceZipPath, chooseProject, exportCartridge, exportCartridgeWeb, exportCartridgeScreenshot, exportCartridgeSourceZip, fallbackExamples, fallbackTemplates, isTauri, listExamples, listTemplates, newProject,
     openProject, readAssetIndex, readCartSize, readFrame, readMemory, readTick, remixExample, saveProject, setInput, setStdlibModule, transport,
     addWatch, assetBank, audioTransport, clearOutput, closeProject, COLLISION_LEN, createModule, expandDebugValue, MEMORY, MUSIC_BANK_LEN, MUSIC_ORDER_OFFSET, MUSIC_PATTERN_LEN, portDownload, RAM_SIZE, portLinkCancel, portLinkPoll, portLinkStart, portListCarts,
-    portLogout, portPublish, portSession, portSetUrl, scanLibrary, toggleBreakpoint, writeBuffer,
+    portLogout, portPublish, portPublishTarget, portSession, portSetUrl, scanLibrary, toggleBreakpoint, writeBuffer,
     forceClose, removeRecent, removeWatch, writeCollisionCells, writeCollisionTypes, writeMapCells, writeMemory, writeMeta, writePalette, writeSprite,
   } from './lib/ipc';
   import { plural, tidyPath } from './lib/format';
@@ -56,6 +56,7 @@
   let publishProgress = $state<PublishProgress | null>(null);
   let publishError = $state('');
   let publishDone = $state('');
+  let publishRemixable = $state(false);
   let pendingWrites = $state(0);
   let handledPause = $state('');
   let handledDiagnostic = $state('');
@@ -732,7 +733,7 @@
     catch (error) { portError = error instanceof Error ? error.message : String(error); }
   }
 
-  async function doPublish(changelog: string, asNew: boolean) {
+  async function doPublish(changelog: string, asNew: boolean, remixable: boolean) {
     publishError = '';
     publishDone = '';
     publishProgress = { step: 'pack', pct: 0, note: 'Starting' };
@@ -741,7 +742,7 @@
       await Promise.all(studio.sources.filter((source) => source.dirty).map((source) => writeBuffer(source.path, source.text)));
       const result = await portPublish({
         title: studio.title, description: studio.meta.description,
-        tags: studio.meta.tags, changelog, asNew,
+        tags: studio.meta.tags, changelog, asNew, remixable,
       });
       publishDone = `${result.cartId}${result.version ? ` · v${result.version}` : ''}${result.newVersion ? ' · new version of your existing cart' : ''}`;
     } catch (error) { publishError = error instanceof Error ? error.message : String(error); }
@@ -751,7 +752,10 @@
     publishProgress = null;
     publishError = '';
     publishDone = '';
+    publishRemixable = false;
     overlay = 'publish';
+    // Mirror the published cart's setting so a new version never closes it by accident.
+    void portPublishTarget(studio.path).then((target) => { publishRemixable = target.remixable; }).catch(() => {});
   }
 
   async function doOpen() {
@@ -1248,7 +1252,8 @@
     {publishProgress}
     {publishError}
     {publishDone}
-    onStartPublish={(changelog, asNew) => void doPublish(changelog, asNew)}
+    {publishRemixable}
+    onStartPublish={(changelog, asNew, remixable) => void doPublish(changelog, asNew, remixable)}
     onLinkPort={openPortAccount}
     onTourDone={() => { localStorage.setItem('caiven-studio-tour-complete', '1'); tourDone = true; }}
     onOpenProject={() => void doOpen()}

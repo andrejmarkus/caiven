@@ -147,15 +147,17 @@ fn save_extra(
 /// Builds a binary `.cav` cartridge at `dest` from the VM's current RAM
 /// sections, regardless of where `meta.path` (the project dir) lives. Used
 /// by the "Export Cartridge" action to produce a distribution artifact
-/// without disturbing the project's own save location.
+/// without disturbing the project's own save location. `minify` is off only
+/// for remixable publishes, whose Lua is read in the browser.
 pub(crate) fn export_binary(
     vm: &Vm,
     meta: &CartMeta,
     dest: &Path,
     modules: &[(PathBuf, String)],
+    minify: bool,
 ) -> Result<()> {
     let extra = gather_sections(vm, meta);
-    write_binary(&extra, meta, dest, modules, true)
+    write_binary(&extra, meta, dest, modules, minify)
 }
 
 /// Packs a cart to bytes via a throwaway temp `.cav` file, read back
@@ -429,7 +431,7 @@ mod tests {
 
         let export_path = temp_path("export");
         let vm = Vm::new(VmConfig::default());
-        export_binary(&vm, &meta, &export_path, &[]).expect("export");
+        export_binary(&vm, &meta, &export_path, &[], true).expect("export");
         let exported = caiven_cart::load(&export_path).expect("reload exported cav");
         let exported_lua = exported
             .sections
@@ -440,6 +442,17 @@ mod tests {
         assert!(
             !exported_lua.contains("a helpful comment"),
             "export must still minify: {exported_lua}"
+        );
+
+        export_binary(&vm, &meta, &export_path, &[], false).expect("readable export");
+        let readable = caiven_cart::load(&export_path).expect("reload readable cav");
+        assert!(
+            readable
+                .sections
+                .iter()
+                .any(|s| s.kind == SectionKind::LuaSource
+                    && String::from_utf8_lossy(&s.data).contains("a helpful comment")),
+            "remixable export keeps comments"
         );
 
         std::fs::remove_file(&cav_path).ok();
