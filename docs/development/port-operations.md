@@ -37,6 +37,13 @@ orchestrator. Startup applies migrations before serving requests.
 5. Preserve authentication headers and cookies at the proxy. Apply request body,
    connection, and timeout limits there. Rate limits in Port are process-local;
    multiple replicas need an edge-level policy.
+6. Behind a proxy, set `CAIVEN_IP_HEADER=X-Real-IP` and have the proxy
+   overwrite that header with the client address (nginx
+   `proxy_set_header X-Real-IP $remote_addr;`, Caddy
+   `header_up X-Real-IP {remote_host}`). Without it every visitor has the
+   proxy's IP: registration's 5-per-hour limit becomes site-wide and
+   anonymous plays and funnel steps collapse into one viewer. Set it only when
+   Port is unreachable except through that proxy, or clients choose their IP.
 
 The image runs as UID/GID `10001:10001`, with `/app/data` writable for fallback
 SQLite storage. Mount persistent storage there for SQLite; existing bind mounts

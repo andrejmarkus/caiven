@@ -27,14 +27,15 @@
   let fps = $state(60);
   let player: CartPlayer | null = null;
   let bootGeneration = 0;
-  let qualifyTimer = 0;
-  // Long enough to have actually played, short enough for a tiny game.
-  const QUALIFIED_PLAY_MS = 20_000;
+  let qualified = false;
+  // Seconds of play after the first button press: an idle or background tab
+  // never counts. Long enough to have actually played a tiny game.
+  const QUALIFIED_PLAY_SECONDS = 20;
 
   async function boot() {
     const generation = ++bootGeneration;
     const cartId = id;
-    player?.stop(); player = null; loading = true; error = ''; fault = ''; clearTimeout(qualifyTimer);
+    player?.stop(); player = null; loading = true; error = ''; fault = ''; qualified = false;
     try {
       const loadedCart = await api.getCart(cartId);
       if (generation !== bootGeneration) return;
@@ -52,13 +53,17 @@
       player = loadedPlayer;
       player.setMuted(muted);
       if (touchContainer) player.mountTouchControls(touchContainer);
-      player.start((message) => (fault = message), (value) => (fps = value));
+      const running = loadedPlayer;
+      player.start((message) => (fault = message), (value) => {
+        fps = value;
+        if (!qualified && !fault && generation === bootGeneration && running.engagedSeconds >= QUALIFIED_PLAY_SECONDS) {
+          qualified = true;
+          void api.recordFunnel(cartId, 'qualified_play').catch(() => {});
+        }
+      });
       rememberCart(cart);
       // A metrics request must not interrupt an already running game.
       void api.recordPlay(cartId, playSessionId()).catch(() => {});
-      qualifyTimer = window.setTimeout(() => {
-        if (!fault && generation === bootGeneration) void api.recordFunnel(cartId, 'qualified_play').catch(() => {});
-      }, QUALIFIED_PLAY_MS);
     } catch (e) {
       if (generation !== bootGeneration) return;
       error = e instanceof Error ? e.message : String(e); loading = false;
@@ -70,7 +75,7 @@
     id; boot();
     const onFull = () => (fullscreen = document.fullscreenElement === stage);
     document.addEventListener('fullscreenchange', onFull);
-    return () => { ++bootGeneration; clearTimeout(qualifyTimer); document.removeEventListener('fullscreenchange', onFull); player?.stop(); player = null; };
+    return () => { ++bootGeneration; document.removeEventListener('fullscreenchange', onFull); player?.stop(); player = null; };
   });
 </script>
 
@@ -105,8 +110,9 @@
         <div bind:this={touchContainer} class="touch-overlay pointer-events-none absolute inset-0"></div>
       </div>
     </div>
+    <div class="flex flex-wrap justify-center gap-3 px-5 pb-5 text-sm text-muted-foreground" data-testid="controls">{#each [['← →','move'],['↑ ↓','aim'],['Z / Space','A button'],['X','B button'],['Gamepad','supported'],['Touch','mobile']] as control}<span><kbd class="mr-1 rounded border border-void-700 px-2 py-1 font-mono text-xs">{control[0]}</kbd>{control[1]}</span>{/each}</div>
     {#if cart?.remixable}
-      <div class="mx-auto mb-5 flex w-[min(620px,calc(100%-2rem))] flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3" data-testid="remix-invite">
+      <div class="mx-auto mb-7 flex w-[min(620px,calc(100%-2rem))] flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3" data-testid="remix-invite">
         <div class="min-w-0 flex-1">
           <p class="font-semibold text-foreground">Your turn. Change one number and make it yours.</p>
           <p class="text-xs text-muted-foreground">Edit the real code right here. No install{cart.remix_count ? ` · ${cart.remix_count} ${cart.remix_count === 1 ? 'remix' : 'remixes'} so far` : ''}.</p>
@@ -114,19 +120,9 @@
         <a href="/remix/{id}" use:link class={buttonVariants({ size: 'sm' })}><CodeIcon class="size-4" />Remix it</a>
       </div>
     {/if}
-    <div class="flex flex-wrap justify-center gap-3 px-5 pb-7 text-sm text-muted-foreground">{#each [['← →','move'],['↑ ↓','aim'],['J / Z','A'],['K / X','B'],['Gamepad','supported'],['Touch','mobile']] as control}<span><kbd class="mr-1 rounded border border-void-700 px-2 py-1 font-mono text-xs">{control[0]}</kbd>{control[1]}</span>{/each}</div>
   {/if}
 </div>
 
 <style>
   .stage:fullscreen { height: 100vh; background: #000; }
-  .touch-overlay { display: none; }
-  @media (hover: none) and (pointer: coarse) { .touch-overlay { display: block; } }
-  .touch-overlay :global(.touch-dpad), .touch-overlay :global(.touch-face) { position: absolute; bottom: 4%; display: grid; gap: 4px; pointer-events: auto; }
-  .touch-overlay :global(.touch-dpad) { left: 3%; grid-template-columns: repeat(3, 48px); grid-template-rows: repeat(3, 48px); }
-  .touch-overlay :global(.touch-face) { right: 3%; grid-template-columns: repeat(2, 52px); grid-auto-rows: 52px; }
-  .touch-overlay :global(.touch-btn) { display: flex; align-items: center; justify-content: center; border: 1px solid rgb(255 255 255 / .35); border-radius: 8px; background: rgb(255 255 255 / .18); color: white; user-select: none; touch-action: none; }
-  .touch-overlay :global(.a), .touch-overlay :global(.b) { border-radius: 50%; }
-  .touch-overlay :global(.up) { grid-column: 2; grid-row: 1; } .touch-overlay :global(.left) { grid-column: 1; grid-row: 2; } .touch-overlay :global(.right) { grid-column: 3; grid-row: 2; } .touch-overlay :global(.down) { grid-column: 2; grid-row: 3; }
-  .touch-overlay :global(.b) { grid-column: 1; } .touch-overlay :global(.a) { grid-column: 2; }
 </style>

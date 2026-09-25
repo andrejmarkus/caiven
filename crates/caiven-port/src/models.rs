@@ -651,13 +651,16 @@ pub struct FunnelInput {
     pub event: String,
 }
 
-/// Remix-loop funnel over the last `days`. `social_creations` is the North
-/// Star: carts published in the window with a qualified play from someone
-/// other than their owner.
+/// Remix-loop funnel over a window (`since`, or the last `days`), totals
+/// plus one row per cart. `social_creations` is the North Star: carts
+/// published in the window with a qualified play from someone other than
+/// their owner. Staff (admin) activity is left out unless asked for.
 #[derive(Debug, Serialize)]
 #[serde(crate = "rocket::serde")]
 pub struct RemixFunnel {
-    pub days: i64,
+    pub days: Option<i64>,
+    pub since: String,
+    pub include_staff: bool,
     pub plays: u64,
     pub qualified_plays: u64,
     pub remix_opened: u64,
@@ -668,4 +671,38 @@ pub struct RemixFunnel {
     pub social_creations: u64,
     pub remixes_with_external_play: u64,
     pub remixes_remixed: u64,
+    pub conversion: FunnelConversion,
+    pub by_cart: Vec<CartFunnel>,
+}
+
+/// Funnel steps for one cart. The `remixes_*` counts are about its direct
+/// remixes published in the window, so a seed's row reads left to right.
+#[derive(Debug, Default, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct CartFunnel {
+    pub cart_id: String,
+    pub title: String,
+    pub owner: Option<String>,
+    pub parent_cart_id: Option<String>,
+    pub plays: u64,
+    pub qualified_plays: u64,
+    pub remix_opened: u64,
+    pub remix_ran: u64,
+    pub publish_started: u64,
+    pub remixes_published: u64,
+    pub remixes_with_external_play: u64,
+    pub remixes_remixed: u64,
+    pub conversion: FunnelConversion,
+}
+
+/// Step-to-step ratios; `None` when the earlier step is zero.
+#[derive(Debug, Default, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct FunnelConversion {
+    pub qualified_play_to_remix_opened: Option<f64>,
+    pub remix_opened_to_remix_ran: Option<f64>,
+    pub remix_ran_to_publish_started: Option<f64>,
+    pub publish_started_to_remix_published: Option<f64>,
+    pub remix_published_to_external_play: Option<f64>,
+    pub remix_published_to_remixed: Option<f64>,
 }

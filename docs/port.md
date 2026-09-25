@@ -17,14 +17,15 @@ on-disk SQLite database under `--data-dir` — zero-setup for local dev.
 `docker compose up` runs the real deploy path: a `postgres` service plus the
 server, wired together via `DATABASE_URL`.
 
-Published images (built from tagged `port-v<version>` releases, see
-[docs/releasing.md](releasing.md)) are at
-`ghcr.io/andrejmarkus/caiven-port` — pull a pinned version or `:latest`
-instead of building from source:
+CI validates `port-v<version>` tags but does not publish an image yet, so
+build it from the workspace root:
 
 ```bash
-docker pull ghcr.io/andrejmarkus/caiven-port:latest
+docker build -f crates/caiven-port/Dockerfile -t caiven-port:<version> .
 ```
+
+Production setup (TLS proxy, env vars, backups) is in
+[development/port-operations.md](development/port-operations.md).
 
 | Flag                                  | Default                       | Description                                                                         |
 | :------------------------------------- | :----------------------------- | :-------------------------------------------------------------------------------------|
@@ -33,6 +34,7 @@ docker pull ghcr.io/andrejmarkus/caiven-port:latest
 | `--database-url` (env `DATABASE_URL`) | unset                         | PostgreSQL connection string. When set, carts/screenshots/all data live in Postgres |
 | `--data-dir`                          | `data`                        | Fallback SQLite database directory, used only when `--database-url` is unset        |
 | `--web-dir`                           | `crates/caiven-port/web/dist` | Built SPA directory (`npm run build` output in `crates/caiven-port/web/`)           |
+| `--ip-header` (env `CAIVEN_IP_HEADER`) | unset                        | Client-IP header a trusted proxy overwrites (e.g. `X-Real-IP`). Needed behind a proxy |
 
 Open the base URL in a browser to register an account, browse/search/filter
 carts by tag, author or sort (new/popular/top), upload new carts or versions,
@@ -49,7 +51,7 @@ cookie; the same account can also mint per-user API tokens (Profile page) for
 | `POST`                | `/api/v2/carts`                                | Upload new cart (multipart: `cart` + JSON `meta`; `meta.remixable`, `meta.parent_cart_id` for a remix) |
 | `GET`/`PATCH`/`DELETE`| `/api/v2/carts/:id`                            | Cart detail (incl. `parent`, `remix_count`, `recent_remixes`) / edit incl. `remixable` / delete (owner or admin) |
 | `POST`                | `/api/v2/carts/:id/funnel`                     | Record one remix-loop step (`{event}`), deduped per viewer — see `docs/product/quick-remix.md` |
-| `GET`                 | `/api/v2/admin/metrics/remix-funnel?days=7`    | Admin: remix funnel and weekly social creations                      |
+| `GET`                 | `/api/v2/admin/metrics/remix-funnel?days=7`    | Admin: remix funnel totals and per-cart rows (`since=`, `include_staff=`) |
 | `POST`                | `/api/v2/carts/:id/versions`                   | Upload a new version of an owned cart                                |
 | `GET`                 | `/api/v2/carts/:id/cart` \| `/screenshot`      | Download cart/screenshot (`?version=n`, defaults to latest)          |
 | `PUT`/`DELETE`        | `/api/v2/carts/:id/rating`                     | Rate a cart (1-5)                                                    |

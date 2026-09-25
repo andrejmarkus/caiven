@@ -6,9 +6,11 @@
 
 use std::collections::{HashMap, HashSet};
 
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use rocket::{State, get, http::Status, post, serde::json::Json};
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect, Set,
+};
 use uuid::Uuid;
 
 use super::valid_id;
@@ -16,10 +18,13 @@ use crate::{
     PortState,
     auth::{AdminUser, AuthUser, ClientIp, sha256_hex},
     db,
-    entities::{carts, funnel_events, play_events},
+    entities::{carts, funnel_events, play_events, users},
     error::ApiError,
-    models::{FunnelInput, RemixFunnel},
+    models::{CartFunnel, FunnelConversion, FunnelInput, RemixFunnel},
 };
+
+/// Plenty for every seed and remix in a small test; totals cover the rest.
+const MAX_FUNNEL_ROWS: usize = 200;
 
 /// Steps the client may report. Publishing and external plays are derived
 /// from `carts`/`play_events`, so they are never client-claimed.
@@ -79,35 +84,113 @@ pub async fn record_funnel_event(
     Ok(Status::NoContent)
 }
 
-async fn count_event(state: &PortState, event: &str, since: &str) -> Result<u64, ApiError> {
-    Ok(funnel_events::Entity::find()
-        .filter(funnel_events::Column::Event.eq(event))
-        .filter(funnel_events::Column::CreatedAt.gte(since))
-        .count(&state.db)
-        .await?)
+fn ratio(n: u64, d: u64) -> Option<f64> {
+    (d > 0).then(|| (n as f64 / d as f64 * 1000.0).round() / 1000.0)
 }
 
-#[get("/api/v2/admin/metrics/remix-funnel?<days>")]
+fn conversion(row: &CartFunnel) -> FunnelConversion {
+    FunnelConversion {
+        qualified_play_to_remix_opened: ratio(row.remix_opened, row.qualified_plays),
+        remix_opened_to_remix_ran: ratio(row.remix_ran, row.remix_opened),
+        remix_ran_to_publish_started: ratio(row.publish_started, row.remix_ran),
+        publish_started_to_remix_published: ratio(row.remixes_published, row.publish_started),
+        remix_published_to_external_play: ratio(
+            row.remixes_with_external_play,
+            row.remixes_published,
+        ),
+        remix_published_to_remixed: ratio(row.remixes_remixed, row.remixes_published),
+    }
+}
+
+/// `since` (RFC 3339) pins the window to an experiment's start; otherwise the
+/// last `days`. Staff accounts are left out by default: whoever runs a test
+/// also plays, remixes and publishes while checking on it.
+#[get("/api/v2/admin/metrics/remix-funnel?<days>&<since>&<include_staff>")]
 pub async fn remix_funnel(
     state: &State<PortState>,
     _admin: AdminUser,
     days: Option<i64>,
+    since: Option<&str>,
+    include_staff: Option<bool>,
 ) -> Result<Json<RemixFunnel>, ApiError> {
-    let days = days.unwrap_or(7).clamp(1, 90);
+    let include_staff = include_staff.unwrap_or(false);
     // RFC 3339 UTC strings from `to_rfc3339` sort chronologically.
-    let since = (Utc::now() - Duration::days(days)).to_rfc3339();
+    let (days, since) = match since {
+        Some(raw) => {
+            let at = DateTime::parse_from_rfc3339(raw)
+                .map_err(|_| ApiError::bad_request("since must be an RFC 3339 timestamp"))?;
+            (None, at.with_timezone(&Utc).to_rfc3339())
+        }
+        None => {
+            let days = days.unwrap_or(7).clamp(1, 90);
+            (Some(days), (Utc::now() - Duration::days(days)).to_rfc3339())
+        }
+    };
 
-    let plays = play_events::Entity::find()
-        .filter(play_events::Column::PlayedAt.gte(&since))
-        .count(&state.db)
-        .await?;
+    let staff_ids: HashSet<String> = if include_staff {
+        HashSet::new()
+    } else {
+        users::Entity::find()
+            .filter(users::Column::IsAdmin.eq(true))
+            .all(&state.db)
+            .await?
+            .into_iter()
+            .map(|u| u.id)
+            .collect()
+    };
+    let staff_keys: HashSet<String> = staff_ids
+        .iter()
+        .map(|id| sha256_hex(&format!("user:{id}")))
+        .collect();
+    let by_staff = |owner: &Option<String>| owner.as_ref().is_some_and(|o| staff_ids.contains(o));
 
-    let published = carts::Entity::find()
-        .filter(carts::Column::UploadedAt.gte(&since))
+    let mut rows: HashMap<String, CartFunnel> = HashMap::new();
+    let events: Vec<(String, String, String)> = funnel_events::Entity::find()
+        .select_only()
+        .column(funnel_events::Column::CartId)
+        .column(funnel_events::Column::Event)
+        .column(funnel_events::Column::ViewerKey)
+        .filter(funnel_events::Column::CreatedAt.gte(&since))
+        .into_tuple()
         .all(&state.db)
         .await?;
+    for (cart_id, event, viewer) in events {
+        if staff_keys.contains(&viewer) {
+            continue;
+        }
+        let row = rows.entry(cart_id).or_default();
+        match event.as_str() {
+            "qualified_play" => row.qualified_plays += 1,
+            "remix_opened" => row.remix_opened += 1,
+            "remix_ran" => row.remix_ran += 1,
+            "publish_started" => row.publish_started += 1,
+            _ => {}
+        }
+    }
+    let plays: Vec<(String, String)> = play_events::Entity::find()
+        .select_only()
+        .column(play_events::Column::CartId)
+        .column(play_events::Column::ViewerKey)
+        .filter(play_events::Column::PlayedAt.gte(&since))
+        .into_tuple()
+        .all(&state.db)
+        .await?;
+    for (cart_id, viewer) in plays {
+        if !staff_keys.contains(&viewer) {
+            rows.entry(cart_id).or_default().plays += 1;
+        }
+    }
+
+    let published: Vec<carts::Model> = carts::Entity::find()
+        .filter(carts::Column::UploadedAt.gte(&since))
+        .all(&state.db)
+        .await?
+        .into_iter()
+        .filter(|c| !by_staff(&c.owner_id))
+        .collect();
     let published_ids: Vec<&str> = published.iter().map(|c| c.id.as_str()).collect();
     let mut external_viewers: HashMap<&str, HashSet<String>> = HashMap::new();
+    let mut remixed: HashSet<String> = HashSet::new();
     if !published_ids.is_empty() {
         let owners: HashMap<&str, String> = published
             .iter()
@@ -124,6 +207,7 @@ pub async fn remix_funnel(
         for e in qualified {
             if let Some((cart_id, owner_key)) = owners.get_key_value(e.cart_id.as_str())
                 && *owner_key != e.viewer_key
+                && !staff_keys.contains(&e.viewer_key)
             {
                 external_viewers
                     .entry(cart_id)
@@ -131,36 +215,100 @@ pub async fn remix_funnel(
                     .insert(e.viewer_key);
             }
         }
+        remixed = carts::Entity::find()
+            .filter(carts::Column::ParentCartId.is_in(published_ids.iter().copied()))
+            .all(&state.db)
+            .await?
+            .into_iter()
+            .filter(|c| !by_staff(&c.owner_id))
+            .filter_map(|c| c.parent_cart_id)
+            .collect();
     }
-    let remixes: Vec<_> = published
-        .iter()
-        .filter(|c| c.parent_cart_id.is_some())
+
+    for c in &published {
+        let Some(parent) = &c.parent_cart_id else {
+            continue;
+        };
+        let row = rows.entry(parent.clone()).or_default();
+        row.remixes_published += 1;
+        row.remixes_with_external_play += u64::from(external_viewers.contains_key(c.id.as_str()));
+        row.remixes_remixed += u64::from(remixed.contains(&c.id));
+    }
+
+    // Empty lookups skip the query rather than send an empty `IN ()`.
+    let mut carts_by_id: HashMap<String, carts::Model> = HashMap::new();
+    let mut usernames: HashMap<String, String> = HashMap::new();
+    if !rows.is_empty() {
+        carts_by_id = carts::Entity::find()
+            .filter(carts::Column::Id.is_in(rows.keys().cloned()))
+            .all(&state.db)
+            .await?
+            .into_iter()
+            .map(|c| (c.id.clone(), c))
+            .collect();
+    }
+    let owner_ids: HashSet<String> = carts_by_id
+        .values()
+        .filter_map(|c| c.owner_id.clone())
         .collect();
-    let mut remixes_remixed = 0;
-    for r in &remixes {
-        let children = carts::Entity::find()
-            .filter(carts::Column::ParentCartId.eq(&r.id))
-            .count(&state.db)
-            .await?;
-        if children > 0 {
-            remixes_remixed += 1;
-        }
+    if !owner_ids.is_empty() {
+        usernames = users::Entity::find()
+            .filter(users::Column::Id.is_in(owner_ids))
+            .all(&state.db)
+            .await?
+            .into_iter()
+            .map(|u| (u.id, u.username))
+            .collect();
     }
+
+    let mut total = CartFunnel::default();
+    let mut by_cart: Vec<CartFunnel> = rows
+        .into_iter()
+        .map(|(cart_id, mut row)| {
+            if let Some(cart) = carts_by_id.get(&cart_id) {
+                row.title = cart.title.clone();
+                row.owner = cart
+                    .owner_id
+                    .as_ref()
+                    .and_then(|o| usernames.get(o))
+                    .cloned();
+                row.parent_cart_id = cart.parent_cart_id.clone();
+            }
+            row.cart_id = cart_id;
+            row.conversion = conversion(&row);
+            total.plays += row.plays;
+            total.qualified_plays += row.qualified_plays;
+            total.remix_opened += row.remix_opened;
+            total.remix_ran += row.remix_ran;
+            total.publish_started += row.publish_started;
+            total.remixes_published += row.remixes_published;
+            total.remixes_with_external_play += row.remixes_with_external_play;
+            total.remixes_remixed += row.remixes_remixed;
+            row
+        })
+        .collect();
+    by_cart.sort_by(|a, b| {
+        (b.qualified_plays, b.plays, b.remix_opened)
+            .cmp(&(a.qualified_plays, a.plays, a.remix_opened))
+            .then_with(|| a.cart_id.cmp(&b.cart_id))
+    });
+    by_cart.truncate(MAX_FUNNEL_ROWS);
 
     Ok(Json(RemixFunnel {
         days,
-        plays,
-        qualified_plays: count_event(state, "qualified_play", &since).await?,
-        remix_opened: count_event(state, "remix_opened", &since).await?,
-        remix_ran: count_event(state, "remix_ran", &since).await?,
-        publish_started: count_event(state, "publish_started", &since).await?,
+        since,
+        include_staff,
+        plays: total.plays,
+        qualified_plays: total.qualified_plays,
+        remix_opened: total.remix_opened,
+        remix_ran: total.remix_ran,
+        publish_started: total.publish_started,
         carts_published: published.len() as u64,
-        remixes_published: remixes.len() as u64,
+        remixes_published: total.remixes_published,
         social_creations: external_viewers.len() as u64,
-        remixes_with_external_play: remixes
-            .iter()
-            .filter(|r| external_viewers.contains_key(r.id.as_str()))
-            .count() as u64,
-        remixes_remixed,
+        remixes_with_external_play: total.remixes_with_external_play,
+        remixes_remixed: total.remixes_remixed,
+        conversion: conversion(&total),
+        by_cart,
     }))
 }

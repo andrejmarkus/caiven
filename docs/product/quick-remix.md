@@ -16,7 +16,7 @@ friction?
 | --- | --- | --- |
 | Play | `/play/:id` | Unchanged: WASM runtime, no account. **Remix this** shows when the cart is remixable. |
 | Remix | `/remix/:id` | GAME \| CODE. The cart's real `LuaSource` section, pulled from the same `.cav` the player downloads. |
-| Change | same page | A textarea editor with line numbers. **Change one thing** chips list top-level numeric constants (`local SPEED = 2`), and editing a chip rewrites that Lua line. |
+| Change | same page | A textarea editor with line numbers. **Change one thing** chips list top-level numeric constants (`local SPEED = 2`), and editing a chip rewrites that Lua line. A constant whose comment says `-- try N` gets a **try N** button that writes that value. |
 | See result | same page | A 700 ms pause in typing reruns it (a broken edit isn't retried until it changes); Run / Ctrl+Enter reruns right away. Each run rebuilds the `.cav` in the browser (`src/lib/cav.js`) and restarts it in the same WASM module (`CartPlayer.reload`). |
 | Errors | same page | The real Lua message, the line number, a highlighted line, a one-line plain-language hint for common errors (`src/lib/remix.js`), and the edit is kept. On a load error the last working build keeps running. |
 | Publish | same page | Enabled only after a changed version has run cleanly. Creates a **new cart** with a structured parent link, uploads the current frame as its screenshot, and shows a share URL. |
@@ -112,13 +112,21 @@ plain message. The existing cross-owner content-hash guard still applies.
 Play, remix, edit and run need no account. The account wall appears only
 when the person presses Publish, after a changed version has run. The draft
 (source, title, description, remixable) autosaves to `localStorage` under
-`caiven:remix-draft:<cart id>`. Login and Register carry `?next=`
-(same-origin only, see `safeNext`) back to `/remix/:id?publish=1`, which
-restores the draft, reruns it and opens the publish form.
+`caiven:remix-draft:<cart id>`. The wall opens on **Register** (most people
+reaching it are new), which says the remix is saved and links to Log in.
+Register, Log in and OAuth all carry `?next=` back to `/remix/:id?publish=1`,
+which restores the draft, reruns it and opens the publish form. OAuth keeps
+`next` in its state cookie, and the server accepts only a plain same-origin
+path (`safe_oauth_next`).
 
-Known gaps: OAuth sign-in drops `next` (the draft still restores when the
-person comes back to the remix URL). Accounts with an unverified email can't
-publish (`VerifiedUser`), and the page says so while keeping the draft.
+Publishing still needs a confirmed email (`VerifiedUser`). A new account
+sees that in the publish form before pressing anything: the address the link
+went to, **Send it again**, and a note that the remix is saved. Publish also
+records the remix as pending, so the confirmation link, opened in the same
+browser, goes straight back to the publish form. Coming back to the original
+tab refreshes the account, so Publish works there too. A link opened on
+another device confirms the email, and the page tells the person to go back
+to the remix's tab.
 
 ### Measurement
 
@@ -127,7 +135,7 @@ per **(cart, step, viewer)**, deduped by a unique index:
 
 | Step | Recorded by | Cart |
 | --- | --- | --- |
-| `qualified_play` | Play page after 20 s of play without a fault | played cart |
+| `qualified_play` | Play page after 20 s of running game, counted from the first button press, without a fault | played cart |
 | `remix_opened` | Remix page loaded | parent |
 | `remix_ran` | First successful run of a changed source | parent |
 | `publish_started` | Publish pressed (before any auth wall) | parent |
@@ -141,12 +149,22 @@ rows).
 `user:<id>` or `ip:<addr>`. No raw IPs, timestamps finer than the event row,
 paths or durations are stored. Anonymous viewers behind one IP collapse into
 one key, and an owner playing their own cart while logged out counts as
-external. Both are acceptable at this scale.
+external. Both are acceptable at this scale. Behind a reverse proxy the IP
+is only real with `CAIVEN_IP_HEADER` set (see `port-operations.md`).
+Otherwise every anonymous visitor is one viewer. A person who signs up
+halfway is two keys, so the page returning from the account wall
+(`?publish=1`) doesn't report their steps again.
 
-Admin readout: `GET /api/v2/admin/metrics/remix-funnel?days=7`. It reports
-every step plus **`social_creations`**, the North Star: carts published in
-the window with at least one qualified play from someone other than the
-owner. `remixes_with_external_play` is the stricter variant.
+Admin readout: `GET /api/v2/admin/metrics/remix-funnel?days=7`, or
+`?since=<RFC 3339>` to start at an experiment's first session. It reports
+totals, step-to-step `conversion` ratios, and `by_cart` rows: each cart's
+plays and steps, plus how many of its direct remixes were published, got an
+external qualified play, or were remixed again. **`social_creations`** is the
+North Star: carts published in the window with at least one qualified play
+from someone other than the owner. `remixes_with_external_play` is the
+stricter variant. Admin accounts' events, carts and plays are left out
+unless `include_staff=true`, so whoever runs a test doesn't count. That works
+only while they're logged in.
 
 Retention: rows grow with at most carts × viewers × 4 and hold no personal
 data beyond the hash. Nothing expires them yet; add a periodic delete of rows

@@ -60,6 +60,8 @@ const KEY_TO_BUTTON: Record<string, number> = {
   J: 4,
   z: 4,
   Z: 4,
+  // Carts say "PRESS A"; the A key is Left, so Space is the obvious guess.
+  ' ': 4,
   k: 5,
   K: 5,
   x: 5,
@@ -237,6 +239,8 @@ export class CartPlayer {
   private running = false;
   private saveKey: string | null;
   private lastGood: Uint8Array | null = null;
+  private touched = false;
+  private engagedFrames = 0;
 
   private constructor(
     module: CaivenModuleInstance,
@@ -296,7 +300,13 @@ export class CartPlayer {
     return error;
   }
 
+  /// Seconds the cart has run since the player first pressed a button.
+  get engagedSeconds(): number {
+    return this.engagedFrames / 60;
+  }
+
   setButton(button: number, down: boolean): void {
+    if (down) this.touched = true;
     this.module.ccall('caiven_set_button', null, ['number', 'number'], [button, down ? 1 : 0]);
   }
 
@@ -431,6 +441,7 @@ export class CartPlayer {
       if (!this.running) return;
       const steps = document.hidden ? 0 : this.clock.advance(now);
       frames += this.faulted ? 0 : steps;
+      if (this.touched && !this.faulted) this.engagedFrames += steps;
       const elapsed = now - fpsStarted;
       if (elapsed >= 1000) {
         this.onFps?.(Math.round((frames * 1000) / elapsed));

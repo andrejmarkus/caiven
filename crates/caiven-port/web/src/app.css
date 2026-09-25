@@ -1,2 +1,13 @@
 @import '@caiven/ui/theme.css';
 @source "../node_modules/@caiven/ui/src";
+
+/* On-screen d-pad + A/B the player mounts; only shown on touch screens. */
+.touch-overlay { display: none; }
+@media (hover: none) and (pointer: coarse) { .touch-overlay { display: block; } }
+.touch-overlay .touch-dpad, .touch-overlay .touch-face { position: absolute; bottom: 4%; display: grid; gap: 4px; pointer-events: auto; }
+.touch-overlay .touch-dpad { left: 3%; grid-template-columns: repeat(3, 48px); grid-template-rows: repeat(3, 48px); }
+.touch-overlay .touch-face { right: 3%; grid-template-columns: repeat(2, 52px); grid-auto-rows: 52px; }
+.touch-overlay .touch-btn { display: flex; align-items: center; justify-content: center; border: 1px solid rgb(255 255 255 / .35); border-radius: 8px; background: rgb(255 255 255 / .18); color: white; user-select: none; touch-action: none; }
+.touch-overlay .a, .touch-overlay .b { border-radius: 50%; }
+.touch-overlay .up { grid-column: 2; grid-row: 1; } .touch-overlay .left { grid-column: 1; grid-row: 2; } .touch-overlay .right { grid-column: 3; grid-row: 2; } .touch-overlay .down { grid-column: 2; grid-row: 3; }
+.touch-overlay .b { grid-column: 1; } .touch-overlay .a { grid-column: 2; }

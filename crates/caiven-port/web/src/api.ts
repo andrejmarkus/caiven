@@ -345,7 +345,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ token, new_password: newPassword }),
     }),
-  oauthStartUrl: (provider: string) => `${BASE}/auth/oauth/${provider}/start`,
+  oauthStartUrl: (provider: string, next?: string) => `${BASE}/auth/oauth/${provider}/start${qs({ next })}`,
   changePassword: (currentPassword: string, newPassword: string) =>
     request<void>('/auth/password', {
       method: 'POST',

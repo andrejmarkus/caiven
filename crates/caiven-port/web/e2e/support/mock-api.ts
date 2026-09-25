@@ -235,7 +235,7 @@ export class MockApi {
     if (path === '/api/v2/auth/mfa/status' && method === 'GET') return this.json(route, { enabled: false });
     if (path === '/api/v2/auth/mfa/setup' && method === 'POST') return this.json(route, { secret: 'JBSWY3DPEHPK3PXP', otpauth_url: 'otpauth://totp/Caiven', qr_png_base64: 'iVBORw0KGgo=' });
     if (path === '/api/v2/auth/mfa/confirm' && method === 'POST') return this.json(route, { backup_codes: ['backup-1', 'backup-2'] });
-    if (['/api/v2/auth/mfa/disable', '/api/v2/auth/password', '/api/v2/auth/set-password', '/api/v2/auth/resend-verification', '/api/v2/auth/verify-email', '/api/v2/auth/forgot-password', '/api/v2/auth/reset-password'].includes(path) && method === 'POST') return route.fulfill({ status: 204 });
+    if (['/api/v2/auth/mfa/disable', '/api/v2/auth/password', '/api/v2/auth/set-password', '/api/v2/auth/resend-verification', '/api/v2/auth/forgot-password', '/api/v2/auth/reset-password'].includes(path) && method === 'POST') return route.fulfill({ status: 204 });
     if (path === '/api/v2/auth/sessions' && method === 'GET') return this.json(route, [{ id: 'session-1', created_at: now, expires_at: '2026-08-28T00:00:00Z', last_seen_at: now, ip: '127.0.0.1', user_agent: 'Playwright', current: true }]);
     if (path === '/api/v2/auth/sessions' && method === 'DELETE') return route.fulfill({ status: 204 });
     if (/^\/api\/v2\/auth\/sessions\/[^/]+$/.test(path) && method === 'DELETE') return route.fulfill({ status: 204 });
@@ -273,6 +273,7 @@ export class MockApi {
       this.carts.unshift(created); return this.json(route, created);
     }
     // Chromium reports a bodiless 204 fulfil as net::ERR_ABORTED, which the browser guard would flag.
+    if (path === '/api/v2/auth/verify-email' && method === 'POST') return route.fulfill({ status: 200, contentType: 'application/json', body: '' });
     if (/^\/api\/v2\/carts\/[^/]+\/(funnel|screenshot)$/.test(path) && method === 'POST') return route.fulfill({ status: 200, contentType: 'application/json', body: '' });
     const cartMatch = path.match(/^\/api\/v2\/carts\/([^/]+)$/);
     if (cartMatch && method === 'GET') { const found = this.carts.find((x) => x.id === cartMatch[1]); if (!found) return this.json(route, { error: 'cart not found' }, 404); const parent = this.carts.find((x) => x.id === found.parent_cart_id); const remixes = this.carts.filter((x) => x.parent_cart_id === found.id); return this.json(route, { ...found, versions: found.versions ?? [version()], own_rating: found.own_rating ?? null, parent: parent ? cartRef(parent) : null, remix_count: remixes.length, recent_remixes: remixes.slice(0, 6).map(cartRef) }); }

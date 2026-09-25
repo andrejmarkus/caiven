@@ -6,7 +6,9 @@
 [![Studio Release](https://img.shields.io/github/v/tag/andrejmarkus/caiven?filter=studio-v*&label=studio&style=for-the-badge)](https://github.com/andrejmarkus/caiven/releases?q=studio-v)
 [![Machine Release](https://img.shields.io/github/v/tag/andrejmarkus/caiven?filter=machine-v*&label=machine&style=for-the-badge)](https://github.com/andrejmarkus/caiven/releases?q=machine-v)
 
-**Caiven** is a retro-inspired fantasy console: a virtual machine and development environment written in Rust. Real embedded Lua 5.4 for game code, plus a full in-engine editor (Caiven Studio) — no custom bytecode language, every stdlib function just works.
+**Play a tiny game. Change one thing. Make it yours.**
+
+**Caiven** is a retro-inspired fantasy console written in Rust. Every cart is real Lua 5.4 you can open and change: in the browser on Caiven Port (play → remix → publish, no install), or in the full desktop editor, Caiven Studio.
 
 ![Caiven Studio start screen](docs/assets/studio-start-screen.png)
 
@@ -15,6 +17,7 @@
 Grab whichever matches what you want to do — Studio and Machine release
 independently, so check both:
 
+- **Remix in the browser** — on a Caiven Port, open a cart, press **Remix this**, change a number, see it run, publish your version. No install. Run your own Port: [docs/port.md](docs/port.md).
 - **[Caiven Studio](https://github.com/andrejmarkus/caiven/releases?q=studio-v)** — the editor, to _make_ a game (code, sprites, sound, map). Windows/macOS/Linux installers.
 - **[Caiven Machine](https://github.com/andrejmarkus/caiven/releases?q=machine-v)** — the standalone player, to just _run_ a `.cav` cart someone shared with you. No editor.
 

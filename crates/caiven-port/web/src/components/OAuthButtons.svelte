@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api } from '../api';
+  import { route, safeNext } from '../router.svelte';
   import { Button } from '@caiven/ui/button';
 
   let { providers }: { providers: string[] } = $props();
@@ -11,7 +12,7 @@
   };
 
   function start(provider: string) {
-    window.location.href = api.oauthStartUrl(provider);
+    window.location.href = api.oauthStartUrl(provider, route.search.get('next') ? safeNext() : undefined);
   }
 </script>
 

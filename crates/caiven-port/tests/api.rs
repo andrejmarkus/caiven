@@ -2927,13 +2927,35 @@ fn remix_meta(parent: &str, remixable: bool) -> String {
 }
 
 async fn record_funnel(client: &Client, id: &str, event: &str) -> Status {
+    record_funnel_with(client, id, event, Header::new("X-Real-IP", "203.0.113.1")).await
+}
+
+/// `X-Real-IP` stands in for a trusted proxy's header (the debug config
+/// trusts it), so each value is a different anonymous viewer.
+async fn record_funnel_with(
+    client: &Client,
+    id: &str,
+    event: &str,
+    who: Header<'static>,
+) -> Status {
     client
         .post(format!("/api/v2/carts/{id}/funnel"))
         .header(ContentType::JSON)
+        .header(who)
         .body(serde_json::json!({ "event": event }).to_string())
         .dispatch()
         .await
         .status()
+}
+
+async fn remix_funnel(client: &Client, token: &str, query: &str) -> serde_json::Value {
+    let response = client
+        .get(format!("/api/v2/admin/metrics/remix-funnel{query}"))
+        .header(Header::new("X-Api-Key", token.to_string()))
+        .dispatch()
+        .await;
+    assert_eq!(response.status(), Status::Ok);
+    json_of(response).await
 }
 
 #[rocket::async_test]
@@ -3105,21 +3127,83 @@ async fn funnel_events_dedup_per_viewer_and_feed_admin_metrics() {
         .await;
     assert_eq!(forbidden.status(), Status::Forbidden);
 
-    let metrics = client
-        .get("/api/v2/admin/metrics/remix-funnel?days=7")
-        .header(Header::new("X-Api-Key", admin.clone()))
-        .dispatch()
-        .await;
-    assert_eq!(metrics.status(), Status::Ok);
-    let metrics = json_of(metrics).await;
+    // The admin checking the test is staff: their plays never count.
+    assert_eq!(
+        record_funnel_with(
+            &client,
+            &remix_id,
+            "qualified_play",
+            Header::new("X-Api-Key", admin.clone())
+        )
+        .await,
+        Status::NoContent
+    );
+    // A second anonymous viewer on another IP is a second person.
+    assert_eq!(
+        record_funnel_with(
+            &client,
+            &seed_id,
+            "remix_opened",
+            Header::new("X-Real-IP", "203.0.113.2")
+        )
+        .await,
+        Status::NoContent
+    );
+
+    let metrics = remix_funnel(&client, &admin, "?days=7").await;
+    assert_eq!(metrics["days"], 7);
+    assert_eq!(metrics["include_staff"], false);
     assert_eq!(metrics["qualified_plays"], 1);
-    assert_eq!(metrics["remix_opened"], 1);
+    assert_eq!(metrics["remix_opened"], 2);
     assert_eq!(metrics["remix_ran"], 0);
-    assert_eq!(metrics["carts_published"], 2);
+    // The admin-owned seed isn't a creation from the test.
+    assert_eq!(metrics["carts_published"], 1);
     assert_eq!(metrics["remixes_published"], 1);
     assert_eq!(metrics["social_creations"], 1);
     assert_eq!(metrics["remixes_with_external_play"], 1);
     assert_eq!(metrics["remixes_remixed"], 0);
+    assert_eq!(
+        metrics["conversion"]["publish_started_to_remix_published"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        metrics["conversion"]["remix_published_to_external_play"],
+        1.0
+    );
+
+    let rows = metrics["by_cart"].as_array().unwrap();
+    let seed_row = rows
+        .iter()
+        .find(|r| r["cart_id"] == seed_id.as_str())
+        .unwrap();
+    assert_eq!(seed_row["title"], "Seed");
+    assert_eq!(seed_row["owner"], "admin");
+    assert_eq!(seed_row["remix_opened"], 2);
+    assert_eq!(seed_row["remixes_published"], 1);
+    assert_eq!(seed_row["remixes_with_external_play"], 1);
+    let remix_row = rows
+        .iter()
+        .find(|r| r["cart_id"] == remix_id.as_str())
+        .unwrap();
+    assert_eq!(remix_row["parent_cart_id"], seed_id.as_str());
+    assert_eq!(remix_row["qualified_plays"], 1);
+
+    let with_staff = remix_funnel(&client, &admin, "?days=7&include_staff=true").await;
+    assert_eq!(with_staff["qualified_plays"], 2);
+    assert_eq!(with_staff["carts_published"], 2);
+
+    // An experiment window that starts later sees none of this.
+    let later = remix_funnel(&client, &admin, "?since=2999-01-01T00:00:00Z").await;
+    assert!(later["days"].is_null());
+    assert_eq!(later["remix_opened"], 0);
+    assert_eq!(later["carts_published"], 0);
+    assert_eq!(later["by_cart"].as_array().unwrap().len(), 0);
+    let bad = client
+        .get("/api/v2/admin/metrics/remix-funnel?since=yesterday")
+        .header(Header::new("X-Api-Key", admin.clone()))
+        .dispatch()
+        .await;
+    assert_eq!(bad.status(), Status::BadRequest);
 }
 
 #[rocket::async_test]

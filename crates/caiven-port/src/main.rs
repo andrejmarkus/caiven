@@ -38,6 +38,14 @@ struct Args {
     #[arg(long, env = "CAIVEN_SECURE_COOKIES", default_value_t = false)]
     secure_cookies: bool,
 
+    /// Header a trusted reverse proxy sets to the real client IP (e.g.
+    /// `X-Real-IP`). Unset, the socket peer is the client: behind a proxy
+    /// that makes every visitor one IP for rate limits and play dedup. Set it
+    /// only when the proxy overwrites the header and Port is not reachable
+    /// directly, or clients can pick their own IP.
+    #[arg(long, env = "CAIVEN_IP_HEADER")]
+    ip_header: Option<String>,
+
     /// Public origin (e.g. `https://port.example.com`), used to build OAuth
     /// redirect URIs and links embedded in emails. Required for OAuth login
     /// and for confirmation/reset links to work outside of local dev.
@@ -131,13 +139,13 @@ async fn main() -> Result<()> {
         port: args.port,
         limits,
         log_level: rocket::config::LogLevel::Normal,
-        // PORT-03: Rocket's default trusts an `X-Real-IP` header from the
-        // client itself. Without a reverse proxy in front that overwrites
-        // this header, a client can set it to anything and pick its own
-        // rate-limit bucket on every request. Disabled here; a deployment
-        // that does sit behind a trusted proxy should set this explicitly
-        // to the header that proxy controls (see docs/port.md).
-        ip_header: None,
+        // PORT-03: never Rocket's default of trusting a client-sent
+        // `X-Real-IP`; only a header the operator says their proxy controls.
+        ip_header: args
+            .ip_header
+            .clone()
+            .filter(|h| !h.trim().is_empty())
+            .map(|h| h.trim().to_string().into()),
         ..Default::default()
     };
 

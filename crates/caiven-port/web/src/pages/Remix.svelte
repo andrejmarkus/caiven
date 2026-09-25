@@ -1,11 +1,12 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import { api, ApiError, type Cart, type CartDetail } from '../api';
+  import { api, ApiError, type Cart, type CartDetail, type FunnelEvent } from '../api';
   import { CartPlayer } from '../player';
-  import { currentUser } from '../stores.svelte';
+  import { currentUser, setUser } from '../stores.svelte';
   import { link, navigate, route } from '../router.svelte';
   import { parseCav, luaSource, withLuaSource, type Cav } from '../lib/cav.js';
   import { findConstants, setConstant, parseLuaError, errorHint } from '../lib/remix.js';
+  import { draftKey as draftKeyFor, markPendingPublish, clearPendingPublish } from '../lib/pending-publish';
   import { Button, buttonVariants } from '@caiven/ui/button';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import PlayIcon from '@lucide/svelte/icons/play';
@@ -21,7 +22,7 @@
   const LINE_HEIGHT = 20;
   // Long enough to skip half-typed words, short enough to feel live.
   const AUTO_RUN_MS = 700;
-  const draftKey = $derived(`caiven:remix-draft:${id}`);
+  const draftKey = $derived(draftKeyFor(id));
 
   let cart = $state<CartDetail | null>(null);
   let cav: Cav | null = null;
@@ -33,11 +34,15 @@
   let error = $state('');
   let restored = $state(false);
   let canvas = $state<HTMLCanvasElement | undefined>();
+  let touchContainer = $state<HTMLDivElement | undefined>();
   let editor = $state<HTMLTextAreaElement | undefined>();
   let scrollTop = $state(0);
   let player: CartPlayer | null = null;
   let bootGeneration = 0;
   let reportedRan = false;
+  // Back from the account wall: this person's steps were already counted
+  // under their anonymous key, so the logged-in key must not count them again.
+  let resumed = false;
   // Last source handed to the VM, so a broken edit isn't retried every pause.
   let attempted = '';
 
@@ -49,6 +54,7 @@
   let publishError = $state('');
   let published = $state<Cart | null>(null);
   let copied = $state(false);
+  let resend = $state<'idle' | 'sending' | 'sent' | 'failed'>('idle');
 
   const changed = $derived(source !== original);
   const runOk = $derived(ranSource === source && !runError);
@@ -56,6 +62,11 @@
   const constants = $derived(findConstants(source));
   const lineCount = $derived(source.split('\n').length);
   const shareUrl = $derived(published ? `${window.location.origin}/play/${published.id}` : '');
+  const needsVerify = $derived(!!currentUser.value?.email && !currentUser.value.email_verified);
+
+  function track(event: FunnelEvent) {
+    if (!resumed) void api.recordFunnel(id, event).catch(() => {});
+  }
 
   function readDraft(): Draft | null {
     try {
@@ -109,10 +120,12 @@
       if (generation !== bootGeneration) { loaded.stop(); return; }
       player = loaded;
       ranSource = text;
+      if (touchContainer) player.mountTouchControls(touchContainer);
       player.start(onFault);
-      void api.recordFunnel(id, 'remix_opened').catch(() => {});
+      resumed = route.search.get('publish') === '1';
+      track('remix_opened');
       if (restored) run(false);
-      if (route.search.get('publish') === '1') await openPublish();
+      if (resumed) await openPublish();
     } catch (e) {
       if (generation !== bootGeneration) return;
       error = e instanceof Error ? e.message : String(e);
@@ -146,7 +159,7 @@
     ranSource = source;
     if (changed && !reportedRan) {
       reportedRan = true;
-      void api.recordFunnel(id, 'remix_ran').catch(() => {});
+      track('remix_ran');
     }
     if (focusGame) canvas?.focus();
   }
@@ -188,14 +201,26 @@
 
   async function openPublish() {
     if (!canPublish) return;
-    void api.recordFunnel(id, 'publish_started').catch(() => {});
+    track('publish_started');
     saveDraft();
+    markPendingPublish(id);
     if (!currentUser.value) {
-      navigate(`/login?next=${encodeURIComponent(`/remix/${id}?publish=1`)}`);
+      // Most people reaching this wall are new, so it opens on sign-up.
+      navigate(`/register?next=${encodeURIComponent(`/remix/${id}?publish=1`)}`);
       return;
     }
     publishOpen = true;
     publishError = '';
+  }
+
+  async function resendVerification() {
+    resend = 'sending';
+    try { await api.resendVerification(); resend = 'sent'; } catch { resend = 'failed'; }
+  }
+
+  // Confirming happens in another tab; coming back here should unlock Publish.
+  function refreshUser() {
+    if (needsVerify) api.me().then(setUser).catch(() => {});
   }
 
   async function screenshot(): Promise<Blob | null> {
@@ -216,11 +241,12 @@
       });
       if (shot) await api.uploadScreenshot(created.id, shot).catch(() => {});
       clearDraft();
+      clearPendingPublish();
       published = created;
       publishOpen = false;
     } catch (err) {
-      if (err instanceof ApiError && err.status === 403 && currentUser.value && !currentUser.value.email_verified) {
-        publishError = 'Verify your email to publish. Your remix is saved in this browser.';
+      if (err instanceof ApiError && err.status === 403 && needsVerify) {
+        publishError = "Your email isn't confirmed yet. Click the link in the email, then press Publish again.";
       } else {
         publishError = err instanceof Error ? err.message : 'Publish failed';
       }
@@ -250,6 +276,11 @@
   $effect(() => {
     source; title; description; remixable;
     if (!loading && cav) saveDraft();
+  });
+
+  $effect(() => {
+    window.addEventListener('focus', refreshUser);
+    return () => window.removeEventListener('focus', refreshUser);
   });
 </script>
 
@@ -293,6 +324,16 @@
           <Button type="button" variant="secondary" onclick={() => (publishOpen = false)}>Cancel</Button>
         </div>
         <p class="mt-2 text-xs text-muted-foreground">Publishes a new cart linked to <strong>{cart?.title}</strong>, credited to @{cart?.owner ?? cart?.author}.</p>
+        {#if needsVerify}
+          <div class="mt-3 rounded-md border border-primary/40 bg-primary/10 p-3 text-sm" data-testid="verify-notice">
+            <p class="font-semibold">One step left: confirm your email.</p>
+            <p class="mt-1">We sent a link to <strong>{currentUser.value?.email}</strong>. Click it, then come back to this tab and press Publish. Your remix is saved in this browser.</p>
+            <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <Button type="button" size="sm" variant="secondary" disabled={resend === 'sending' || resend === 'sent'} onclick={resendVerification}>{resend === 'sent' ? 'Sent' : 'Send it again'}</Button>
+              {#if resend === 'failed'}<span class="text-destructive">Couldn't send. Try again in a minute.</span>{:else}<span>Check spam if it isn't there in a minute.</span>{/if}
+            </div>
+          </div>
+        {/if}
         {#if publishError}<p class="mt-2 text-sm text-destructive" role="alert">{publishError}</p>{/if}
       </form>
     {/if}
@@ -302,8 +343,9 @@
         <div class="relative aspect-3/2 w-full overflow-hidden rounded-lg bg-black shadow-2xl shadow-black/60">
           <canvas bind:this={canvas} width="192" height="128" class="block size-full" style="image-rendering: pixelated;"></canvas>
           <div class="scanline-overlay crt-vignette pointer-events-none absolute inset-0 opacity-65"></div>
+          <div bind:this={touchContainer} class="touch-overlay pointer-events-none absolute inset-0"></div>
         </div>
-        <p class="text-xs text-muted-foreground">Click the game to play · arrows move · Z / X buttons</p>
+        <p class="text-xs text-muted-foreground">Click the game to play · arrows move · Z or Space = A button · X = B button</p>
         {#if constants.length}
           <div class="surface-panel rounded-lg p-3">
             <p class="mb-2 text-sm font-semibold">Change one thing</p>
@@ -312,6 +354,7 @@
                 <div class="flex items-center gap-2 rounded-md border border-border bg-background px-2 py-1 font-mono text-xs">
                   <button type="button" class="text-primary hover:underline" onclick={() => selectConstant(c.line)} title="Show line {c.line}">{c.name}</button>
                   <input type="number" value={c.value} step={c.value.includes('.') ? 0.1 : 1} aria-label={c.name} class="w-16 rounded border border-border bg-transparent px-1 py-0.5" onchange={(e) => tweak(c.line, e.currentTarget.value)} />
+                  {#if c.suggestion && c.suggestion !== c.value}<button type="button" class="rounded bg-primary/15 px-1.5 py-0.5 text-primary hover:bg-primary/25" onclick={() => tweak(c.line, c.suggestion!)} aria-label="Try {c.name} = {c.suggestion}">try {c.suggestion}</button>{/if}
                 </div>
               {/each}
             </div>
@@ -333,7 +376,7 @@
             <p class="mt-1 text-xs text-muted-foreground">{runError.runtime ? 'The game stopped here. Fix the line and it reruns.' : 'Your last working version is still running. Your edit is kept. Fix it and it reruns.'}</p>
           </div>
         {:else if changed && runOk}
-          <p class="text-sm text-primary" role="status">It runs. That's your change on the left.</p>
+          <p class="text-sm text-primary" role="status">It runs. That's your change in the game.</p>
         {/if}
         <div class="relative flex min-h-0 flex-1 overflow-hidden rounded-md border border-border bg-black/50 font-mono text-[13px]">
           <div class="pointer-events-none select-none overflow-hidden border-r border-border px-2 text-right text-muted-foreground" style="line-height: {LINE_HEIGHT}px; padding-top: 8px;" aria-hidden="true">

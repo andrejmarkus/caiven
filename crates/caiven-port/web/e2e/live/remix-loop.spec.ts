@@ -58,8 +58,8 @@ test('anonymous player remixes a seed cart and publishes a linked child', async 
 
   // 10-12: the edit survives the auth wall, which appears only at publish.
   await page.getByRole('button', { name: 'Publish my version' }).click();
-  await expect(page).toHaveURL(/\/login\?next=/);
-  await page.getByRole('link', { name: 'Register' }).click();
+  await expect(page).toHaveURL(/\/register\?next=/);
+  await expect(page.getByTestId('remix-saved')).toBeVisible();
   await page.getByLabel('Username').fill(remixer.username);
   await page.getByLabel('Email').fill(remixer.email);
   await page.getByLabel('Password').fill(remixer.password);

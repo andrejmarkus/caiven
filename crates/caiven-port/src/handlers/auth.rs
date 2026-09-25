@@ -60,6 +60,31 @@ const PASSKEY_LOGIN_START_WINDOW: Duration = Duration::from_secs(5 * 60);
 const OAUTH_STATE_COOKIE: &str = "caiven_oauth";
 const OAUTH_PATH: &str = "/api/v2/auth/oauth";
 
+/// Same-origin path to return to after OAuth, or None. Stricter than the
+/// SPA's `safeNext`: it rides in a cookie and a `Location` header, so
+/// only plain path/query characters (no `:`, `\`, `//host`) pass.
+fn safe_oauth_next(next: &str) -> Option<&str> {
+    let ok = next.len() <= 512
+        && next.starts_with('/')
+        && !next.starts_with("//")
+        && next
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "/-_.~?=&%+".contains(c));
+    ok.then_some(next)
+}
+
+fn percent_encode(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| match b {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
 fn normalize_username(username: &str) -> String {
     username.trim().to_ascii_lowercase()
 }
@@ -1292,11 +1317,12 @@ fn oauth_redirect_uri(state: &PortState, provider: oauth::Provider) -> String {
     )
 }
 
-#[get("/api/v2/auth/oauth/<provider>/start")]
+#[get("/api/v2/auth/oauth/<provider>/start?<next>")]
 pub async fn oauth_start(
     state: &State<PortState>,
     jar: &CookieJar<'_>,
     provider: &str,
+    next: Option<&str>,
 ) -> Result<Redirect, ApiError> {
     let Some(provider) = oauth::Provider::parse(provider) else {
         return Err(ApiError::not_found("unknown provider"));
@@ -1314,10 +1340,12 @@ pub async fn oauth_start(
     let verifier = oauth::new_code_verifier();
     let challenge = oauth::code_challenge_s256(&verifier);
 
+    // An unsafe `next` is dropped, not rejected: the login still works.
+    let next = next.and_then(safe_oauth_next).unwrap_or("/");
     jar.add(
         Cookie::build((
             OAUTH_STATE_COOKIE,
-            format!("{}:{csrf_state}:{verifier}", provider.as_str()),
+            format!("{}:{csrf_state}:{verifier}:{next}", provider.as_str()),
         ))
         .http_only(true)
         .same_site(SameSite::Lax)
@@ -1344,7 +1372,7 @@ pub async fn oauth_callback(
     error: Option<String>,
 ) -> Redirect {
     match oauth_callback_inner(state, jar, provider, code, state_param, error).await {
-        Ok(user_id) => {
+        Ok((user_id, next)) => {
             // PORT-09: an OAuth-linked account with TOTP enabled must not
             // skip the second factor — route through the same MFA challenge
             // password login uses, instead of starting the session here.
@@ -1356,9 +1384,10 @@ pub async fn oauth_callback(
                 .is_some_and(|u| u.mfa_enabled);
             if mfa_enabled {
                 return match auth::create_mfa_challenge(&state.db, &user_id).await {
-                    Ok(pending_token) => {
-                        Redirect::to(format!("/login?mfa_pending={pending_token}"))
-                    }
+                    Ok(pending_token) => Redirect::to(format!(
+                        "/login?mfa_pending={pending_token}&next={}",
+                        percent_encode(&next)
+                    )),
                     Err(_) => Redirect::to("/login?error=oauth_failed"),
                 };
             }
@@ -1368,7 +1397,7 @@ pub async fn oauth_callback(
             {
                 return Redirect::to("/login?error=oauth_failed");
             }
-            Redirect::to("/")
+            Redirect::to(next)
         }
         Err(_) => Redirect::to("/login?error=oauth_failed"),
     }
@@ -1381,7 +1410,7 @@ async fn oauth_callback_inner(
     code: Option<String>,
     state_param: Option<String>,
     error: Option<String>,
-) -> Result<String, ApiError> {
+) -> Result<(String, String), ApiError> {
     if error.is_some() {
         return Err(ApiError::bad_request("provider denied access"));
     }
@@ -1398,11 +1427,15 @@ async fn oauth_callback_inner(
     let cookie = jar
         .get(OAUTH_STATE_COOKIE)
         .ok_or_else(|| ApiError::bad_request("missing oauth cookie"))?;
-    let parts: Vec<&str> = cookie.value().splitn(3, ':').collect();
+    let value = cookie.value().to_string();
     jar.remove(Cookie::build(OAUTH_STATE_COOKIE).path(OAUTH_PATH));
-    let [cookie_provider, cookie_state, verifier] = parts[..] else {
-        return Err(ApiError::bad_request("malformed oauth cookie"));
+    let parts: Vec<&str> = value.splitn(4, ':').collect();
+    let (cookie_provider, cookie_state, verifier, next) = match parts[..] {
+        [p, s, v] => (p, s, v, "/"),
+        [p, s, v, n] => (p, s, v, safe_oauth_next(n).unwrap_or("/")),
+        _ => return Err(ApiError::bad_request("malformed oauth cookie")),
     };
+    let next = next.to_string();
     if cookie_provider != provider.as_str() || cookie_state != state_param {
         return Err(ApiError::bad_request("state mismatch"));
     }
@@ -1421,7 +1454,7 @@ async fn oauth_callback_inner(
         .await
         .map_err(ApiError::from)?
     {
-        return Ok(link.user_id);
+        return Ok((link.user_id, next));
     }
 
     // Link to an existing account with a matching, already-verified email —
@@ -1448,7 +1481,7 @@ async fn oauth_callback_inner(
         .insert(&state.db)
         .await
         .map_err(ApiError::from)?;
-        return Ok(existing.id);
+        return Ok((existing.id, next));
     }
 
     // Otherwise, create a brand new account.
@@ -1496,7 +1529,7 @@ async fn oauth_callback_inner(
     .await
     .map_err(ApiError::from)?;
 
-    Ok(user.id)
+    Ok((user.id, next))
 }
 
 /// Turns a provider-suggested display name into a valid, unique username.
@@ -1982,4 +2015,38 @@ pub async fn export_data(
             "created_at": a.created_at,
         })).collect::<Vec<_>>(),
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{percent_encode, safe_oauth_next};
+
+    #[test]
+    fn oauth_next_accepts_only_same_origin_paths() {
+        assert_eq!(
+            safe_oauth_next("/remix/abc-123?publish=1"),
+            Some("/remix/abc-123?publish=1")
+        );
+        for bad in [
+            "https://evil.test",
+            "//evil.test",
+            "/\\evil.test",
+            "/x:y",
+            "/a b",
+            "/a;b",
+            "remix/abc",
+            "",
+        ] {
+            assert_eq!(safe_oauth_next(bad), None, "{bad}");
+        }
+        assert_eq!(safe_oauth_next(&format!("/{}", "a".repeat(600))), None);
+    }
+
+    #[test]
+    fn oauth_next_is_encoded_as_one_query_value() {
+        assert_eq!(
+            percent_encode("/remix/abc?publish=1&x=%2"),
+            "/remix/abc%3Fpublish%3D1%26x%3D%252"
+        );
+    }
 }

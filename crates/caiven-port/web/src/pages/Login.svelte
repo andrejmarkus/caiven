@@ -25,6 +25,7 @@
   let passkeyBusy = $state(false);
 
   api.authConfig().then((c) => (authConfig = c)).catch(() => {});
+  const fromRemix = safeNext('').startsWith('/remix/');
 
   // OAuth login for an account with TOTP enabled redirects back here with a
   // pending MFA challenge instead of a session (PORT-09) — same second step
@@ -101,6 +102,9 @@
       <Card.Description>{pendingToken ? 'Enter a code from your authenticator app, or a backup code.' : 'Welcome back.'}</Card.Description>
     </Card.Header>
     <Card.Content>
+      {#if fromRemix}
+        <p class="mb-4 rounded-md border border-primary/40 bg-primary/10 p-3 text-sm" data-testid="remix-saved">Your remix is saved. Log in to publish it and you'll go straight back to it.</p>
+      {/if}
       {#if error}
         <Alert.Root variant="destructive" class="mb-4">
           <CircleAlertIcon />

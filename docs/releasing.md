@@ -9,7 +9,7 @@ the full split; summary:
 |---|---|---|---|
 | Caiven Studio | `studio-v<version>` | `crates/caiven-studio/tauri.conf.json` | Linux AppImage + Debian package, Windows NSIS + MSI installers, macOS DMGs (Apple Silicon + Intel) |
 | Caiven Machine | `machine-v<version>` | `crates/caiven-machine/Cargo.toml` | Linux, Windows, macOS (Apple Silicon + Intel) archives, plus a Miyoo Mini build |
-| Caiven Port | `port-v<version>` | `crates/caiven-port/Cargo.toml` | Docker image at `ghcr.io/<owner>/caiven-port` |
+| Caiven Port | `port-v<version>` | `crates/caiven-port/Cargo.toml` | None yet: CI validates the tag; build the image from `crates/caiven-port/Dockerfile` |
 
 Bump only the version(s) that actually changed — a Studio-only change does
 not require bumping Machine's or Port's version.
@@ -35,14 +35,13 @@ Machine and Port follow the same pattern with `machine-v<version>` /
 Each `release-check-*` job rejects a tag that doesn't match its project's
 package version. Once CI and that project's platform builds succeed, one
 GitHub Release is created with generated notes and (for Studio/Machine) all
-installers/archives attached; Port's release links to the Docker image
-instead of attaching files. `workflow_dispatch` builds the same artifacts
+installers/archives attached. Port has no release artifact yet. `workflow_dispatch` builds the same artifacts
 for testing without publishing a release.
 
 ## Downloads
 
 - Studio and Machine releases: `https://github.com/andrejmarkus/caiven/releases?q=studio-v` and `?q=machine-v` respectively (GitHub's release search matches on tag name).
-- Port: pull the image, `docker pull ghcr.io/andrejmarkus/caiven-port:latest` (or a pinned version tag).
+- Port: build the image, see [port.md](port.md).
 
 ## Code signing status
 

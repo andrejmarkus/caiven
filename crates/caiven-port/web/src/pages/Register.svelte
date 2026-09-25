@@ -21,6 +21,7 @@
   let authConfig = $state<AuthConfigInfo | null>(null);
 
   api.authConfig().then((c) => (authConfig = c)).catch(() => {});
+  const fromRemix = safeNext('').startsWith('/remix/');
 
   async function submit(e: Event) {
     e.preventDefault();
@@ -45,6 +46,9 @@
       <Card.Description>Publish and rate carts.</Card.Description>
     </Card.Header>
     <Card.Content>
+      {#if fromRemix}
+        <p class="mb-4 rounded-md border border-primary/40 bg-primary/10 p-3 text-sm" data-testid="remix-saved">Your remix is saved. Create an account to publish it and you'll go straight back to it.</p>
+      {/if}
       <form onsubmit={submit}>
         {#if error}
           <Alert.Root variant="destructive" class="mb-4">

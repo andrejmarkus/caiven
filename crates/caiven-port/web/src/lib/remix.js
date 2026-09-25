@@ -2,19 +2,20 @@
 // text; nothing is stored beside it.
 
 const CONSTANT = /^(\s*local\s+)([A-Z][A-Z0-9_]*)(\s*=\s*)(-?\d+(?:\.\d+)?)(\s*(?:--.*)?)$/;
+const TRY = /--\s*try\s+(-?\d+(?:\.\d+)?)\b/i;
 
 /**
  * Top-level numeric constants (`local SPEED = 2`) — the obvious first thing
- * to change in a small cart.
+ * to change in a small cart. `suggestion` is the author's `-- try N` value.
  * @param {string} source
- * @returns {{ name: string, value: string, line: number }[]}
+ * @returns {{ name: string, value: string, line: number, suggestion: string | null }[]}
  */
 export function findConstants(source, limit = 6) {
   const out = [];
   const lines = source.split('\n');
   for (let i = 0; i < lines.length && out.length < limit; i++) {
     const m = CONSTANT.exec(lines[i]);
-    if (m) out.push({ name: m[2], value: m[4], line: i + 1 });
+    if (m) out.push({ name: m[2], value: m[4], line: i + 1, suggestion: TRY.exec(m[5])?.[1] ?? null });
   }
   return out;
 }
