@@ -153,7 +153,19 @@ fn is_safe_id(id: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
+// Tests point this at a temp dir; mutating HOME via set_var races getenv in
+// parallel tests and segfaulted glibc on CI.
+#[cfg(test)]
+thread_local! {
+    static TEST_CONFIG_DIR: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 fn config_dir() -> Option<PathBuf> {
+    #[cfg(test)]
+    if let Some(dir) = TEST_CONFIG_DIR.with(|dir| dir.borrow().clone()) {
+        return Some(dir);
+    }
     if let Ok(appdata) = std::env::var("APPDATA") {
         return Some(PathBuf::from(appdata).join("caiven-studio"));
     }
@@ -714,10 +726,9 @@ pub(crate) fn publish(
 #[cfg(test)]
 mod tests {
     use super::{
-        PortCartListWire, is_safe_id, load_saved_url, parse_saved_token, port_set_url,
-        published_cart_id, remember_published, url_encode, validate_port_url,
+        PortCartListWire, TEST_CONFIG_DIR, is_safe_id, load_saved_url, parse_saved_token,
+        port_set_url, published_cart_id, remember_published, url_encode, validate_port_url,
     };
-    use std::sync::Mutex;
 
     #[test]
     fn port_metadata_survives_server_to_studio_conversion() {
@@ -799,30 +810,34 @@ mod tests {
         );
     }
 
-    /// Guards tests that mutate the process-wide `HOME` env var: `set_var`
-    /// is `unsafe` under edition 2024 because concurrent getenv/setenv from
-    /// other threads is a real race, so tests touching it run serialized.
-    static HOME_ENV_LOCK: Mutex<()> = Mutex::new(());
+    /// Gives the calling test thread its own config dir, removed on drop.
+    struct TempConfigDir(std::path::PathBuf);
+
+    impl TempConfigDir {
+        fn new(label: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "caiven-{label}-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            TEST_CONFIG_DIR.with(|slot| *slot.borrow_mut() = Some(dir.clone()));
+            Self(dir)
+        }
+    }
+
+    impl Drop for TempConfigDir {
+        fn drop(&mut self) {
+            TEST_CONFIG_DIR.with(|slot| *slot.borrow_mut() = None);
+            std::fs::remove_dir_all(&self.0).ok();
+        }
+    }
 
     #[test]
     fn persists_and_clears_custom_port_url() {
-        let _guard = HOME_ENV_LOCK.lock().unwrap();
-        let dir = std::env::temp_dir().join(format!(
-            "caiven-port-url-test-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let previous_home = std::env::var("HOME").ok();
-        let previous_appdata = std::env::var("APPDATA").ok();
-        // SAFETY: serialized by HOME_ENV_LOCK; no other test in this binary
-        // reads/writes HOME or APPDATA concurrently.
-        unsafe {
-            std::env::set_var("HOME", &dir);
-            std::env::remove_var("APPDATA");
-        }
+        let _config = TempConfigDir::new("port-url-test");
 
         assert_eq!(load_saved_url(), None);
 
@@ -836,40 +851,12 @@ mod tests {
         let cleared = port_set_url(String::new()).unwrap();
         assert_eq!(cleared.port_url, "http://localhost:8080");
         assert_eq!(load_saved_url(), None);
-
-        // SAFETY: same serialization guard as above, restoring prior state.
-        unsafe {
-            match previous_home {
-                Some(value) => std::env::set_var("HOME", value),
-                None => std::env::remove_var("HOME"),
-            }
-            match previous_appdata {
-                Some(value) => std::env::set_var("APPDATA", value),
-                None => std::env::remove_var("APPDATA"),
-            }
-        }
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn remembers_published_cart_per_server_and_project() {
-        let _guard = HOME_ENV_LOCK.lock().unwrap();
-        let dir = std::env::temp_dir().join(format!(
-            "caiven-published-test-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let previous_home = std::env::var("HOME").ok();
-        let previous_appdata = std::env::var("APPDATA").ok();
-        // SAFETY: serialized by HOME_ENV_LOCK.
-        unsafe {
-            std::env::set_var("HOME", &dir);
-            std::env::remove_var("APPDATA");
-        }
-        let project = dir.join("game");
+        let config = TempConfigDir::new("published-test");
+        let project = config.0.join("game");
         assert_eq!(published_cart_id("http://a", &project), None);
         remember_published("http://a", &project, "cart-1");
         assert_eq!(
@@ -877,53 +864,13 @@ mod tests {
             Some("cart-1".to_string())
         );
         assert_eq!(published_cart_id("http://b", &project), None);
-        // SAFETY: same serialization guard as above, restoring prior state.
-        unsafe {
-            match previous_home {
-                Some(value) => std::env::set_var("HOME", value),
-                None => std::env::remove_var("HOME"),
-            }
-            match previous_appdata {
-                Some(value) => std::env::set_var("APPDATA", value),
-                None => std::env::remove_var("APPDATA"),
-            }
-        }
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn rejects_invalid_url_without_persisting() {
-        let _guard = HOME_ENV_LOCK.lock().unwrap();
-        let dir = std::env::temp_dir().join(format!(
-            "caiven-port-url-reject-test-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let previous_home = std::env::var("HOME").ok();
-        let previous_appdata = std::env::var("APPDATA").ok();
-        // SAFETY: serialized by HOME_ENV_LOCK.
-        unsafe {
-            std::env::set_var("HOME", &dir);
-            std::env::remove_var("APPDATA");
-        }
+        let _config = TempConfigDir::new("port-url-reject-test");
 
         assert!(port_set_url("not-a-url".to_string()).is_err());
         assert_eq!(load_saved_url(), None);
-
-        // SAFETY: same serialization guard as above, restoring prior state.
-        unsafe {
-            match previous_home {
-                Some(value) => std::env::set_var("HOME", value),
-                None => std::env::remove_var("HOME"),
-            }
-            match previous_appdata {
-                Some(value) => std::env::set_var("APPDATA", value),
-                None => std::env::remove_var("APPDATA"),
-            }
-        }
-        std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -22,3 +22,7 @@ paths:
   after (`caiven-debug` skill enforces this sequence).
 - Don't delete or weaken an existing test to make a change pass; fix the
   actual regression.
+- Never `std::env::set_var`/`remove_var` in Rust tests: a mutex only
+  serializes writers, and any parallel test's `getenv` can SIGSEGV glibc
+  (Studio CI crash, 2026-09). Inject the value instead (e.g. `port_api.rs`
+  `TEST_CONFIG_DIR` thread-local).
