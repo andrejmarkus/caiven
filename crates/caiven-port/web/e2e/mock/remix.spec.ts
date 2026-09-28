@@ -239,3 +239,143 @@ test('Space presses the A button', async ({ page, mock }) => {
   await page.keyboard.up(' ');
   await expect.poll(() => pixel(page)).toEqual(idle);
 });
+
+const RUNTIME_ERROR = 'local COLOR = 8\nfunction _update()\n  fill_screen(COLOR + nil)\nend\n';
+const ranCalls = (mock: { calls: (m: string, p: string) => { body?: string | null }[] }) =>
+  mock.calls('POST', '/api/v2/carts/demo/funnel').filter((c) => c.body?.includes('remix_ran')).length;
+
+test('a rerun never blanks the game, and broken code recovers without a reload', async ({ page, mock }) => {
+  mock.carts[0].remixable = true;
+  mock.cartBytes = Buffer.from(withLuaSource(parseCav(new Uint8Array(mock.cartBytes)), SEED));
+  await page.goto('/remix/demo');
+  await expect.poll(() => pixel(page), { timeout: 30_000 }).not.toEqual([0, 0, 0, 0]);
+
+  // Watch every animation frame for a transparent (blank) picture.
+  await page.evaluate(() => {
+    const node = document.querySelector('canvas')!;
+    const copy = document.createElement('canvas').getContext('2d', { willReadFrequently: true })!;
+    const w = window as unknown as { blankFrames: number };
+    w.blankFrames = 0;
+    const sample = () => {
+      copy.clearRect(0, 0, 1, 1);
+      copy.drawImage(node, 96, 64, 1, 1, 0, 0, 1, 1);
+      if (copy.getImageData(0, 0, 1, 1).data[3] === 0) w.blankFrames++;
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+  let changed = await pixel(page);
+  for (const color of [12, 9, 12]) {
+    await setSource(page, SEED.replace('= 8', `= ${color}`));
+    await expect.poll(() => pixel(page)).not.toEqual(changed);
+    changed = await pixel(page);
+  }
+  expect(changed[3]).toBe(255);
+  expect(await page.evaluate(() => (window as unknown as { blankFrames: number }).blankFrames)).toBe(0);
+  await expect.poll(() => ranCalls(mock)).toBe(1);
+
+  // A runtime error stops the game at its line.
+  await setSource(page, RUNTIME_ERROR);
+  await expect(page.getByRole('alert')).toContainText('Line 3: attempt to perform arithmetic on a nil value');
+  await expect(page.getByRole('alert')).toContainText('The game stopped here');
+  // A typo on top of it names the typo, though the build it falls back to faults too.
+  await setSource(page, RUNTIME_ERROR.replace('nil)', 'nil'));
+  await expect(page.getByRole('alert')).toContainText('Line 4');
+  await page.waitForTimeout(500);
+  await expect(page.getByRole('alert')).toContainText('Line 4');
+
+  // An endless loop trips the watchdog instead of freezing the page.
+  await setSource(page, 'local COLOR = 8\nfunction _update()\n  while true do end\nend\n');
+  await expect(page.getByRole('alert')).toContainText('loop that never ends', { timeout: 15_000 });
+  await setSource(page, 'while true do end\n');
+  await expect(page.getByRole('alert')).toContainText('Line 1: your game did not finish drawing this frame', { timeout: 15_000 });
+
+  // Fixing it runs again in the same page, and the edit is still there.
+  await setSource(page, SEED.replace('= 8', '= 12'));
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByLabel('Lua source')).toHaveValue(SEED.replace('= 8', '= 12'));
+  await expect.poll(() => pixel(page)).toEqual(changed);
+  expect(ranCalls(mock)).toBe(1);
+});
+
+test('a changed build that crashes at once is not counted as ran', async ({ page, mock }) => {
+  mock.carts[0].remixable = true;
+  mock.cartBytes = Buffer.from(withLuaSource(parseCav(new Uint8Array(mock.cartBytes)), SEED));
+  await page.goto('/remix/demo');
+  await expect.poll(() => pixel(page), { timeout: 30_000 }).not.toEqual([0, 0, 0, 0]);
+  await setSource(page, RUNTIME_ERROR);
+  await expect(page.getByRole('alert')).toContainText('Line 3');
+  await page.waitForTimeout(2_500);
+  expect(ranCalls(mock)).toBe(0);
+  await setSource(page, SEED.replace('= 8', '= 12'));
+  await expect.poll(() => ranCalls(mock), { timeout: 10_000 }).toBe(1);
+});
+
+test('publish keeps the remix through a dropped connection and an expired session', async ({ page, mock }) => {
+  mock.carts[0].remixable = true;
+  mock.cartBytes = Buffer.from(withLuaSource(parseCav(new Uint8Array(mock.cartBytes)), SEED));
+  await mock.loginAs('player');
+  await page.goto('/remix/demo');
+  await expect.poll(() => pixel(page), { timeout: 30_000 }).not.toEqual([0, 0, 0, 0]);
+  const edit = SEED.replace('= 8', '= 12');
+  await setSource(page, edit);
+  await page.getByRole('button', { name: 'Publish my version' }).click();
+  const form = page.getByRole('form', { name: 'Publish your remix' });
+  const submit = form.getByRole('button', { name: /Publish as @player/ });
+
+  mock.fault({ method: 'POST', path: '/api/v2/carts', offline: true, once: true });
+  await submit.click();
+  await expect(form.getByRole('alert')).toContainText("Couldn't reach Port. Your remix is saved here.");
+  await expect(page.getByLabel('Lua source')).toHaveValue(edit);
+
+  mock.fault({ method: 'POST', path: '/api/v2/carts', status: 401, body: { error: 'Unauthorized' }, once: true });
+  await submit.click();
+  await expect(page).toHaveURL(/\/login\?next=%2Fremix%2Fdemo%3Fpublish%3D1$/);
+  await expect(page.getByTestId('remix-saved')).toBeVisible();
+  await page.getByLabel('Username or email').fill('player');
+  await page.getByLabel('Password').fill('GoodPass!1');
+  await page.getByRole('button', { name: 'Log in', exact: true }).click();
+  await expect(page).toHaveURL(/\/remix\/demo\?publish=1$/);
+  await expect(page.getByLabel('Lua source')).toHaveValue(edit);
+  await expect(form).toBeVisible();
+  await submit.dblclick();
+  await expect(page.getByText("Published. It's yours now.")).toBeVisible();
+  expect(mock.calls('POST', '/api/v2/carts')).toHaveLength(3);
+  expect(mock.carts.filter((c) => c.parent_cart_id === 'demo')).toHaveLength(1);
+});
+
+test('a second click on the email link, or a dead one, still leads back to Publish', async ({ page, mock }) => {
+  mock.carts[0].remixable = true;
+  mock.cartBytes = Buffer.from(withLuaSource(parseCav(new Uint8Array(mock.cartBytes)), SEED));
+  await mock.loginAs('player');
+  await page.goto('/remix/demo');
+  await expect.poll(() => pixel(page), { timeout: 30_000 }).not.toEqual([0, 0, 0, 0]);
+  const edit = SEED.replace('= 8', '= 12');
+  await setSource(page, edit);
+  await page.getByRole('button', { name: 'Publish my version' }).click();
+  await expect(page.getByRole('form', { name: 'Publish your remix' })).toBeVisible();
+
+  // Already confirmed: a used link carries on.
+  mock.fault({ method: 'POST', path: '/api/v2/auth/verify-email', status: 400, body: { error: 'invalid or expired token' }, once: true });
+  await page.goto('/verify-email?token=used-token');
+  await expect(page).toHaveURL(/\/remix\/demo\?publish=1$/);
+  await expect(page.getByLabel('Lua source')).toHaveValue(edit);
+
+  // Not confirmed and the link is dead: the page points back to the saved remix.
+  mock.users.get('player')!.email_verified = false;
+  mock.fault({ method: 'POST', path: '/api/v2/auth/verify-email', status: 400, body: { error: 'invalid or expired token' }, once: true });
+  await page.goto('/verify-email?token=expired-token');
+  await expect(page.getByText('invalid or expired token')).toBeVisible();
+  await page.getByRole('link', { name: 'Back to your remix' }).click();
+  await expect(page).toHaveURL(/\/remix\/demo\?publish=1$/);
+  await expect(page.getByLabel('Lua source')).toHaveValue(edit);
+});
+
+test('a malformed return path after sign-in lands on Home, not another site', async ({ page, mock }) => {
+  await page.goto('/login?next=%2F%09%2Fevil.example%2Fsteal');
+  await page.getByLabel('Username or email').fill('player');
+  await page.getByLabel('Password').fill('GoodPass!1');
+  await page.getByRole('button', { name: 'Log in', exact: true }).click();
+  await expect(page).toHaveURL(/^http:\/\/[^/]+\/$/);
+  expect(mock.user?.username).toBe('player');
+});

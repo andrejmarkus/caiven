@@ -233,7 +233,7 @@ pub async fn create_version(
 
     let owner_id = cart.owner_id.as_deref().unwrap_or(db::LEGACY_USER_ID);
     if let Some((title, author)) =
-        db::find_other_owner_by_content_hash(&state.db, &content_hash, owner_id).await?
+        db::find_other_owner_by_content_hash(&state.db, &content_hash, owner_id, false).await?
     {
         return Err(ApiError::conflict(format!(
             "This cart's content matches an existing published cart \"{title}\" by {author}"

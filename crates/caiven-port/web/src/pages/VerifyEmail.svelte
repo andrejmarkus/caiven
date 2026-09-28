@@ -26,7 +26,16 @@
         await api.me().then(setUser).catch(() => {});
         navigate(`/remix/${remixId}?publish=1`);
       })
-      .catch((e) => {
+      .catch(async (e) => {
+        // A second click, or an older link after a newer one worked: the
+        // account is confirmed already, so carry on instead of failing.
+        const me = await api.me().catch(() => null);
+        if (me?.email_verified) {
+          setUser(me);
+          status = 'ok';
+          if (remixId) navigate(`/remix/${remixId}?publish=1`);
+          return;
+        }
         status = 'error';
         error = e instanceof ApiError ? e.message : 'Verification failed';
       });
@@ -54,6 +63,7 @@
         <p class="mt-4 text-sm text-muted-foreground">
           Links expire after 24 hours. You can request a new one from <a href="/settings" use:link>Settings</a>.
         </p>
+        {#if remixId}<p class="mt-2 text-sm"><a href="/remix/{remixId}?publish=1" use:link>Back to your remix</a>. It's still saved.</p>{/if}
       {/if}
     </Card.Content>
   </Card.Root>

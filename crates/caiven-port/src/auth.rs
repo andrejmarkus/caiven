@@ -164,22 +164,27 @@ pub fn is_valid_email(email: &str) -> bool {
         && email.len() <= 254
 }
 
-/// Creates a single-use, hashed email token (`verify` or `reset`),
-/// invalidating any earlier unused tokens of the same kind for this user so
-/// only the newest link works. Returns the plaintext token to embed in a
-/// link.
+/// Creates a single-use, hashed email token (`verify` or `reset`). A new
+/// reset token invalidates earlier unused ones so only the newest link works.
+/// Verify tokens don't: an account's email never changes, and after "send it
+/// again" people click whichever email they open first. Returns the
+/// plaintext token to embed in a link.
 pub async fn create_email_token(
     db: &DatabaseConnection,
     user_id: &str,
     kind: &str,
     ttl_hours: i64,
 ) -> anyhow::Result<String> {
-    let stale = email_tokens::Entity::find()
-        .filter(email_tokens::Column::UserId.eq(user_id))
-        .filter(email_tokens::Column::Kind.eq(kind))
-        .filter(email_tokens::Column::UsedAt.is_null())
-        .all(db)
-        .await?;
+    let stale = if kind == "verify" {
+        Vec::new()
+    } else {
+        email_tokens::Entity::find()
+            .filter(email_tokens::Column::UserId.eq(user_id))
+            .filter(email_tokens::Column::Kind.eq(kind))
+            .filter(email_tokens::Column::UsedAt.is_null())
+            .all(db)
+            .await?
+    };
     for row in stale {
         let mut update: email_tokens::ActiveModel = row.into();
         update.used_at = Set(Some(now_rfc3339()));

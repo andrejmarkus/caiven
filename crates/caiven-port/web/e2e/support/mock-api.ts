@@ -99,6 +99,7 @@ export class MockApi {
   readonly faults: Fault[] = [];
   readonly allowedConsoleStatuses = new Map<number, number>();
   readonly allowedRequestFailures = new Set<string>();
+  allowedOfflineErrors = 0;
   user: User | null = null;
   users = new Map<string, User>();
   carts = [cart('demo', 'Ember Quest', ['adventure', 'pixel']), cart('orbit', 'Tiny Orbit', ['arcade']), cart('garden', 'Pocket Garden', ['cozy'])];
@@ -146,6 +147,8 @@ export class MockApi {
   fault(fault: Fault): void {
     this.faults.push(fault);
     if (!fault.offline && !fault.malformed) this.allowStatus(fault.status ?? 500);
+    // A `once` fault is gone by the time Chrome reports the failure.
+    if (fault.offline) { this.allowRequestFailure(fault.method, fault.path); this.allowedOfflineErrors++; }
   }
   allowStatus(status: number, count = 1): void { this.allowedConsoleStatuses.set(status, (this.allowedConsoleStatuses.get(status) ?? 0) + count); }
   allowRequestFailure(method: string, path: string): void { this.allowedRequestFailures.add(`${method} ${path}`); }

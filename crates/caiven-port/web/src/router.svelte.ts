@@ -28,7 +28,14 @@ export function navigate(to: string): void {
 /// leave the site (`//host`, `http:`, `/\host`).
 export function safeNext(fallback = '/'): string {
   const next = new URLSearchParams(search).get('next');
-  return next && /^\/(?![/\\])/.test(next) ? next : fallback;
+  if (!next || !/^\/(?![/\\])/.test(next)) return fallback;
+  // URL parsing drops tabs and newlines, so `/\t/host` would still leave.
+  try {
+    const url = new URL(next, window.location.origin);
+    return url.origin === window.location.origin ? `${url.pathname}${url.search}${url.hash}` : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 export function link(node: HTMLAnchorElement): { destroy(): void } {

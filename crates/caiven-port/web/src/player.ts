@@ -241,6 +241,7 @@ export class CartPlayer {
   private lastGood: Uint8Array | null = null;
   private touched = false;
   private engagedFrames = 0;
+  private loadedFrames = 0;
 
   private constructor(
     module: CaivenModuleInstance,
@@ -296,8 +297,14 @@ export class CartPlayer {
     if (error === null) this.lastGood = cartBytes;
     else if (this.lastGood) bootCart(this.module, this.lastGood);
     this.faulted = false;
+    this.loadedFrames = 0;
     this.clock.reset();
     return error;
+  }
+
+  /// Frames run without a fault since the last reload.
+  get framesSinceLoad(): number {
+    return this.loadedFrames;
   }
 
   /// Seconds the cart has run since the player first pressed a button.
@@ -449,8 +456,13 @@ export class CartPlayer {
         fpsStarted = now;
       }
       this.pollGamepad();
+      // A reload's first frame advances 0 steps; painting then would flash
+      // the new VM's empty framebuffer over the last good picture.
+      let painted = false;
       if (!this.faulted) {
+        painted = steps > 0;
         this.module.ccall('caiven_tick', null, ['number'], [steps]);
+        this.loadedFrames += steps;
         this.audio.pump();
         this.flushSave();
         const hasFault = this.module.ccall('caiven_has_fault', 'number', [], []) as number;
@@ -462,10 +474,11 @@ export class CartPlayer {
           this.onFault?.(message);
         }
       }
-      const pixPtr = this.module.ccall('caiven_pixels', 'number', [], []) as number;
-      const buf = this.module.HEAPU8.subarray(pixPtr, pixPtr + this.width * this.height * 4);
-      const imageData = new ImageData(new Uint8ClampedArray(buf), this.width, this.height);
-      this.ctx.putImageData(imageData, 0, 0);
+      if (painted) {
+        const pixPtr = this.module.ccall('caiven_pixels', 'number', [], []) as number;
+        const buf = this.module.HEAPU8.subarray(pixPtr, pixPtr + this.width * this.height * 4);
+        this.ctx.putImageData(new ImageData(new Uint8ClampedArray(buf), this.width, this.height), 0, 0);
+      }
       if (this.running) this.rafId = requestAnimationFrame(frame);
     };
     this.rafId = requestAnimationFrame(frame);

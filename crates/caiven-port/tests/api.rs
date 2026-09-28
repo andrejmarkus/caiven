@@ -1787,6 +1787,68 @@ async fn email_verification_token_is_single_use() {
     assert_eq!(resp.status(), Status::BadRequest);
 }
 
+/// "Send it again" must not break the first email's link: people open
+/// whichever message their inbox shows first. Reset links stay newest-only,
+/// and an expired verify link still fails.
+#[rocket::async_test]
+async fn resent_verification_keeps_earlier_links_working() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    assert_eq!(register(&client, "resend", TEST_PASSWORD).await, Status::Ok);
+    let state = client.rocket().state::<PortState>().unwrap();
+    let user = users::Entity::find()
+        .filter(users::Column::Username.eq("resend"))
+        .one(&state.db)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut update: users::ActiveModel = user.clone().into();
+    update.email_verified = Set(false);
+    update.update(&state.db).await.unwrap();
+
+    let verify = |token: String| {
+        client
+            .post("/api/v2/auth/verify-email")
+            .header(ContentType::JSON)
+            .body(serde_json::json!({ "token": token }).to_string())
+            .dispatch()
+    };
+    let expired = auth::create_email_token(&state.db, &user.id, "verify", -1)
+        .await
+        .unwrap();
+    let first = auth::create_email_token(&state.db, &user.id, "verify", 24)
+        .await
+        .unwrap();
+    let _second = auth::create_email_token(&state.db, &user.id, "verify", 24)
+        .await
+        .unwrap();
+    assert_eq!(verify(expired).await.status(), Status::BadRequest);
+    assert_eq!(verify(first).await.status(), Status::NoContent);
+    let refreshed = users::Entity::find_by_id(&user.id)
+        .one(&state.db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(refreshed.email_verified);
+
+    let old_reset = auth::create_email_token(&state.db, &user.id, "reset", 1)
+        .await
+        .unwrap();
+    let _new_reset = auth::create_email_token(&state.db, &user.id, "reset", 1)
+        .await
+        .unwrap();
+    let reset = client
+        .post("/api/v2/auth/reset-password")
+        .header(ContentType::JSON)
+        .body(
+            serde_json::json!({ "token": old_reset, "new_password": "Another-Str0ng-Passphrase!" })
+                .to_string(),
+        )
+        .dispatch()
+        .await;
+    assert_eq!(reset.status(), Status::BadRequest);
+}
+
 #[rocket::async_test]
 async fn forgot_password_is_always_204_and_does_not_enumerate() {
     let dir = tempfile::tempdir().unwrap();
@@ -3071,6 +3133,161 @@ async fn remix_lineage_requires_opt_in_and_survives_versions() {
     assert!(detail["parent"].is_null());
 }
 
+/// A suggested `try N` edit makes identical remixes from different people.
+/// Each is its own attributed remix; the cross-owner copy guard still stops
+/// someone else's cart from being passed off as a remix.
+#[rocket::async_test]
+async fn identical_remixes_by_different_people_both_publish() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    let owner = register_get_token_and_logout(&client, "owner").await;
+    let first = register_get_token_and_logout(&client, "first").await;
+    let second = register_get_token_and_logout(&client, "second").await;
+
+    let seed = json_of(
+        upload(
+            &client,
+            &owner,
+            &sample_cart(),
+            r#"{"title":"Seed","remixable":true}"#,
+        )
+        .await,
+    )
+    .await;
+    let seed_id = seed["id"].as_str().unwrap().to_string();
+    let same_edit = build_cart(&[7u8; 64]);
+    for token in [&first, &second] {
+        let remix = upload(&client, token, &same_edit, &remix_meta(&seed_id, true)).await;
+        assert_eq!(remix.status(), Status::Ok);
+        let remix = json_of(remix).await;
+        assert_eq!(remix["parent_cart_id"], seed_id.as_str());
+        assert_eq!(remix["root_cart_id"], seed_id.as_str());
+    }
+    assert_eq!(cart_detail(&client, &seed_id).await["remix_count"], 2);
+
+    // A fresh copy of the seed (a new experiment set) takes the same edit too.
+    let fresh = upload(
+        &client,
+        &owner,
+        &sample_cart(),
+        r#"{"title":"Seed again","remixable":true}"#,
+    )
+    .await;
+    assert_eq!(fresh.status(), Status::Ok);
+    let fresh_id = json_of(fresh).await["id"].as_str().unwrap().to_string();
+    let third = register_get_token_and_logout(&client, "third").await;
+    let remix = upload(&client, &third, &same_edit, &remix_meta(&fresh_id, true)).await;
+    assert_eq!(remix.status(), Status::Ok);
+
+    let foreign = build_cart(&[8u8; 64]);
+    let original = upload(&client, &owner, &foreign, r#"{"title":"Closed"}"#).await;
+    assert_eq!(original.status(), Status::Ok);
+    let copied = upload(&client, &first, &foreign, &remix_meta(&seed_id, true)).await;
+    assert_eq!(copied.status(), Status::Conflict);
+    let copied_plain = upload(&client, &first, &same_edit, r#"{"title":"Mine"}"#).await;
+    assert_eq!(copied_plain.status(), Status::Conflict);
+}
+
+/// Lineage is derived on the server: a client can't claim another root or
+/// version, and a later edit can't move a cart into someone else's family.
+#[rocket::async_test]
+async fn remix_lineage_cannot_be_forged() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    let owner = register_get_token_and_logout(&client, "owner").await;
+    let remixer = register_get_token_and_logout(&client, "remixer").await;
+    let other = register_get_token_and_logout(&client, "other").await;
+
+    let root = json_of(
+        upload(
+            &client,
+            &owner,
+            &sample_cart(),
+            r#"{"title":"Root","remixable":true}"#,
+        )
+        .await,
+    )
+    .await;
+    let root_id = root["id"].as_str().unwrap().to_string();
+    let unrelated = json_of(
+        upload(
+            &client,
+            &other,
+            &build_cart(&[9u8; 64]),
+            r#"{"title":"Unrelated","remixable":true}"#,
+        )
+        .await,
+    )
+    .await;
+    let unrelated_id = unrelated["id"].as_str().unwrap().to_string();
+
+    let forged_meta = serde_json::json!({
+        "title": "A",
+        "parent_cart_id": root_id,
+        "root_cart_id": unrelated_id,
+        "parent_version": 99,
+        "remixable": true,
+    })
+    .to_string();
+    let a = json_of(upload(&client, &remixer, &build_cart(&[1u8; 64]), &forged_meta).await).await;
+    let a_id = a["id"].as_str().unwrap().to_string();
+    assert_eq!(a["parent_cart_id"], root_id.as_str());
+    assert_eq!(a["root_cart_id"], root_id.as_str());
+    assert_eq!(a["owner"], "remixer");
+
+    // B remixes A: parent A, root still the original, credited to its maker.
+    let b = json_of(
+        upload(
+            &client,
+            &other,
+            &build_cart(&[2u8; 64]),
+            &remix_meta(&a_id, true),
+        )
+        .await,
+    )
+    .await;
+    let b_id = b["id"].as_str().unwrap().to_string();
+    assert_eq!(b["parent_cart_id"], a_id.as_str());
+    assert_eq!(b["root_cart_id"], root_id.as_str());
+    assert_eq!(b["owner"], "other");
+    let b_detail = cart_detail(&client, &b_id).await;
+    assert_eq!(b_detail["parent"]["owner"], "remixer");
+
+    // A cart can't be re-parented, and nobody else can edit it.
+    let repoint = client
+        .patch(format!("/api/v2/carts/{b_id}"))
+        .header(Header::new("X-Api-Key", other.clone()))
+        .header(ContentType::JSON)
+        .body(serde_json::json!({ "parent_cart_id": unrelated_id }).to_string())
+        .dispatch()
+        .await;
+    assert_eq!(repoint.status(), Status::Ok);
+    assert_eq!(
+        cart_detail(&client, &b_id).await["parent_cart_id"],
+        a_id.as_str()
+    );
+    let hijack = client
+        .patch(format!("/api/v2/carts/{b_id}"))
+        .header(Header::new("X-Api-Key", remixer.clone()))
+        .header(ContentType::JSON)
+        .body(serde_json::json!({ "remixable": false }).to_string())
+        .dispatch()
+        .await;
+    assert_eq!(hijack.status(), Status::Forbidden);
+
+    // Remixing requires an account.
+    let anonymous = client
+        .post("/api/v2/carts")
+        .header(multipart_content_type())
+        .body(multipart_body(
+            &build_cart(&[3u8; 64]),
+            &remix_meta(&root_id, true),
+        ))
+        .dispatch()
+        .await;
+    assert_eq!(anonymous.status(), Status::Unauthorized);
+}
+
 #[rocket::async_test]
 async fn funnel_events_dedup_per_viewer_and_feed_admin_metrics() {
     let dir = tempfile::tempdir().unwrap();
@@ -3204,6 +3421,73 @@ async fn funnel_events_dedup_per_viewer_and_feed_admin_metrics() {
         .dispatch()
         .await;
     assert_eq!(bad.status(), Status::BadRequest);
+}
+
+/// The limits an experiment readout has to be read with, pinned so a change
+/// to them is a deliberate one. See `docs/product/first-user-experiment.md`.
+#[rocket::async_test]
+async fn funnel_readout_semantics_for_an_experiment_window() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    let admin = register_get_token_and_logout(&client, "admin").await;
+    let person = register_get_token_and_logout(&client, "person").await;
+    let starter = |title: &'static str| {
+        let client = &client;
+        let admin = admin.clone();
+        async move {
+            let meta = serde_json::json!({ "title": title, "remixable": true }).to_string();
+            json_of(upload(client, &admin, &sample_cart(), &meta).await).await["id"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        }
+    };
+    let used = starter("Used starter").await;
+    let fresh = starter("Fresh starter").await;
+    let home = || Header::new("X-Real-IP", "198.51.100.7");
+
+    // Internal testing before the window, on the same network as a participant.
+    record_funnel_with(&client, &used, "remix_opened", home()).await;
+    let since = chrono::Utc::now().to_rfc3339();
+    let window = format!("?since={}", since.replace('+', "%2B"));
+
+    // Dedup is forever per (cart, step, viewer): the participant's later step
+    // on the used starter is swallowed, while the fresh starter counts it.
+    for id in [&used, &fresh] {
+        assert_eq!(
+            record_funnel_with(&client, id, "remix_opened", home()).await,
+            Status::NoContent
+        );
+    }
+    // A second person behind the same IP is the same viewer.
+    record_funnel_with(&client, &fresh, "remix_opened", home()).await;
+    // After signing up, the same human is a new viewer key.
+    record_funnel_with(
+        &client,
+        &fresh,
+        "remix_opened",
+        Header::new("X-Api-Key", person.clone()),
+    )
+    .await;
+    // Remix opened without a qualified play (clicked Remix before 20 s).
+    let metrics = remix_funnel(&client, &admin, &window).await;
+    let row = |id: &str| {
+        metrics["by_cart"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["cart_id"] == id)
+            .cloned()
+    };
+    assert!(row(&used).is_none());
+    let fresh_row = row(&fresh).unwrap();
+    assert_eq!(fresh_row["remix_opened"], 2);
+    assert_eq!(fresh_row["qualified_plays"], 0);
+    // Stage ratios aren't a cohort: nothing clamps them to earlier steps.
+    assert!(fresh_row["conversion"]["qualified_play_to_remix_opened"].is_null());
+    record_funnel_with(&client, &fresh, "qualified_play", home()).await;
+    let metrics = remix_funnel(&client, &admin, &window).await;
+    assert_eq!(metrics["conversion"]["qualified_play_to_remix_opened"], 2.0);
 }
 
 #[rocket::async_test]

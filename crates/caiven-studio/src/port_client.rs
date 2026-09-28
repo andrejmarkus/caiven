@@ -201,6 +201,97 @@ mod tests {
         assert!(seen >= 4, "expected the remix starters, found {seen}");
     }
 
+    // Most people's first remix is one `-- try N` chip, so each one alone must
+    // run and visibly change the game under the same input.
+    #[test]
+    fn each_remix_starter_try_value_changes_the_game() {
+        use caiven_vm::input::Button;
+        use std::hash::{DefaultHasher, Hash, Hasher};
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../projects/remix");
+        let font = Font::builtin().unwrap();
+        let play = |sections: &[caiven_cart::CartSection], lua: &str, label: &str| {
+            let mut vm = Vm::new(VmConfig::default());
+            vm.load_cart_sections(sections).unwrap();
+            let mut input = Input::new();
+            vm.load_lua_source(lua, &input, &font)
+                .unwrap_or_else(|e| panic!("{label}: {e}"));
+            let mut checkpoints = Vec::new();
+            for frame in 0..600u32 {
+                input.set_button(Button::A, frame % 25 == 0);
+                input.set_button(Button::Left, frame % 120 < 60);
+                input.set_button(Button::Right, frame % 120 >= 60);
+                vm.run_frame(&input, &font);
+                input.end_frame();
+                assert!(
+                    vm.get_fault().is_none(),
+                    "{label} faulted at frame {frame}: {:?}",
+                    vm.get_fault()
+                );
+                if frame % 30 == 29 {
+                    let mut hasher = DefaultHasher::new();
+                    vm.world_pixels().hash(&mut hasher);
+                    vm.ui_pixels().hash(&mut hasher);
+                    checkpoints.push(hasher.finish());
+                }
+            }
+            checkpoints
+        };
+
+        let mut tried = 0;
+        let mut unchanged = Vec::new();
+        for entry in std::fs::read_dir(&root).unwrap() {
+            let dir = entry.unwrap().path();
+            let cart = caiven_cart::load_project(&dir).unwrap();
+            let shipped = Vm::new(VmConfig::default())
+                .load_cart_sections(&cart.sections)
+                .unwrap();
+            // Starters seed from the clock; pin it so runs compare.
+            let seeded = "math.randomseed(h * 3600 + m * 60 + s)";
+            assert!(
+                shipped.contains(seeded),
+                "{} seeding changed",
+                dir.display()
+            );
+            let shipped = shipped.replace(seeded, "math.randomseed(1)");
+            let starter = dir.file_name().unwrap().to_string_lossy().to_string();
+            let label = starter.clone();
+            let baseline = play(&cart.sections, &shipped, &label);
+            assert_eq!(baseline, play(&cart.sections, &shipped, &label));
+
+            let lines: Vec<&str> = shipped.lines().collect();
+            for (i, line) in lines.iter().enumerate() {
+                let Some((code, value)) = line.split_once(" -- try ") else {
+                    continue;
+                };
+                let Some((name, _)) = code.split_once(" = ") else {
+                    continue;
+                };
+                let mut edited = lines.clone();
+                let replaced = format!("{name} = {}", value.trim());
+                edited[i] = &replaced;
+                let label = format!("{starter} {}", replaced.trim_start_matches("local "));
+                let changed = play(&cart.sections, &edited.join("\n"), &label);
+                if changed == baseline {
+                    unchanged.push(label);
+                }
+                tried += 1;
+            }
+        }
+        // These only act on a game event the scripted input never reaches:
+        // passing a pipe, and crashing into a rock.
+        let event_gated = ["hop SPEED_UP = 0.3", "meteor SHAKE = 25"];
+        unchanged.retain(|label| !event_gated.contains(&label.as_str()));
+        assert!(
+            unchanged.is_empty(),
+            "look the same for 10 s: {unchanged:#?}"
+        );
+        assert!(
+            tried >= 24,
+            "expected six try values per starter, ran {tried}"
+        );
+    }
+
     #[test]
     fn screenshot_reports_runtime_failure() {
         let error = capture_screenshot(

@@ -64,6 +64,19 @@ test('errors map to cart lines and plain-language hints', () => {
   });
   assert.equal(parseLuaError('syntax error: [string "cart"]:3: \'end\' expected near <eof>').line, 3);
   assert.equal(parseLuaError('cart requires mod \'x\'').line, null);
+  // Verbatim from the shipped WASM runtime.
+  assert.deepEqual(parseLuaError('cart:3: cart:3: attempt to perform arithmetic on a nil value\nstack traceback:\n\t[C]: in metamethod \'add\'\n\tcart:3: in function \'_update\''), {
+    line: 3, detail: 'attempt to perform arithmetic on a nil value',
+  });
+  assert.deepEqual(parseLuaError('runtime error: your game did not finish drawing this frame — is there a loop that never ends?\nstack traceback:\n\tcart:1: in main chunk\n'), {
+    line: 1, detail: 'your game did not finish drawing this frame — is there a loop that never ends?',
+  });
+  assert.deepEqual(parseLuaError('runtime error: cart:2: attempt to index a nil value (global \'io\')\nstack traceback:\n\t[C]: in metamethod \'index\'\n\tcart:2: in function \'_init\''), {
+    line: 2, detail: 'attempt to index a nil value (global \'io\')',
+  });
+  assert.deepEqual(parseLuaError('syntax error: cart:4: \')\' expected (to close \'(\' at line 3) near \'end\''), {
+    line: 4, detail: '\')\' expected (to close \'(\' at line 3) near \'end\'',
+  });
   assert.match(errorHint('attempt to call a nil value (global \'draw_sprit\')'), /draw_sprit/);
   assert.match(errorHint('\'end\' expected near <eof>'), /end/);
   assert.equal(errorHint('something novel'), null);

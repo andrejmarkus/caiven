@@ -40,6 +40,8 @@
   let player: CartPlayer | null = null;
   let bootGeneration = 0;
   let reportedRan = false;
+  // A changed build counts as ran once it survives a second without a fault.
+  let ranPending: string | null = null;
   // Back from the account wall: this person's steps were already counted
   // under their anonymous key, so the logged-in key must not count them again.
   let resumed = false;
@@ -121,7 +123,7 @@
       player = loaded;
       ranSource = text;
       if (touchContainer) player.mountTouchControls(touchContainer);
-      player.start(onFault);
+      player.start(onFault, () => confirmRan());
       resumed = route.search.get('publish') === '1';
       track('remix_opened');
       if (restored) run(false);
@@ -133,7 +135,18 @@
     }
   }
 
+  function confirmRan(force = false) {
+    if (reportedRan || ranPending === null || ranPending !== source || ranSource !== source || runError) return;
+    if (!force && (player?.framesSinceLoad ?? 0) < 60) return;
+    reportedRan = true;
+    ranPending = null;
+    track('remix_ran');
+  }
+
   function onFault(message: string) {
+    // A load error is about the current edit; the older build it fell back
+    // to may fault too, and that must not replace the message.
+    if (runError && !runError.runtime) return;
     const parsed = parseLuaError(message);
     runError = { ...parsed, hint: errorHint(parsed.detail), runtime: true };
   }
@@ -157,10 +170,7 @@
     }
     runError = null;
     ranSource = source;
-    if (changed && !reportedRan) {
-      reportedRan = true;
-      track('remix_ran');
-    }
+    if (changed && !reportedRan) ranPending = source;
     if (focusGame) canvas?.focus();
   }
 
@@ -201,6 +211,7 @@
 
   async function openPublish() {
     if (!canPublish) return;
+    confirmRan(true);
     track('publish_started');
     saveDraft();
     markPendingPublish(id);
@@ -230,7 +241,7 @@
 
   async function publish(e: Event) {
     e.preventDefault();
-    if (!cav || !cart || !currentUser.value || !canPublish) return;
+    if (!cav || !cart || !currentUser.value || !canPublish || publishing) return;
     publishing = true; publishError = '';
     try {
       const bytes = withLuaSource(cav, source, { title, author: currentUser.value.username });
@@ -245,7 +256,16 @@
       published = created;
       publishOpen = false;
     } catch (err) {
-      if (err instanceof ApiError && err.status === 403 && needsVerify) {
+      if (err instanceof ApiError && err.status === 401) {
+        // Session ended: log in again and come straight back to this draft.
+        saveDraft();
+        setUser(null);
+        navigate(`/login?next=${encodeURIComponent(`/remix/${id}?publish=1`)}`);
+        return;
+      }
+      if (!(err instanceof ApiError)) {
+        publishError = "Couldn't reach Port. Your remix is saved here. Try Publish again in a moment.";
+      } else if (err.status === 403 && needsVerify) {
         publishError = "Your email isn't confirmed yet. Click the link in the email, then press Publish again.";
       } else {
         publishError = err instanceof Error ? err.message : 'Publish failed';

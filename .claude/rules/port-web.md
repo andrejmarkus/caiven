@@ -23,3 +23,7 @@ paths:
 - Canvas pixel assertions that poll must read through a copy canvas made
   with `willReadFrequently`, or Chrome logs a readback warning the guard
   flags (see `e2e/mock/remix.spec.ts`).
+- Pixel polls like `expect.poll(pixel).not.toEqual(before)` pass on any
+  transient frame, and UI text from the previous step may still be visible.
+  Re-baseline per step or poll toward a known value, and treat an alpha-0
+  read as "no picture", never as the changed game (live CI flake, 2026-09).

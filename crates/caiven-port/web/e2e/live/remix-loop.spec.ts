@@ -6,6 +6,9 @@ import { parseCav, withLuaSource } from '../../src/lib/cav.js';
 // which registers the first — admin — account.
 const creator = { username: 'e2e-seed-maker', email: 'seed@e2e.test', password: 'T6!Caiven-E2E-Seed#2026-q2' };
 const remixer = { username: 'e2e-remixer', email: 'remixer@e2e.test', password: 'U5!Caiven-E2E-Remix#2026-w7' };
+const third = { username: 'e2e-remixer-two', email: 'remixer2@e2e.test', password: 'V4!Caiven-E2E-Remix#2026-z3' };
+// Registered by full-stack.spec.ts; only it may read the funnel.
+const admin = { identifier: 'e2e-admin', password: 'Q7!Caiven-E2E-Admin#2026-x9' };
 const SEED = 'local COLOR = 8\nfunction _update()\n  fill_screen(COLOR)\nend\n';
 
 async function ok(response: APIResponse): Promise<APIResponse> {
@@ -28,6 +31,7 @@ async function centerPixel(page: Page): Promise<number[]> {
 }
 
 test('anonymous player remixes a seed cart and publishes a linked child', async ({ page, browser }) => {
+  const since = new Date().toISOString();
   await ok(await page.request.post('/api/v2/auth/register', { data: creator }));
   const smoke = new Uint8Array(await readFile('../../../carts/dev/smoke.cav'));
   const seedCav = Buffer.from(withLuaSource(parseCav(smoke), SEED, { title: 'Color Seed' }));
@@ -55,6 +59,8 @@ test('anonymous player remixes a seed cart and publishes a linked child', async 
   await editor.press('Control+Enter');
   await expect.poll(() => centerPixel(page)).not.toEqual(original);
   const remixed = await centerPixel(page);
+  // A rerun keeps the last picture until the new build draws, never a blank frame.
+  expect(remixed[3]).toBe(255);
 
   // 10-12: the edit survives the auth wall, which appears only at publish.
   await page.getByRole('button', { name: 'Publish my version' }).click();
@@ -92,5 +98,41 @@ test('anonymous player remixes a seed cart and publishes a linked child', async 
   await expect.poll(() => centerPixel(other), { timeout: 30_000 }).toEqual(remixed);
   await other.goto(`/cart/${childId}`);
   await expect(other.getByText('Remixed from')).toBeVisible();
+
+  // 19-23: that visitor remixes the remix; the grandchild keeps the root.
+  await other.goto(`/play/${childId}`);
+  await other.getByRole('link', { name: 'Remix this' }).click();
+  const otherEditor = other.getByLabel('Lua source');
+  await expect(otherEditor).toHaveValue(SEED.replace('= 8', '= 12'));
+  await expect.poll(() => centerPixel(other), { timeout: 30_000 }).toEqual(remixed);
+  await otherEditor.fill(SEED.replace('= 8', '= 9'));
+  await otherEditor.press('Control+Enter');
+  await expect.poll(() => centerPixel(other)).not.toEqual(remixed);
+  await other.getByRole('button', { name: 'Publish my version' }).click();
+  await expect(other).toHaveURL(/\/register\?next=/);
+  await other.getByLabel('Username').fill(third.username);
+  await other.getByLabel('Email').fill(third.email);
+  await other.getByLabel('Password').fill(third.password);
+  await other.getByRole('button', { name: 'Create account' }).click();
+  const otherForm = other.getByRole('form', { name: 'Publish your remix' });
+  await expect(otherForm).toBeVisible({ timeout: 30_000 });
+  await otherForm.getByRole('button', { name: `Publish as @${third.username}` }).click();
+  await expect(other.getByText("Published. It's yours now.")).toBeVisible();
+  const grandchildId = (await other.locator('code', { hasText: '/play/' }).textContent())!.split('/play/')[1];
+  const grandchild = await (await ok(await other.request.get(`/api/v2/carts/${grandchildId}`))).json();
+  expect(grandchild).toMatchObject({ parent_cart_id: childId, root_cart_id: seed.id, owner: third.username });
+  expect(grandchild.parent).toMatchObject({ id: childId, owner: remixer.username });
   await visitor.close();
+
+  // 24-25: the readout matches what happened. Every anonymous visitor here
+  // is 127.0.0.1, so both remixers share one anonymous viewer key.
+  const staff = await browser.newContext();
+  await ok(await staff.request.post('/api/v2/auth/login', { data: admin }));
+  const funnel = await (await ok(await staff.request.get(`/api/v2/admin/metrics/remix-funnel?since=${encodeURIComponent(since)}`))).json();
+  await staff.close();
+  const row = (id: string) => funnel.by_cart.find((r: { cart_id: string }) => r.cart_id === id);
+  const step = { plays: 1, qualified_plays: 0, remix_opened: 1, remix_ran: 1, publish_started: 1, remixes_published: 1, remixes_with_external_play: 0 };
+  expect(row(seed.id)).toMatchObject({ ...step, remixes_remixed: 1 });
+  expect(row(childId)).toMatchObject({ ...step, parent_cart_id: seed.id, remixes_remixed: 0 });
+  expect(funnel).toMatchObject({ carts_published: 3, remixes_published: 2, remix_opened: 2, remix_ran: 2, publish_started: 2 });
 });

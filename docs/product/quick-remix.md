@@ -105,7 +105,10 @@ Deleting a parent leaves `parent_cart_id` set, and the detail page then says
 "Remixed from a cart that was removed". There's no FK cascade, on purpose.
 
 A remix byte-identical to its parent's latest version is rejected with a
-plain message. The existing cross-owner content-hash guard still applies.
+plain message. The cross-owner content-hash guard still blocks a remix whose
+bytes match someone else's original, but not someone else's remix: two
+people who press the same **try N** make the same bytes, and each remix
+carries its own attribution.
 
 ### Auth transition
 
@@ -121,7 +124,10 @@ path (`safe_oauth_next`).
 
 Publishing still needs a confirmed email (`VerifiedUser`). A new account
 sees that in the publish form before pressing anything: the address the link
-went to, **Send it again**, and a note that the remix is saved. Publish also
+went to, **Send it again**, and a note that the remix is saved. Sending again
+doesn't void the earlier link, and a link clicked after the email is already
+confirmed carries on instead of failing. A session that expires at Publish
+goes to Log in and back to the draft. Publish also
 records the remix as pending, so the confirmation link, opened in the same
 browser, goes straight back to the publish form. Coming back to the original
 tab refreshes the account, so Publish works there too. A link opened on
@@ -137,7 +143,7 @@ per **(cart, step, viewer)**, deduped by a unique index:
 | --- | --- | --- |
 | `qualified_play` | Play page after 20 s of running game, counted from the first button press, without a fault | played cart |
 | `remix_opened` | Remix page loaded | parent |
-| `remix_ran` | First successful run of a changed source | parent |
+| `remix_ran` | A changed source that loaded and then ran 60 frames without a fault (or was still running cleanly when Publish was pressed) | parent |
 | `publish_started` | Publish pressed (before any auth wall) | parent |
 
 Derived, never client-claimed: play started (`play_events`), publish

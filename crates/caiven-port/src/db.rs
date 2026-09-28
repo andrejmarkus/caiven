@@ -69,11 +69,14 @@ fn normalize_tags(tags: &[String]) -> String {
 
 /// Looks up whether `content_hash` already belongs to a cart owned by
 /// someone other than `exclude_owner_id`. Returns the existing cart's
-/// title and author for use in a rejection message.
+/// title and author for use in a rejection message. For a remix upload only
+/// originals count: two people applying the same suggested edit make the
+/// same bytes, and each remix carries its own attribution.
 pub async fn find_other_owner_by_content_hash(
     db: &DatabaseConnection,
     content_hash: &str,
     exclude_owner_id: &str,
+    is_remix: bool,
 ) -> Result<Option<(String, String)>> {
     let cart_ids: Vec<String> = CartVersionEntity::find()
         .filter(cart_versions::Column::ContentHash.eq(content_hash))
@@ -85,12 +88,13 @@ pub async fn find_other_owner_by_content_hash(
     if cart_ids.is_empty() {
         return Ok(None);
     }
-    let hit = CartEntity::find()
+    let mut query = CartEntity::find()
         .filter(carts::Column::Id.is_in(cart_ids))
-        .filter(carts::Column::OwnerId.ne(Some(exclude_owner_id.to_string())))
-        .one(db)
-        .await?
-        .map(|cart| (cart.title, cart.author));
+        .filter(carts::Column::OwnerId.ne(Some(exclude_owner_id.to_string())));
+    if is_remix {
+        query = query.filter(carts::Column::ParentCartId.is_null());
+    }
+    let hit = query.one(db).await?.map(|cart| (cart.title, cart.author));
     Ok(hit)
 }
 

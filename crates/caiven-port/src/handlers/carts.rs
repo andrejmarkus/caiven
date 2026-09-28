@@ -91,7 +91,8 @@ pub(crate) async fn create_cart_impl(
     };
 
     if let Some((title, author)) =
-        db::find_other_owner_by_content_hash(&state.db, &content_hash, &user.id).await?
+        db::find_other_owner_by_content_hash(&state.db, &content_hash, &user.id, lineage.is_some())
+            .await?
     {
         return Err(ApiError::conflict(format!(
             "This cart's content matches an existing published cart \"{title}\" by {author}"

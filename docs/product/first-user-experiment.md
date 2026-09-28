@@ -1,22 +1,28 @@
 # First user experiment — Quick Remix
 
-Recorded 2026-09-25. The loop in [quick-remix.md](quick-remix.md) is
-built. This test asks one question before more of it gets built:
+Recorded 2026-09-25, revised 2026-09-28 after the readiness audit. The loop
+in [quick-remix.md](quick-remix.md) is built. This test asks one question
+before more of it gets built:
 
 > When someone plays a tiny Caiven game, do they actually want to change it?
 
-Behaviour is the evidence. Compliments aren't.
+Behaviour is the evidence. Compliments aren't. The activation event: an
+outside person, unexplained, plays a cart, notices Remix, changes something,
+runs the changed version, and understands their edit caused the result.
+
+The run itself (frozen build, starter IDs, smoke test, email checks) is
+recorded in [experiment-001.md](experiment-001.md).
 
 ## Setup
 
 | | |
 | --- | --- |
 | Audience | Two groups, roughly half each: (1) people with some coding curiosity or programming experience; (2) curious people who don't make games. No mass audience yet. |
-| Sample | 10–30 external people. Nobody who has seen Caiven before. |
-| Entry | A direct `/play/<starter-id>` link, not the homepage. The test is the core loop, not navigation. Rotate the four starters (Juggle, Meteor, Hop, Chain) through participants in order, so each gets a few. |
-| Device | Their own device, network and browser, logged out. A shared office network makes anonymous visitors one IP, which merges their funnel rows. |
+| Sample | 3–5 observed pilot sessions, then 10–30 external people. Nobody who has seen Caiven before. |
+| Entry | A direct `/play/<starter-id>` link from the **experiment set**, not the homepage. Rotate Juggle, Meteor, Hop, Chain in order. |
+| Device | Their own device, network and browser, logged out. Not the observer's network: anonymous visitors on one IP are one viewer. |
 | Observer | Watches (screen share or in person) and takes notes. The observer's own checking happens logged in as the admin account, so it stays out of the numbers. |
-| Window | Note the time of the first session. Every readout uses `since=<that time>`. |
+| Build | One frozen SHA for the whole phase. No redesign between subjects. |
 
 ### No coaching
 
@@ -25,6 +31,21 @@ Remix, the code, or publishing. Help only when the person is completely
 stuck and the session would otherwise end. When you do, write down the step
 and the words you used. A step that needs help counts as failed for that
 person.
+
+## Phases
+
+**Before.** All gates in [experiment-001.md](experiment-001.md#gates): CI green
+on the frozen SHA, deployed build = that SHA, smoke test passed, readout
+matches the smoke session, email checked in real inboxes, fresh experiment
+starter set published, freeze record filled in.
+
+**Pilot (3–5 observed).** Same link, same one line. Fix only defects that
+break the experiment (lost edits, a publish that can't finish, a wedged
+page, wrong numbers). Any fix means a new SHA, a new experiment starter set
+and a new `since`; pilot numbers are not pooled with the main phase.
+
+**Main (10–30).** Same build and starter set from the first to the last
+person. Collect notes, read the numbers at the end, then decide.
 
 ## Per-session sheet
 
@@ -38,56 +59,74 @@ Mark yes / no / helped for each, and add a line of what they said or did.
 6. Edited code by hand?
 7. Ran a change successfully?
 8. Understood that their change caused what changed in the game?
-9. Tried a second change?
+9. Made a second change without being prompted? (Observed only: nothing
+   records it.)
 10. Attempted Publish?
 11. Blocked by sign-up or email confirmation? Where?
-12. Wanted to share the result (sent the link, or asked how)?
-13. Would open someone else's remix? (Show one and watch.)
-14. Would come back for another challenge? (Ask once, at the end.)
+12. Published?
+13. Wanted to share the result (sent the link, or asked how)?
+14. Would open someone else's remix? (Show one and watch.)
+15. Would come back for another challenge? (Ask once, at the end.)
 
 Don't ask "Do you like Caiven?" or anything else that invites a polite
 answer. Ask "what did you expect to happen?" at a moment of confusion.
 
 ## Reading the numbers
 
-```text
-GET /api/v2/admin/metrics/remix-funnel?since=2026-10-01T09:00:00Z
-X-Api-Key: <admin full-scope token>
+```sh
+CAIVEN_PORT_URL=https://port.example CAIVEN_PORT_API_KEY=<admin token> \
+  scripts/experiment/readout.sh <since> <starter-id> ...
 ```
 
-`by_cart` has one row per cart. Starter rows answer questions 1–6 of the
-experiment (plays, qualified plays, remix opened, remix ran, publish started,
-remixes published). A published remix appears as its own row. Its
-`qualified_plays` tells you whether anyone else played it, and the parent's
-`remixes_with_external_play` / `remixes_remixed` count the second generation.
-`conversion` gives each step-to-step ratio, or `null` where the earlier step
-is zero.
+It prints `GET /api/v2/admin/metrics/remix-funnel?since=…`, starters first,
+each remix under them. Staff (admin) activity is excluded.
 
-| Field | Means |
-| --- | --- |
-| `plays` | Distinct viewers whose game booted |
-| `qualified_plays` | Viewers who played 20 s after their first button press, without a crash |
-| `remix_opened` | Viewers who loaded the remix page |
-| `remix_ran` | Viewers whose changed code ran cleanly at least once |
-| `publish_started` | Viewers who pressed Publish (before any sign-up) |
-| `remixes_published` | Remixes of this cart published in the window |
-| `remixes_with_external_play` | …of which someone other than the remixer played one |
-| `remixes_remixed` | …of which someone remixed again |
+| Column | Event | Recorded | Unit |
+| --- | --- | --- | --- |
+| play started | `play_events` | server, when the Play page's game boots | unique viewer keys |
+| qualified play | `qualified_play` | Play page, see below | unique viewer keys |
+| remix opened | `remix_opened` | Remix page loaded with the code | unique viewer keys |
+| changed run ok | `remix_ran` | a changed source loaded and ran 60 frames without a fault (or was running cleanly when Publish was pressed) | unique viewer keys |
+| publish pressed | `publish_started` | Publish pressed, before any sign-up | unique viewer keys |
+| remixes published | `carts.parent_cart_id` | derived on the server | carts |
+| …played by another | a child's `qualified_play` from a key that isn't its owner's account | derived | carts |
+| …remixed again | a child that has its own child | derived | carts |
 
-With 10–30 people, the numbers point to a step for the session notes to
-explain. They are not rates to benchmark. Staff (admin) activity is excluded;
-add `include_staff=true` to see everything.
+Not recorded at all: the first edit before a run, a second edit, publish
+failures, shares. Those come from the notes.
+
+**Viewer key.** SHA-256 of `user:<id>` when logged in, `ip:<address>` when
+not. One row per (cart, event, viewer key), kept forever; the row's time is
+the first occurrence, and `since` filters on it. A refresh or a repeat
+visit adds nothing.
+
+**Qualified play.** 20 s (1,200 frames) of the game running on `/play`,
+counted from the first button press (key, touch or gamepad), only while the
+tab is visible, never after a crash. Leaving early, crashing first, or
+clicking Remix before 20 s records nothing; time on the Remix page doesn't
+count. So `remix_opened` can exceed `qualified_plays`, and an eager person
+may never have a qualified play.
 
 ### Known biases
 
-- Anonymous viewers on one IP (shared wifi, one office) count as one. A
-  visitor who signs up counts as two keys for the steps after sign-up; the
-  remix page doesn't re-report the steps it already counted.
-- The observer counts as a participant if logged out. Stay logged in as admin.
+- **Not a cohort.** Every column counts keys independently. The readout's
+  ratios are stage-count ratios, not "x % of people went on to…", and can
+  exceed 1.
+- **Sign-up splits a person.** Before sign-up they are `ip:…`, after it
+  `user:…`. The Remix page returning from the account wall doesn't report
+  its steps again, but anything they do afterwards (play another starter,
+  remix again) counts as a new viewer.
+- **Shared IP merges people.** Same wifi, same office, some mobile carrier
+  NAT: one key. Participants on the observer's or the smoke tester's network
+  are merged with them, and a step they already reached is never recorded
+  again (dedup is forever).
+- **Old events hide new ones.** A viewer who reached a step on a cart before
+  `since` is invisible for that step in the window. The experiment set is
+  published fresh after the smoke test so no participant meets that.
+- **Remix counts are visible.** "N remixes so far" on the Play page includes
+  earlier participants. Later participants see a busier cart; note the order.
 - A creator opening their own remix while logged out, or on their phone,
   counts as an external play. Cross-check with the notes.
-- Dedup is forever per cart and viewer: a participant who comes back
-  tomorrow is not a second person, and a repeat visit doesn't show up.
 - Link-preview bots don't run the game, so they never count as plays.
 - The funnel can't see why someone stopped. That's what the notes are for.
 
@@ -118,21 +157,7 @@ loop that spreads between people need different next steps.
 
 Each has six constants at the top with `-- try N` hints, surfaced as
 **try N** buttons. A wild value is undone with **Start over**, and each game
-restarts on A.
-
-## Before the first session
-
-1. Deploy with the checklist in
-   [../development/port-operations.md](../development/port-operations.md).
-   `CAIVEN_IP_HEADER`, `CAIVEN_BASE_URL`, `CAIVEN_SECURE_COOKIES=true` and
-   complete SMTP are required for this test.
-2. Register the admin account first. The first account on a fresh Port
-   becomes admin.
-3. Publish the starters: `scripts/remix-seeds/publish.sh` with an admin
-   full-scope token. Check that Home shows **Start here**.
-4. Dry run on a phone and a laptop, logged out, on a network other than the
-   server's: play → remix → **try N** → Publish → register → confirm the email
-   → publish → open the share link in a private window. Check that the
-   readout shows each step once. The dry run's anonymous steps count, so
-   the experiment's `since` goes after it.
-5. Note the start time, then send the first link.
+restarts on A. A test plays each **try N** alone for 10 s against the shipped
+game: 22 of 24 change the picture. Hop `SPEED_UP` only shows after a pipe is
+passed and Meteor `SHAKE` only on a crash, so a person who tries those first
+may see nothing yet. Watch for that in the notes.

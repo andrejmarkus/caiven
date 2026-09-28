@@ -24,6 +24,10 @@ export const test = base.extend<Fixtures>({
     });
     await use();
     const unexpected = errors.filter((entry) => {
+      if (entry.startsWith('console.error') && entry.includes('net::ERR_INTERNET_DISCONNECTED') && mock.allowedOfflineErrors > 0) {
+        mock.allowedOfflineErrors--;
+        return false;
+      }
       const status = entry.match(/status of (\d+)/)?.[1];
       if (!status) return true;
       const code = Number(status);

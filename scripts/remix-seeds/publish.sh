@@ -4,7 +4,8 @@
 # Each run creates new carts; re-publish a starter with
 # `caiven-studio publish <dir> --remixable --cart-id <id>` instead.
 # With an admin token (not a Studio publish-only one) it also fills the
-# "start-here" editorial collection that feeds Home's Start here row.
+# "start-here" editorial collection that feeds Home's Start here row, unless
+# SKIP_START_HERE=1 (e.g. a throwaway set for a smoke test).
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
@@ -26,6 +27,7 @@ describe() {
 }
 
 ids=()
+names=()
 for dir in projects/remix/*/; do
   name=$(basename "$dir")
   echo "== $name"
@@ -33,11 +35,16 @@ for dir in projects/remix/*/; do
     --description "$(describe "$name")" --tags "remix-starter")
   echo "$out"
   ids+=("$(sed -n 's#^published: .*/api/v2/carts/##p' <<<"$out")")
+  names+=("$name")
 done
 
 api() {
   curl -fsS -H "X-Api-Key: $CAIVEN_PORT_API_KEY" -H "Content-Type: application/json" "$@"
 }
+
+echo "== starter ids (record these for an experiment)"
+for i in "${!ids[@]}"; do echo "${names[$i]} ${ids[$i]}"; done
+[[ "${SKIP_START_HERE:-0}" == 1 ]] && exit 0
 
 echo "== start-here collection"
 # The slug comes from the title, so only create it once.

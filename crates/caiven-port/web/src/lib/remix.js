@@ -40,9 +40,17 @@ export function setConstant(source, line, value) {
  * @returns {{ line: number | null, detail: string }}
  */
 export function parseLuaError(message) {
-  const m = /(?:\[string "cart"\]|\bcart):(\d+):\s*([^\n]*)/.exec(message);
-  if (!m) return { line: null, detail: message.split('\n')[0].trim() };
-  return { line: Number(m[1]), detail: m[2].trim() };
+  const location = /(?:\[string "cart"\]|\bcart):(\d+):\s*/;
+  const [first, ...rest] = message.split('\n');
+  const head = location.exec(first);
+  if (head) {
+    // Runtime faults repeat the location: `cart:3: cart:3: attempt to ...`.
+    const detail = first.slice(head.index + head[0].length).replace(/^(?:(?:\[string "cart"\]|cart):\d+:\s*)+/, '');
+    return { line: Number(head[1]), detail: detail.trim() };
+  }
+  // `runtime error: <message>` keeps its line in the traceback below it.
+  const where = rest.map((l) => location.exec(l)).find(Boolean);
+  return { line: where ? Number(where[1]) : null, detail: first.replace(/^(?:runtime|syntax) error:\s*/, '').trim() };
 }
 
 /** @type {Array<[RegExp, (m: RegExpExecArray) => string]>} */
