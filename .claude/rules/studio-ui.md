@@ -33,6 +33,15 @@ even a freshly-built debug binary — silently falls back to whatever
 _cached_ copy of an old `devUrl` response if the dev server isn't actually
 running when the window loads. Either looks like a normal, working app.
 
+`caiven-studio/build.rs` now rebuilds `dist` (`npm run build`) whenever it is
+missing or older than the UI sources and the `custom-protocol` feature is on,
+so a plain `cargo build`/`run` can't embed a stale bundle any more (a stale
+128×128 bundle once showed the demo placeholder instead of the game). Inside
+the app, a frame of the wrong size shows an error, never the demo scene.
+To inspect a running Studio, launch it with
+`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333` and
+attach Playwright with `chromium.connectOverCDP`.
+
 Before trusting any DOM-level finding (a bug report, a "this is fixed"
 verification, a screenshot) against a running Studio instance: confirm
 `netstat` shows something actually `LISTENING` on `:1420`, not just that the

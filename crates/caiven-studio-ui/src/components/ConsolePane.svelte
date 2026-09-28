@@ -5,7 +5,7 @@
   import { Input } from '@caiven/ui/input';
   import * as Tabs from '@caiven/ui/tabs';
   import DebugValueRow from './DebugValueRow.svelte';
-  import { SCREEN_HEIGHT, SCREEN_RGBA_LEN, SCREEN_WIDTH } from '../lib/ipc';
+  import { SCREEN_HEIGHT, SCREEN_RGBA_LEN, SCREEN_WIDTH, isTauri } from '../lib/ipc';
   import type { CallFrame, DebugChild, Diagnostic, GlobalValue, PauseReason, RunState } from '../types';
 
   interface Props {
@@ -85,6 +85,19 @@
     if (!ctx) return;
     if (frameData?.length === SCREEN_RGBA_LEN) {
       ctx.putImageData(new ImageData(new Uint8ClampedArray(frameData), SCREEN_WIDTH, SCREEN_HEIGHT), 0, 0);
+      return;
+    }
+    // The demo scene is for the browser preview only; in the app it would pass
+    // for the game, so say what's wrong instead.
+    if (isTauri()) {
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+      if (frameData) {
+        ctx.font = '6px monospace';
+        ctx.fillStyle = '#FF004D';
+        ctx.fillText(`Frame is ${frameData.length} bytes, UI expects ${SCREEN_RGBA_LEN}.`, 4, 60);
+        ctx.fillText('Rebuild the Studio UI (npm run build).', 4, 70);
+      }
       return;
     }
     ctx.fillStyle = '#080818';
