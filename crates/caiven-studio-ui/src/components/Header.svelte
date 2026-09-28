@@ -30,7 +30,7 @@
 
 <header class="studio-header">
   <Button variant="ghost" class="brand-block" title="Caiven Studio home" onclick={onHome}>
-    <span class="brand-mark"><span></span><i></i></span>
+    <img class="brand-mark" src="/favicon.svg" alt="" />
     <span class="brand-type">
       <strong>Caiven</strong>
       <small>Studio</small>

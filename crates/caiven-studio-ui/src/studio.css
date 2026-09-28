@@ -67,28 +67,8 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .brand-mark {
   width: 27px;
   height: 27px;
-  position: relative;
   display: block;
-  overflow: hidden;
-  border-radius: 7px;
-  background: var(--color-ember);
-  box-shadow: var(--shadow-sm);
 }
-
-.brand-mark::before {
-  content: "";
-  position: absolute;
-  inset: 5px 5px 4px;
-  background: var(--color-obsidian);
-  clip-path: polygon(0 0, 76% 0, 100% 24%, 100% 100%, 0 100%);
-}
-.brand-mark span, .brand-mark i {
-  position: absolute;
-  z-index: 1;
-  background: var(--color-ember);
-}
-.brand-mark span { width: 9px; height: 3px; top: 9px; left: 9px; }
-.brand-mark i { width: 3px; height: 5px; top: 16px; left: 9px; box-shadow: 6px 0 var(--color-ember); }
 
 .brand-type { display: flex; flex-direction: column; align-items: flex-start; line-height: 1; }
 .brand-type strong { font-family: var(--font-display); font-size: 14px; font-weight: 600; }

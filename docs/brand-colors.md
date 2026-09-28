@@ -55,10 +55,11 @@ revision) — a console's plastic and steel, not a glowing cave.
 ## Where it lives
 
 - **Logo / favicon** (`crates/caiven-port/web/src/lib/components/Logo.svelte`,
-  `public/favicon.svg`) — body = `obsidian`, glow stripe = `ember`, glyph = white.
-  When the mark becomes an actual crystal shape: obsidian body, ember light
-  escaping from inside it, an optional thin `sheen` facet-highlight where it
-  catches light. Same split as before, just re-mineraled.
+  `public/favicon.svg` in Port and Studio UI, `crates/caiven-studio/icons/`) —
+  faceted ember crystal: `ember` body, `ember-bright` ring and left facet,
+  `#FFD29F` top highlight, `#F7A854` / `#F29B3F` shaded facets and core.
+  Studio app icons are regenerated with `npx tauri icon <logo.png> -o
+  ../caiven-studio/icons` from `crates/caiven-studio-ui`.
 - **Caiven Port** (`crates/caiven-port/web/src/app.css`) — `--primary` = `ember`,
   `--accent`/`--accent-foreground` = `sheen-wash`/`sheen-bright`, `--color-brand`
   (logo) = `obsidian`.
