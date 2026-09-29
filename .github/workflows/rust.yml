@@ -18,6 +18,10 @@ jobs:
   build:
     name: Build & Test
     runs-on: ubuntu-latest
+    env:
+      # GitHub-hosted runners have no ALSA device. Keep native Studio/VM
+      # tests and smoke commands on SDL's headless audio backend.
+      SDL_AUDIODRIVER: dummy
     steps:
       - uses: actions/checkout@v4
       - name: Set up Node
