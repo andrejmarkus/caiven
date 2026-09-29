@@ -34,7 +34,7 @@ for dir in projects/remix/*/; do
   out=$("$BIN" publish "$dir" --remixable --frames 120 \
     --description "$(describe "$name")" --tags "remix-starter")
   echo "$out"
-  ids+=("$(sed -n 's#^published: .*/api/v2/carts/##p' <<<"$out")")
+  ids+=("$(sed -n 's#^published: .*/api/v1/carts/##p' <<<"$out")")
   names+=("$name")
 done
 
@@ -48,12 +48,12 @@ for i in "${!ids[@]}"; do echo "${names[$i]} ${ids[$i]}"; done
 
 echo "== start-here collection"
 # The slug comes from the title, so only create it once.
-if ! api -o /dev/null "$CAIVEN_PORT_URL/api/v2/collections/start-here" 2>/dev/null; then
-  api -o /dev/null -X POST "$CAIVEN_PORT_URL/api/v2/admin/collections" \
+if ! api -o /dev/null "$CAIVEN_PORT_URL/api/v1/collections/start-here" 2>/dev/null; then
+  api -o /dev/null -X POST "$CAIVEN_PORT_URL/api/v1/admin/collections" \
     -d '{"title":"Start here","description":"Tiny games built to be remixed."}' ||
     { echo "skipped: needs an admin token with full scope"; exit 0; }
 fi
 for id in "${ids[@]}"; do
-  api -o /dev/null -X POST "$CAIVEN_PORT_URL/api/v2/collections/start-here/carts" \
+  api -o /dev/null -X POST "$CAIVEN_PORT_URL/api/v1/collections/start-here/carts" \
     -d "{\"cart_id\":\"$id\"}" && echo "added $id"
 done

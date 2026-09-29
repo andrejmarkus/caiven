@@ -78,7 +78,7 @@ async fn render_cart_page(
         meta("twitter:description", &description),
     ];
     if cart.has_screenshot {
-        let image = format!("{origin}/api/v2/carts/{}/screenshot", cart.id);
+        let image = format!("{origin}/api/v1/carts/{}/screenshot", cart.id);
         tags.push(meta("og:image", &image));
         tags.push(meta("twitter:image", &image));
         tags.push(meta("twitter:card", "summary_large_image"));

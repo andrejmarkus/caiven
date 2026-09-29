@@ -402,9 +402,8 @@ mod tests {
         let meta = CartMeta {
             path: dir.clone(),
             header: CartHeader::default_for("seed-test"),
-            program: Vec::new(),
             sections: cart::default_section_layout(),
-            lua_source: Some(template.source.to_string()),
+            lua_source: template.source.to_string(),
         };
         let extra = cart_io::gather_sections(&console.vm, &meta);
         cart_io::save_pristine(&extra, &meta, &[], &[]).expect("save project");

@@ -13,7 +13,7 @@ pub struct Model {
     pub has_screenshot: bool,
     pub created_at: String,
     pub editor_username: String,
-    pub content_hash: Option<String>,
+    pub content_hash: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

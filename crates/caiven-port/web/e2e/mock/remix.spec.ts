@@ -27,7 +27,7 @@ test('play → remix → change → run → publish after login → child is lin
   await page.getByRole('link', { name: 'Remix this' }).click();
   await expect(page).toHaveURL(/\/remix\/demo$/);
   await expect(page.getByLabel('Lua source')).toHaveValue(SEED);
-  await expect.poll(() => mock.calls('POST', '/api/v2/carts/demo/funnel').length).toBeGreaterThan(0);
+  await expect.poll(() => mock.calls('POST', '/api/v1/carts/demo/funnel').length).toBeGreaterThan(0);
 
   await expect.poll(() => pixel(page), { timeout: 30_000 }).not.toEqual([0, 0, 0, 0]);
   const before = await pixel(page);
@@ -56,7 +56,7 @@ test('play → remix → change → run → publish after login → child is lin
   await page.getByRole('button', { name: 'Publish my version' }).click();
   await expect(page).toHaveURL(/\/register\?next=/);
   await expect(page.getByTestId('remix-saved')).toContainText('Your remix is saved');
-  const opened = () => mock.calls('POST', '/api/v2/carts/demo/funnel').filter((c) => c.body?.includes('remix_opened')).length;
+  const opened = () => mock.calls('POST', '/api/v1/carts/demo/funnel').filter((c) => c.body?.includes('remix_opened')).length;
   await expect.poll(opened).toBe(1);
   await mock.loginAs('player');
   await page.goto(decodeURIComponent(new URL(page.url()).searchParams.get('next')!));
@@ -70,10 +70,10 @@ test('play → remix → change → run → publish after login → child is lin
   await expect(page.getByText("Published. It's yours now.")).toBeVisible();
   // Coming back logged in is the same person, not a second remixer.
   expect(opened()).toBe(1);
-  expect(mock.calls('POST', '/api/v2/carts/demo/funnel').filter((c) => c.body?.includes('publish_started'))).toHaveLength(1);
+  expect(mock.calls('POST', '/api/v1/carts/demo/funnel').filter((c) => c.body?.includes('publish_started'))).toHaveLength(1);
   const child = mock.carts.find((c) => c.parent_cart_id === 'demo')!;
   expect(child).toMatchObject({ root_cart_id: 'demo', remixable: true, owner: 'player' });
-  const upload = mock.calls('POST', '/api/v2/carts')[0];
+  const upload = mock.calls('POST', '/api/v1/carts')[0];
   expect(upload.body).toContain('"parent_cart_id":"demo"');
   expect(upload.body).toContain('"title":"Ember Quest, but teal"');
   await expect(page.getByText(`/play/${child.id}`)).toBeVisible();
@@ -199,7 +199,7 @@ test('an unconfirmed email keeps the remix, and the email link returns to Publis
   await page.getByRole('button', { name: 'Publish my version' }).click();
   const form = page.getByRole('form', { name: 'Publish your remix' });
   await expect(form.getByTestId('verify-notice')).toContainText('player@example.test');
-  mock.fault({ method: 'POST', path: '/api/v2/carts', status: 403, body: { error: 'Forbidden' }, once: true });
+  mock.fault({ method: 'POST', path: '/api/v1/carts', status: 403, body: { error: 'Forbidden' }, once: true });
   await form.getByRole('button', { name: /Publish as @player/ }).click();
   await expect(form.getByRole('alert')).toContainText("isn't confirmed yet");
 
@@ -220,10 +220,10 @@ test('an unconfirmed email keeps the remix, and the email link returns to Publis
 });
 
 test('social sign-in from the remix wall carries the way back', async ({ page }) => {
-  await page.route('**/api/v2/auth/oauth/**', (route) => route.fulfill({ status: 200, contentType: 'text/plain', body: 'provider' }));
+  await page.route('**/api/v1/auth/oauth/**', (route) => route.fulfill({ status: 200, contentType: 'text/plain', body: 'provider' }));
   await page.goto(`/register?next=${encodeURIComponent('/remix/demo?publish=1')}`);
   await expect(page.getByTestId('remix-saved')).toBeVisible();
-  const start = page.waitForRequest('**/api/v2/auth/oauth/github/start**');
+  const start = page.waitForRequest('**/api/v1/auth/oauth/github/start**');
   await page.getByRole('button', { name: 'Continue with GitHub' }).click();
   expect(new URL((await start).url()).searchParams.get('next')).toBe('/remix/demo?publish=1');
 });
@@ -242,7 +242,7 @@ test('Space presses the A button', async ({ page, mock }) => {
 
 const RUNTIME_ERROR = 'local COLOR = 8\nfunction _update()\n  fill_screen(COLOR + nil)\nend\n';
 const ranCalls = (mock: { calls: (m: string, p: string) => { body?: string | null }[] }) =>
-  mock.calls('POST', '/api/v2/carts/demo/funnel').filter((c) => c.body?.includes('remix_ran')).length;
+  mock.calls('POST', '/api/v1/carts/demo/funnel').filter((c) => c.body?.includes('remix_ran')).length;
 
 test('a rerun never blanks the game, and broken code recovers without a reload', async ({ page, mock }) => {
   mock.carts[0].remixable = true;
@@ -323,12 +323,12 @@ test('publish keeps the remix through a dropped connection and an expired sessio
   const form = page.getByRole('form', { name: 'Publish your remix' });
   const submit = form.getByRole('button', { name: /Publish as @player/ });
 
-  mock.fault({ method: 'POST', path: '/api/v2/carts', offline: true, once: true });
+  mock.fault({ method: 'POST', path: '/api/v1/carts', offline: true, once: true });
   await submit.click();
   await expect(form.getByRole('alert')).toContainText("Couldn't reach Port. Your remix is saved here.");
   await expect(page.getByLabel('Lua source')).toHaveValue(edit);
 
-  mock.fault({ method: 'POST', path: '/api/v2/carts', status: 401, body: { error: 'Unauthorized' }, once: true });
+  mock.fault({ method: 'POST', path: '/api/v1/carts', status: 401, body: { error: 'Unauthorized' }, once: true });
   await submit.click();
   await expect(page).toHaveURL(/\/login\?next=%2Fremix%2Fdemo%3Fpublish%3D1$/);
   await expect(page.getByTestId('remix-saved')).toBeVisible();
@@ -340,7 +340,7 @@ test('publish keeps the remix through a dropped connection and an expired sessio
   await expect(form).toBeVisible();
   await submit.dblclick();
   await expect(page.getByText("Published. It's yours now.")).toBeVisible();
-  expect(mock.calls('POST', '/api/v2/carts')).toHaveLength(3);
+  expect(mock.calls('POST', '/api/v1/carts')).toHaveLength(3);
   expect(mock.carts.filter((c) => c.parent_cart_id === 'demo')).toHaveLength(1);
 });
 
@@ -356,14 +356,14 @@ test('a second click on the email link, or a dead one, still leads back to Publi
   await expect(page.getByRole('form', { name: 'Publish your remix' })).toBeVisible();
 
   // Already confirmed: a used link carries on.
-  mock.fault({ method: 'POST', path: '/api/v2/auth/verify-email', status: 400, body: { error: 'invalid or expired token' }, once: true });
+  mock.fault({ method: 'POST', path: '/api/v1/auth/verify-email', status: 400, body: { error: 'invalid or expired token' }, once: true });
   await page.goto('/verify-email?token=used-token');
   await expect(page).toHaveURL(/\/remix\/demo\?publish=1$/);
   await expect(page.getByLabel('Lua source')).toHaveValue(edit);
 
   // Not confirmed and the link is dead: the page points back to the saved remix.
   mock.users.get('player')!.email_verified = false;
-  mock.fault({ method: 'POST', path: '/api/v2/auth/verify-email', status: 400, body: { error: 'invalid or expired token' }, once: true });
+  mock.fault({ method: 'POST', path: '/api/v1/auth/verify-email', status: 400, body: { error: 'invalid or expired token' }, once: true });
   await page.goto('/verify-email?token=expired-token');
   await expect(page.getByText('invalid or expired token')).toBeVisible();
   await page.getByRole('link', { name: 'Back to your remix' }).click();

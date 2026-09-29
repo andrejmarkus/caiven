@@ -12,10 +12,9 @@ use std::fmt;
 pub const SAVE_DATA_BLOB_MAX_BYTES: usize = 4096;
 
 const MAGIC: &[u8; 4] = b"CVSD";
-/// Bumped 1→2 when the numeric-slot section was dropped (`dset`/`dget`
-/// removal) — a v1 file's slot bytes would otherwise misparse as blob
-/// length. Nothing is in production, so v1 files are simply rejected.
-const FORMAT_VERSION: u16 = 2;
+/// The only save-data version this build reads and writes; any other is
+/// rejected (the cart starts with an empty blob).
+const FORMAT_VERSION: u16 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SaveDataError {
@@ -175,6 +174,17 @@ mod tests {
         let mut bytes = data.encode();
         bytes[0] = b'X';
         assert!(SaveData::decode(&bytes).is_none());
+    }
+
+    #[test]
+    fn encodes_version_1_layout() {
+        let mut data = SaveData::new();
+        data.set_blob(serde_json::json!({ "a": 1 })).unwrap();
+        let bytes = data.encode();
+        assert_eq!(&bytes[..4], b"CVSD");
+        assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), 1);
+        assert_eq!(u32::from_le_bytes(bytes[6..10].try_into().unwrap()), 7);
+        assert_eq!(&bytes[10..], br#"{"a":1}"#);
     }
 
     #[test]

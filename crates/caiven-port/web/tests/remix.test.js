@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
-import { parseCav, writeCav, luaSource, withLuaSource, crc32, LUA_SOURCE } from '../src/lib/cav.js';
+import { parseCav, writeCav, luaSource, withLuaSource, crc32, FORMAT_VERSION, LUA_SOURCE } from '../src/lib/cav.js';
 import { findConstants, setConstant, parseLuaError, errorHint } from '../src/lib/remix.js';
 
 const smoke = new Uint8Array(await readFile(new URL('../../../../carts/dev/smoke.cav', import.meta.url)));
@@ -11,7 +11,14 @@ test('crc32 matches the standard check value', () => {
 });
 
 test('parse then write reproduces a Studio-built cart byte for byte', () => {
+  assert.equal(new DataView(smoke.buffer).getUint16(6, true), FORMAT_VERSION);
   assert.deepEqual(writeCav(parseCav(smoke)), smoke);
+});
+
+test('other format versions are rejected', () => {
+  const other = smoke.slice();
+  new DataView(other.buffer).setUint16(6, FORMAT_VERSION + 1, true);
+  assert.throws(() => parseCav(other), /format v2 is not supported/);
 });
 
 test('swapping Lua keeps every other section and re-parses', () => {

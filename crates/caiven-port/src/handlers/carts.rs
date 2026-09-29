@@ -74,13 +74,13 @@ pub(crate) async fn read_and_validate_cart_upload(
     Ok((bytes, content_hash))
 }
 
-/// Shared multipart cart+meta validation, used by both the `/api/v2/carts`
-/// and legacy `/api/carts` create routes.
-pub(crate) async fn create_cart_impl(
-    state: &PortState,
-    user: &AuthUser,
+#[post("/api/v1/carts", data = "<upload>")]
+pub async fn upload_cart(
+    user: VerifiedUser,
+    state: &State<PortState>,
     upload: Form<CartUpload<'_>>,
-) -> Result<Cart, ApiError> {
+) -> Result<Json<Cart>, ApiError> {
+    let user = user.0;
     let (bytes, content_hash) = read_and_validate_cart_upload(&upload.cart).await?;
 
     let meta: CartMeta = serde_json::from_str(&upload.meta)?;
@@ -108,11 +108,12 @@ pub(crate) async fn create_cart_impl(
         &meta,
         lineage.as_ref(),
         &bytes,
-        Some(&content_hash),
+        &content_hash,
     )
     .await?;
     db::get(&state.db, &id)
         .await?
+        .map(Json)
         .ok_or_else(|| ApiError::internal("insert failed"))
 }
 
@@ -137,7 +138,7 @@ async fn remix_lineage(
     let parent_version = db::latest_version(&state.db, parent_id)
         .await?
         .ok_or_else(|| ApiError::not_found("the cart you remixed has no versions"))?;
-    if parent_version.content_hash.as_deref() == Some(content_hash) {
+    if parent_version.content_hash == content_hash {
         return Err(ApiError::bad_request(
             "your remix is identical to the original — change something before publishing",
         ));
@@ -153,7 +154,7 @@ pub(crate) fn cart_too_large() -> ApiError {
     ApiError::PayloadTooLarge(format!("cart max {} KiB", MAX_CART_BYTES / 1024))
 }
 
-#[get("/api/v2/carts?<page>&<per_page>&<q>&<tag>&<author>&<sort>")]
+#[get("/api/v1/carts?<page>&<per_page>&<q>&<tag>&<author>&<sort>")]
 #[allow(clippy::too_many_arguments)]
 pub async fn list_carts(
     state: &State<PortState>,
@@ -186,7 +187,7 @@ pub async fn list_carts(
 
 const RECENT_REMIXES: u64 = 6;
 
-#[get("/api/v2/carts/<id>")]
+#[get("/api/v1/carts/<id>")]
 pub async fn get_cart(
     state: &State<PortState>,
     user: Option<AuthUser>,
@@ -225,16 +226,7 @@ pub async fn get_cart(
     }))
 }
 
-#[post("/api/v2/carts", data = "<upload>")]
-pub async fn upload_cart(
-    user: VerifiedUser,
-    state: &State<PortState>,
-    upload: Form<CartUpload<'_>>,
-) -> Result<Json<Cart>, ApiError> {
-    Ok(Json(create_cart_impl(state, &user.0, upload).await?))
-}
-
-#[patch("/api/v2/carts/<id>", data = "<patch>")]
+#[patch("/api/v1/carts/<id>", data = "<patch>")]
 pub async fn update_cart(
     user: AuthUser,
     state: &State<PortState>,
@@ -265,7 +257,7 @@ pub async fn update_cart(
     Ok(Json(db::get(&state.db, id).await?.expect("just updated")))
 }
 
-#[delete("/api/v2/carts/<id>")]
+#[delete("/api/v1/carts/<id>")]
 pub async fn delete_cart(
     user: AuthUser,
     state: &State<PortState>,

@@ -74,7 +74,7 @@
             </p>
           {/if}
           <div class="mt-5 flex flex-wrap items-center gap-4">
-            <a href="/author/{cart.owner ?? cart.author}" use:link class="flex items-center gap-2 text-foreground"><span class="flex size-8 items-center justify-center rounded-full bg-secondary font-display font-semibold">{(cart.owner ?? cart.author)[0]?.toUpperCase()}</span><strong class="text-sm">{cart.owner ?? cart.author}</strong></a>
+            <a href={cart.owner ? `/author/${cart.owner}` : undefined} use:link class="flex items-center gap-2 text-foreground"><span class="flex size-8 items-center justify-center rounded-full bg-secondary font-display font-semibold">{(cart.owner ?? cart.author)[0]?.toUpperCase()}</span><strong class="text-sm">{cart.owner ?? cart.author}</strong></a>
             {#if cart.owner && currentUser.value?.username !== cart.owner}<Button size="sm" variant="secondary" onclick={follow}>{creator?.followed_by_me ? 'Following' : 'Follow'}</Button>{/if}
             <span class="h-6 w-px bg-border"></span><RatingStars value={cart.rating_avg} /><span class="text-sm text-muted-foreground">{cart.rating_avg.toFixed(1)} · {cart.rating_count} ratings</span>
             <span class="h-6 w-px bg-border"></span><span class="font-mono text-sm text-muted-foreground">{cart.plays.toLocaleString()} plays</span><span class="font-mono text-sm text-muted-foreground">v{cart.latest_version}</span>{#if cart.remix_count}<span class="font-mono text-sm text-muted-foreground">{cart.remix_count} {cart.remix_count === 1 ? 'remix' : 'remixes'}</span>{/if}

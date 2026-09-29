@@ -1,10 +1,8 @@
 [cart]
+version = 1
 title = "platformer"
 author = ""
 entry = "main.lua"
-entry_point = 0
-flags = 0
-version = 1
 
 [mods]
 require = []

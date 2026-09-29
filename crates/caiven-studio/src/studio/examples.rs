@@ -146,7 +146,7 @@ mod tests {
             console.reset_vm();
             let meta = cart::load_cart(&mut console.vm, &cav_path, &console.input, &console.font)
                 .unwrap_or_else(|e| panic!("{} failed to load into VM: {e}", example.id));
-            assert!(meta.lua_source.is_some());
+            assert!(!meta.lua_source.is_empty());
 
             std::fs::remove_file(&cav_path).ok();
         }

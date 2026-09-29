@@ -161,7 +161,7 @@ Otherwise every anonymous visitor is one viewer. A person who signs up
 halfway is two keys, so the page returning from the account wall
 (`?publish=1`) doesn't report their steps again.
 
-Admin readout: `GET /api/v2/admin/metrics/remix-funnel?days=7`, or
+Admin readout: `GET /api/v1/admin/metrics/remix-funnel?days=7`, or
 `?since=<RFC 3339>` to start at an experiment's first session. It reports
 totals, step-to-step `conversion` ratios, and `by_cart` rows: each cart's
 plays and steps, plus how many of its direct remixes were published, got an

@@ -5,7 +5,7 @@ Writes sprites.png (a real 128x128 indexed PNG sprite sheet, matching the
 Studio-native format every other showcase cart uses — see
 crates/caiven-cart/src/asset_png.rs::sprites_to_png for the exact layout
 this must match), sfx.hex, and music.hex (project-dir hex-text format,
-crates/caiven-cart/src/text.rs) directly, no image-library dependency (pure
+crates/caiven-cart/src/hex.rs) directly, no image-library dependency (pure
 stdlib zlib/struct PNG encoder below).
 
 Re-run after editing SPRITES/SFX_STEPS/MUSIC_* below; outputs are committed,
@@ -443,7 +443,7 @@ SFX_STEP_COUNT = 16  # crates/caiven-vm/src/vm/sfx.rs::SFX_STEPS — fixed per s
 
 
 def sfx_line(steps):
-    # The project-dir .hex loader (crates/caiven-cart/src/text.rs::decode_hex_block,
+    # The project-dir .hex loader (crates/caiven-cart/src/hex.rs::decode_hex_block,
     # called on the *whole file*) ignores line breaks and just concatenates
     # every line's hex digits into one flat byte stream — it does not treat
     # each line as an independently-sized slot. But SfxPlayer::sfx_bytes_base

@@ -9,7 +9,7 @@ use crate::{
     models::{Cart, CommentInfo, CommentInput, RatingInput},
 };
 
-#[put("/api/v2/carts/<id>/rating", data = "<input>")]
+#[put("/api/v1/carts/<id>/rating", data = "<input>")]
 pub async fn rate_cart(
     state: &State<PortState>,
     user: AuthUser,
@@ -34,7 +34,7 @@ pub async fn rate_cart(
     Ok(Json(db::get(&state.db, id).await?.expect("just rated")))
 }
 
-#[delete("/api/v2/carts/<id>/rating")]
+#[delete("/api/v1/carts/<id>/rating")]
 pub async fn unrate_cart(
     state: &State<PortState>,
     user: AuthUser,
@@ -52,7 +52,7 @@ pub async fn unrate_cart(
     Ok(Json(db::get(&state.db, id).await?.expect("just unrated")))
 }
 
-#[get("/api/v2/carts/<id>/comments")]
+#[get("/api/v1/carts/<id>/comments")]
 pub async fn list_comments(
     state: &State<PortState>,
     id: &str,
@@ -77,7 +77,7 @@ pub async fn list_comments(
     Ok(Json(comments))
 }
 
-#[post("/api/v2/carts/<id>/comments", data = "<input>")]
+#[post("/api/v1/carts/<id>/comments", data = "<input>")]
 pub async fn add_comment(
     state: &State<PortState>,
     user: VerifiedUser,
@@ -109,7 +109,7 @@ pub async fn add_comment(
     }))
 }
 
-#[delete("/api/v2/carts/<id>/comments/<comment_id>")]
+#[delete("/api/v1/carts/<id>/comments/<comment_id>")]
 pub async fn delete_comment(
     state: &State<PortState>,
     user: AuthUser,

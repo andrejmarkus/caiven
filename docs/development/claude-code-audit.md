@@ -22,7 +22,7 @@ Dependency direction is one-way: `caiven-core` → `caiven-cart` →
 | `caiven-port` | Rocket cart-sharing server: auth/sessions/MFA/WebAuthn/OAuth, sea-orm entities, cart/version/comment/rating/jam handlers. | `src/{auth,db,mailer,oauth,turnstile,models}.rs`, `src/entities/*` (16 files), `src/handlers/*` |
 | `caiven-port/web` | Svelte Port frontend (not a Cargo member). Mock + live Playwright e2e. | `src` |
 | `caiven-web` | Browser WASM cart player (emscripten `bin`, not cdylib — vendored Lua's C build isn't `-fPIC`). No auth/DB code. | `src/main.rs` |
-| `migration` | sea-orm-migration schema history for Port's DB, 14 migrations `m20240101`…`m20260728`. Depends on `caiven-cart` for content hashing. | `src/*.rs` |
+| `migration` | sea-orm-migration for Port's DB: one baseline `m20260929_000001_initial_schema`; later schema changes are new migrations. | `src/*.rs` |
 | `caiven-ui` | Shared shadcn-svelte component library for both frontends; `check-boundaries.mjs` enforces neither app forks its own local UI tree. | `src/components`, `scripts/check-boundaries.mjs` |
 
 ## Verified commands
@@ -72,26 +72,19 @@ See root `CLAUDE.md` "Canonical commands" — verified directly against
   e2e suite. High blast radius, low direct test coverage.
 - ~~Cart binary format (`caiven-cart/src/format.rs`) writes a version byte
   but the reader ignores it~~ **Resolved.** `format.rs::load_bytes` now
-  reads the `.cav` version and rejects anything outside
-  `MIN_SUPPORTED_CART_VERSION..=CART_FORMAT_VERSION` with
-  `CartError::UnsupportedCartVersion`; `caiven.toml`'s `[cart]` table now
-  has a `version` field (`CURRENT_MANIFEST_VERSION`, default `1` for
-  manifests written before the field existed), validated the same way with
-  `CartError::UnsupportedManifestVersion`. See `.claude/rules/cart-format.md`
-  for the accept-older/reject-newer policy and why it's safe for the
-  section-table shape.
+  reads the `.cav` version and rejects anything but `CART_FORMAT_VERSION`
+  (1) with `CartError::UnsupportedCartVersion`; `caiven.toml` requires
+  `[cart] version = 1`, rejected otherwise with
+  `CartError::UnsupportedManifestVersion`. See `docs/formats.md` and
+  `.claude/rules/cart-format.md`.
 - No architecture docs existed before this one (only `docs/brand-colors.md`
   and the dev-workflow-focused `crates/caiven-studio/CLAUDE.md`).
 - No benchmark harness exists anywhere (no `criterion`, no `benches/`, no
   `#[bench]`) — `caiven-benchmark` skill's baseline/after methodology has no
   existing scaffolding to build on; first use will need to establish one.
-- The setup prompt referenced a `.cavdbg` sidecar debug-file format; it does
-  **not** appear anywhere in the repository (checked via full-text search).
-  The actual debugger state (`caiven-studio/src/debugger.rs`) has breakpoints
-  + watches with backward-compatible untagged deserialization for a legacy
-  breakpoint format, but no documented file extension in code. Treat any
-  future reference to `.cavdbg` as unverified until confirmed against
-  current code, not as an established fact.
+- Debugger state (`caiven-studio/src/debugger.rs`) persists breakpoints and
+  watches in a TOML sidecar, `<cart>.cav.dbg` or `<project>/.caiven.dbg`
+  (`docs/formats.md`). There is no `.cavdbg` format.
 
 ## High-risk subsystem boundaries
 

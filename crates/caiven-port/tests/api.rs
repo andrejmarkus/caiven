@@ -63,7 +63,7 @@ fn synthetic_email(username: &str) -> String {
 
 async fn register(client: &Client, username: &str, password: &str) -> Status {
     client
-        .post("/api/v2/auth/register")
+        .post("/api/v1/auth/register")
         .header(ContentType::JSON)
         .body(
             serde_json::json!({
@@ -83,7 +83,7 @@ async fn register(client: &Client, username: &str, password: &str) -> Status {
 async fn auth_token(client: &Client) -> String {
     assert_eq!(register(client, "tester", TEST_PASSWORD).await, Status::Ok);
     let resp = client
-        .post("/api/v2/auth/tokens")
+        .post("/api/v1/auth/tokens")
         .header(ContentType::JSON)
         .header(csrf_header(client))
         .body(r#"{"name":"test"}"#)
@@ -126,36 +126,20 @@ fn multipart_content_type() -> ContentType {
     ContentType::parse_flexible(&format!("multipart/form-data; boundary={BOUNDARY}")).unwrap()
 }
 
-/// Builds a real, parseable `.cav` with the given program bytes (via the
+/// Builds a real, parseable `.cav` whose Lua section holds `lua` (via the
 /// shared `caiven-cart` writer), so uploads pass content-hash validation
 /// the same way a real Studio-published cart would.
-fn build_cart(program: &[u8]) -> Vec<u8> {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("t.cav");
+fn build_cart(lua: &[u8]) -> Vec<u8> {
     let header = caiven_cart::CartHeader::new("T", "A");
-    caiven_cart::write(&path, &header, program, &[]).unwrap();
-    std::fs::read(&path).unwrap()
+    caiven_cart::pack(
+        &header,
+        &[(caiven_cart::SectionKind::LuaSource, lua.to_vec())],
+    )
+    .unwrap()
 }
 
 fn sample_cart() -> Vec<u8> {
     build_cart(&[0u8; 64])
-}
-
-fn cart_with_repeated_sections() -> Vec<u8> {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("banked.cav");
-    let header = caiven_cart::CartHeader::new("T", "A");
-    caiven_cart::write(
-        &path,
-        &header,
-        &[0u8; 64],
-        &[
-            (caiven_cart::SectionKind::SpriteBank, vec![2, 0x22]),
-            (caiven_cart::SectionKind::SpriteBank, vec![1, 0x11]),
-        ],
-    )
-    .unwrap();
-    std::fs::read(path).unwrap()
 }
 
 /// Register a user, mint a token for it, then log out so the client's
@@ -164,7 +148,7 @@ fn cart_with_repeated_sections() -> Vec<u8> {
 async fn register_get_token_and_logout(client: &Client, username: &str) -> String {
     assert_eq!(register(client, username, TEST_PASSWORD).await, Status::Ok);
     let resp = client
-        .post("/api/v2/auth/tokens")
+        .post("/api/v1/auth/tokens")
         .header(ContentType::JSON)
         .header(csrf_header(client))
         .body(r#"{"name":"test"}"#)
@@ -173,7 +157,7 @@ async fn register_get_token_and_logout(client: &Client, username: &str) -> Strin
     assert_eq!(resp.status(), Status::Ok);
     let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     let token = body["token"].as_str().unwrap().to_string();
-    client.post("/api/v2/auth/logout").dispatch().await;
+    client.post("/api/v1/auth/logout").dispatch().await;
     token
 }
 
@@ -184,7 +168,7 @@ async fn upload<'c>(
     meta: &str,
 ) -> rocket::local::asynchronous::LocalResponse<'c> {
     client
-        .post("/api/carts")
+        .post("/api/v1/carts")
         .header(Header::new("X-Api-Key", token.to_string()))
         .header(multipart_content_type())
         .body(multipart_body(cart, meta))
@@ -201,18 +185,18 @@ async fn register_login_logout_flow() {
 
     assert_eq!(register(&client, "alice", TEST_PASSWORD).await, Status::Ok);
 
-    let resp = client.get("/api/v2/auth/me").dispatch().await;
+    let resp = client.get("/api/v1/auth/me").dispatch().await;
     assert_eq!(resp.status(), Status::Ok);
     let me: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(me["username"], "alice");
 
-    let resp = client.post("/api/v2/auth/logout").dispatch().await;
+    let resp = client.post("/api/v1/auth/logout").dispatch().await;
     assert_eq!(resp.status(), Status::Ok);
-    let resp = client.get("/api/v2/auth/me").dispatch().await;
+    let resp = client.get("/api/v1/auth/me").dispatch().await;
     assert_eq!(resp.status(), Status::Unauthorized);
 
     let resp = client
-        .post("/api/v2/auth/login")
+        .post("/api/v1/auth/login")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"identifier":"alice","password":"{TEST_PASSWORD}"}}"#
@@ -220,7 +204,7 @@ async fn register_login_logout_flow() {
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok);
-    let resp = client.get("/api/v2/auth/me").dispatch().await;
+    let resp = client.get("/api/v1/auth/me").dispatch().await;
     assert_eq!(resp.status(), Status::Ok);
 }
 
@@ -230,7 +214,7 @@ async fn first_user_is_admin_second_is_not() {
     let client = test_client(dir.path()).await;
 
     let resp = client
-        .post("/api/v2/auth/register")
+        .post("/api/v1/auth/register")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"username":"first","password":"{TEST_PASSWORD}","email":"first@example.test"}}"#
@@ -241,7 +225,7 @@ async fn first_user_is_admin_second_is_not() {
     assert_eq!(body["is_admin"], true);
 
     let resp = client
-        .post("/api/v2/auth/register")
+        .post("/api/v1/auth/register")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"username":"second","password":"{TEST_PASSWORD}","email":"second@example.test"}}"#
@@ -290,7 +274,7 @@ async fn wrong_password_is_401() {
 
     assert_eq!(register(&client, "carol", TEST_PASSWORD).await, Status::Ok);
     let resp = client
-        .post("/api/v2/auth/login")
+        .post("/api/v1/auth/login")
         .header(ContentType::JSON)
         .body(r#"{"identifier":"carol","password":"wrong password long enough"}"#)
         .dispatch()
@@ -304,7 +288,7 @@ async fn hardened_session_cookie_is_hashed_rotated_and_not_cached() {
     let client = test_client_with_cookie_security(dir.path(), true).await;
 
     let resp = client
-        .post("/api/v2/auth/register")
+        .post("/api/v1/auth/register")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"username":"secureuser","password":"{TEST_PASSWORD}","email":"secureuser@example.test"}}"#
@@ -344,7 +328,7 @@ async fn hardened_session_cookie_is_hashed_rotated_and_not_cached() {
     );
 
     let resp = client
-        .post("/api/v2/auth/login")
+        .post("/api/v1/auth/login")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"identifier":"secureuser","password":"{TEST_PASSWORD}"}}"#
@@ -384,7 +368,7 @@ async fn password_change_revokes_sessions_and_enforces_policy() {
         register(&client, "unicodeuser", &unicode_password).await,
         Status::Ok
     );
-    client.post("/api/v2/auth/logout").dispatch().await;
+    client.post("/api/v1/auth/logout").dispatch().await;
 
     assert_eq!(
         register(&client, "passworduser", TEST_PASSWORD).await,
@@ -402,7 +386,7 @@ async fn password_change_revokes_sessions_and_enforces_policy() {
         .unwrap();
 
     let resp = client
-        .post("/api/v2/auth/password")
+        .post("/api/v1/auth/password")
         .header(ContentType::JSON)
         .header(csrf_header(&client))
         .body(format!(
@@ -420,9 +404,9 @@ async fn password_change_revokes_sessions_and_enforces_policy() {
         1
     );
 
-    client.post("/api/v2/auth/logout").dispatch().await;
+    client.post("/api/v1/auth/logout").dispatch().await;
     let resp = client
-        .post("/api/v2/auth/login")
+        .post("/api/v1/auth/login")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"identifier":"passworduser","password":"{TEST_PASSWORD}"}}"#
@@ -431,7 +415,7 @@ async fn password_change_revokes_sessions_and_enforces_policy() {
         .await;
     assert_eq!(resp.status(), Status::Unauthorized);
     let resp = client
-        .post("/api/v2/auth/login")
+        .post("/api/v1/auth/login")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"identifier":"passworduser","password":"{NEW_TEST_PASSWORD}"}}"#
@@ -452,7 +436,7 @@ async fn password_change_revokes_api_tokens_too() {
         Status::Ok
     );
     let resp = client
-        .post("/api/v2/auth/tokens")
+        .post("/api/v1/auth/tokens")
         .header(ContentType::JSON)
         .header(csrf_header(&client))
         .body(r#"{"name":"leak-me"}"#)
@@ -465,14 +449,14 @@ async fn password_change_revokes_api_tokens_too() {
         .to_string();
 
     let resp = client
-        .get("/api/v2/auth/me")
+        .get("/api/v1/auth/me")
         .header(Header::new("X-Api-Key", token.clone()))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok);
 
     let resp = client
-        .post("/api/v2/auth/password")
+        .post("/api/v1/auth/password")
         .header(ContentType::JSON)
         .header(csrf_header(&client))
         .body(format!(
@@ -485,9 +469,9 @@ async fn password_change_revokes_api_tokens_too() {
     // Drop the fresh session cookie `change_password` just issued — this
     // check is about the *token*, and a live cookie would authenticate the
     // request on its own and mask a token that's still valid.
-    client.post("/api/v2/auth/logout").dispatch().await;
+    client.post("/api/v1/auth/logout").dispatch().await;
     let resp = client
-        .get("/api/v2/auth/me")
+        .get("/api/v1/auth/me")
         .header(Header::new("X-Api-Key", token))
         .dispatch()
         .await;
@@ -555,21 +539,21 @@ async fn session_management_is_owner_scoped_and_capped() {
 
     // PORT-02: account-management endpoints are session-only now — an API
     // token, even with no cookie present at all, must not reach them.
-    client.post("/api/v2/auth/logout").dispatch().await;
+    client.post("/api/v1/auth/logout").dispatch().await;
     let resp = client
-        .get("/api/v2/auth/sessions")
+        .get("/api/v1/auth/sessions")
         .header(Header::new("X-Api-Key", api_token.clone()))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Unauthorized);
     let resp = client
-        .delete(format!("/api/v2/auth/sessions/{other_id}"))
+        .delete(format!("/api/v1/auth/sessions/{other_id}"))
         .header(Header::new("X-Api-Key", api_token.clone()))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Unauthorized);
     let resp = client
-        .delete("/api/v2/auth/sessions")
+        .delete("/api/v1/auth/sessions")
         .header(Header::new("X-Api-Key", api_token))
         .dispatch()
         .await;
@@ -577,7 +561,7 @@ async fn session_management_is_owner_scoped_and_capped() {
 
     // A real session cookie still works exactly as before.
     let resp = client
-        .post("/api/v2/auth/login")
+        .post("/api/v1/auth/login")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"identifier":"sessionuser","password":"{TEST_PASSWORD}"}}"#
@@ -586,7 +570,7 @@ async fn session_management_is_owner_scoped_and_capped() {
         .await;
     assert_eq!(resp.status(), Status::Ok);
 
-    let resp = client.get("/api/v2/auth/sessions").dispatch().await;
+    let resp = client.get("/api/v1/auth/sessions").dispatch().await;
     assert_eq!(resp.status(), Status::Ok);
     let listed: serde_json::Value =
         serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
@@ -595,7 +579,7 @@ async fn session_management_is_owner_scoped_and_capped() {
     assert_eq!(listed.as_array().unwrap().len(), 20);
 
     let resp = client
-        .delete(format!("/api/v2/auth/sessions/{other_id}"))
+        .delete(format!("/api/v1/auth/sessions/{other_id}"))
         .header(csrf_header(&client))
         .dispatch()
         .await;
@@ -609,7 +593,7 @@ async fn session_management_is_owner_scoped_and_capped() {
     );
 
     let resp = client
-        .delete("/api/v2/auth/sessions")
+        .delete("/api/v1/auth/sessions")
         .header(csrf_header(&client))
         .dispatch()
         .await;
@@ -640,9 +624,9 @@ async fn login_canonicalizes_identity() {
         register(&client, "  MixedCase  ", TEST_PASSWORD).await,
         Status::Ok
     );
-    client.post("/api/v2/auth/logout").dispatch().await;
+    client.post("/api/v1/auth/logout").dispatch().await;
     let resp = client
-        .post("/api/v2/auth/login")
+        .post("/api/v1/auth/login")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"identifier":" MIXEDCASE ","password":"{TEST_PASSWORD}"}}"#
@@ -669,13 +653,13 @@ async fn revoked_token_is_401() {
     .await;
     assert_eq!(resp.status(), Status::Ok);
 
-    let resp = client.get("/api/v2/auth/tokens").dispatch().await;
+    let resp = client.get("/api/v1/auth/tokens").dispatch().await;
     let tokens: serde_json::Value =
         serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     let token_id = tokens[0]["id"].as_str().unwrap().to_string();
 
     let resp = client
-        .delete(format!("/api/v2/auth/tokens/{token_id}"))
+        .delete(format!("/api/v1/auth/tokens/{token_id}"))
         .header(csrf_header(&client))
         .dispatch()
         .await;
@@ -683,7 +667,7 @@ async fn revoked_token_is_401() {
 
     // Session cookie would still authenticate; check the token alone via a
     // fresh non-tracked request path: logout first, then try the token.
-    client.post("/api/v2/auth/logout").dispatch().await;
+    client.post("/api/v1/auth/logout").dispatch().await;
     let resp = upload(
         &client,
         &token,
@@ -702,7 +686,7 @@ async fn upload_without_auth_is_401() {
     let client = test_client(dir.path()).await;
 
     let resp = client
-        .post("/api/carts")
+        .post("/api/v1/carts")
         .header(multipart_content_type())
         .body(multipart_body(
             &sample_cart(),
@@ -733,14 +717,17 @@ async fn upload_and_download_roundtrip() {
     assert_eq!(cart["cart_size"], cart_bytes.len() as i64);
     let id = cart["id"].as_str().unwrap().to_string();
 
-    let resp = client.get(format!("/api/carts/{id}")).dispatch().await;
+    let resp = client.get(format!("/api/v1/carts/{id}")).dispatch().await;
     assert_eq!(resp.status(), Status::Ok);
 
-    let resp = client.get(format!("/api/carts/{id}/cart")).dispatch().await;
+    let resp = client
+        .get(format!("/api/v1/carts/{id}/cart"))
+        .dispatch()
+        .await;
     assert_eq!(resp.status(), Status::Ok);
     assert_eq!(resp.into_bytes().await.unwrap(), cart_bytes);
 
-    let resp = client.get("/api/carts?q=Catch").dispatch().await;
+    let resp = client.get("/api/v1/carts?q=Catch").dispatch().await;
     assert_eq!(resp.status(), Status::Ok);
     let list: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(list["total"], 1);
@@ -801,17 +788,17 @@ async fn malformed_id_is_400_and_unknown_id_is_404() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
 
-    let resp = client.get("/api/carts/not-a-uuid").dispatch().await;
+    let resp = client.get("/api/v1/carts/not-a-uuid").dispatch().await;
     assert_eq!(resp.status(), Status::BadRequest);
 
     let resp = client
-        .get("/api/carts/00000000-0000-0000-0000-000000000000")
+        .get("/api/v1/carts/00000000-0000-0000-0000-000000000000")
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::NotFound);
 }
 
-// ── carts v2: ownership + versioning + discovery ────────────────────────────
+// ── carts: ownership + versioning + discovery ────────────────────────────
 
 #[rocket::async_test]
 async fn ownership_enforced_admin_can_override() {
@@ -835,7 +822,7 @@ async fn ownership_enforced_admin_can_override() {
     let id = cart["id"].as_str().unwrap().to_string();
 
     let resp = client
-        .patch(format!("/api/v2/carts/{id}"))
+        .patch(format!("/api/v1/carts/{id}"))
         .header(Header::new("X-Api-Key", other_token.clone()))
         .header(ContentType::JSON)
         .body(r#"{"title":"Hacked"}"#)
@@ -844,7 +831,7 @@ async fn ownership_enforced_admin_can_override() {
     assert_eq!(resp.status(), Status::Forbidden);
 
     let resp = client
-        .patch(format!("/api/v2/carts/{id}"))
+        .patch(format!("/api/v1/carts/{id}"))
         .header(Header::new("X-Api-Key", owner_token.clone()))
         .header(ContentType::JSON)
         .body(r#"{"title":"Renamed"}"#)
@@ -856,20 +843,20 @@ async fn ownership_enforced_admin_can_override() {
     assert_eq!(updated["title"], "Renamed");
 
     let resp = client
-        .delete(format!("/api/v2/carts/{id}"))
+        .delete(format!("/api/v1/carts/{id}"))
         .header(Header::new("X-Api-Key", other_token.clone()))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Forbidden);
 
     let resp = client
-        .delete(format!("/api/v2/carts/{id}"))
+        .delete(format!("/api/v1/carts/{id}"))
         .header(Header::new("X-Api-Key", admin_token.clone()))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok);
 
-    let resp = client.get(format!("/api/v2/carts/{id}")).dispatch().await;
+    let resp = client.get(format!("/api/v1/carts/{id}")).dispatch().await;
     assert_eq!(resp.status(), Status::NotFound);
 }
 
@@ -893,7 +880,7 @@ async fn versioning_upload_list_download_and_delete() {
 
     let cart_v2 = build_cart(&[1u8; 80]);
     let resp = client
-        .post(format!("/api/v2/carts/{id}/versions"))
+        .post(format!("/api/v1/carts/{id}/versions"))
         .header(Header::new("X-Api-Key", token.clone()))
         .header(multipart_content_type())
         .body(multipart_body(
@@ -907,7 +894,7 @@ async fn versioning_upload_list_download_and_delete() {
     assert_eq!(v2["version"], 2);
     assert_eq!(v2["changelog"], "fix bug");
 
-    let resp = client.get(format!("/api/v2/carts/{id}")).dispatch().await;
+    let resp = client.get(format!("/api/v1/carts/{id}")).dispatch().await;
     let detail: serde_json::Value =
         serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     // Studio opens remixing through the version upload.
@@ -916,26 +903,26 @@ async fn versioning_upload_list_download_and_delete() {
     assert_eq!(detail["latest_version"], 2);
 
     let resp = client
-        .get(format!("/api/v2/carts/{id}/cart"))
+        .get(format!("/api/v1/carts/{id}/cart"))
         .dispatch()
         .await;
     assert_eq!(resp.into_bytes().await.unwrap(), cart_v2);
 
     let resp = client
-        .get(format!("/api/v2/carts/{id}/cart?version=1"))
+        .get(format!("/api/v1/carts/{id}/cart?version=1"))
         .dispatch()
         .await;
     assert_eq!(resp.into_bytes().await.unwrap(), cart_v1);
 
     let resp = client
-        .delete(format!("/api/v2/carts/{id}"))
+        .delete(format!("/api/v1/carts/{id}"))
         .header(Header::new("X-Api-Key", token.clone()))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok);
 
     let resp = client
-        .get(format!("/api/v2/carts/{id}/cart"))
+        .get(format!("/api/v1/carts/{id}/cart"))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::NotFound);
@@ -964,12 +951,12 @@ async fn discovery_tag_author_filters_and_lookups() {
     .await;
     assert_eq!(resp.status(), Status::Ok);
 
-    let resp = client.get("/api/v2/carts?tag=retro").dispatch().await;
+    let resp = client.get("/api/v1/carts?tag=retro").dispatch().await;
     let list: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(list["total"], 1);
     assert_eq!(list["carts"][0]["title"], "Alpha");
 
-    let resp = client.get("/api/v2/carts?author=tester").dispatch().await;
+    let resp = client.get("/api/v1/carts?author=tester").dispatch().await;
     let list: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(list["total"], 2);
     assert!(
@@ -980,7 +967,7 @@ async fn discovery_tag_author_filters_and_lookups() {
             .all(|cart| cart["author"] == "tester")
     );
 
-    let resp = client.get("/api/v2/tags").dispatch().await;
+    let resp = client.get("/api/v1/tags").dispatch().await;
     let tags: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     let tag_names: Vec<&str> = tags
         .as_array()
@@ -991,13 +978,13 @@ async fn discovery_tag_author_filters_and_lookups() {
     assert!(tag_names.contains(&"retro"));
     assert!(tag_names.contains(&"puzzle"));
 
-    let resp = client.get("/api/v2/users/tester").dispatch().await;
+    let resp = client.get("/api/v1/users/tester").dispatch().await;
     assert_eq!(resp.status(), Status::Ok);
     let profile: serde_json::Value =
         serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(profile["total"], 2);
 
-    let resp = client.get("/api/v2/users/nobody").dispatch().await;
+    let resp = client.get("/api/v1/users/nobody").dispatch().await;
     assert_eq!(resp.status(), Status::NotFound);
 }
 
@@ -1029,14 +1016,14 @@ async fn sort_popular_orders_by_downloads() {
     for _ in 0..3 {
         client
             .get(format!(
-                "/api/v2/carts/{}/cart",
+                "/api/v1/carts/{}/cart",
                 popular["id"].as_str().unwrap()
             ))
             .dispatch()
             .await;
     }
 
-    let resp = client.get("/api/v2/carts?sort=popular").dispatch().await;
+    let resp = client.get("/api/v1/carts?sort=popular").dispatch().await;
     let list: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(list["carts"][0]["title"], "Popular");
     assert_eq!(list["carts"][1]["title"], "Quiet");
@@ -1065,7 +1052,7 @@ async fn rating_upsert_is_one_per_user_and_averages() {
     let id = cart["id"].as_str().unwrap().to_string();
 
     let resp = client
-        .put(format!("/api/v2/carts/{id}/rating"))
+        .put(format!("/api/v1/carts/{id}/rating"))
         .header(Header::new("X-Api-Key", alice_token.clone()))
         .header(ContentType::JSON)
         .body(r#"{"score":4}"#)
@@ -1078,7 +1065,7 @@ async fn rating_upsert_is_one_per_user_and_averages() {
     assert_eq!(rated["rating_avg"], 4.0);
 
     let resp = client
-        .put(format!("/api/v2/carts/{id}/rating"))
+        .put(format!("/api/v1/carts/{id}/rating"))
         .header(Header::new("X-Api-Key", bob_token.clone()))
         .header(ContentType::JSON)
         .body(r#"{"score":2}"#)
@@ -1091,7 +1078,7 @@ async fn rating_upsert_is_one_per_user_and_averages() {
 
     // Alice changes her mind: 4 -> 5. Still one rating from her, avg updates.
     let resp = client
-        .put(format!("/api/v2/carts/{id}/rating"))
+        .put(format!("/api/v1/carts/{id}/rating"))
         .header(Header::new("X-Api-Key", alice_token.clone()))
         .header(ContentType::JSON)
         .body(r#"{"score":5}"#)
@@ -1102,13 +1089,13 @@ async fn rating_upsert_is_one_per_user_and_averages() {
     assert_eq!(rated["rating_count"], 2);
     assert_eq!(rated["rating_avg"], 3.5);
 
-    let resp = client.get(format!("/api/v2/carts/{id}")).dispatch().await;
+    let resp = client.get(format!("/api/v1/carts/{id}")).dispatch().await;
     let detail: serde_json::Value =
         serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(detail["own_rating"], serde_json::Value::Null);
 
     let resp = client
-        .get(format!("/api/v2/carts/{id}"))
+        .get(format!("/api/v1/carts/{id}"))
         .header(Header::new("X-Api-Key", alice_token.clone()))
         .dispatch()
         .await;
@@ -1117,7 +1104,7 @@ async fn rating_upsert_is_one_per_user_and_averages() {
     assert_eq!(detail["own_rating"], 5);
 
     let resp = client
-        .delete(format!("/api/v2/carts/{id}/rating"))
+        .delete(format!("/api/v1/carts/{id}/rating"))
         .header(Header::new("X-Api-Key", bob_token.clone()))
         .dispatch()
         .await;
@@ -1145,7 +1132,7 @@ async fn rating_out_of_range_is_400_and_requires_auth() {
     let id = cart["id"].as_str().unwrap().to_string();
 
     let resp = client
-        .put(format!("/api/v2/carts/{id}/rating"))
+        .put(format!("/api/v1/carts/{id}/rating"))
         .header(ContentType::JSON)
         .body(r#"{"score":3}"#)
         .dispatch()
@@ -1153,7 +1140,7 @@ async fn rating_out_of_range_is_400_and_requires_auth() {
     assert_eq!(resp.status(), Status::Unauthorized);
 
     let resp = client
-        .put(format!("/api/v2/carts/{id}/rating"))
+        .put(format!("/api/v1/carts/{id}/rating"))
         .header(Header::new("X-Api-Key", token.clone()))
         .header(ContentType::JSON)
         .body(r#"{"score":6}"#)
@@ -1181,7 +1168,7 @@ async fn rate_cart_rejects_self_rating() {
     let id = cart["id"].as_str().unwrap().to_string();
 
     let resp = client
-        .put(format!("/api/v2/carts/{id}/rating"))
+        .put(format!("/api/v1/carts/{id}/rating"))
         .header(Header::new("X-Api-Key", owner_token))
         .header(ContentType::JSON)
         .body(r#"{"score":5}"#)
@@ -1189,7 +1176,7 @@ async fn rate_cart_rejects_self_rating() {
         .await;
     assert_eq!(resp.status(), Status::Forbidden);
 
-    let resp = client.get(format!("/api/v2/carts/{id}")).dispatch().await;
+    let resp = client.get(format!("/api/v1/carts/{id}")).dispatch().await;
     let detail: serde_json::Value =
         serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(detail["rating_count"], 0);
@@ -1215,7 +1202,7 @@ async fn comments_add_list_and_delete_permissions() {
     let id = cart["id"].as_str().unwrap().to_string();
 
     let resp = client
-        .post(format!("/api/v2/carts/{id}/comments"))
+        .post(format!("/api/v1/carts/{id}/comments"))
         .header(Header::new("X-Api-Key", commenter_token.clone()))
         .header(ContentType::JSON)
         .body(r#"{"body":"Great game!"}"#)
@@ -1229,7 +1216,7 @@ async fn comments_add_list_and_delete_permissions() {
     let comment_id = comment["id"].as_str().unwrap().to_string();
 
     let resp = client
-        .post(format!("/api/v2/carts/{id}/comments"))
+        .post(format!("/api/v1/carts/{id}/comments"))
         .header(ContentType::JSON)
         .body(r#"{"body":"anonymous"}"#)
         .dispatch()
@@ -1237,7 +1224,7 @@ async fn comments_add_list_and_delete_permissions() {
     assert_eq!(resp.status(), Status::Unauthorized);
 
     let resp = client
-        .post(format!("/api/v2/carts/{id}/comments"))
+        .post(format!("/api/v1/carts/{id}/comments"))
         .header(Header::new("X-Api-Key", commenter_token.clone()))
         .header(ContentType::JSON)
         .body(r#"{"body":"   "}"#)
@@ -1246,7 +1233,7 @@ async fn comments_add_list_and_delete_permissions() {
     assert_eq!(resp.status(), Status::BadRequest);
 
     let resp = client
-        .get(format!("/api/v2/carts/{id}/comments"))
+        .get(format!("/api/v1/carts/{id}/comments"))
         .dispatch()
         .await;
     let list: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
@@ -1254,7 +1241,7 @@ async fn comments_add_list_and_delete_permissions() {
 
     // Stranger (not the commenter or cart owner) can't delete.
     let resp = client
-        .delete(format!("/api/v2/carts/{id}/comments/{comment_id}"))
+        .delete(format!("/api/v1/carts/{id}/comments/{comment_id}"))
         .header(Header::new("X-Api-Key", stranger_token.clone()))
         .dispatch()
         .await;
@@ -1262,14 +1249,14 @@ async fn comments_add_list_and_delete_permissions() {
 
     // Cart owner can delete someone else's comment.
     let resp = client
-        .delete(format!("/api/v2/carts/{id}/comments/{comment_id}"))
+        .delete(format!("/api/v1/carts/{id}/comments/{comment_id}"))
         .header(Header::new("X-Api-Key", owner_token.clone()))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok);
 
     let resp = client
-        .get(format!("/api/v2/carts/{id}/comments"))
+        .get(format!("/api/v1/carts/{id}/comments"))
         .dispatch()
         .await;
     let list: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
@@ -1277,174 +1264,12 @@ async fn comments_add_list_and_delete_permissions() {
 }
 
 #[rocket::async_test]
-async fn legacy_carts_are_migrated_to_legacy_owner_with_v1() {
+async fn baseline_schema_migrates_down_and_up_again() {
     let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
-    // Apply only the pre-v2 schema (carts + auth tables).
-    migration::Migrator::up(&db, Some(2)).await.unwrap();
-
-    // Seed a cart row in the old shape, bypassing entities (which now expect
-    // the v2 schema) to simulate data uploaded before accounts existed.
-    db.execute_unprepared(
-        "INSERT INTO carts (id, title, author, description, tags, uploaded_at, downloads, has_screenshot, rom_size) \
-         VALUES ('11111111-1111-1111-1111-111111111111', 'Old Game', 'Retro Dev', '', '', \
-                 '2024-01-01T00:00:00Z', 3, 1, 512)",
-    )
-    .await
-    .unwrap();
-
-    // Now apply the v2 migration, which should adopt the row under `legacy`.
     migration::Migrator::up(&db, None).await.unwrap();
-
-    let cart = caiven_port::db::get(&db, "11111111-1111-1111-1111-111111111111")
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(cart.owner.as_deref(), Some("legacy"));
-    assert_eq!(cart.latest_version, 1);
-    assert_eq!(cart.cart_size, 512);
-    assert!(cart.has_screenshot);
-}
-
-#[rocket::async_test]
-async fn existing_cart_versions_receive_content_hashes() {
-    let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
-    migration::Migrator::up(&db, Some(12)).await.unwrap();
-    db.execute_unprepared(
-        "INSERT INTO carts \
-            (id, title, author, description, tags, uploaded_at, downloads, owner_id, \
-             rating_count, rating_sum, plays) \
-         VALUES \
-            ('blob-cart', 'Blob', 'author', '', '', '2026-01-01T00:00:00Z', 0, NULL, 0, 0, 0), \
-            ('legacy-cart', 'Legacy', 'author', '', '', '2026-01-01T00:00:00Z', 0, NULL, 0, 0, 0)",
-    )
-    .await
-    .unwrap();
-    db.execute_unprepared(
-        "INSERT INTO cart_versions \
-            (id, cart_id, version, cart_size, changelog, has_screenshot, created_at, \
-             legacy_cart_path, editor_username) \
-         VALUES \
-            ('blob-version', 'blob-cart', 1, 0, '', 0, '2026-01-01T00:00:00Z', NULL, 'author'), \
-            ('legacy-version', 'legacy-cart', 1, 0, '', 0, '2026-01-01T00:00:00Z', \
-             'carts/legacy.cav', 'author')",
-    )
-    .await
-    .unwrap();
-    let cart = sample_cart();
-    db.execute_raw(sea_orm::Statement::from_sql_and_values(
-        sea_orm::DatabaseBackend::Sqlite,
-        "INSERT INTO cart_blobs (version_id, cart_data, screenshot_data) VALUES (?, ?, NULL)",
-        ["blob-version".into(), cart.clone().into()],
-    ))
-    .await
-    .unwrap();
-
+    migration::Migrator::down(&db, None).await.unwrap();
     migration::Migrator::up(&db, None).await.unwrap();
-    let expected = caiven_cart::content_hash(&cart).unwrap();
-    let blob_hash: Option<String> = db
-        .query_one_raw(sea_orm::Statement::from_string(
-            sea_orm::DatabaseBackend::Sqlite,
-            "SELECT content_hash FROM cart_versions WHERE id = 'blob-version'",
-        ))
-        .await
-        .unwrap()
-        .unwrap()
-        .try_get("", "content_hash")
-        .unwrap();
-    assert_eq!(blob_hash.as_deref(), Some(expected.as_str()));
-
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(dir.path().join("carts")).unwrap();
-    std::fs::write(dir.path().join("carts/legacy.cav"), &cart).unwrap();
-    assert_eq!(
-        caiven_port::db::backfill_legacy_cart_content_hashes(&db, dir.path())
-            .await
-            .unwrap(),
-        1
-    );
-    let legacy_hash: Option<String> = db
-        .query_one_raw(sea_orm::Statement::from_string(
-            sea_orm::DatabaseBackend::Sqlite,
-            "SELECT content_hash FROM cart_versions WHERE id = 'legacy-version'",
-        ))
-        .await
-        .unwrap()
-        .unwrap()
-        .try_get("", "content_hash")
-        .unwrap();
-    assert_eq!(legacy_hash.as_deref(), Some(expected.as_str()));
-}
-
-#[rocket::async_test]
-async fn canonical_hash_migration_rehashes_existing_versions() {
-    let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
-    migration::Migrator::up(&db, Some(13)).await.unwrap();
-    db.execute_unprepared(
-        "INSERT INTO carts \
-            (id, title, author, description, tags, uploaded_at, downloads, owner_id, \
-             rating_count, rating_sum, plays) \
-         VALUES \
-            ('blob-cart', 'Blob', 'author', '', '', '2026-01-01T00:00:00Z', 0, NULL, 0, 0, 0), \
-            ('legacy-cart', 'Legacy', 'author', '', '', '2026-01-01T00:00:00Z', 0, NULL, 0, 0, 0)",
-    )
-    .await
-    .unwrap();
-    db.execute_unprepared(
-        "INSERT INTO cart_versions \
-            (id, cart_id, version, cart_size, changelog, has_screenshot, created_at, \
-             legacy_cart_path, editor_username, content_hash) \
-         VALUES \
-            ('blob-version', 'blob-cart', 1, 0, '', 0, '2026-01-01T00:00:00Z', \
-             NULL, 'author', 'old-order-hash'), \
-            ('legacy-version', 'legacy-cart', 1, 0, '', 0, '2026-01-01T00:00:00Z', \
-             'carts/legacy.cav', 'author', 'old-order-hash')",
-    )
-    .await
-    .unwrap();
-    let cart = cart_with_repeated_sections();
-    db.execute_raw(sea_orm::Statement::from_sql_and_values(
-        sea_orm::DatabaseBackend::Sqlite,
-        "INSERT INTO cart_blobs (version_id, cart_data, screenshot_data) VALUES (?, ?, NULL)",
-        ["blob-version".into(), cart.clone().into()],
-    ))
-    .await
-    .unwrap();
-
-    migration::Migrator::up(&db, None).await.unwrap();
-
-    let expected = caiven_cart::content_hash(&cart).unwrap();
-    let rows = db
-        .query_all_raw(sea_orm::Statement::from_string(
-            sea_orm::DatabaseBackend::Sqlite,
-            "SELECT id, content_hash FROM cart_versions ORDER BY id",
-        ))
-        .await
-        .unwrap();
-    let blob_hash: Option<String> = rows[0].try_get("", "content_hash").unwrap();
-    let legacy_hash: Option<String> = rows[1].try_get("", "content_hash").unwrap();
-    assert_eq!(blob_hash.as_deref(), Some(expected.as_str()));
-    assert_eq!(legacy_hash, None);
-
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(dir.path().join("carts")).unwrap();
-    std::fs::write(dir.path().join("carts/legacy.cav"), &cart).unwrap();
-    assert_eq!(
-        caiven_port::db::backfill_legacy_cart_content_hashes(&db, dir.path())
-            .await
-            .unwrap(),
-        1
-    );
-    let legacy_hash: Option<String> = db
-        .query_one_raw(sea_orm::Statement::from_string(
-            sea_orm::DatabaseBackend::Sqlite,
-            "SELECT content_hash FROM cart_versions WHERE id = 'legacy-version'",
-        ))
-        .await
-        .unwrap()
-        .unwrap()
-        .try_get("", "content_hash")
-        .unwrap();
-    assert_eq!(legacy_hash.as_deref(), Some(expected.as_str()));
+    assert_eq!(users::Entity::find().count(&db).await.unwrap(), 0);
 }
 
 #[rocket::async_test]
@@ -1465,7 +1290,7 @@ async fn play_event_is_idempotent_per_cart_session() {
 
     for expected_counted in [true, false] {
         let response = client
-            .post(format!("/api/v2/carts/{id}/play"))
+            .post(format!("/api/v1/carts/{id}/play"))
             .header(ContentType::JSON)
             .body(r#"{"session_id":"11111111-1111-4111-8111-111111111111"}"#)
             .dispatch()
@@ -1495,7 +1320,7 @@ async fn player_collection_is_public_and_contains_ordered_carts() {
     let id = uploaded["id"].as_str().unwrap();
 
     let response = client
-        .post("/api/v2/collections")
+        .post("/api/v1/collections")
         .header(Header::new("X-Api-Key", token.clone()))
         .header(ContentType::JSON)
         .body(r#"{"title":"Tiny favorites","description":"Public shelf"}"#)
@@ -1507,7 +1332,7 @@ async fn player_collection_is_public_and_contains_ordered_carts() {
     let slug = collection["slug"].as_str().unwrap();
 
     let response = client
-        .post(format!("/api/v2/collections/{slug}/carts"))
+        .post(format!("/api/v1/collections/{slug}/carts"))
         .header(Header::new("X-Api-Key", token))
         .header(ContentType::JSON)
         .body(format!(r#"{{"cart_id":"{id}"}}"#))
@@ -1515,9 +1340,9 @@ async fn player_collection_is_public_and_contains_ordered_carts() {
         .await;
     assert_eq!(response.status(), Status::Ok);
 
-    client.post("/api/v2/auth/logout").dispatch().await;
+    client.post("/api/v1/auth/logout").dispatch().await;
     let response = client
-        .get(format!("/api/v2/collections/{slug}"))
+        .get(format!("/api/v1/collections/{slug}"))
         .dispatch()
         .await;
     assert_eq!(response.status(), Status::Ok);
@@ -1546,7 +1371,7 @@ async fn admin_can_create_open_jam_and_owner_can_enter_cart() {
     let closes = (chrono::Utc::now() + chrono::Duration::hours(2)).to_rfc3339();
     let ends = (chrono::Utc::now() + chrono::Duration::hours(3)).to_rfc3339();
     let response = client
-        .post("/api/v2/admin/jams")
+        .post("/api/v1/admin/jams")
         .header(Header::new("X-Api-Key", token.clone()))
         .header(ContentType::JSON)
         .body(
@@ -1569,7 +1394,7 @@ async fn admin_can_create_open_jam_and_owner_can_enter_cart() {
     assert_eq!(jam["status"], "open");
 
     let response = client
-        .post(format!("/api/v2/jams/{slug}/entries"))
+        .post(format!("/api/v1/jams/{slug}/entries"))
         .header(Header::new("X-Api-Key", token))
         .header(ContentType::JSON)
         .body(format!(r#"{{"cart_id":"{id}"}}"#))
@@ -1588,7 +1413,7 @@ async fn auth_config_reports_no_antibot_or_oauth_by_default() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
 
-    let resp = client.get("/api/v2/auth/config").dispatch().await;
+    let resp = client.get("/api/v1/auth/config").dispatch().await;
     assert_eq!(resp.status(), Status::Ok);
     let cfg: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(cfg["turnstile_site_key"], serde_json::Value::Null);
@@ -1601,7 +1426,7 @@ async fn register_rejects_invalid_email() {
     let client = test_client(dir.path()).await;
 
     let resp = client
-        .post("/api/v2/auth/register")
+        .post("/api/v1/auth/register")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"username":"noemail","password":"{TEST_PASSWORD}","email":"not-an-email"}}"#
@@ -1617,7 +1442,7 @@ async fn register_rejects_duplicate_email_across_usernames() {
     let client = test_client(dir.path()).await;
 
     let resp = client
-        .post("/api/v2/auth/register")
+        .post("/api/v1/auth/register")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"username":"dupone","password":"{TEST_PASSWORD}","email":"shared@example.test"}}"#
@@ -1625,7 +1450,7 @@ async fn register_rejects_duplicate_email_across_usernames() {
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok);
-    client.post("/api/v2/auth/logout").dispatch().await;
+    client.post("/api/v1/auth/logout").dispatch().await;
 
     // PY-03: an email collision must not answer any differently than a
     // generic failure — a distinct "already in use" status/message here
@@ -1634,7 +1459,7 @@ async fn register_rejects_duplicate_email_across_usernames() {
     // collisions are still reported directly (see the 409 test below);
     // only the email-collision path is non-committal.
     let resp = client
-        .post("/api/v2/auth/register")
+        .post("/api/v1/auth/register")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"username":"duptwo","password":"{TEST_PASSWORD}","email":"shared@example.test"}}"#
@@ -1653,10 +1478,10 @@ async fn register_rejects_duplicate_username_with_conflict() {
         register(&client, "dupname", TEST_PASSWORD).await,
         Status::Ok
     );
-    client.post("/api/v2/auth/logout").dispatch().await;
+    client.post("/api/v1/auth/logout").dispatch().await;
 
     let resp = client
-        .post("/api/v2/auth/register")
+        .post("/api/v1/auth/register")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"username":"dupname","password":"{TEST_PASSWORD}","email":"dupname2@example.test"}}"#
@@ -1675,10 +1500,10 @@ async fn login_by_email_identifier_works() {
         register(&client, "emaillogin", TEST_PASSWORD).await,
         Status::Ok
     );
-    client.post("/api/v2/auth/logout").dispatch().await;
+    client.post("/api/v1/auth/logout").dispatch().await;
 
     let resp = client
-        .post("/api/v2/auth/login")
+        .post("/api/v1/auth/login")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"identifier":"EMAILLOGIN@Example.Test","password":"{TEST_PASSWORD}"}}"#
@@ -1696,7 +1521,7 @@ async fn without_smtp_new_accounts_are_auto_verified() {
     let client = test_client(dir.path()).await;
 
     let resp = client
-        .post("/api/v2/auth/register")
+        .post("/api/v1/auth/register")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"username":"autoverify","password":"{TEST_PASSWORD}","email":"autoverify@example.test"}}"#
@@ -1734,7 +1559,7 @@ async fn unverified_email_blocks_writes_but_not_reads() {
     assert_eq!(resp.status(), Status::Forbidden);
 
     // Reads stay open regardless of verification state.
-    let resp = client.get("/api/v2/carts").dispatch().await;
+    let resp = client.get("/api/v1/carts").dispatch().await;
     assert_eq!(resp.status(), Status::Ok);
 }
 
@@ -1763,7 +1588,7 @@ async fn email_verification_token_is_single_use() {
         .unwrap();
 
     let resp = client
-        .post("/api/v2/auth/verify-email")
+        .post("/api/v1/auth/verify-email")
         .header(ContentType::JSON)
         .body(format!(r#"{{"token":"{token}"}}"#))
         .dispatch()
@@ -1779,7 +1604,7 @@ async fn email_verification_token_is_single_use() {
 
     // Reusing the same token fails.
     let resp = client
-        .post("/api/v2/auth/verify-email")
+        .post("/api/v1/auth/verify-email")
         .header(ContentType::JSON)
         .body(format!(r#"{{"token":"{token}"}}"#))
         .dispatch()
@@ -1808,7 +1633,7 @@ async fn resent_verification_keeps_earlier_links_working() {
 
     let verify = |token: String| {
         client
-            .post("/api/v2/auth/verify-email")
+            .post("/api/v1/auth/verify-email")
             .header(ContentType::JSON)
             .body(serde_json::json!({ "token": token }).to_string())
             .dispatch()
@@ -1838,7 +1663,7 @@ async fn resent_verification_keeps_earlier_links_working() {
         .await
         .unwrap();
     let reset = client
-        .post("/api/v2/auth/reset-password")
+        .post("/api/v1/auth/reset-password")
         .header(ContentType::JSON)
         .body(
             serde_json::json!({ "token": old_reset, "new_password": "Another-Str0ng-Passphrase!" })
@@ -1859,7 +1684,7 @@ async fn forgot_password_is_always_204_and_does_not_enumerate() {
     );
 
     let resp = client
-        .post("/api/v2/auth/forgot-password")
+        .post("/api/v1/auth/forgot-password")
         .header(ContentType::JSON)
         .body(r#"{"email":"forgotuser@example.test"}"#)
         .dispatch()
@@ -1867,7 +1692,7 @@ async fn forgot_password_is_always_204_and_does_not_enumerate() {
     assert_eq!(resp.status(), Status::NoContent);
 
     let resp = client
-        .post("/api/v2/auth/forgot-password")
+        .post("/api/v1/auth/forgot-password")
         .header(ContentType::JSON)
         .body(r#"{"email":"nobody-here@example.test"}"#)
         .dispatch()
@@ -1919,7 +1744,7 @@ async fn password_reset_token_resets_password_revokes_sessions_and_is_single_use
     );
 
     let resp = client
-        .post("/api/v2/auth/reset-password")
+        .post("/api/v1/auth/reset-password")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"token":"{token}","new_password":"{NEW_TEST_PASSWORD}"}}"#
@@ -1938,7 +1763,7 @@ async fn password_reset_token_resets_password_revokes_sessions_and_is_single_use
     );
 
     let resp = client
-        .post("/api/v2/auth/login")
+        .post("/api/v1/auth/login")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"identifier":"resetuser","password":"{NEW_TEST_PASSWORD}"}}"#
@@ -1949,7 +1774,7 @@ async fn password_reset_token_resets_password_revokes_sessions_and_is_single_use
 
     // Reusing the reset token fails.
     let resp = client
-        .post("/api/v2/auth/reset-password")
+        .post("/api/v1/auth/reset-password")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"token":"{token}","new_password":"Another-New-Password!"}}"#
@@ -1988,7 +1813,7 @@ async fn mfa_setup_confirm_login_and_backup_code_round_trip() {
     );
 
     let resp = client
-        .post("/api/v2/auth/mfa/setup")
+        .post("/api/v1/auth/mfa/setup")
         .header(csrf_header(&client))
         .dispatch()
         .await;
@@ -2005,7 +1830,7 @@ async fn mfa_setup_confirm_login_and_backup_code_round_trip() {
 
     // Wrong code is rejected.
     let resp = client
-        .post("/api/v2/auth/mfa/confirm")
+        .post("/api/v1/auth/mfa/confirm")
         .header(ContentType::JSON)
         .header(csrf_header(&client))
         .body(r#"{"code":"000000"}"#)
@@ -2014,7 +1839,7 @@ async fn mfa_setup_confirm_login_and_backup_code_round_trip() {
     assert_eq!(resp.status(), Status::BadRequest);
 
     let resp = client
-        .post("/api/v2/auth/mfa/confirm")
+        .post("/api/v1/auth/mfa/confirm")
         .header(ContentType::JSON)
         .header(csrf_header(&client))
         .body(format!(r#"{{"code":"{}"}}"#, totp_code_for(&secret)))
@@ -2031,11 +1856,11 @@ async fn mfa_setup_confirm_login_and_backup_code_round_trip() {
         .collect();
     assert_eq!(backup_codes.len(), 10);
 
-    client.post("/api/v2/auth/logout").dispatch().await;
+    client.post("/api/v1/auth/logout").dispatch().await;
 
     // Login now stops at the MFA step.
     let resp = client
-        .post("/api/v2/auth/login")
+        .post("/api/v1/auth/login")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"identifier":"mfauser","password":"{TEST_PASSWORD}"}}"#
@@ -2051,7 +1876,7 @@ async fn mfa_setup_confirm_login_and_backup_code_round_trip() {
 
     // Wrong code fails the second step.
     let resp = client
-        .post("/api/v2/auth/login/mfa")
+        .post("/api/v1/auth/login/mfa")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"pending_token":"{pending_token}","code":"000000"}}"#
@@ -2062,7 +1887,7 @@ async fn mfa_setup_confirm_login_and_backup_code_round_trip() {
 
     // A backup code completes login and is then single-use.
     let resp = client
-        .post("/api/v2/auth/login/mfa")
+        .post("/api/v1/auth/login/mfa")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"pending_token":"{pending_token}","code":"{}"}}"#,
@@ -2077,7 +1902,7 @@ async fn mfa_setup_confirm_login_and_backup_code_round_trip() {
     // The pending_token was consumed by the first successful call above, so
     // reusing it (even with a fresh backup code) fails outright.
     let resp = client
-        .post("/api/v2/auth/login/mfa")
+        .post("/api/v1/auth/login/mfa")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"pending_token":"{pending_token}","code":"{}"}}"#,
@@ -2089,7 +1914,7 @@ async fn mfa_setup_confirm_login_and_backup_code_round_trip() {
 
     // Disabling requires the password and a valid code/backup code.
     let resp = client
-        .post("/api/v2/auth/mfa/disable")
+        .post("/api/v1/auth/mfa/disable")
         .header(ContentType::JSON)
         .header(csrf_header(&client))
         .body(format!(
@@ -2100,7 +1925,7 @@ async fn mfa_setup_confirm_login_and_backup_code_round_trip() {
         .await;
     assert_eq!(resp.status(), Status::NoContent);
 
-    let resp = client.get("/api/v2/auth/mfa/status").dispatch().await;
+    let resp = client.get("/api/v1/auth/mfa/status").dispatch().await;
     let status: serde_json::Value =
         serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(status["enabled"], false);
@@ -2116,12 +1941,12 @@ async fn csrf_header_required_for_cookie_auth_mutations_but_not_api_key() {
     );
 
     // Missing header: rejected.
-    let resp = client.post("/api/v2/auth/mfa/setup").dispatch().await;
+    let resp = client.post("/api/v1/auth/mfa/setup").dispatch().await;
     assert_eq!(resp.status(), Status::Forbidden);
 
     // Wrong header value: rejected.
     let resp = client
-        .post("/api/v2/auth/mfa/setup")
+        .post("/api/v1/auth/mfa/setup")
         .header(Header::new(CSRF_HEADER, "not-the-real-token"))
         .dispatch()
         .await;
@@ -2129,20 +1954,20 @@ async fn csrf_header_required_for_cookie_auth_mutations_but_not_api_key() {
 
     // Correct header: allowed.
     let resp = client
-        .post("/api/v2/auth/mfa/setup")
+        .post("/api/v1/auth/mfa/setup")
         .header(csrf_header(&client))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok);
 
     // A GET (safe method) needs no CSRF header even when cookie-authenticated.
-    let resp = client.get("/api/v2/auth/mfa/status").dispatch().await;
+    let resp = client.get("/api/v1/auth/mfa/status").dispatch().await;
     assert_eq!(resp.status(), Status::Ok);
 
     // PORT-02: token management is session-only now — even with the correct
     // CSRF header, an API token can no longer create another token.
     let resp = client
-        .post("/api/v2/auth/tokens")
+        .post("/api/v1/auth/tokens")
         .header(ContentType::JSON)
         .header(csrf_header(&client))
         .body(r#"{"name":"api-token"}"#)
@@ -2178,12 +2003,12 @@ async fn csrf_header_required_for_cookie_auth_mutations_but_not_api_key() {
     .await
     .unwrap();
 
-    client.post("/api/v2/auth/logout").dispatch().await;
+    client.post("/api/v1/auth/logout").dispatch().await;
 
     // Account-management stays out of reach for a token, with or without a
     // (now absent) session cookie.
     let resp = client
-        .post("/api/v2/auth/tokens")
+        .post("/api/v1/auth/tokens")
         .header(ContentType::JSON)
         .header(Header::new("X-Api-Key", token.clone()))
         .body(r#"{"name":"second-token"}"#)
@@ -2194,7 +2019,7 @@ async fn csrf_header_required_for_cookie_auth_mutations_but_not_api_key() {
     // But X-Api-Key auth on a route it *is* allowed to use is still exempt
     // from CSRF entirely — no cookie, no CSRF header, and it works.
     let resp = client
-        .put(format!("/api/v2/users/{}/follow", target.username))
+        .put(format!("/api/v1/users/{}/follow", target.username))
         .header(Header::new("X-Api-Key", token))
         .dispatch()
         .await;
@@ -2224,7 +2049,7 @@ async fn set_password_only_works_once_for_passwordless_accounts() {
 
     // change_password refuses; set_password succeeds exactly once.
     let resp = client
-        .post("/api/v2/auth/password")
+        .post("/api/v1/auth/password")
         .header(ContentType::JSON)
         .header(csrf_header(&client))
         .body(format!(
@@ -2235,7 +2060,7 @@ async fn set_password_only_works_once_for_passwordless_accounts() {
     assert_eq!(resp.status(), Status::BadRequest);
 
     let resp = client
-        .post("/api/v2/auth/set-password")
+        .post("/api/v1/auth/set-password")
         .header(ContentType::JSON)
         .header(csrf_header(&client))
         .body(format!(r#"{{"new_password":"{NEW_TEST_PASSWORD}"}}"#))
@@ -2244,7 +2069,7 @@ async fn set_password_only_works_once_for_passwordless_accounts() {
     assert_eq!(resp.status(), Status::NoContent);
 
     let resp = client
-        .post("/api/v2/auth/set-password")
+        .post("/api/v1/auth/set-password")
         .header(ContentType::JSON)
         .header(csrf_header(&client))
         .body(r#"{"new_password":"Yet-Another-Password!"}"#)
@@ -2259,7 +2084,7 @@ async fn sessions_record_user_agent_and_ip() {
     let client = test_client(dir.path()).await;
 
     let resp = client
-        .post("/api/v2/auth/register")
+        .post("/api/v1/auth/register")
         .header(ContentType::JSON)
         .header(Header::new("User-Agent", "test-agent/1.0"))
         .body(format!(
@@ -2269,7 +2094,7 @@ async fn sessions_record_user_agent_and_ip() {
         .await;
     assert_eq!(resp.status(), Status::Ok);
 
-    let resp = client.get("/api/v2/auth/sessions").dispatch().await;
+    let resp = client.get("/api/v1/auth/sessions").dispatch().await;
     let sessions: serde_json::Value =
         serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(sessions[0]["user_agent"], "test-agent/1.0");
@@ -2281,7 +2106,7 @@ async fn sessions_record_user_agent_and_ip() {
 async fn studio_link_polling_covers_advertised_lifetime() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
-    let start = client.post("/api/v2/auth/studio-link").dispatch().await;
+    let start = client.post("/api/v1/auth/studio-link").dispatch().await;
     assert_eq!(start.status(), Status::Ok);
     let link: serde_json::Value =
         serde_json::from_str(&start.into_string().await.unwrap()).unwrap();
@@ -2294,7 +2119,7 @@ async fn studio_link_polling_covers_advertised_lifetime() {
     // Studio polls every two seconds for a ten-minute request lifetime.
     for _ in 0..300 {
         let poll = client
-            .post("/api/v2/auth/studio-link/poll")
+            .post("/api/v1/auth/studio-link/poll")
             .header(ContentType::JSON)
             .body(request.clone())
             .dispatch()
@@ -2310,7 +2135,7 @@ async fn studio_link_approve_requires_the_code_shown_in_studio() {
     // is enough to phish a token.
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
-    let start = client.post("/api/v2/auth/studio-link").dispatch().await;
+    let start = client.post("/api/v1/auth/studio-link").dispatch().await;
     let link: serde_json::Value =
         serde_json::from_str(&start.into_string().await.unwrap()).unwrap();
     let request_id = link["request_id"].as_str().unwrap().to_string();
@@ -2325,7 +2150,7 @@ async fn studio_link_approve_requires_the_code_shown_in_studio() {
 
     // Wrong code: rejected, request stays open.
     let resp = client
-        .post(format!("/api/v2/auth/studio-link/{request_id}/approve"))
+        .post(format!("/api/v1/auth/studio-link/{request_id}/approve"))
         .header(ContentType::JSON)
         .header(csrf_header(&client))
         .body(r#"{"code":"0000-0000"}"#)
@@ -2335,7 +2160,7 @@ async fn studio_link_approve_requires_the_code_shown_in_studio() {
 
     // Correct code (case/formatting insensitive): approved.
     let resp = client
-        .post(format!("/api/v2/auth/studio-link/{request_id}/approve"))
+        .post(format!("/api/v1/auth/studio-link/{request_id}/approve"))
         .header(ContentType::JSON)
         .header(csrf_header(&client))
         .body(serde_json::json!({ "code": user_code.to_ascii_lowercase() }).to_string())
@@ -2344,7 +2169,7 @@ async fn studio_link_approve_requires_the_code_shown_in_studio() {
     assert_eq!(resp.status(), Status::Ok);
 
     let poll = client
-        .post("/api/v2/auth/studio-link/poll")
+        .post("/api/v1/auth/studio-link/poll")
         .header(ContentType::JSON)
         .body(
             serde_json::json!({ "request_id": request_id, "poll_secret": poll_secret }).to_string(),
@@ -2361,7 +2186,7 @@ async fn studio_link_approve_requires_the_code_shown_in_studio() {
 async fn studio_link_approve_locks_out_after_too_many_wrong_codes() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
-    let start = client.post("/api/v2/auth/studio-link").dispatch().await;
+    let start = client.post("/api/v1/auth/studio-link").dispatch().await;
     let link: serde_json::Value =
         serde_json::from_str(&start.into_string().await.unwrap()).unwrap();
     let request_id = link["request_id"].as_str().unwrap().to_string();
@@ -2374,7 +2199,7 @@ async fn studio_link_approve_locks_out_after_too_many_wrong_codes() {
 
     for _ in 0..5 {
         let resp = client
-            .post(format!("/api/v2/auth/studio-link/{request_id}/approve"))
+            .post(format!("/api/v1/auth/studio-link/{request_id}/approve"))
             .header(ContentType::JSON)
             .header(csrf_header(&client))
             .body(r#"{"code":"0000-0000"}"#)
@@ -2385,7 +2210,7 @@ async fn studio_link_approve_locks_out_after_too_many_wrong_codes() {
 
     // The request is now cancelled — even the *correct* code no longer works.
     let resp = client
-        .post(format!("/api/v2/auth/studio-link/{request_id}/approve"))
+        .post(format!("/api/v1/auth/studio-link/{request_id}/approve"))
         .header(ContentType::JSON)
         .header(csrf_header(&client))
         .body(serde_json::json!({ "code": user_code }).to_string())
@@ -2404,10 +2229,10 @@ async fn audit_log_records_login_and_password_change() {
         register(&client, "audituser", TEST_PASSWORD).await,
         Status::Ok
     );
-    client.post("/api/v2/auth/logout").dispatch().await;
+    client.post("/api/v1/auth/logout").dispatch().await;
 
     let resp = client
-        .post("/api/v2/auth/login")
+        .post("/api/v1/auth/login")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"identifier":"audituser","password":"{TEST_PASSWORD}"}}"#
@@ -2417,7 +2242,7 @@ async fn audit_log_records_login_and_password_change() {
     assert_eq!(resp.status(), Status::Ok);
 
     let resp = client
-        .post("/api/v2/auth/password")
+        .post("/api/v1/auth/password")
         .header(ContentType::JSON)
         .header(csrf_header(&client))
         .body(format!(
@@ -2427,7 +2252,7 @@ async fn audit_log_records_login_and_password_change() {
         .await;
     assert_eq!(resp.status(), Status::NoContent);
 
-    let resp = client.get("/api/v2/auth/audit-log").dispatch().await;
+    let resp = client.get("/api/v1/auth/audit-log").dispatch().await;
     assert_eq!(resp.status(), Status::Ok);
     let entries: serde_json::Value =
         serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
@@ -2443,7 +2268,7 @@ async fn audit_log_records_login_and_password_change() {
 }
 
 #[rocket::async_test]
-async fn account_deletion_reassigns_carts_to_legacy_and_wipes_account() {
+async fn account_deletion_keeps_carts_ownerless_and_wipes_account() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
     assert_eq!(
@@ -2452,7 +2277,7 @@ async fn account_deletion_reassigns_carts_to_legacy_and_wipes_account() {
     );
 
     let resp = client
-        .post("/api/carts")
+        .post("/api/v1/carts")
         .header(csrf_header(&client))
         .header(multipart_content_type())
         .body(multipart_body(
@@ -2466,7 +2291,7 @@ async fn account_deletion_reassigns_carts_to_legacy_and_wipes_account() {
     let id = cart["id"].as_str().unwrap().to_string();
 
     let resp = client
-        .delete("/api/v2/auth/account")
+        .delete("/api/v1/auth/account")
         .header(ContentType::JSON)
         .header(csrf_header(&client))
         .body(format!(r#"{{"current_password":"{TEST_PASSWORD}"}}"#))
@@ -2474,14 +2299,20 @@ async fn account_deletion_reassigns_carts_to_legacy_and_wipes_account() {
         .await;
     assert_eq!(resp.status(), Status::NoContent);
 
-    let resp = client.get(format!("/api/v2/carts/{id}")).dispatch().await;
+    let resp = client.get(format!("/api/v1/carts/{id}")).dispatch().await;
     let detail: serde_json::Value =
         serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
-    assert_eq!(detail["owner"], "legacy");
+    assert_eq!(detail["owner"], serde_json::Value::Null);
+    assert_eq!(detail["author"], "[deleted]");
+
+    // Nobody can pass the deleted account's cart off as their own.
+    let thief = register_get_token_and_logout(&client, "thief").await;
+    let resp = upload(&client, &thief, &sample_cart(), r#"{"title":"Mine now"}"#).await;
+    assert_eq!(resp.status(), Status::Conflict);
 
     // The account no longer exists.
     let resp = client
-        .post("/api/v2/auth/login")
+        .post("/api/v1/auth/login")
         .header(ContentType::JSON)
         .body(format!(
             r#"{{"identifier":"deleteme","password":"{TEST_PASSWORD}"}}"#
@@ -2501,7 +2332,7 @@ async fn data_export_includes_profile_and_owned_carts() {
     );
 
     let resp = client
-        .post("/api/carts")
+        .post("/api/v1/carts")
         .header(csrf_header(&client))
         .header(multipart_content_type())
         .body(multipart_body(
@@ -2512,7 +2343,7 @@ async fn data_export_includes_profile_and_owned_carts() {
         .await;
     assert_eq!(resp.status(), Status::Ok);
 
-    let resp = client.get("/api/v2/auth/export").dispatch().await;
+    let resp = client.get("/api/v1/auth/export").dispatch().await;
     assert_eq!(resp.status(), Status::Ok);
     let export: serde_json::Value =
         serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
@@ -2533,7 +2364,7 @@ async fn webauthn_login_start_400_when_not_configured() {
     // Test PortState has no CAIVEN_BASE_URL, so webauthn is unconfigured
     // regardless of whether the account has passkeys.
     let resp = client
-        .post("/api/v2/auth/webauthn/login/start")
+        .post("/api/v1/auth/webauthn/login/start")
         .header(ContentType::JSON)
         .body(r#"{"identifier":"nopasskeys"}"#)
         .dispatch()
@@ -2547,7 +2378,7 @@ async fn webauthn_login_start_is_rate_limited() {
     let client = test_client(dir.path()).await;
     for _ in 0..10 {
         let response = client
-            .post("/api/v2/auth/webauthn/login/start")
+            .post("/api/v1/auth/webauthn/login/start")
             .header(ContentType::JSON)
             .body(r#"{"identifier":"unknown"}"#)
             .dispatch()
@@ -2555,7 +2386,7 @@ async fn webauthn_login_start_is_rate_limited() {
         assert_eq!(response.status(), Status::BadRequest);
     }
     let response = client
-        .post("/api/v2/auth/webauthn/login/start")
+        .post("/api/v1/auth/webauthn/login/start")
         .header(ContentType::JSON)
         .body(r#"{"identifier":"unknown"}"#)
         .dispatch()
@@ -2602,7 +2433,7 @@ async fn passkey_list_and_delete_are_owner_scoped() {
     // no longer accept at all).
     async fn login(client: &Client, username: &str) {
         let resp = client
-            .post("/api/v2/auth/login")
+            .post("/api/v1/auth/login")
             .header(ContentType::JSON)
             .body(format!(
                 r#"{{"identifier":"{username}","password":"{TEST_PASSWORD}"}}"#
@@ -2616,12 +2447,12 @@ async fn passkey_list_and_delete_are_owner_scoped() {
         register(&client, "pkowner", TEST_PASSWORD).await,
         Status::Ok
     );
-    client.post("/api/v2/auth/logout").dispatch().await;
+    client.post("/api/v1/auth/logout").dispatch().await;
     assert_eq!(
         register(&client, "pkother", TEST_PASSWORD).await,
         Status::Ok
     );
-    client.post("/api/v2/auth/logout").dispatch().await;
+    client.post("/api/v1/auth/logout").dispatch().await;
 
     let state = client.rocket().state::<PortState>().unwrap();
     let owner = users::Entity::find()
@@ -2645,33 +2476,33 @@ async fn passkey_list_and_delete_are_owner_scoped() {
 
     login(&client, "pkowner").await;
     let resp = client
-        .get("/api/v2/auth/webauthn/credentials")
+        .get("/api/v1/auth/webauthn/credentials")
         .dispatch()
         .await;
     let list: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(list.as_array().unwrap().len(), 1);
     assert_eq!(list[0]["label"], "Test key");
-    client.post("/api/v2/auth/logout").dispatch().await;
+    client.post("/api/v1/auth/logout").dispatch().await;
 
     login(&client, "pkother").await;
     let resp = client
-        .get("/api/v2/auth/webauthn/credentials")
+        .get("/api/v1/auth/webauthn/credentials")
         .dispatch()
         .await;
     let list: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     assert_eq!(list.as_array().unwrap().len(), 0);
 
     let resp = client
-        .delete(format!("/api/v2/auth/webauthn/credentials/{cred_id}"))
+        .delete(format!("/api/v1/auth/webauthn/credentials/{cred_id}"))
         .header(csrf_header(&client))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::NotFound);
-    client.post("/api/v2/auth/logout").dispatch().await;
+    client.post("/api/v1/auth/logout").dispatch().await;
 
     login(&client, "pkowner").await;
     let resp = client
-        .delete(format!("/api/v2/auth/webauthn/credentials/{cred_id}"))
+        .delete(format!("/api/v1/auth/webauthn/credentials/{cred_id}"))
         .header(csrf_header(&client))
         .dispatch()
         .await;
@@ -2685,21 +2516,21 @@ async fn admin_users_requires_authentication_then_admin() {
     let dir = tempfile::tempdir().unwrap();
     let client = test_client(dir.path()).await;
 
-    let resp = client.get("/api/v2/admin/users").dispatch().await;
+    let resp = client.get("/api/v1/admin/users").dispatch().await;
     assert_eq!(resp.status(), Status::Unauthorized);
 
     let founder_token = register_get_token_and_logout(&client, "founder").await;
     let member_token = register_get_token_and_logout(&client, "member").await;
 
     let resp = client
-        .get("/api/v2/admin/users")
+        .get("/api/v1/admin/users")
         .header(Header::new("X-Api-Key", member_token))
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Forbidden);
 
     let resp = client
-        .get("/api/v2/admin/users")
+        .get("/api/v1/admin/users")
         .header(Header::new("X-Api-Key", founder_token))
         .dispatch()
         .await;
@@ -2718,7 +2549,7 @@ async fn admin_user_search_is_case_insensitive() {
 
     for q in ["GIGA", "giga", "GiGa"] {
         let resp = client
-            .get(format!("/api/v2/admin/users?q={q}"))
+            .get(format!("/api/v1/admin/users?q={q}"))
             .header(Header::new("X-Api-Key", founder_token.clone()))
             .dispatch()
             .await;
@@ -2739,7 +2570,7 @@ async fn admin_mutation_routes_require_authentication_then_admin() {
     let member_token = register_get_token_and_logout(&client, "member").await;
 
     let resp = client
-        .get("/api/v2/admin/users?q=member")
+        .get("/api/v1/admin/users?q=member")
         .header(Header::new("X-Api-Key", founder_token.clone()))
         .dispatch()
         .await;
@@ -2748,12 +2579,12 @@ async fn admin_mutation_routes_require_authentication_then_admin() {
 
     for (path, body) in [
         (
-            format!("/api/v2/admin/users/{member_id}/ban"),
+            format!("/api/v1/admin/users/{member_id}/ban"),
             Some(r#"{"reason":"x"}"#),
         ),
-        (format!("/api/v2/admin/users/{member_id}/unban"), None),
-        (format!("/api/v2/admin/users/{member_id}/promote"), None),
-        (format!("/api/v2/admin/users/{member_id}/demote"), None),
+        (format!("/api/v1/admin/users/{member_id}/unban"), None),
+        (format!("/api/v1/admin/users/{member_id}/promote"), None),
+        (format!("/api/v1/admin/users/{member_id}/demote"), None),
     ] {
         let mut req = client.post(path.clone()).header(ContentType::JSON);
         if let Some(b) = body {
@@ -2790,14 +2621,14 @@ async fn cannot_zero_out_admins_via_ban_then_self_demote() {
     register_get_token_and_logout(&client, "second").await;
 
     let resp = client
-        .get("/api/v2/admin/users?q=second")
+        .get("/api/v1/admin/users?q=second")
         .header(Header::new("X-Api-Key", founder_token.clone()))
         .dispatch()
         .await;
     let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     let second_id = body["users"][0]["id"].as_str().unwrap().to_string();
     let resp = client
-        .post(format!("/api/v2/admin/users/{second_id}/promote"))
+        .post(format!("/api/v1/admin/users/{second_id}/promote"))
         .header(Header::new("X-Api-Key", founder_token.clone()))
         .dispatch()
         .await;
@@ -2806,7 +2637,7 @@ async fn cannot_zero_out_admins_via_ban_then_self_demote() {
     // `founder` bans the other admin, `second` — leaving `founder` as the
     // only *functional* admin even though both rows still say is_admin.
     let resp = client
-        .post(format!("/api/v2/admin/users/{second_id}/ban"))
+        .post(format!("/api/v1/admin/users/{second_id}/ban"))
         .header(Header::new("X-Api-Key", founder_token.clone()))
         .header(ContentType::JSON)
         .body(r#"{"reason":"test"}"#)
@@ -2817,14 +2648,14 @@ async fn cannot_zero_out_admins_via_ban_then_self_demote() {
     // `founder` must not be allowed to demote themselves now — doing so
     // would leave zero admins anyone can actually log in as.
     let resp = client
-        .get("/api/v2/admin/users?q=founder")
+        .get("/api/v1/admin/users?q=founder")
         .header(Header::new("X-Api-Key", founder_token.clone()))
         .dispatch()
         .await;
     let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     let founder_id = body["users"][0]["id"].as_str().unwrap().to_string();
     let resp = client
-        .post(format!("/api/v2/admin/users/{founder_id}/demote"))
+        .post(format!("/api/v1/admin/users/{founder_id}/demote"))
         .header(Header::new("X-Api-Key", founder_token))
         .dispatch()
         .await;
@@ -2843,7 +2674,7 @@ async fn ban_user_forces_logout_and_blocks_future_auth() {
     // checked without cross-contaminating the shared cookie jar.
     assert_eq!(register(&client, "member", TEST_PASSWORD).await, Status::Ok);
     let resp = client
-        .post("/api/v2/auth/tokens")
+        .post("/api/v1/auth/tokens")
         .header(ContentType::JSON)
         .header(csrf_header(&client))
         .body(r#"{"name":"test"}"#)
@@ -2853,12 +2684,12 @@ async fn ban_user_forces_logout_and_blocks_future_auth() {
     let body: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     let member_token = body["token"].as_str().unwrap().to_string();
 
-    let resp = client.get("/api/v2/auth/me").dispatch().await;
+    let resp = client.get("/api/v1/auth/me").dispatch().await;
     let me: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
     let member_id = me["id"].as_str().unwrap().to_string();
 
     let resp = client
-        .post(format!("/api/v2/admin/users/{member_id}/ban"))
+        .post(format!("/api/v1/admin/users/{member_id}/ban"))
         .header(Header::new("X-Api-Key", founder_token))
         .header(ContentType::JSON)
         .body(r#"{"reason":"spam"}"#)
@@ -2867,13 +2698,13 @@ async fn ban_user_forces_logout_and_blocks_future_auth() {
     assert_eq!(resp.status(), Status::Ok);
 
     // Cookie session was force-deleted by the ban.
-    let resp = client.get("/api/v2/auth/me").dispatch().await;
+    let resp = client.get("/api/v1/auth/me").dispatch().await;
     assert_eq!(resp.status(), Status::Unauthorized);
 
     // The API token still exists but is now rejected because the account is
     // banned.
     let resp = client
-        .get("/api/v2/auth/me")
+        .get("/api/v1/auth/me")
         .header(Header::new("X-Api-Key", member_token))
         .dispatch()
         .await;
@@ -2887,7 +2718,7 @@ async fn last_admin_cannot_be_demoted() {
 
     let founder_token = register_get_token_and_logout(&client, "founder").await;
     let resp = client
-        .get("/api/v2/admin/users")
+        .get("/api/v1/admin/users")
         .header(Header::new("X-Api-Key", founder_token.clone()))
         .dispatch()
         .await;
@@ -2895,7 +2726,7 @@ async fn last_admin_cannot_be_demoted() {
     let founder_id = body["users"][0]["id"].as_str().unwrap().to_string();
 
     let resp = client
-        .post(format!("/api/v2/admin/users/{founder_id}/demote"))
+        .post(format!("/api/v1/admin/users/{founder_id}/demote"))
         .header(Header::new("X-Api-Key", founder_token))
         .dispatch()
         .await;
@@ -2911,7 +2742,7 @@ async fn promote_then_demote_second_admin() {
     let member_token = register_get_token_and_logout(&client, "member").await;
 
     let resp = client
-        .get("/api/v2/admin/users?q=member")
+        .get("/api/v1/admin/users?q=member")
         .header(Header::new("X-Api-Key", founder_token.clone()))
         .dispatch()
         .await;
@@ -2919,7 +2750,7 @@ async fn promote_then_demote_second_admin() {
     let member_id = body["users"][0]["id"].as_str().unwrap().to_string();
 
     let resp = client
-        .post(format!("/api/v2/admin/users/{member_id}/promote"))
+        .post(format!("/api/v1/admin/users/{member_id}/promote"))
         .header(Header::new("X-Api-Key", founder_token.clone()))
         .dispatch()
         .await;
@@ -2929,7 +2760,7 @@ async fn promote_then_demote_second_admin() {
 
     // Promoting an already-admin user is idempotent: still 200/true.
     let resp = client
-        .post(format!("/api/v2/admin/users/{member_id}/promote"))
+        .post(format!("/api/v1/admin/users/{member_id}/promote"))
         .header(Header::new("X-Api-Key", founder_token.clone()))
         .dispatch()
         .await;
@@ -2940,7 +2771,7 @@ async fn promote_then_demote_second_admin() {
     // Now `member` is also an admin, so `founder` can be demoted without
     // leaving the port admin-less.
     let resp = client
-        .get("/api/v2/admin/users?q=founder")
+        .get("/api/v1/admin/users?q=founder")
         .header(Header::new("X-Api-Key", member_token.clone()))
         .dispatch()
         .await;
@@ -2948,7 +2779,7 @@ async fn promote_then_demote_second_admin() {
     let founder_id = body["users"][0]["id"].as_str().unwrap().to_string();
 
     let resp = client
-        .post(format!("/api/v2/admin/users/{founder_id}/demote"))
+        .post(format!("/api/v1/admin/users/{founder_id}/demote"))
         .header(Header::new("X-Api-Key", member_token))
         .dispatch()
         .await;
@@ -2963,14 +2794,14 @@ async fn json_of(response: rocket::local::asynchronous::LocalResponse<'_>) -> se
 }
 
 async fn cart_detail(client: &Client, id: &str) -> serde_json::Value {
-    let response = client.get(format!("/api/v2/carts/{id}")).dispatch().await;
+    let response = client.get(format!("/api/v1/carts/{id}")).dispatch().await;
     assert_eq!(response.status(), Status::Ok);
     json_of(response).await
 }
 
 async fn set_remixable(client: &Client, token: &str, id: &str, remixable: bool) {
     let response = client
-        .patch(format!("/api/v2/carts/{id}"))
+        .patch(format!("/api/v1/carts/{id}"))
         .header(Header::new("X-Api-Key", token.to_string()))
         .header(ContentType::JSON)
         .body(serde_json::json!({ "remixable": remixable }).to_string())
@@ -3001,7 +2832,7 @@ async fn record_funnel_with(
     who: Header<'static>,
 ) -> Status {
     client
-        .post(format!("/api/v2/carts/{id}/funnel"))
+        .post(format!("/api/v1/carts/{id}/funnel"))
         .header(ContentType::JSON)
         .header(who)
         .body(serde_json::json!({ "event": event }).to_string())
@@ -3012,7 +2843,7 @@ async fn record_funnel_with(
 
 async fn remix_funnel(client: &Client, token: &str, query: &str) -> serde_json::Value {
     let response = client
-        .get(format!("/api/v2/admin/metrics/remix-funnel{query}"))
+        .get(format!("/api/v1/admin/metrics/remix-funnel{query}"))
         .header(Header::new("X-Api-Key", token.to_string()))
         .dispatch()
         .await;
@@ -3105,7 +2936,7 @@ async fn remix_lineage_requires_opt_in_and_survives_versions() {
 
     // A later version of the child keeps its lineage.
     let version = client
-        .post(format!("/api/v2/carts/{child_id}/versions"))
+        .post(format!("/api/v1/carts/{child_id}/versions"))
         .header(Header::new("X-Api-Key", remixer.clone()))
         .header(multipart_content_type())
         .body(multipart_body(
@@ -3123,7 +2954,7 @@ async fn remix_lineage_requires_opt_in_and_survives_versions() {
 
     // Deleting the parent keeps the structured link, minus the parent ref.
     let deleted = client
-        .delete(format!("/api/v2/carts/{parent_id}"))
+        .delete(format!("/api/v1/carts/{parent_id}"))
         .header(Header::new("X-Api-Key", owner.clone()))
         .dispatch()
         .await;
@@ -3255,7 +3086,7 @@ async fn remix_lineage_cannot_be_forged() {
 
     // A cart can't be re-parented, and nobody else can edit it.
     let repoint = client
-        .patch(format!("/api/v2/carts/{b_id}"))
+        .patch(format!("/api/v1/carts/{b_id}"))
         .header(Header::new("X-Api-Key", other.clone()))
         .header(ContentType::JSON)
         .body(serde_json::json!({ "parent_cart_id": unrelated_id }).to_string())
@@ -3267,7 +3098,7 @@ async fn remix_lineage_cannot_be_forged() {
         a_id.as_str()
     );
     let hijack = client
-        .patch(format!("/api/v2/carts/{b_id}"))
+        .patch(format!("/api/v1/carts/{b_id}"))
         .header(Header::new("X-Api-Key", remixer.clone()))
         .header(ContentType::JSON)
         .body(serde_json::json!({ "remixable": false }).to_string())
@@ -3277,7 +3108,7 @@ async fn remix_lineage_cannot_be_forged() {
 
     // Remixing requires an account.
     let anonymous = client
-        .post("/api/v2/carts")
+        .post("/api/v1/carts")
         .header(multipart_content_type())
         .body(multipart_body(
             &build_cart(&[3u8; 64]),
@@ -3338,7 +3169,7 @@ async fn funnel_events_dedup_per_viewer_and_feed_admin_metrics() {
     );
 
     let forbidden = client
-        .get("/api/v2/admin/metrics/remix-funnel")
+        .get("/api/v1/admin/metrics/remix-funnel")
         .header(Header::new("X-Api-Key", creator.clone()))
         .dispatch()
         .await;
@@ -3416,7 +3247,7 @@ async fn funnel_events_dedup_per_viewer_and_feed_admin_metrics() {
     assert_eq!(later["carts_published"], 0);
     assert_eq!(later["by_cart"].as_array().unwrap().len(), 0);
     let bad = client
-        .get("/api/v2/admin/metrics/remix-funnel?since=yesterday")
+        .get("/api/v1/admin/metrics/remix-funnel?since=yesterday")
         .header(Header::new("X-Api-Key", admin.clone()))
         .dispatch()
         .await;
@@ -3589,7 +3420,7 @@ async fn list_sorts_by_remix_activity() {
         let client = &client;
         async move {
             let body = client
-                .get(format!("/api/v2/carts?sort={sort}"))
+                .get(format!("/api/v1/carts?sort={sort}"))
                 .dispatch()
                 .await
                 .into_string()

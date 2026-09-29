@@ -1,14 +1,13 @@
 use rocket::{
     FromForm, State, data::Capped, form::Form, fs::TempFile, get, post, serde::json::Json,
 };
-use sea_orm::{ActiveModelTrait, ConnectionTrait, DatabaseBackend, Set, Statement};
 
 use super::{BinaryFile, safe_filename, valid_id};
 use crate::{
     PortState,
     auth::AuthUser,
     db,
-    entities::{cart_blobs, cart_versions},
+    entities::cart_versions,
     error::ApiError,
     handlers::carts::{read_and_validate_cart_upload, require_owner},
     models::{CartPatch, CartVersionInfo, VersionMeta},
@@ -32,76 +31,9 @@ async fn resolve_version(
     found.ok_or_else(|| ApiError::not_found("version not found"))
 }
 
-async fn legacy_cart_path(state: &PortState, version_id: &str) -> Result<Option<String>, ApiError> {
-    let backend = state.db.get_database_backend();
-    let sql = match backend {
-        DatabaseBackend::Postgres => "SELECT legacy_cart_path FROM cart_versions WHERE id = $1",
-        _ => "SELECT legacy_cart_path FROM cart_versions WHERE id = ?",
-    };
-    let row = state
-        .db
-        .query_one_raw(Statement::from_sql_and_values(
-            backend,
-            sql,
-            [version_id.into()],
-        ))
-        .await
-        .map_err(ApiError::from)?;
-    match row {
-        Some(row) => row
-            .try_get::<Option<String>>("", "legacy_cart_path")
-            .map_err(ApiError::from),
-        None => Ok(None),
-    }
-}
-
-async fn read_legacy_cart(
-    state: &PortState,
-    v: &cart_versions::Model,
-) -> Result<Vec<u8>, ApiError> {
-    let rel = legacy_cart_path(state, &v.id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("cart not found"))?;
-    let root = crate::legacy_data_dir().ok_or_else(|| ApiError::not_found("cart not found"))?;
-    tokio::fs::read(root.join(rel))
-        .await
-        .map_err(|_| ApiError::not_found("cart not found"))
-}
-
-async fn cart_bytes(state: &PortState, v: &cart_versions::Model) -> Result<Vec<u8>, ApiError> {
-    match db::get_cart_blob(&state.db, &v.id).await? {
-        Some(bytes) => Ok(bytes),
-        None => read_legacy_cart(state, v).await,
-    }
-}
-
-fn legacy_screenshot_rel_path(cart_id: &str, version: i32) -> String {
-    if version <= 1 {
-        format!("screenshots/{cart_id}.png")
-    } else {
-        format!("screenshots/{cart_id}-v{version}.png")
-    }
-}
-
-async fn ensure_cart_blob(state: &PortState, v: &cart_versions::Model) -> Result<(), ApiError> {
-    if db::get_cart_blob(&state.db, &v.id).await?.is_some() {
-        return Ok(());
-    }
-
-    let bytes = read_legacy_cart(state, v).await?;
-    cart_blobs::ActiveModel {
-        version_id: Set(v.id.clone()),
-        cart_data: Set(bytes),
-        screenshot_data: Set(None),
-    }
-    .insert(&state.db)
-    .await
-    .map_err(ApiError::from)?;
-    Ok(())
-}
-
-pub(crate) async fn download_cart_impl(
-    state: &PortState,
+#[get("/api/v1/carts/<id>/cart?<version>")]
+pub async fn download_cart(
+    state: &State<PortState>,
     id: &str,
     version: Option<i32>,
 ) -> Result<BinaryFile, ApiError> {
@@ -109,7 +41,9 @@ pub(crate) async fn download_cart_impl(
         return Err(ApiError::bad_request("invalid id"));
     }
     let v = resolve_version(state, id, version).await?;
-    let bytes = cart_bytes(state, &v).await?;
+    let bytes = db::get_cart_blob(&state.db, &v.id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("cart not found"))?;
 
     let title = db::get(&state.db, id)
         .await
@@ -128,8 +62,9 @@ pub(crate) async fn download_cart_impl(
     })
 }
 
-pub(crate) async fn get_screenshot_impl(
-    state: &PortState,
+#[get("/api/v1/carts/<id>/screenshot?<version>")]
+pub async fn get_screenshot(
+    state: &State<PortState>,
     id: &str,
     version: Option<i32>,
 ) -> Result<BinaryFile, ApiError> {
@@ -137,19 +72,9 @@ pub(crate) async fn get_screenshot_impl(
         return Err(ApiError::bad_request("invalid id"));
     }
     let v = resolve_version(state, id, version).await?;
-    if !v.has_screenshot {
-        return Err(ApiError::not_found("screenshot not found"));
-    }
-    let bytes = match db::get_screenshot_blob(&state.db, &v.id).await? {
-        Some(bytes) => bytes,
-        None => {
-            let root = crate::legacy_data_dir()
-                .ok_or_else(|| ApiError::not_found("screenshot not found"))?;
-            tokio::fs::read(root.join(legacy_screenshot_rel_path(id, v.version)))
-                .await
-                .map_err(|_| ApiError::not_found("screenshot not found"))?
-        }
-    };
+    let bytes = db::get_screenshot_blob(&state.db, &v.id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("screenshot not found"))?;
 
     Ok(BinaryFile {
         content_type: "image/png",
@@ -164,9 +89,10 @@ pub struct ScreenshotUpload<'v> {
     pub screenshot: Capped<TempFile<'v>>,
 }
 
-pub(crate) async fn upload_screenshot_impl(
-    state: &PortState,
-    user: &AuthUser,
+#[post("/api/v1/carts/<id>/screenshot?<version>", data = "<upload>")]
+pub async fn upload_screenshot(
+    user: AuthUser,
+    state: &State<PortState>,
     id: &str,
     version: Option<i32>,
     upload: Form<ScreenshotUpload<'_>>,
@@ -177,7 +103,7 @@ pub(crate) async fn upload_screenshot_impl(
     let cart = db::get_cart_model(&state.db, id)
         .await?
         .ok_or_else(|| ApiError::not_found("cart not found"))?;
-    require_owner(user, &cart)?;
+    require_owner(&user, &cart)?;
     let v = resolve_version(state, id, version).await?;
 
     if !upload.screenshot.is_complete() || upload.screenshot.n.written > 512 * 1024 {
@@ -198,16 +124,11 @@ pub(crate) async fn upload_screenshot_impl(
         return Err(ApiError::bad_request("must be a PNG"));
     }
 
-    // A pre-blob version needs its on-disk cartridge copied into a blob row
-    // before the existing atomic screenshot update can target that row.
-    ensure_cart_blob(state, &v).await?;
     db::set_screenshot(&state.db, &v.id, &bytes).await?;
     Ok(())
 }
 
-// ── v2 routes ───────────────────────────────────────────────────────────────
-
-#[post("/api/v2/carts/<id>/versions", data = "<upload>")]
+#[post("/api/v1/carts/<id>/versions", data = "<upload>")]
 pub async fn create_version(
     user: AuthUser,
     state: &State<PortState>,
@@ -231,9 +152,10 @@ pub async fn create_version(
         serde_json::from_str(&upload.meta)?
     };
 
-    let owner_id = cart.owner_id.as_deref().unwrap_or(db::LEGACY_USER_ID);
-    if let Some((title, author)) =
-        db::find_other_owner_by_content_hash(&state.db, &content_hash, owner_id, false).await?
+    // An admin versioning a deleted account's cart has no owner to compare.
+    if let Some(owner_id) = &cart.owner_id
+        && let Some((title, author)) =
+            db::find_other_owner_by_content_hash(&state.db, &content_hash, owner_id, false).await?
     {
         return Err(ApiError::conflict(format!(
             "This cart's content matches an existing published cart \"{title}\" by {author}"
@@ -246,7 +168,7 @@ pub async fn create_version(
         &meta.changelog,
         &user.username,
         &bytes,
-        Some(&content_hash),
+        &content_hash,
     )
     .await?;
     if meta.remixable.is_some() {
@@ -262,33 +184,4 @@ pub async fn create_version(
         .await?
         .ok_or_else(|| ApiError::internal("insert failed"))?;
     Ok(Json(CartVersionInfo::from(v)))
-}
-
-#[get("/api/v2/carts/<id>/cart?<version>")]
-pub async fn download_cart(
-    state: &State<PortState>,
-    id: &str,
-    version: Option<i32>,
-) -> Result<BinaryFile, ApiError> {
-    download_cart_impl(state, id, version).await
-}
-
-#[post("/api/v2/carts/<id>/screenshot?<version>", data = "<upload>")]
-pub async fn upload_screenshot(
-    user: AuthUser,
-    state: &State<PortState>,
-    id: &str,
-    version: Option<i32>,
-    upload: Form<ScreenshotUpload<'_>>,
-) -> Result<(), ApiError> {
-    upload_screenshot_impl(state, &user, id, version, upload).await
-}
-
-#[get("/api/v2/carts/<id>/screenshot?<version>")]
-pub async fn get_screenshot(
-    state: &State<PortState>,
-    id: &str,
-    version: Option<i32>,
-) -> Result<BinaryFile, ApiError> {
-    get_screenshot_impl(state, id, version).await
 }

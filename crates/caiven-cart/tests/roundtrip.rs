@@ -5,20 +5,24 @@
 
 use std::path::PathBuf;
 
-use caiven_cart::{CartError, CartHeader, MAX_CART_BYTES, SectionKind, load, packed_len, write};
+use caiven_cart::{
+    CartError, CartHeader, MAX_CART_BYTES, SectionKind, content_hash, load, pack, packed_len, write,
+};
 
-/// Write a cart with one program and two asset sections, return its path.
+fn lua(source: &str) -> (SectionKind, Vec<u8>) {
+    (SectionKind::LuaSource, source.as_bytes().to_vec())
+}
+
+/// Write a cart with Lua source and two asset sections, return its path.
 fn write_sample(dir: &tempfile::TempDir) -> PathBuf {
     let path = dir.path().join("sample.cav");
-    let mut header = CartHeader::new("Test Cart", "Tester");
-    header.entry_point = 0x1234;
-    header.flags = 7;
-    let program = vec![0x01, 0x02, 0x03, 0x04];
-    let extra = [
+    let header = CartHeader::new("Test Cart", "Tester");
+    let sections = [
+        lua("function _update() end"),
         (SectionKind::SpriteSheet, vec![9u8; 16]),
         (SectionKind::Map, vec![5u8; 8]),
     ];
-    write(&path, &header, &program, &extra).unwrap();
+    write(&path, &header, &sections).unwrap();
     path
 }
 
@@ -26,21 +30,33 @@ fn write_sample(dir: &tempfile::TempDir) -> PathBuf {
 fn packed_len_matches_written_file() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("size.cav");
-    let program = vec![1, 2, 3];
-    let extra = vec![(SectionKind::Map, vec![4; 17])];
-    write(&path, &CartHeader::new("", ""), &program, &extra).unwrap();
+    let sections = vec![lua("x = 1"), (SectionKind::Map, vec![4; 17])];
+    write(&path, &CartHeader::new("", ""), &sections).unwrap();
     assert_eq!(
-        packed_len(&program, &extra),
+        packed_len(&sections),
         std::fs::metadata(path).unwrap().len() as usize
     );
+}
+
+#[test]
+fn version_1_header_layout_is_stable() {
+    let bytes = pack(&CartHeader::new("T", "A"), &[lua("")]).unwrap();
+    assert_eq!(&bytes[0..6], b"CAIVEN");
+    assert_eq!(u16::from_le_bytes([bytes[6], bytes[7]]), 1);
+    assert_eq!(u16::from_le_bytes([bytes[8], bytes[9]]), 1);
+    assert_eq!(bytes[10], b'T');
+    assert_eq!(bytes[42], b'A');
+    // Section table starts right after the 64-byte header body.
+    assert_eq!(u16::from_le_bytes([bytes[74], bytes[75]]), 0x0001);
+    assert_eq!(bytes.len(), 74 + 14);
 }
 
 #[test]
 fn write_rejects_cart_over_shared_limit() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("large.cav");
-    let program = vec![0; MAX_CART_BYTES];
-    let error = write(&path, &CartHeader::new("", ""), &program, &[]).unwrap_err();
+    let sections = [(SectionKind::LuaSource, vec![0; MAX_CART_BYTES])];
+    let error = write(&path, &CartHeader::new("", ""), &sections).unwrap_err();
     assert!(matches!(
         error,
         CartError::TooLarge {
@@ -52,21 +68,20 @@ fn write_rejects_cart_over_shared_limit() {
 }
 
 #[test]
-fn roundtrip_preserves_header_program_and_sections() {
+fn roundtrip_preserves_header_and_sections() {
     let dir = tempfile::tempdir().unwrap();
     let path = write_sample(&dir);
 
     let cart = load(&path).unwrap();
     assert_eq!(cart.header.title, "Test Cart");
     assert_eq!(cart.header.author, "Tester");
-    assert_eq!(cart.header.entry_point, 0x1234);
-    assert_eq!(cart.header.flags, 7);
-    assert_eq!(cart.program, vec![0x01, 0x02, 0x03, 0x04]);
-    assert_eq!(cart.sections.len(), 2);
-    assert_eq!(cart.sections[0].kind, SectionKind::SpriteSheet);
-    assert_eq!(cart.sections[0].data, vec![9u8; 16]);
-    assert_eq!(cart.sections[1].kind, SectionKind::Map);
-    assert_eq!(cart.sections[1].data, vec![5u8; 8]);
+    assert_eq!(cart.sections.len(), 3);
+    assert_eq!(cart.sections[0].kind, SectionKind::LuaSource);
+    assert_eq!(cart.sections[0].data, b"function _update() end");
+    assert_eq!(cart.sections[1].kind, SectionKind::SpriteSheet);
+    assert_eq!(cart.sections[1].data, vec![9u8; 16]);
+    assert_eq!(cart.sections[2].kind, SectionKind::Map);
+    assert_eq!(cart.sections[2].data, vec![5u8; 8]);
 }
 
 #[test]
@@ -74,10 +89,18 @@ fn long_title_is_truncated_to_32_bytes() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("long.cav");
     let title = "X".repeat(40);
-    write(&path, &CartHeader::new(title.clone(), ""), &[0u8], &[]).unwrap();
+    write(&path, &CartHeader::new(title.clone(), ""), &[lua("")]).unwrap();
 
     let cart = load(&path).unwrap();
     assert_eq!(cart.header.title, "X".repeat(32));
+}
+
+#[test]
+fn long_title_is_truncated_on_a_character_boundary() {
+    // Same rule as Quick Remix's writer (crates/caiven-port/web/src/lib/cav.js).
+    let bytes = pack(&CartHeader::new("é".repeat(40), ""), &[lua("")]).unwrap();
+    let cart = caiven_cart::parse(&bytes).unwrap();
+    assert_eq!(cart.header.title, "é".repeat(16));
 }
 
 #[test]
@@ -153,25 +176,10 @@ fn zero_version_is_rejected() {
 
     assert!(matches!(
         load(&path),
-        Err(CartError::UnsupportedCartVersion { found: 0, .. })
-    ));
-}
-
-#[test]
-fn pre_map_resize_version_is_rejected_not_silently_misread() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = write_sample(&dir);
-
-    // Version 4 carts pre-date the 128x128 -> 192x128 map/collision stride
-    // change; their tile rows would land at the wrong offset if read as
-    // 192-wide instead of being rejected.
-    let mut bytes = std::fs::read(&path).unwrap();
-    bytes[6..8].copy_from_slice(&4u16.to_le_bytes());
-    std::fs::write(&path, &bytes).unwrap();
-
-    assert!(matches!(
-        load(&path),
-        Err(CartError::UnsupportedCartVersion { found: 4, .. })
+        Err(CartError::UnsupportedCartVersion {
+            found: 0,
+            supported: 1
+        })
     ));
 }
 
@@ -189,4 +197,29 @@ fn corrupted_section_data_fails_crc_check() {
         load(&path),
         Err(CartError::ChecksumMismatch { .. })
     ));
+}
+
+#[test]
+fn content_hash_ignores_header_and_section_order() {
+    let a = pack(
+        &CartHeader::new("One", "a"),
+        &[
+            lua("x = 1"),
+            (SectionKind::SpriteBank, vec![2]),
+            (SectionKind::SpriteBank, vec![1]),
+        ],
+    )
+    .unwrap();
+    let b = pack(
+        &CartHeader::new("Two", "b"),
+        &[
+            (SectionKind::SpriteBank, vec![1]),
+            lua("x = 1"),
+            (SectionKind::SpriteBank, vec![2]),
+        ],
+    )
+    .unwrap();
+    let c = pack(&CartHeader::new("One", "a"), &[lua("x = 2")]).unwrap();
+    assert_eq!(content_hash(&a).unwrap(), content_hash(&b).unwrap());
+    assert_ne!(content_hash(&a).unwrap(), content_hash(&c).unwrap());
 }

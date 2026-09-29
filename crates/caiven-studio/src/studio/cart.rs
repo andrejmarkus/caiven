@@ -74,7 +74,7 @@ pub fn load_cart(vm: &mut Vm, path: &Path, input: &Input, font: &Font) -> Result
             });
         } else if !matches!(
             section.kind,
-            SectionKind::Program | SectionKind::LuaSource | SectionKind::CollisionTypes
+            SectionKind::LuaSource | SectionKind::CollisionTypes
         ) {
             // Manifest, metadata and custom sections are not RAM-backed, but
             // must survive Ctrl+S and binary export unchanged.
@@ -89,10 +89,8 @@ pub fn load_cart(vm: &mut Vm, path: &Path, input: &Input, font: &Font) -> Result
 
     // Asset RAM must be in place before the Lua load, since it runs
     // `_init()` immediately.
-    let src = lua_source
-        .as_deref()
-        .context("cart has no Lua source section (bytecode carts are no longer supported)")?;
-    vm.load_lua_source(src, input, font)
+    let lua_source = lua_source.context("cart has no Lua source section")?;
+    vm.load_lua_source(&lua_source, input, font)
         .map_err(|e| anyhow::anyhow!("{e}"))
         .with_context(|| format!("failed to load Lua cart {}", path.display()))?;
 
@@ -147,7 +145,6 @@ pub fn load_cart(vm: &mut Vm, path: &Path, input: &Input, font: &Font) -> Result
     Ok(CartMeta {
         path: stored_path,
         header: cart.header,
-        program: cart.program,
         sections,
         lua_source,
     })
@@ -192,9 +189,7 @@ pub struct CompileError {
 
 /// Compiles `sources[0]` (the entry buffer) plus any sibling module buffers,
 /// bundled together exactly like the project loader does from disk (see
-/// `caiven_cart::bundle_lua`), and (re)starts the VM. Embedded asset blocks
-/// (`__gfx__` etc.) in the entry buffer are split off and applied to RAM
-/// first, since loading Lua source runs `_init()` immediately. `dir` is the
+/// `caiven_cart::bundle_lua`), and (re)starts the VM. `dir` is the
 /// project directory `sources` was loaded from — pass `None` for a
 /// single-buffer `.cav`-sourced cart, which has no sibling modules to
 /// bundle.
@@ -205,7 +200,7 @@ pub fn compile_sources_into_vm(
     input: &Input,
     font: &Font,
 ) -> std::result::Result<(), CompileError> {
-    let bundled = bundle_sources(vm, dir, sources)?;
+    let bundled = bundle_sources(dir, sources)?;
     vm.load_lua_source(&bundled, input, font)
         .map_err(|error| caiven_vm::describe_lua_error_location(&error))
         .map_err(compile_error_from_location)
@@ -223,7 +218,7 @@ pub fn hot_reload_sources_into_vm(
     input: &Input,
     font: &Font,
 ) -> std::result::Result<(), CompileError> {
-    let bundled = bundle_sources(vm, dir, sources)?;
+    let bundled = bundle_sources(dir, sources)?;
     vm.hot_reload_lua_source(&bundled, input, font)
         .map_err(|error| caiven_vm::describe_lua_error_location(&error))
         .map_err(compile_error_from_location)
@@ -239,13 +234,11 @@ fn compile_error_from_location(
     }
 }
 
-/// Splits embedded asset blocks off the entry buffer, applies them to VM RAM,
-/// and bundles the entry buffer with any sibling module buffers exactly like
+/// Bundles the entry buffer with any sibling module buffers exactly like
 /// the project loader does from disk (see `caiven_cart::bundle_lua`). Shared
 /// by [`compile_sources_into_vm`] and [`hot_reload_sources_into_vm`] so the
 /// two can't drift on how sources become one Lua string.
 fn bundle_sources(
-    vm: &mut Vm,
     dir: Option<&Path>,
     sources: &[SourceFile],
 ) -> std::result::Result<String, CompileError> {
@@ -256,14 +249,6 @@ fn bundle_sources(
             message: "no source loaded".to_string(),
         });
     };
-    let (code, sections) =
-        caiven_cart::text::split_source(&entry.text).map_err(|message| CompileError {
-            source: None,
-            line: None,
-            message,
-        })?;
-    apply_sections(vm, &sections);
-
     let modules: Vec<(String, String)> = match dir {
         Some(dir) => sources[1..]
             .iter()
@@ -271,7 +256,7 @@ fn bundle_sources(
             .collect(),
         None => Vec::new(),
     };
-    Ok(caiven_cart::bundle_lua(&code, &modules))
+    Ok(caiven_cart::bundle_lua(&entry.text, &modules))
 }
 
 /// Unpacks a binary `.cav` cart into an editable project directory at
@@ -309,7 +294,7 @@ pub(crate) fn unpack_cart(cart: &Path, out: &Path) -> Result<()> {
         .iter()
         .find(|s| s.kind == SectionKind::LuaSource)
         .map(|s| String::from_utf8_lossy(&s.data).into_owned())
-        .context("cart has no Lua source section (bytecode carts are no longer supported)")?;
+        .context("cart has no Lua source section")?;
     let extra: Vec<(SectionKind, Vec<u8>)> = loaded
         .sections
         .into_iter()
@@ -490,7 +475,6 @@ mod tests {
         caiven_cart::write(
             &cart,
             &CartHeader::new("Test", ""),
-            &[],
             &[
                 (
                     SectionKind::LuaSource,
@@ -525,7 +509,6 @@ mod tests {
         caiven_cart::write(
             &cart,
             &CartHeader::new("Test", ""),
-            &[],
             &[(
                 SectionKind::LuaSource,
                 b"function _init() end\nfunction _update() end\n".to_vec(),
@@ -595,7 +578,6 @@ mod tests {
         caiven_cart::write(
             &cart,
             &CartHeader::new("Test", ""),
-            &[],
             &[(SectionKind::LuaSource, b"-- test\n".to_vec())],
         )
         .unwrap();

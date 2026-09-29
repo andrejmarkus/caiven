@@ -43,7 +43,7 @@ pub(crate) fn viewer_key(user: Option<&AuthUser>, ip: &ClientIp) -> String {
     })
 }
 
-#[post("/api/v2/carts/<id>/funnel", data = "<input>")]
+#[post("/api/v1/carts/<id>/funnel", data = "<input>")]
 pub async fn record_funnel_event(
     state: &State<PortState>,
     user: Option<AuthUser>,
@@ -105,7 +105,7 @@ fn conversion(row: &CartFunnel) -> FunnelConversion {
 /// `since` (RFC 3339) pins the window to an experiment's start; otherwise the
 /// last `days`. Staff accounts are left out by default: whoever runs a test
 /// also plays, remixes and publishes while checking on it.
-#[get("/api/v2/admin/metrics/remix-funnel?<days>&<since>&<include_staff>")]
+#[get("/api/v1/admin/metrics/remix-funnel?<days>&<since>&<include_staff>")]
 pub async fn remix_funnel(
     state: &State<PortState>,
     _admin: AdminUser,

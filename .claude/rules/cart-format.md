@@ -8,7 +8,9 @@ paths:
 `caiven-cart` owns both the on-disk project format (`caiven.toml` + loose
 `.lua`/asset files, human-diffable) and the built binary `.cav` format
 (`format.rs`, `header.rs`, `section.rs`, `bundle.rs`, `project.rs`,
-`asset_png.rs`, `minify.rs`, `text.rs`).
+`asset_png.rs`, `minify.rs`, `hex.rs`). The browser mirror
+`crates/caiven-port/web/src/lib/cav.js` changes in the same commit as
+`format.rs`; `tests/remix.test.js` round-trips a Rust-built cart through it.
 
 Any format change must include:
 
@@ -23,44 +25,24 @@ Any format change must include:
    boundary (see `.claude/rules/security.md`, "cartridge parsing").
 5. Migration or explicit-rejection behavior for old formats — never a silent
    misparse.
-6. Documentation of the format change (README + any `docs/` format spec).
+6. Documentation of the format change in `docs/formats.md`.
 
 Don't hand-roll parsing without bounds checks; treat every `.cav` as
 untrusted input, since carts get shared through Caiven Port.
 
 ## Version gating (current policy)
 
-Both formats now validate their version field on read instead of ignoring
-it:
+Version 1 is the first public baseline for `.cav`, `caiven.toml`, save
+data (`caiven-vm/src/vm/save_data.rs`) and Machine save state. Each reader
+accepts **exactly** its current version and rejects everything else:
 
-- **Binary `.cav`** (`format.rs`): `CART_FORMAT_VERSION` is the version
-  written by `write`. `load_bytes` rejects any version outside
-  `MIN_SUPPORTED_CART_VERSION..=CART_FORMAT_VERSION` with
-  `CartError::UnsupportedCartVersion { found, min_supported, max_supported }`.
-- **`caiven.toml`** (`project.rs`): `[cart].version` defaults to
-  `CURRENT_MANIFEST_VERSION` via serde (`#[serde(default =
-  "default_manifest_version")]`) so manifests written before the field
-  existed keep loading. `parse_manifest` rejects anything outside
-  `MIN_SUPPORTED_MANIFEST_VERSION..=CURRENT_MANIFEST_VERSION` with
+- `.cav` (`format.rs`): `load_bytes` rejects `version != CART_FORMAT_VERSION`
+  with `CartError::UnsupportedCartVersion { found, supported }`.
+- `caiven.toml` (`project.rs`): `[cart] version` is required (missing is a
+  parse error) and must equal `MANIFEST_VERSION`, else
   `CartError::UnsupportedManifestVersion`.
 
-Policy is **accept older, reject newer** — not "reject anything not
-current":
-
-- Accept older because the section table is additive/self-describing (an
-  unrecognized `SectionKind` decodes to `Custom(id)` and is carried through
-  rather than erroring), so every version shipped so far has stayed
-  byte-compatible with the current reader; `MIN_SUPPORTED_CART_VERSION`/
-  `MIN_SUPPORTED_MANIFEST_VERSION` only exist to reject a version below
-  anything ever written (e.g. `0`), which can only mean corrupt/hostile
-  input.
-- Reject newer because this build has no way to know what a
-  higher-than-`CART_FORMAT_VERSION`/`CURRENT_MANIFEST_VERSION` file means —
-  silently misparsing it is exactly the failure mode this gate exists to
-  prevent.
-
-When a future change actually breaks byte-compatibility (not just adds a
-section kind), bump `CART_FORMAT_VERSION`/`CURRENT_MANIFEST_VERSION` *and*
-raise the corresponding `MIN_SUPPORTED_*` to reject the old shape
-explicitly, or add real migration code before accepting it — never let the
-range widen implicitly.
+Adding a section kind is not a version change: unknown kinds decode to
+`Custom(id)` and are carried through. A change that would make old bytes
+misread bumps the version and ships the old shape's reader or migration in
+the same change — never widen acceptance implicitly, never misparse silently.

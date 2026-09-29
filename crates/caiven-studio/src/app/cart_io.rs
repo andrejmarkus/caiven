@@ -4,7 +4,7 @@
 
 use anyhow::{Context, Result};
 use caiven_cart::{
-    CartHeader, CartSection, DEFAULT_BANK_NAME, SectionKind, decode_asset_bank, encode_asset_bank,
+    CartHeader, DEFAULT_BANK_NAME, SectionKind, decode_asset_bank, encode_asset_bank,
     encode_collision_types,
 };
 use caiven_vm::{AssetBankKind, Vm};
@@ -22,9 +22,9 @@ pub struct SectionLayout {
 pub struct CartMeta {
     pub path: PathBuf,
     pub header: CartHeader,
-    pub program: Vec<u8>,
     pub sections: Vec<SectionLayout>,
-    pub lua_source: Option<String>,
+    /// Entry source (bundled for a `.cav`); written back on save/export.
+    pub lua_source: String,
 }
 
 /// Reads each tracked RAM asset section back from the VM while retaining
@@ -138,9 +138,15 @@ fn save_extra(
         // build a separate distribution artifact. See review STU-03.
         write_binary(extra, meta, &meta.path, modules, false)
     } else {
-        let lua = meta.lua_source.as_deref().unwrap_or_default();
-        caiven_cart::save_project(&meta.path, &meta.header, lua, modules, extra, removed_banks)
-            .with_context(|| format!("failed to write project to {}", meta.path.display()))
+        caiven_cart::save_project(
+            &meta.path,
+            &meta.header,
+            &meta.lua_source,
+            modules,
+            extra,
+            removed_banks,
+        )
+        .with_context(|| format!("failed to write project to {}", meta.path.display()))
     }
 }
 
@@ -160,25 +166,6 @@ pub(crate) fn export_binary(
     write_binary(&extra, meta, dest, modules, minify)
 }
 
-/// Packs a cart to bytes via a throwaway temp `.cav` file, read back
-/// immediately after — `caiven_cart::write` has no in-memory variant, so
-/// this is the only way to get packed bytes without a permanent output
-/// file. Shared by `export_web` here and the CLI's `Export --web` handler
-/// (`crate::app::cli`) so this sequence exists in exactly one place.
-pub(crate) fn pack_to_bytes(
-    header: &CartHeader,
-    program: &[u8],
-    extra: &[(SectionKind, Vec<u8>)],
-) -> Result<Vec<u8>> {
-    let temp = crate::studio::cart::temp_cav_path();
-    caiven_cart::write(&temp, header, program, extra)
-        .with_context(|| format!("failed to pack cart to {}", temp.display()))?;
-    let packed = std::fs::read(&temp)
-        .with_context(|| format!("failed to read packed cart from {}", temp.display()));
-    let _ = std::fs::remove_file(&temp);
-    packed
-}
-
 /// Builds a self-contained web export (single offline-playable `.html`) from
 /// the VM's current RAM sections, reusing the same bundling/minify path as
 /// `export_binary`.
@@ -189,9 +176,8 @@ pub(crate) fn export_web(
     modules: &[(PathBuf, String)],
 ) -> Result<()> {
     let extra = gather_sections(vm, meta);
-    let (program, extra) =
-        distribution_content(&extra, meta, meta.lua_source.as_deref(), modules, true);
-    let packed = pack_to_bytes(&meta.header, &program, &extra)?;
+    let sections = distribution_content(&extra, &meta.lua_source, modules, true);
+    let packed = caiven_cart::pack(&meta.header, &sections).context("failed to pack cart")?;
 
     let html = crate::app::web_export::build_web_html(&packed, &meta.header.title);
     std::fs::write(dest, html)
@@ -203,8 +189,8 @@ pub(crate) fn export_web(
 const SCREENSHOT_FRAMES: u32 = 30;
 
 /// Captures a PNG of the VM's current RAM sections run headlessly from
-/// `_init()`, reusing the same pack-to-temp-file step as `export_web` and
-/// the screenshot primitive already shared by publish (`port_client.rs`).
+/// `_init()`, reusing the same packing as `export_web` and the screenshot
+/// primitive already shared by publish (`port_client.rs`).
 pub(crate) fn export_screenshot(
     vm: &Vm,
     meta: &CartMeta,
@@ -212,16 +198,9 @@ pub(crate) fn export_screenshot(
     modules: &[(PathBuf, String)],
 ) -> Result<()> {
     let extra = gather_sections(vm, meta);
-    let (program, extra) =
-        distribution_content(&extra, meta, meta.lua_source.as_deref(), modules, true);
-
-    let temp = crate::studio::cart::temp_cav_path();
-    caiven_cart::write(&temp, &meta.header, &program, &extra)
-        .with_context(|| format!("failed to pack cart to {}", temp.display()))?;
-    let cart = caiven_cart::load(&temp)
-        .with_context(|| format!("failed to reload packed cart from {}", temp.display()));
-    let _ = std::fs::remove_file(&temp);
-    let cart = cart?;
+    let sections = distribution_content(&extra, &meta.lua_source, modules, true);
+    let packed = caiven_cart::pack(&meta.header, &sections).context("failed to pack cart")?;
+    let cart = caiven_cart::parse(&packed).context("failed to reload packed cart")?;
 
     let png_bytes = crate::port_client::capture_screenshot(
         &cart,
@@ -250,11 +229,16 @@ pub(crate) fn export_source_zip(
     }
 
     let extra = gather_sections(vm, meta);
-    let lua = meta.lua_source.as_deref().unwrap_or_default();
     let temp_dir = crate::studio::cart::temp_project_dir_path();
-    let write_result =
-        caiven_cart::save_project(&temp_dir, &meta.header, lua, modules, &extra, &[])
-            .with_context(|| format!("failed to write project to {}", temp_dir.display()));
+    let write_result = caiven_cart::save_project(
+        &temp_dir,
+        &meta.header,
+        &meta.lua_source,
+        modules,
+        &extra,
+        &[],
+    )
+    .with_context(|| format!("failed to write project to {}", temp_dir.display()));
     let zip_result = write_result.and_then(|()| zip_dir(&temp_dir, dest));
     let _ = std::fs::remove_dir_all(&temp_dir);
     zip_result
@@ -316,9 +300,8 @@ fn write_binary(
     modules: &[(PathBuf, String)],
     minify: bool,
 ) -> Result<()> {
-    let (program, extra) =
-        distribution_content(extra, meta, meta.lua_source.as_deref(), modules, minify);
-    caiven_cart::write(dest, &meta.header, &program, &extra)
+    let sections = distribution_content(extra, &meta.lua_source, modules, minify);
+    caiven_cart::write(dest, &meta.header, &sections)
         .with_context(|| format!("failed to write cart to {}", dest.display()))
 }
 
@@ -327,7 +310,7 @@ fn write_binary(
 pub(crate) fn packed_size(
     vm: &Vm,
     meta: &CartMeta,
-    entry: Option<&str>,
+    entry: &str,
     modules: &[(PathBuf, String)],
 ) -> usize {
     let extra = gather_sections(vm, meta);
@@ -335,53 +318,35 @@ pub(crate) fn packed_size(
     // authoring format, so the size indicator always estimates the
     // minified/bundled artifact — unlike a save-in-place `.cav`, which no
     // longer minifies (see review STU-03).
-    let (program, extra) = distribution_content(&extra, meta, entry, modules, true);
-    caiven_cart::packed_len(&program, &extra)
+    caiven_cart::packed_len(&distribution_content(&extra, entry, modules, true))
 }
 
+/// Asset sections plus one bundled `LuaSource`. A distributed .cav has no
+/// filesystem, so sibling modules are bundled exactly like the project
+/// loader does from disk. Each source is minified before bundling, since
+/// minifying the bundle would copy every module's long-string body through
+/// untouched.
 fn distribution_content(
     extra: &[(SectionKind, Vec<u8>)],
-    meta: &CartMeta,
-    entry: Option<&str>,
+    entry: &str,
     modules: &[(PathBuf, String)],
     minify: bool,
-) -> (Vec<u8>, Vec<(SectionKind, Vec<u8>)>) {
-    let mut extra = extra.to_vec();
-    let program = match entry {
-        Some(entry) => {
-            // A distributed .cav has no filesystem, so sibling modules
-            // can't stay separate files — bundle them into one LuaSource
-            // section exactly like the project loader does from disk.
-            // Minify each source before bundling: minifying the bundle would
-            // copy every module's long-string body through untouched.
-            let prep = |text: &str| {
-                if minify {
-                    caiven_cart::minify_lua(text)
-                } else {
-                    text.to_string()
-                }
-            };
-            let bundle_modules: Vec<(String, String)> = modules
-                .iter()
-                .map(|(rel, text)| (caiven_cart::module_key(Path::new(""), rel), prep(text)))
-                .collect();
-            let bundled = caiven_cart::bundle_lua(&prep(entry), &bundle_modules);
-            extra.push((SectionKind::LuaSource, bundled.into_bytes()));
-            Vec::new()
+) -> Vec<(SectionKind, Vec<u8>)> {
+    let prep = |text: &str| {
+        if minify {
+            caiven_cart::minify_lua(text)
+        } else {
+            text.to_string()
         }
-        None => meta.program.clone(),
     };
-    let mut sections: Vec<CartSection> = extra
-        .into_iter()
-        .map(|(kind, data)| CartSection { kind, data })
+    let bundle_modules: Vec<(String, String)> = modules
+        .iter()
+        .map(|(rel, text)| (caiven_cart::module_key(Path::new(""), rel), prep(text)))
         .collect();
-    if minify && entry.is_none() {
-        // Legacy carts have no per-file sources to minify ahead of time.
-        caiven_cart::minify_cart_lua(&mut sections);
-    }
-    let extra: Vec<(SectionKind, Vec<u8>)> =
-        sections.into_iter().map(|s| (s.kind, s.data)).collect();
-    (program, extra)
+    let bundled = caiven_cart::bundle_lua(&prep(entry), &bundle_modules);
+    let mut sections = extra.to_vec();
+    sections.push((SectionKind::LuaSource, bundled.into_bytes()));
+    sections
 }
 
 #[cfg(test)]
@@ -411,9 +376,8 @@ mod tests {
         let meta = CartMeta {
             path: cav_path.clone(),
             header: CartHeader::new("Test", ""),
-            program: Vec::new(),
             sections: Vec::new(),
-            lua_source: Some(lua.to_string()),
+            lua_source: lua.to_string(),
         };
 
         save_pristine(&[], &meta, &[], &[]).expect("save in place");

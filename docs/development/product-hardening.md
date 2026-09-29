@@ -1,5 +1,9 @@
 # Product hardening — 2026-09-14
 
+> Dated record. The 2026-09-29 v1 baseline renamed the Program section to
+> `LuaSource`, reset every format to version 1 and dropped pre-v1 carts; the
+> checks below still hold. Current contracts: [formats.md](../formats.md).
+
 This pass strengthens concrete trust boundaries and operating practices across
 the shared cartridge library, VM bundler, browser runtime, Port service,
 container, dependency gates, and contributor documentation. It builds on the

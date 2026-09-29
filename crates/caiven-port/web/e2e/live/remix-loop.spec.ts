@@ -32,17 +32,17 @@ async function centerPixel(page: Page): Promise<number[]> {
 
 test('anonymous player remixes a seed cart and publishes a linked child', async ({ page, browser }) => {
   const since = new Date().toISOString();
-  await ok(await page.request.post('/api/v2/auth/register', { data: creator }));
+  await ok(await page.request.post('/api/v1/auth/register', { data: creator }));
   const smoke = new Uint8Array(await readFile('../../../carts/dev/smoke.cav'));
   const seedCav = Buffer.from(withLuaSource(parseCav(smoke), SEED, { title: 'Color Seed' }));
-  const seed = await (await ok(await page.request.post('/api/v2/carts', {
+  const seed = await (await ok(await page.request.post('/api/v1/carts', {
     headers: await csrf(page),
     multipart: {
       cart: { name: 'seed.cav', mimeType: 'application/octet-stream', buffer: seedCav },
       meta: JSON.stringify({ title: 'Color Seed', description: 'Change one thing', tags: ['seed'], remixable: true }),
     },
   }))).json();
-  await ok(await page.request.post('/api/v2/auth/logout', { headers: await csrf(page) }));
+  await ok(await page.request.post('/api/v1/auth/logout', { headers: await csrf(page) }));
   await page.context().clearCookies();
 
   // 1-4: anonymous visitor plays from a plain URL.
@@ -82,11 +82,11 @@ test('anonymous player remixes a seed cart and publishes a linked child', async 
   const childUrl = await page.locator('code', { hasText: '/play/' }).textContent();
   const childId = childUrl!.split('/play/')[1];
 
-  const child = await (await ok(await page.request.get(`/api/v2/carts/${childId}`))).json();
+  const child = await (await ok(await page.request.get(`/api/v1/carts/${childId}`))).json();
   expect(child).toMatchObject({ parent_cart_id: seed.id, root_cart_id: seed.id, owner: remixer.username, remixable: true });
   expect(child.parent).toMatchObject({ id: seed.id, title: 'Color Seed', owner: creator.username });
   expect(child.has_screenshot).toBe(true);
-  const parent = await (await ok(await page.request.get(`/api/v2/carts/${seed.id}`))).json();
+  const parent = await (await ok(await page.request.get(`/api/v1/carts/${seed.id}`))).json();
   expect(parent.remix_count).toBe(1);
   await page.goto(`/cart/${seed.id}`);
   await expect(page.getByText('1 remix', { exact: true })).toBeVisible();
@@ -119,7 +119,7 @@ test('anonymous player remixes a seed cart and publishes a linked child', async 
   await otherForm.getByRole('button', { name: `Publish as @${third.username}` }).click();
   await expect(other.getByText("Published. It's yours now.")).toBeVisible();
   const grandchildId = (await other.locator('code', { hasText: '/play/' }).textContent())!.split('/play/')[1];
-  const grandchild = await (await ok(await other.request.get(`/api/v2/carts/${grandchildId}`))).json();
+  const grandchild = await (await ok(await other.request.get(`/api/v1/carts/${grandchildId}`))).json();
   expect(grandchild).toMatchObject({ parent_cart_id: childId, root_cart_id: seed.id, owner: third.username });
   expect(grandchild.parent).toMatchObject({ id: childId, owner: remixer.username });
   await visitor.close();
@@ -127,8 +127,8 @@ test('anonymous player remixes a seed cart and publishes a linked child', async 
   // 24-25: the readout matches what happened. Every anonymous visitor here
   // is 127.0.0.1, so both remixers share one anonymous viewer key.
   const staff = await browser.newContext();
-  await ok(await staff.request.post('/api/v2/auth/login', { data: admin }));
-  const funnel = await (await ok(await staff.request.get(`/api/v2/admin/metrics/remix-funnel?since=${encodeURIComponent(since)}`))).json();
+  await ok(await staff.request.post('/api/v1/auth/login', { data: admin }));
+  const funnel = await (await ok(await staff.request.get(`/api/v1/admin/metrics/remix-funnel?since=${encodeURIComponent(since)}`))).json();
   await staff.close();
   const row = (id: string) => funnel.by_cart.find((r: { cart_id: string }) => r.cart_id === id);
   const step = { plays: 1, qualified_plays: 0, remix_opened: 1, remix_ran: 1, publish_started: 1, remixes_published: 1, remixes_with_external_play: 0 };

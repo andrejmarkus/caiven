@@ -5,13 +5,10 @@ description: Review cartridge (.cav) and project-format (caiven.toml) changes in
 
 # caiven-cart-compat
 
-Known baseline (from `docs/development/claude-code-audit.md`): the binary
-`.cav` format writes a version byte (`format.rs`, currently `3`) but **the
-reader currently ignores it** — a version bump today does nothing on load.
-The project manifest (`caiven.toml` → `CaivenToml`/`CartTable` in
-`project.rs`) has **no version field at all**. Treat any new format change
-as an opportunity to close this gap, not just document around it, when the
-task scope allows.
+Known baseline: `.cav`, `caiven.toml`, save data and Machine save state
+are all version 1 (`docs/formats.md`). Each reader accepts exactly its
+version and rejects the rest (`.claude/rules/cart-format.md`). The browser
+mirror `crates/caiven-port/web/src/lib/cav.js` must change with `format.rs`.
 
 ## Must detect
 

@@ -8,15 +8,15 @@ test('protected route returns after login and logout clears session', async ({ p
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
   await expect(page).toHaveURL('/settings');
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
-  const login = mock.calls('POST', '/api/v2/auth/login')[0];
+  const login = mock.calls('POST', '/api/v1/auth/login')[0];
   expect(JSON.parse(login.body!)).toMatchObject({ identifier: 'admin', password: 'GoodPass!1' });
 
-  mock.allowRequestFailure('POST', '/api/v2/auth/logout');
+  mock.allowRequestFailure('POST', '/api/v1/auth/logout');
   await page.locator('header').getByRole('button').last().click();
   await page.getByText('Log out').click();
   await expect(page.getByRole('link', { name: 'Log in' })).toBeVisible();
   expect(mock.user).toBeNull();
-  expect(mock.calls('POST', '/api/v2/auth/logout')[0].headers['x-csrf-token']).toBe('mock-csrf');
+  expect(mock.calls('POST', '/api/v1/auth/logout')[0].headers['x-csrf-token']).toBe('mock-csrf');
 });
 
 test('registration, duplicate conflict, invalid login, MFA, OAuth presentation', async ({ page, mock }) => {

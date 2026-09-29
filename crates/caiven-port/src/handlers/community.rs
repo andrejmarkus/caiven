@@ -141,7 +141,7 @@ fn require_collection_owner(user: &AuthUser, model: &collections::Model) -> Resu
     }
 }
 
-#[post("/api/v2/carts/<id>/play", data = "<input>")]
+#[post("/api/v1/carts/<id>/play", data = "<input>")]
 pub async fn record_play(
     state: &State<PortState>,
     user: Option<AuthUser>,
@@ -213,7 +213,7 @@ pub async fn record_play(
     }))
 }
 
-#[put("/api/v2/users/<username>/follow")]
+#[put("/api/v1/users/<username>/follow")]
 pub async fn follow_user(
     state: &State<PortState>,
     user: AuthUser,
@@ -242,7 +242,7 @@ pub async fn follow_user(
     Ok(())
 }
 
-#[delete("/api/v2/users/<username>/follow")]
+#[delete("/api/v1/users/<username>/follow")]
 pub async fn unfollow_user(
     state: &State<PortState>,
     user: AuthUser,
@@ -258,7 +258,7 @@ pub async fn unfollow_user(
     Ok(())
 }
 
-#[get("/api/v2/collections?<kind>&<owner>&<page>&<per_page>")]
+#[get("/api/v1/collections?<kind>&<owner>&<page>&<per_page>")]
 pub async fn list_collections(
     state: &State<PortState>,
     user: Option<AuthUser>,
@@ -296,7 +296,7 @@ pub async fn list_collections(
     Ok(Json(out))
 }
 
-#[get("/api/v2/collections/<slug>")]
+#[get("/api/v1/collections/<slug>")]
 pub async fn get_collection(
     state: &State<PortState>,
     user: Option<AuthUser>,
@@ -336,7 +336,7 @@ async fn create_collection_impl(
     Ok(model)
 }
 
-#[post("/api/v2/collections", data = "<input>")]
+#[post("/api/v1/collections", data = "<input>")]
 pub async fn create_collection(
     state: &State<PortState>,
     user: VerifiedUser,
@@ -348,7 +348,7 @@ pub async fn create_collection(
     Ok(Json(collection_info(&state.db, model, Some(&user)).await?))
 }
 
-#[post("/api/v2/admin/collections", data = "<input>")]
+#[post("/api/v1/admin/collections", data = "<input>")]
 pub async fn create_editorial_collection(
     state: &State<PortState>,
     admin: AdminUser,
@@ -359,7 +359,7 @@ pub async fn create_editorial_collection(
     Ok(Json(collection_info(&state.db, model, Some(&user)).await?))
 }
 
-#[patch("/api/v2/collections/<slug>", data = "<input>")]
+#[patch("/api/v1/collections/<slug>", data = "<input>")]
 pub async fn update_collection(
     state: &State<PortState>,
     user: AuthUser,
@@ -395,7 +395,7 @@ pub async fn update_collection(
     Ok(Json(collection_info(&state.db, model, Some(&user)).await?))
 }
 
-#[delete("/api/v2/collections/<slug>")]
+#[delete("/api/v1/collections/<slug>")]
 pub async fn delete_collection(
     state: &State<PortState>,
     user: AuthUser,
@@ -410,7 +410,7 @@ pub async fn delete_collection(
     Ok(())
 }
 
-#[post("/api/v2/collections/<slug>/carts", data = "<input>")]
+#[post("/api/v1/collections/<slug>/carts", data = "<input>")]
 pub async fn add_collection_cart(
     state: &State<PortState>,
     user: AuthUser,
@@ -444,7 +444,7 @@ pub async fn add_collection_cart(
     Ok(Json(collection_info(&state.db, model, Some(&user)).await?))
 }
 
-#[delete("/api/v2/collections/<slug>/carts/<cart_id>")]
+#[delete("/api/v1/collections/<slug>/carts/<cart_id>")]
 pub async fn remove_collection_cart(
     state: &State<PortState>,
     user: AuthUser,
@@ -470,7 +470,7 @@ pub async fn remove_collection_cart(
     Ok(Json(collection_info(&state.db, model, Some(&user)).await?))
 }
 
-#[put("/api/v2/collections/<slug>/order", data = "<input>")]
+#[put("/api/v1/collections/<slug>/order", data = "<input>")]
 pub async fn reorder_collection(
     state: &State<PortState>,
     user: AuthUser,
@@ -505,7 +505,7 @@ pub async fn reorder_collection(
     Ok(Json(collection_info(&state.db, model, Some(&user)).await?))
 }
 
-#[put("/api/v2/collections/<slug>/follow")]
+#[put("/api/v1/collections/<slug>/follow")]
 pub async fn follow_collection(
     state: &State<PortState>,
     user: AuthUser,
@@ -529,7 +529,7 @@ pub async fn follow_collection(
     Ok(())
 }
 
-#[delete("/api/v2/collections/<slug>/follow")]
+#[delete("/api/v1/collections/<slug>/follow")]
 pub async fn unfollow_collection(
     state: &State<PortState>,
     user: AuthUser,
@@ -613,7 +613,7 @@ async fn jam_for_slug(db: &DatabaseConnection, slug: &str) -> Result<jams::Model
         .ok_or_else(|| ApiError::not_found("jam not found"))
 }
 
-#[get("/api/v2/jams")]
+#[get("/api/v1/jams")]
 pub async fn list_jams(state: &State<PortState>) -> Result<Json<Vec<JamInfo>>, ApiError> {
     let models = jams::Entity::find()
         .order_by_desc(jams::Column::StartsAt)
@@ -626,13 +626,13 @@ pub async fn list_jams(state: &State<PortState>) -> Result<Json<Vec<JamInfo>>, A
     Ok(Json(out))
 }
 
-#[get("/api/v2/jams/<slug>")]
+#[get("/api/v1/jams/<slug>")]
 pub async fn get_jam(state: &State<PortState>, slug: &str) -> Result<Json<JamInfo>, ApiError> {
     let model = jam_for_slug(&state.db, slug).await?;
     Ok(Json(jam_info(&state.db, model).await?))
 }
 
-#[post("/api/v2/admin/jams", data = "<input>")]
+#[post("/api/v1/admin/jams", data = "<input>")]
 pub async fn create_jam(
     state: &State<PortState>,
     _admin: AdminUser,
@@ -669,7 +669,7 @@ pub async fn create_jam(
     Ok(Json(jam_info(&state.db, model).await?))
 }
 
-#[patch("/api/v2/admin/jams/<slug>", data = "<input>")]
+#[patch("/api/v1/admin/jams/<slug>", data = "<input>")]
 pub async fn update_jam(
     state: &State<PortState>,
     _admin: AdminUser,
@@ -718,7 +718,7 @@ pub async fn update_jam(
     Ok(Json(jam_info(&state.db, model).await?))
 }
 
-#[post("/api/v2/jams/<slug>/entries", data = "<input>")]
+#[post("/api/v1/jams/<slug>/entries", data = "<input>")]
 pub async fn enter_jam(
     state: &State<PortState>,
     user: VerifiedUser,
@@ -769,7 +769,7 @@ pub async fn enter_jam(
     Ok(Json(jam_info(&state.db, jam).await?))
 }
 
-#[delete("/api/v2/jams/<slug>/entries/<cart_id>")]
+#[delete("/api/v1/jams/<slug>/entries/<cart_id>")]
 pub async fn withdraw_jam_entry(
     state: &State<PortState>,
     user: AuthUser,
@@ -796,7 +796,7 @@ pub async fn withdraw_jam_entry(
     Ok(Json(jam_info(&state.db, jam).await?))
 }
 
-#[get("/api/v2/feed?<page>&<per_page>")]
+#[get("/api/v1/feed?<page>&<per_page>")]
 pub async fn feed(
     state: &State<PortState>,
     user: AuthUser,
@@ -970,7 +970,7 @@ pub async fn feed(
     }))
 }
 
-#[get("/api/v2/dashboard")]
+#[get("/api/v1/dashboard")]
 pub async fn dashboard(
     state: &State<PortState>,
     user: AuthUser,

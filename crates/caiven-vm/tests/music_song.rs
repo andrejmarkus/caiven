@@ -136,27 +136,25 @@ fn an_empty_song_is_a_silent_no_op() {
     assert!(!vm.music_player().song_active);
 }
 
-/// A music bank authored before songs existed carries only the 512 bytes of
-/// pattern data. It loads through the normal bank path, gets zero-padded out
-/// to the current bank length, and so reads as a song with nothing in it —
-/// which is why this feature needs no migration or format-version bump.
+/// A music bank holding only the 512 bytes of pattern data zero-pads to the
+/// full bank length, so it reads as a song with nothing in it.
 #[test]
-fn a_pre_song_music_bank_zero_pads_to_an_empty_song() {
+fn a_pattern_only_music_bank_zero_pads_to_an_empty_song() {
     let mut vm = Vm::new(VmConfig::default());
     let input = Input::new();
     let font = Font::empty();
 
-    let old_shape_bank = vec![0u8; MUSIC_PATTERN_DATA_LEN];
+    let pattern_only_bank = vec![0u8; MUSIC_PATTERN_DATA_LEN];
     vm.load_cart_sections(&[CartSection {
         kind: SectionKind::MusicBanks,
-        data: encode_asset_bank("legacy", &old_shape_bank),
+        data: encode_asset_bank("patterns", &pattern_only_bank),
     }]);
     vm.load_lua_source(
         r#"
         function _update()
           if not started then
             started = true
-            load_music_bank("legacy")
+            load_music_bank("patterns")
             play_music_song(0)
           end
         end

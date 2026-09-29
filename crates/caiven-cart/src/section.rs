@@ -1,30 +1,35 @@
+/// Section kinds and their wire ids (see `to_u16`). Default-bank assets use
+/// the plain kinds (`SpriteSheet`, `Map`, ...); each additional named bank
+/// is its own section of the matching `*Bank(s)` kind, whose payload starts
+/// with the bank name (see `encode_asset_bank`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SectionKind {
-    Program,
+    /// The cart's Lua program. Exactly one per cart.
+    LuaSource,
     SpriteSheet,
     Map,
     SfxBank,
     MusicBank,
     Palette,
+    /// Studio-only metadata (JSON), carried through untouched by runtimes.
     Meta,
+    /// Peripherals the cart requires (`[mods] require`), newline-joined.
     ModManifest,
-    LuaSource,
-    /// Additional sprite sheet. Data starts with bank id, followed by pixels.
+    /// Additional sprite sheet.
     SpriteBank,
-    /// Additional tile map. Data starts with bank id, followed by tile ids.
+    /// Additional tile map.
     MapBank,
-    /// Additional palette. Data starts with bank id, followed by RGB triples.
+    /// Additional palette.
     PaletteBank,
-    /// Additional SFX bank. Data starts with bank id, followed by SFX bytes.
+    /// Additional SFX bank.
     SfxBanks,
-    /// Additional music bank. Data starts with bank id, followed by pattern bytes.
+    /// Additional music bank.
     MusicBanks,
-    /// Per-cell collision layer for the bank-0 map (192 × 128, one byte per cell).
+    /// Per-cell collision layer for the default map (192 × 128, one byte per cell).
     Collision,
-    /// Additional collision layer, companion of a `MapBank`. Data starts
-    /// with bank id, followed by one collision byte per cell.
+    /// Additional collision layer, companion of the `MapBank` with the same name.
     CollisionBank,
-    /// Cart-global collision-type table (names/colors/solid flags). Small
+    /// Cart-global collision-type table (names/colors/shapes). Small
     /// metadata, not RAM-backed — see `encode_collision_types`.
     CollisionTypes,
     /// Cart's opt-in gameplay-stdlib selection (`[stdlib] modules` in
@@ -32,13 +37,14 @@ pub enum SectionKind {
     /// Presence (even with empty data) distinguishes "explicitly declared
     /// `[stdlib]`" from "no `[stdlib]` table at all" — see `project.rs`.
     PreludeModules,
+    /// Any id this build doesn't know; carried through byte-for-byte.
     Custom(u16),
 }
 
 impl SectionKind {
     pub fn to_u16(self) -> u16 {
         match self {
-            Self::Program => 0x0001,
+            Self::LuaSource => 0x0001,
             Self::SpriteSheet => 0x0002,
             Self::Map => 0x0003,
             Self::SfxBank => 0x0004,
@@ -46,23 +52,22 @@ impl SectionKind {
             Self::Palette => 0x0006,
             Self::Meta => 0x0007,
             Self::ModManifest => 0x0008,
-            Self::LuaSource => 0x000A,
-            Self::SpriteBank => 0x000B,
-            Self::MapBank => 0x000C,
-            Self::PaletteBank => 0x000E,
-            Self::SfxBanks => 0x000F,
-            Self::MusicBanks => 0x0010,
-            Self::Collision => 0x0011,
-            Self::CollisionBank => 0x0012,
-            Self::CollisionTypes => 0x0013,
-            Self::PreludeModules => 0x0014,
+            Self::SpriteBank => 0x0009,
+            Self::MapBank => 0x000A,
+            Self::PaletteBank => 0x000B,
+            Self::SfxBanks => 0x000C,
+            Self::MusicBanks => 0x000D,
+            Self::Collision => 0x000E,
+            Self::CollisionBank => 0x000F,
+            Self::CollisionTypes => 0x0010,
+            Self::PreludeModules => 0x0011,
             Self::Custom(n) => n,
         }
     }
 
     pub fn from_u16(v: u16) -> Self {
         match v {
-            0x0001 => Self::Program,
+            0x0001 => Self::LuaSource,
             0x0002 => Self::SpriteSheet,
             0x0003 => Self::Map,
             0x0004 => Self::SfxBank,
@@ -70,23 +75,22 @@ impl SectionKind {
             0x0006 => Self::Palette,
             0x0007 => Self::Meta,
             0x0008 => Self::ModManifest,
-            0x000A => Self::LuaSource,
-            0x000B => Self::SpriteBank,
-            0x000C => Self::MapBank,
-            0x000E => Self::PaletteBank,
-            0x000F => Self::SfxBanks,
-            0x0010 => Self::MusicBanks,
-            0x0011 => Self::Collision,
-            0x0012 => Self::CollisionBank,
-            0x0013 => Self::CollisionTypes,
-            0x0014 => Self::PreludeModules,
+            0x0009 => Self::SpriteBank,
+            0x000A => Self::MapBank,
+            0x000B => Self::PaletteBank,
+            0x000C => Self::SfxBanks,
+            0x000D => Self::MusicBanks,
+            0x000E => Self::Collision,
+            0x000F => Self::CollisionBank,
+            0x0010 => Self::CollisionTypes,
+            0x0011 => Self::PreludeModules,
             n => Self::Custom(n),
         }
     }
 
     pub fn name(self) -> &'static str {
         match self {
-            Self::Program => "Program",
+            Self::LuaSource => "LuaSource",
             Self::SpriteSheet => "SpriteSheet",
             Self::Map => "Map",
             Self::SfxBank => "SfxBank",
@@ -94,7 +98,6 @@ impl SectionKind {
             Self::Palette => "Palette",
             Self::Meta => "Meta",
             Self::ModManifest => "ModManifest",
-            Self::LuaSource => "LuaSource",
             Self::SpriteBank => "SpriteBank",
             Self::MapBank => "MapBank",
             Self::PaletteBank => "PaletteBank",
@@ -114,8 +117,8 @@ impl SectionKind {
 pub const MAX_BANK_NAME_LEN: usize = 31;
 
 /// Reserved name of the bank that auto-loads at boot. Never appears in an
-/// encoded section — the default bank's data travels in the legacy
-/// unwrapped `SpriteSheet`/`Map`/... sections — but is the name `Vm`
+/// encoded section — the default bank's data travels in the plain
+/// `SpriteSheet`/`Map`/... sections — but is the name `Vm`
 /// reports for it, so callers have one string to compare against instead
 /// of a separate "is this the default" flag.
 pub const DEFAULT_BANK_NAME: &str = "default";
@@ -133,8 +136,9 @@ pub fn is_valid_bank_name(name: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
-/// Encodes an additional asset bank section. The default bank uses legacy
-/// `SpriteSheet`/`Map`/... sections and must not use this wrapper. Panics
+/// Encodes an additional asset bank section: `[name_len: u8][name][data]`.
+/// The default bank uses the plain `SpriteSheet`/`Map`/... sections and
+/// must not use this wrapper. Panics
 /// if `name` fails [`is_valid_bank_name`] — callers must validate before
 /// encoding (`Vm`'s create/rename paths always do).
 pub fn encode_asset_bank(name: &str, data: &[u8]) -> Vec<u8> {

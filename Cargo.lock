@@ -3952,7 +3952,6 @@ dependencies = [
 name = "migration"
 version = "0.1.0"
 dependencies = [
- "caiven-cart",
  "sea-orm-migration",
  "tokio",
 ]

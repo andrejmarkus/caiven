@@ -53,7 +53,7 @@ pub struct CollisionType {
 /// ids outside this set (3..=255).
 pub const BUILTIN_COLLISION_TYPE_IDS: [u8; 3] = [0, 1, 2];
 
-/// The default collision-type table every new/legacy cart is seeded with.
+/// The collision-type table every cart starts with; a `CollisionTypes` section replaces it.
 pub fn builtin_collision_types() -> Vec<CollisionType> {
     vec![
         CollisionType {

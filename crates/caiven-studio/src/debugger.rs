@@ -7,17 +7,10 @@ pub struct Breakpoint {
     pub line: usize,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum StoredBreakpoint {
-    Legacy(usize),
-    Source(Breakpoint),
-}
-
 #[derive(Debug, Default, Deserialize)]
 struct LoadDbgFile {
     #[serde(default)]
-    breakpoints: Vec<StoredBreakpoint>,
+    breakpoints: Vec<Breakpoint>,
     #[serde(default)]
     watches: Vec<String>,
 }
@@ -34,7 +27,6 @@ pub struct Debugger {
     breakpoints: Vec<Breakpoint>,
     watches: Vec<String>,
     dbg_path: Option<PathBuf>,
-    entry_source: String,
 }
 
 impl Debugger {
@@ -43,15 +35,13 @@ impl Debugger {
             breakpoints: Vec::new(),
             watches: Vec::new(),
             dbg_path: None,
-            entry_source: "main.lua".to_string(),
         }
     }
 
-    pub fn set_dbg_path(&mut self, path: PathBuf, entry_source: String) {
+    pub fn set_dbg_path(&mut self, path: PathBuf) {
         self.breakpoints.clear();
         self.watches.clear();
         self.dbg_path = Some(path);
-        self.entry_source = entry_source;
         self.load_dbg();
     }
 
@@ -66,13 +56,6 @@ impl Debugger {
         self.breakpoints = file
             .breakpoints
             .into_iter()
-            .map(|stored| match stored {
-                StoredBreakpoint::Legacy(line) => Breakpoint {
-                    source: self.entry_source.clone(),
-                    line,
-                },
-                StoredBreakpoint::Source(breakpoint) => breakpoint,
-            })
             .filter(|breakpoint| breakpoint.line > 0 && !breakpoint.source.trim().is_empty())
             .collect();
         self.watches = file.watches;
@@ -141,7 +124,6 @@ impl Debugger {
         self.breakpoints.clear();
         self.watches.clear();
         self.dbg_path = None;
-        self.entry_source = "main.lua".to_string();
     }
 }
 
@@ -181,7 +163,7 @@ mod tests {
     }
 
     #[test]
-    fn loads_legacy_lines_and_persists_source_breakpoints_and_watches() {
+    fn persists_source_breakpoints_and_watches() {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock after epoch")
@@ -190,11 +172,14 @@ mod tests {
             "caiven-debugger-{}-{unique}.toml",
             std::process::id()
         ));
-        std::fs::write(&path, "breakpoints = [4]\nwatches = [\"player.x\"]\n")
-            .expect("write legacy debugger state");
+        std::fs::write(
+            &path,
+            "watches = [\"player.x\"]\n\n[[breakpoints]]\nsource = \"main.lua\"\nline = 4\n",
+        )
+        .expect("write debugger state");
 
         let mut debugger = Debugger::new();
-        debugger.set_dbg_path(path.clone(), "main.lua".into());
+        debugger.set_dbg_path(path.clone());
         assert_eq!(
             debugger.breakpoints()[0],
             Breakpoint {
@@ -206,7 +191,7 @@ mod tests {
         debugger.toggle_line_breakpoint("ui/hud.lua".into(), 8);
 
         let mut reloaded = Debugger::new();
-        reloaded.set_dbg_path(path.clone(), "main.lua".into());
+        reloaded.set_dbg_path(path.clone());
         assert_eq!(reloaded.breakpoints().len(), 2);
         assert_eq!(reloaded.watches(), &["player.x"]);
         std::fs::remove_file(path).expect("remove debugger fixture");

@@ -21,7 +21,7 @@ export default defineConfig({
   webServer: [
     {
       command: 'node e2e/support/live-server.mjs',
-      url: 'http://127.0.0.1:1431/api/v2/auth/config',
+      url: 'http://127.0.0.1:1431/api/v1/auth/config',
       reuseExistingServer: false,
       timeout: 240_000,
     },

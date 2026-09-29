@@ -58,7 +58,7 @@ const PASSKEY_LOGIN_START_LIMIT: u32 = 10;
 const PASSKEY_LOGIN_START_WINDOW: Duration = Duration::from_secs(5 * 60);
 
 const OAUTH_STATE_COOKIE: &str = "caiven_oauth";
-const OAUTH_PATH: &str = "/api/v2/auth/oauth";
+const OAUTH_PATH: &str = "/api/v1/auth/oauth";
 
 /// Same-origin path to return to after OAuth, or None. Stricter than the
 /// SPA's `safeNext`: it rides in a cookie and a `Location` header, so
@@ -214,7 +214,7 @@ async fn notify(
     auth::audit(&state.db, &user.id, event, ip, ua, None).await;
 }
 
-#[get("/api/v2/auth/config")]
+#[get("/api/v1/auth/config")]
 pub fn auth_config(state: &State<PortState>) -> Json<AuthConfigInfo> {
     Json(AuthConfigInfo {
         turnstile_site_key: state.turnstile_site_key.clone(),
@@ -227,7 +227,7 @@ pub fn auth_config(state: &State<PortState>) -> Json<AuthConfigInfo> {
     })
 }
 
-#[post("/api/v2/auth/register", data = "<input>")]
+#[post("/api/v1/auth/register", data = "<input>")]
 pub async fn register(
     state: &State<PortState>,
     ip: ClientIp,
@@ -350,7 +350,7 @@ async fn send_verification_email(state: &PortState, user: &users::Model) {
     mailer::send_or_log_verification(state.mailer.as_ref(), email, &link).await;
 }
 
-#[post("/api/v2/auth/login", data = "<input>")]
+#[post("/api/v1/auth/login", data = "<input>")]
 pub async fn login(
     state: &State<PortState>,
     ip: ClientIp,
@@ -449,7 +449,7 @@ pub async fn login(
     }))
 }
 
-#[post("/api/v2/auth/login/mfa", data = "<input>")]
+#[post("/api/v1/auth/login/mfa", data = "<input>")]
 pub async fn login_mfa(
     state: &State<PortState>,
     ip: ClientIp,
@@ -500,7 +500,7 @@ pub async fn login_mfa(
     Ok(Json(to_user_info(user)))
 }
 
-#[post("/api/v2/auth/logout")]
+#[post("/api/v1/auth/logout")]
 pub async fn logout(state: &State<PortState>, jar: &CookieJar<'_>) -> Result<(), ApiError> {
     if let Some(cookie) = jar.get(SESSION_COOKIE) {
         auth::delete_session(&state.db, cookie.value()).await?;
@@ -510,7 +510,7 @@ pub async fn logout(state: &State<PortState>, jar: &CookieJar<'_>) -> Result<(),
     Ok(())
 }
 
-#[get("/api/v2/auth/me")]
+#[get("/api/v1/auth/me")]
 pub async fn me(user: AuthUser, state: &State<PortState>) -> Result<Json<UserInfo>, ApiError> {
     let model = users::Entity::find_by_id(&user.id)
         .one(&state.db)
@@ -520,7 +520,7 @@ pub async fn me(user: AuthUser, state: &State<PortState>) -> Result<Json<UserInf
     Ok(Json(to_user_info(model)))
 }
 
-#[post("/api/v2/auth/verify-email", data = "<input>")]
+#[post("/api/v1/auth/verify-email", data = "<input>")]
 pub async fn verify_email(
     state: &State<PortState>,
     input: Json<VerifyEmailInput>,
@@ -539,7 +539,7 @@ pub async fn verify_email(
     Ok(Status::NoContent)
 }
 
-#[post("/api/v2/auth/resend-verification")]
+#[post("/api/v1/auth/resend-verification")]
 pub async fn resend_verification(
     state: &State<PortState>,
     ip: ClientIp,
@@ -563,7 +563,7 @@ pub async fn resend_verification(
     Ok(Status::NoContent)
 }
 
-#[post("/api/v2/auth/forgot-password", data = "<input>")]
+#[post("/api/v1/auth/forgot-password", data = "<input>")]
 pub async fn forgot_password(
     state: &State<PortState>,
     ip: ClientIp,
@@ -606,7 +606,7 @@ pub async fn forgot_password(
     Ok(Status::NoContent)
 }
 
-#[post("/api/v2/auth/reset-password", data = "<input>")]
+#[post("/api/v1/auth/reset-password", data = "<input>")]
 pub async fn reset_password(
     state: &State<PortState>,
     input: Json<ResetPasswordInput>,
@@ -633,7 +633,7 @@ pub async fn reset_password(
     Ok(Status::NoContent)
 }
 
-#[post("/api/v2/auth/password", data = "<req>")]
+#[post("/api/v1/auth/password", data = "<req>")]
 pub async fn change_password(
     state: &State<PortState>,
     ip: ClientIp,
@@ -696,7 +696,7 @@ pub async fn change_password(
     Ok(Status::NoContent)
 }
 
-#[post("/api/v2/auth/set-password", data = "<input>")]
+#[post("/api/v1/auth/set-password", data = "<input>")]
 pub async fn set_password(
     state: &State<PortState>,
     ip: ClientIp,
@@ -738,7 +738,7 @@ pub async fn set_password(
     Ok(Status::NoContent)
 }
 
-#[get("/api/v2/auth/sessions")]
+#[get("/api/v1/auth/sessions")]
 pub async fn list_sessions(
     state: &State<PortState>,
     jar: &CookieJar<'_>,
@@ -774,7 +774,7 @@ pub async fn list_sessions(
     ))
 }
 
-#[delete("/api/v2/auth/sessions/<session_id>")]
+#[delete("/api/v1/auth/sessions/<session_id>")]
 pub async fn revoke_session(
     state: &State<PortState>,
     jar: &CookieJar<'_>,
@@ -800,7 +800,7 @@ pub async fn revoke_session(
     Ok(Status::NoContent)
 }
 
-#[delete("/api/v2/auth/sessions")]
+#[delete("/api/v1/auth/sessions")]
 pub async fn revoke_all_sessions(
     state: &State<PortState>,
     ip: ClientIp,
@@ -831,7 +831,7 @@ pub async fn revoke_all_sessions(
     Ok(Status::NoContent)
 }
 
-#[get("/api/v2/auth/tokens")]
+#[get("/api/v1/auth/tokens")]
 pub async fn list_tokens(
     state: &State<PortState>,
     user: SessionUser,
@@ -855,7 +855,7 @@ pub async fn list_tokens(
     ))
 }
 
-#[post("/api/v2/auth/tokens", data = "<req>")]
+#[post("/api/v1/auth/tokens", data = "<req>")]
 pub async fn create_token(
     state: &State<PortState>,
     user: SessionUser,
@@ -874,7 +874,7 @@ pub async fn create_token(
     }))
 }
 
-#[delete("/api/v2/auth/tokens/<token_id>")]
+#[delete("/api/v1/auth/tokens/<token_id>")]
 pub async fn revoke_token(
     state: &State<PortState>,
     user: SessionUser,
@@ -899,7 +899,7 @@ fn studio_link_expired(expires_at: &str) -> bool {
         .unwrap_or(true)
 }
 
-#[post("/api/v2/auth/studio-link")]
+#[post("/api/v1/auth/studio-link")]
 pub async fn studio_link_start(
     state: &State<PortState>,
     ip: ClientIp,
@@ -943,7 +943,7 @@ pub async fn studio_link_start(
     }))
 }
 
-#[post("/api/v2/auth/studio-link/poll", data = "<request>")]
+#[post("/api/v1/auth/studio-link/poll", data = "<request>")]
 pub async fn studio_link_poll(
     state: &State<PortState>,
     ip: ClientIp,
@@ -1037,7 +1037,7 @@ pub async fn studio_link_poll(
     }))
 }
 
-#[get("/api/v2/auth/studio-link/<request_id>/status?<poll_secret>")]
+#[get("/api/v1/auth/studio-link/<request_id>/status?<poll_secret>")]
 pub async fn studio_link_status(
     state: &State<PortState>,
     request_id: &str,
@@ -1071,7 +1071,7 @@ pub async fn studio_link_status(
     }))
 }
 
-#[post("/api/v2/auth/studio-link/<request_id>/approve", data = "<input>")]
+#[post("/api/v1/auth/studio-link/<request_id>/approve", data = "<input>")]
 pub async fn studio_link_approve(
     state: &State<PortState>,
     user: SessionUser,
@@ -1128,7 +1128,7 @@ pub async fn studio_link_approve(
     Ok(())
 }
 
-#[post("/api/v2/auth/studio-link/<request_id>/cancel", data = "<request>")]
+#[post("/api/v1/auth/studio-link/<request_id>/cancel", data = "<request>")]
 pub async fn studio_link_cancel(
     state: &State<PortState>,
     request_id: &str,
@@ -1160,7 +1160,7 @@ pub async fn studio_link_cancel(
 
 // --- Two-factor authentication (TOTP + backup codes) ---
 
-#[get("/api/v2/auth/mfa/status")]
+#[get("/api/v1/auth/mfa/status")]
 pub async fn mfa_status(
     state: &State<PortState>,
     user: AuthUser,
@@ -1175,7 +1175,7 @@ pub async fn mfa_status(
     }))
 }
 
-#[post("/api/v2/auth/mfa/setup")]
+#[post("/api/v1/auth/mfa/setup")]
 pub async fn mfa_setup(
     state: &State<PortState>,
     user: SessionUser,
@@ -1212,7 +1212,7 @@ pub async fn mfa_setup(
     }))
 }
 
-#[post("/api/v2/auth/mfa/confirm", data = "<input>")]
+#[post("/api/v1/auth/mfa/confirm", data = "<input>")]
 pub async fn mfa_confirm(
     state: &State<PortState>,
     ip: ClientIp,
@@ -1255,7 +1255,7 @@ pub async fn mfa_confirm(
     Ok(Json(MfaConfirmed { backup_codes }))
 }
 
-#[post("/api/v2/auth/mfa/disable", data = "<input>")]
+#[post("/api/v1/auth/mfa/disable", data = "<input>")]
 pub async fn mfa_disable(
     state: &State<PortState>,
     ip: ClientIp,
@@ -1317,7 +1317,7 @@ fn oauth_redirect_uri(state: &PortState, provider: oauth::Provider) -> String {
     )
 }
 
-#[get("/api/v2/auth/oauth/<provider>/start?<next>")]
+#[get("/api/v1/auth/oauth/<provider>/start?<next>")]
 pub async fn oauth_start(
     state: &State<PortState>,
     jar: &CookieJar<'_>,
@@ -1359,7 +1359,7 @@ pub async fn oauth_start(
     Ok(Redirect::to(url))
 }
 
-#[get("/api/v2/auth/oauth/<provider>/callback?<code>&<state_param>&<error>")]
+#[get("/api/v1/auth/oauth/<provider>/callback?<code>&<state_param>&<error>")]
 #[allow(clippy::too_many_arguments)]
 pub async fn oauth_callback(
     state: &State<PortState>,
@@ -1574,7 +1574,7 @@ async fn unique_oauth_username(state: &PortState, suggested: &str) -> Result<Str
 
 // --- Audit log ---
 
-#[get("/api/v2/auth/audit-log?<page>&<per_page>")]
+#[get("/api/v1/auth/audit-log?<page>&<per_page>")]
 pub async fn audit_log(
     state: &State<PortState>,
     user: SessionUser,
@@ -1619,7 +1619,7 @@ async fn user_passkeys(state: &PortState, user_id: &str) -> Result<Vec<Passkey>,
         .collect()
 }
 
-#[post("/api/v2/auth/webauthn/register/start")]
+#[post("/api/v1/auth/webauthn/register/start")]
 pub async fn webauthn_register_start(
     state: &State<PortState>,
     user: SessionUser,
@@ -1644,7 +1644,7 @@ pub async fn webauthn_register_start(
     Ok(Json(WebauthnStartResponse { token, options }))
 }
 
-#[post("/api/v2/auth/webauthn/register/finish", data = "<input>")]
+#[post("/api/v1/auth/webauthn/register/finish", data = "<input>")]
 pub async fn webauthn_register_finish(
     state: &State<PortState>,
     user: SessionUser,
@@ -1722,7 +1722,7 @@ pub async fn webauthn_register_finish(
     }))
 }
 
-#[post("/api/v2/auth/webauthn/login/start", data = "<input>")]
+#[post("/api/v1/auth/webauthn/login/start", data = "<input>")]
 pub async fn webauthn_login_start(
     state: &State<PortState>,
     ip: ClientIp,
@@ -1770,7 +1770,7 @@ pub async fn webauthn_login_start(
     Ok(Json(WebauthnStartResponse { token, options }))
 }
 
-#[post("/api/v2/auth/webauthn/login/finish", data = "<input>")]
+#[post("/api/v1/auth/webauthn/login/finish", data = "<input>")]
 pub async fn webauthn_login_finish(
     state: &State<PortState>,
     ip: ClientIp,
@@ -1835,7 +1835,7 @@ pub async fn webauthn_login_finish(
     Ok(Json(to_user_info(user)))
 }
 
-#[get("/api/v2/auth/webauthn/credentials")]
+#[get("/api/v1/auth/webauthn/credentials")]
 pub async fn list_passkeys(
     state: &State<PortState>,
     user: SessionUser,
@@ -1859,7 +1859,7 @@ pub async fn list_passkeys(
     ))
 }
 
-#[delete("/api/v2/auth/webauthn/credentials/<id>")]
+#[delete("/api/v1/auth/webauthn/credentials/<id>")]
 pub async fn delete_passkey(
     state: &State<PortState>,
     user: SessionUser,
@@ -1881,7 +1881,7 @@ pub async fn delete_passkey(
 
 // --- Account deletion & data export ---
 
-#[delete("/api/v2/auth/account", data = "<input>")]
+#[delete("/api/v1/auth/account", data = "<input>")]
 pub async fn delete_account(
     state: &State<PortState>,
     ip: ClientIp,
@@ -1932,16 +1932,17 @@ pub async fn delete_account(
         state,
         &model,
         "Your Caiven account was deleted",
-        "This account and its sessions, tokens, and social contributions have been deleted. Published carts remain available under a generic \"legacy\" author.",
+        "This account and its sessions, tokens, and social contributions have been deleted. Published carts remain available, credited to \"[deleted]\".",
     )
     .await;
 
+    // Deleting the user nulls `carts.owner_id` (schema `ON DELETE SET NULL`);
+    // the carts stay public under a neutral author.
     let txn = state.db.begin().await.map_err(ApiError::from)?;
-    db::ensure_legacy_user(&txn).await.map_err(ApiError::from)?;
     carts::Entity::update_many()
         .col_expr(
-            carts::Column::OwnerId,
-            sea_orm::sea_query::Expr::value(db::LEGACY_USER_ID),
+            carts::Column::Author,
+            sea_orm::sea_query::Expr::value(db::DELETED_AUTHOR),
         )
         .filter(carts::Column::OwnerId.eq(&user.id))
         .exec(&txn)
@@ -1958,7 +1959,7 @@ pub async fn delete_account(
     Ok(Status::NoContent)
 }
 
-#[get("/api/v2/auth/export")]
+#[get("/api/v1/auth/export")]
 pub async fn export_data(
     state: &State<PortState>,
     user: SessionUser,

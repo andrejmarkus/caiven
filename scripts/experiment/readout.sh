@@ -13,7 +13,7 @@ shift
 
 curl -fsS -G -H "X-Api-Key: $CAIVEN_PORT_API_KEY" \
   --data-urlencode "since=$since" \
-  "$CAIVEN_PORT_URL/api/v2/admin/metrics/remix-funnel" |
+  "$CAIVEN_PORT_URL/api/v1/admin/metrics/remix-funnel" |
   STARTERS="$*" node -e '
 const f = JSON.parse(require("fs").readFileSync(0, "utf8"));
 const starters = (process.env.STARTERS || "").split(" ").filter(Boolean);

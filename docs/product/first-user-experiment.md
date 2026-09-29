@@ -78,7 +78,7 @@ CAIVEN_PORT_URL=https://port.example CAIVEN_PORT_API_KEY=<admin token> \
   scripts/experiment/readout.sh <since> <starter-id> ...
 ```
 
-It prints `GET /api/v2/admin/metrics/remix-funnel?since=…`, starters first,
+It prints `GET /api/v1/admin/metrics/remix-funnel?since=…`, starters first,
 each remix under them. Staff (admin) activity is excluded.
 
 | Column | Event | Recorded | Unit |

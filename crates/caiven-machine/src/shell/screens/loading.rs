@@ -28,12 +28,12 @@ pub struct LoadProgress {
     pub stage: String,
 }
 
-/// Short label for a section kind's stage line. Groups the legacy/bank
-/// variants of the same asset type under one word, matching how the handoff
+/// Short label for a section kind's stage line. Groups the default and
+/// named-bank variants of the same asset type under one word, matching how the handoff
 /// copy reads ("sprites 4/4", "map 1/1", "sfx 9/16").
 fn stage_label(kind: SectionKind) -> &'static str {
     match kind {
-        SectionKind::Program | SectionKind::LuaSource => "program",
+        SectionKind::LuaSource => "program",
         SectionKind::SpriteSheet | SectionKind::SpriteBank => "sprites",
         SectionKind::Map | SectionKind::MapBank => "map",
         SectionKind::SfxBank | SectionKind::SfxBanks => "sfx",
@@ -193,7 +193,7 @@ mod tests {
     #[test]
     fn stage_text_counts_sections_of_the_same_kind() {
         let sections = [
-            SectionKind::Program,
+            SectionKind::LuaSource,
             SectionKind::SpriteSheet,
             SectionKind::SpriteBank,
             SectionKind::Map,
@@ -206,7 +206,7 @@ mod tests {
 
     #[test]
     fn stage_text_reads_running_init_once_every_section_is_mounted() {
-        let sections = [SectionKind::Program];
+        let sections = [SectionKind::LuaSource];
         assert_eq!(stage_text(&sections, 1), "running _init()");
         assert_eq!(stage_text(&sections, 5), "running _init()");
     }
@@ -227,7 +227,7 @@ mod tests {
             title: "Ember Drift".to_string(),
             author: "Andrej".to_string(),
             bytes: 20_480,
-            kinds: vec![SectionKind::Program, SectionKind::SpriteSheet],
+            kinds: vec![SectionKind::LuaSource, SectionKind::SpriteSheet],
         }
     }
 

@@ -234,7 +234,7 @@ pub struct Vm {
     /// metadata, not RAM-backed — see `caiven_core::collision` and
     /// `COLLISION_RAM_BASE`'s doc comment. Seeded with the built-in types
     /// and overwritten wholesale by a `SectionKind::CollisionTypes` section
-    /// on cart load, so old carts without one still get valid defaults.
+    /// on cart load, so a cart without one still gets valid defaults.
     collision_types: Vec<caiven_core::CollisionType>,
     /// Cart's opt-in gameplay-stdlib selection (`[stdlib] modules` in
     /// `caiven.toml`), set via `Vm::set_prelude_modules` before the first
@@ -596,8 +596,7 @@ impl Vm {
                 SectionKind::Palette => PALETTE_RAM_BASE,
                 SectionKind::SfxBank => SFX_RAM_BASE,
                 SectionKind::MusicBank => MUSIC_RAM_BASE,
-                SectionKind::Program
-                | SectionKind::Meta
+                SectionKind::Meta
                 | SectionKind::ModManifest
                 | SectionKind::PreludeModules
                 | SectionKind::LuaSource

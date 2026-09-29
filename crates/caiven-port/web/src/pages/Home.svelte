@@ -83,7 +83,7 @@
             {featured.description || 'A tiny world built for the Caiven fantasy console.'}
           </p>
           <div class="mt-6 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-            <a href="/author/{featured.owner ?? featured.author}" use:link class="font-semibold text-foreground">
+            <a href={featured.owner ? `/author/${featured.owner}` : undefined} use:link class="font-semibold text-foreground">
               {featured.owner ?? featured.author}
             </a>
             <span class="text-border">|</span>

@@ -472,8 +472,7 @@ mod tests {
     }
 
     #[test]
-    fn a_controls_file_from_before_select_existed_still_gets_both() {
-        // Every file on a user's disk predates these two fields.
+    fn a_controls_file_without_select_or_start_gets_their_defaults() {
         let map = InputMap::parse_str(
             r#"
             [controls]

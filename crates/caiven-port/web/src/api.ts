@@ -1,4 +1,4 @@
-const BASE = '/api/v2';
+const BASE = '/api/v1';
 
 export interface Cart {
   id: string;

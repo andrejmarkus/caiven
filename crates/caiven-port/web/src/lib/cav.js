@@ -4,12 +4,11 @@
 // other section is carried through byte-for-byte.
 
 const MAGIC = 'CAIVEN';
-const FORMAT_VERSION = 5;
-const FIXED_HDR = 82;
+export const FORMAT_VERSION = 1;
+const FIXED_HDR = 74;
 const ENTRY_LEN = 14;
 const FIELD_LEN = 32;
-export const LUA_SOURCE = 0x000a;
-export const PROGRAM = 0x0001;
+export const LUA_SOURCE = 0x0001;
 export const MAX_CART_BYTES = 128 * 1024;
 
 const CRC_TABLE = (() => {
@@ -31,7 +30,7 @@ export function crc32(bytes) {
 
 /**
  * @typedef {{ kind: number, data: Uint8Array }} Section
- * @typedef {{ version: number, title: string, author: string, entry: number, flags: number, sections: Section[] }} Cav
+ * @typedef {{ title: string, author: string, sections: Section[] }} Cav
  */
 
 /** @param {Uint8Array} bytes @param {number} start */
@@ -41,13 +40,14 @@ function readField(bytes, start) {
   return new TextDecoder().decode(end === -1 ? field : field.subarray(0, end));
 }
 
-/** @param {Uint8Array} bytes @returns {Cav} */
+/** Parses a format-v1 cart; any other version is rejected. @param {Uint8Array} bytes @returns {Cav} */
 export function parseCav(bytes) {
   if (bytes.length < FIXED_HDR || new TextDecoder().decode(bytes.subarray(0, 6)) !== MAGIC) {
     throw new Error('not a Caiven cart');
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const version = view.getUint16(6, true);
+  if (version !== FORMAT_VERSION) throw new Error(`cart format v${version} is not supported here`);
   const count = view.getUint16(8, true);
   if (FIXED_HDR + count * ENTRY_LEN > bytes.length) throw new Error('cart is truncated');
   /** @type {Section[]} */
@@ -63,11 +63,8 @@ export function parseCav(bytes) {
     sections.push({ kind, data });
   }
   return {
-    version,
     title: readField(bytes, 10),
     author: readField(bytes, 10 + FIELD_LEN),
-    entry: view.getUint32(10 + 2 * FIELD_LEN, true),
-    flags: view.getUint32(14 + 2 * FIELD_LEN, true),
     sections,
   };
 }
@@ -96,8 +93,6 @@ export function writeCav(cav) {
   view.setUint16(8, cav.sections.length, true);
   out.set(encodeField(cav.title), 10);
   out.set(encodeField(cav.author), 10 + FIELD_LEN);
-  view.setUint32(10 + 2 * FIELD_LEN, cav.entry, true);
-  view.setUint32(14 + 2 * FIELD_LEN, cav.flags, true);
   let offset = dataStart;
   cav.sections.forEach((s, i) => {
     const e = FIXED_HDR + i * ENTRY_LEN;
@@ -118,13 +113,11 @@ export function luaSource(cav) {
 }
 
 /**
- * Same cart with its Lua replaced (and optionally retitled). Writes the
- * current format version, so it only accepts carts this runtime can load.
+ * Same cart with its Lua replaced (and optionally retitled).
  * @param {Cav} cav @param {string} source @param {{ title?: string, author?: string }} [header]
  * @returns {Uint8Array}
  */
 export function withLuaSource(cav, source, header = {}) {
-  if (cav.version !== FORMAT_VERSION) throw new Error(`cart format v${cav.version} is not supported here`);
   const data = new TextEncoder().encode(source);
   let replaced = false;
   const sections = cav.sections.map((s) => {

@@ -1,15 +1,16 @@
-/// Cart layout:
+/// Cart layout (format version 1):
 ///   magic:       b"CAIVEN" (6 bytes)
-///   version:     u16 LE   (= CART_FORMAT_VERSION; reader rejects anything
-///                           outside MIN_SUPPORTED_CART_VERSION..=CART_FORMAT_VERSION)
+///   version:     u16 LE   (= CART_FORMAT_VERSION; any other value is rejected)
 ///   n_sections:  u16 LE
-///   header body: 72 bytes  (title[32] author[32] entry[4] flags[4])
+///   header body: 64 bytes  (title[32] author[32], zero-padded UTF-8)
 ///   section table: n_sections × 14 bytes each:
 ///     kind:    u16 LE
 ///     offset:  u32 LE   (absolute byte offset from file start)
 ///     len:     u32 LE
 ///     crc32:   u32 LE
 ///   section data: packed at the offsets listed in the table
+///
+/// Exactly one section is `LuaSource`; the rest are assets and metadata.
 use std::io::Read;
 use std::path::Path;
 
@@ -22,46 +23,20 @@ use crate::section::{CartSection, SectionKind};
 
 const MAGIC: &[u8; 6] = b"CAIVEN";
 
-/// Current on-disk cart format version, written by [`write`]. Bump this
-/// (and update `MIN_SUPPORTED_CART_VERSION` if old bytes become unparsable)
-/// whenever the header/section-table shape changes.
-pub(crate) const CART_FORMAT_VERSION: u16 = 5;
+/// The only cart format version this build reads and writes. Bump it when
+/// old bytes would misparse under the new layout; adding a section kind
+/// doesn't need a bump, since readers carry unknown kinds through as
+/// `Custom(id)`.
+pub(crate) const CART_FORMAT_VERSION: u16 = 1;
 
-/// Oldest version this build still loads. The section table is additive
-/// and self-describing (an unrecognized `SectionKind` just becomes
-/// `Custom(id)` and is carried through, ignored by consumers that don't
-/// know it), so every version since the format's first release has stayed
-/// byte-compatible with this reader — raise this only when a change makes
-/// old bytes genuinely unparsable, and pair it with a migration or an
-/// explicit rejection test.
-///
-/// Raised 3 -> 4 with `CART_FORMAT_VERSION`: additional-bank sections
-/// (`SpriteBank`, `MapBank`, `PaletteBank`, `SfxBanks`, `MusicBanks`,
-/// `CollisionBank`) switched their payload from `[bank_id: u8][data]` to
-/// `[name_len: u8][name][data]` (named banks, hardware-redesign 2.5). A
-/// version-3-or-older cart's numeric bank id would misparse as a name
-/// length under the new decoder, so old carts are rejected outright rather
-/// than silently misread — no migration exists because nothing is in
-/// production yet.
-///
-/// Raised 4 -> 5 with `CART_FORMAT_VERSION`: map/collision resize 128x128 ->
-/// 192x128 (hardware-redesign Phase 4) changed the row-major stride of the
-/// `Map`/`Collision`/`MapBank`/`CollisionBank` sections. A version-4 cart's
-/// 128-wide tile rows would be reinterpreted at the new 192-wide stride —
-/// every tile after the first row lands at the wrong (x, y) — so old carts
-/// are rejected outright rather than silently misread. No migration exists
-/// because nothing is in production yet.
-const MIN_SUPPORTED_CART_VERSION: u16 = 5;
-
-const HEADER_BODY_LEN: usize = 72;
-// 6 (magic) + 2 (version) + 2 (n_sections) + 72 (header body)
-const FIXED_HDR: usize = 82;
+const HEADER_BODY_LEN: usize = 64;
+// 6 (magic) + 2 (version) + 2 (n_sections) + 64 (header body)
+const FIXED_HDR: usize = 74;
 const SECTION_ENTRY_LEN: usize = 14; // kind[2] + offset[4] + len[4] + crc32[4]
 
 pub struct Cart {
     pub header: CartHeader,
-    pub program: Vec<u8>,
-    /// Non-Program sections (SpriteSheet, Map, etc.)
+    /// Every section, including the one `LuaSource`.
     pub sections: Vec<CartSection>,
 }
 
@@ -99,11 +74,10 @@ fn load_bytes(data: &[u8]) -> Result<Cart, CartError> {
         return Err(CartError::Truncated);
     }
     let version = u16::from_le_bytes([data[6], data[7]]);
-    if !(MIN_SUPPORTED_CART_VERSION..=CART_FORMAT_VERSION).contains(&version) {
+    if version != CART_FORMAT_VERSION {
         return Err(CartError::UnsupportedCartVersion {
             found: version,
-            min_supported: MIN_SUPPORTED_CART_VERSION,
-            max_supported: CART_FORMAT_VERSION,
+            supported: CART_FORMAT_VERSION,
         });
     }
     let n_sections = u16::from_le_bytes([data[8], data[9]]) as usize;
@@ -121,11 +95,10 @@ fn load_bytes(data: &[u8]) -> Result<Cart, CartError> {
     // ranges could otherwise multiply a small input into large allocations.
     let mut entries = Vec::with_capacity(n_sections);
     let mut ranges = Vec::with_capacity(n_sections);
-    let mut program_count = 0;
 
     for i in 0..n_sections {
         let e = FIXED_HDR + i * SECTION_ENTRY_LEN;
-        let kind_id = u16::from_le_bytes([data[e], data[e + 1]]);
+        let kind = SectionKind::from_u16(u16::from_le_bytes([data[e], data[e + 1]]));
         let offset = read_u32_le(data, e + 2) as usize;
         let len = read_u32_le(data, e + 6) as usize;
         let stored_crc = read_u32_le(data, e + 10);
@@ -140,24 +113,15 @@ fn load_bytes(data: &[u8]) -> Result<Cart, CartError> {
         if len > 0 {
             ranges.push((offset, end));
         }
-        let kind = SectionKind::from_u16(kind_id);
-        if kind == SectionKind::Program {
-            program_count += 1;
-        }
         entries.push((kind, offset, end, stored_crc));
     }
-    if program_count != 1 {
-        return Err(CartError::InvalidLayout(
-            "expected exactly one Program section",
-        ));
-    }
+    check_one_lua_source(entries.iter().map(|(kind, ..)| *kind))?;
     ranges.sort_unstable();
     if ranges.windows(2).any(|pair| pair[0].1 > pair[1].0) {
         return Err(CartError::InvalidLayout("section payloads overlap"));
     }
 
-    let mut program = Vec::new();
-    let mut sections = Vec::new();
+    let mut sections = Vec::with_capacity(entries.len());
     for (kind, offset, end, stored_crc) in entries {
         let section_data = &data[offset..end];
         let actual_crc = crc32fast::hash(section_data);
@@ -167,100 +131,86 @@ fn load_bytes(data: &[u8]) -> Result<Cart, CartError> {
                 actual: actual_crc,
             });
         }
-
-        if kind == SectionKind::Program {
-            program = section_data.to_vec();
-        } else {
-            sections.push(CartSection {
-                kind,
-                data: section_data.to_vec(),
-            });
-        }
+        sections.push(CartSection {
+            kind,
+            data: section_data.to_vec(),
+        });
     }
 
-    Ok(Cart {
-        header,
-        program,
-        sections,
-    })
+    Ok(Cart { header, sections })
 }
 
-/// Write a cart with optional extra asset sections.
-/// Program is always written as section 0; extra_sections follow in order.
-pub fn write(
-    path: &Path,
-    header: &CartHeader,
-    program: &[u8],
-    extra_sections: &[(SectionKind, Vec<u8>)],
-) -> Result<(), CartError> {
-    if extra_sections
-        .iter()
-        .any(|(kind, _)| kind.to_u16() == SectionKind::Program.to_u16())
-    {
-        return Err(CartError::InvalidLayout("extra Program section"));
+/// Compares wire ids so a `Custom` kind can't alias `LuaSource` past the check.
+fn check_one_lua_source(kinds: impl Iterator<Item = SectionKind>) -> Result<(), CartError> {
+    let lua = SectionKind::LuaSource.to_u16();
+    if kinds.filter(|kind| kind.to_u16() == lua).count() == 1 {
+        Ok(())
+    } else {
+        Err(CartError::InvalidLayout(
+            "expected exactly one LuaSource section",
+        ))
     }
-    let n = 1 + extra_sections.len();
-    let packed_len = packed_len(program, extra_sections);
+}
+
+/// Packs a cart in memory. `sections` must contain exactly one `LuaSource`;
+/// sections are written in the given order.
+pub fn pack(
+    header: &CartHeader,
+    sections: &[(SectionKind, Vec<u8>)],
+) -> Result<Vec<u8>, CartError> {
+    check_one_lua_source(sections.iter().map(|(kind, _)| *kind))?;
+    let packed_len = packed_len(sections);
     if packed_len > MAX_CART_BYTES {
         return Err(CartError::TooLarge {
             size: packed_len,
             max: MAX_CART_BYTES,
         });
     }
-    let header_body = header.to_bytes();
-    let table_len = n * SECTION_ENTRY_LEN;
-    let data_start = FIXED_HDR + table_len;
-
-    let mut offsets = Vec::with_capacity(n);
-    let mut cur = data_start;
-    offsets.push(cur);
-    cur += program.len();
-    for (_, d) in extra_sections {
-        offsets.push(cur);
-        cur += d.len();
-    }
 
     let mut out = Vec::with_capacity(packed_len);
-
     out.extend_from_slice(MAGIC);
     out.extend_from_slice(&CART_FORMAT_VERSION.to_le_bytes());
-    out.extend_from_slice(&(n as u16).to_le_bytes());
-    out.extend_from_slice(&header_body);
+    out.extend_from_slice(&(sections.len() as u16).to_le_bytes());
+    out.extend_from_slice(&header.to_bytes());
 
-    append_section_entry(&mut out, SectionKind::Program, offsets[0], program);
-    for (i, (kind, d)) in extra_sections.iter().enumerate() {
-        append_section_entry(&mut out, *kind, offsets[i + 1], d);
+    let mut offset = FIXED_HDR + sections.len() * SECTION_ENTRY_LEN;
+    for (kind, data) in sections {
+        out.extend_from_slice(&kind.to_u16().to_le_bytes());
+        out.extend_from_slice(&(offset as u32).to_le_bytes());
+        out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        out.extend_from_slice(&crc32fast::hash(data).to_le_bytes());
+        offset += data.len();
     }
-
-    out.extend_from_slice(program);
-    for (_, d) in extra_sections {
-        out.extend_from_slice(d);
+    for (_, data) in sections {
+        out.extend_from_slice(data);
     }
+    Ok(out)
+}
 
-    std::fs::write(path, out)?;
+/// [`pack`]s a cart and writes it to `path`. Nothing is written on error.
+pub fn write(
+    path: &Path,
+    header: &CartHeader,
+    sections: &[(SectionKind, Vec<u8>)],
+) -> Result<(), CartError> {
+    std::fs::write(path, pack(header, sections)?)?;
     Ok(())
 }
 
-/// Exact byte length produced by [`write()`] for this program and section set.
-pub fn packed_len(program: &[u8], extra_sections: &[(SectionKind, Vec<u8>)]) -> usize {
-    let section_count = 1 + extra_sections.len();
+/// Exact byte length produced by [`pack`] for this section set.
+pub fn packed_len(sections: &[(SectionKind, Vec<u8>)]) -> usize {
     FIXED_HDR
-        + section_count * SECTION_ENTRY_LEN
-        + program.len()
-        + extra_sections
-            .iter()
-            .map(|(_, data)| data.len())
-            .sum::<usize>()
+        + sections.len() * SECTION_ENTRY_LEN
+        + sections.iter().map(|(_, data)| data.len()).sum::<usize>()
 }
 
 /// Content-identity hash used for theft/dedup detection: covers only the
-/// program and asset sections, deliberately excluding the header (title,
-/// author, entry point, flags) so a cosmetic rename before re-upload can't
-/// evade detection. Section order doesn't affect the hash.
+/// sections, deliberately excluding the header (title, author) so a
+/// cosmetic rename before re-upload can't evade detection. Section order
+/// doesn't affect the hash.
 pub fn content_hash(data: &[u8]) -> Result<String, CartError> {
     let cart = parse(data)?;
     let mut hasher = Sha256::new();
-    hasher.update(&cart.program);
     let mut sections: Vec<&CartSection> = cart.sections.iter().collect();
     sections.sort_by(|a, b| {
         a.kind
@@ -283,12 +233,4 @@ fn hex_encode(bytes: &[u8]) -> String {
         s.push(HEX[(b & 0x0f) as usize] as char);
     }
     s
-}
-
-fn append_section_entry(out: &mut Vec<u8>, kind: SectionKind, offset: usize, data: &[u8]) {
-    let crc = crc32fast::hash(data);
-    out.extend_from_slice(&kind.to_u16().to_le_bytes());
-    out.extend_from_slice(&(offset as u32).to_le_bytes());
-    out.extend_from_slice(&(data.len() as u32).to_le_bytes());
-    out.extend_from_slice(&crc.to_le_bytes());
 }

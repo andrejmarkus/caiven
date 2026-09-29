@@ -372,7 +372,7 @@ mod tests {
             title: String::new(),
             author: String::new(),
             bytes: 1024,
-            kinds: vec![SectionKind::Program],
+            kinds: vec![SectionKind::LuaSource],
         }
     }
 

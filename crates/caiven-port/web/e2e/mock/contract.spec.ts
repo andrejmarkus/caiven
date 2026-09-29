@@ -26,14 +26,14 @@ function frontendContracts(source: string): Set<string> {
         const property = init.properties.find((item): item is ts.PropertyAssignment => ts.isPropertyAssignment(item) && item.name.getText(file) === 'method');
         if (property && ts.isStringLiteral(property.initializer)) method = property.initializer.text;
       }
-      found.add(normalizedContract(method, `/api/v2${path}`));
+      found.add(normalizedContract(method, `/api/v1${path}`));
     }
     ts.forEachChild(node, visit);
   }
   visit(file);
   for (const direct of [
-    '/api/v2/auth/oauth/:provider/start', '/api/v2/auth/export',
-    '/api/v2/carts/:id/cart', '/api/v2/carts/:id/screenshot',
+    '/api/v1/auth/oauth/:provider/start', '/api/v1/auth/export',
+    '/api/v1/carts/:id/cart', '/api/v1/carts/:id/screenshot',
   ]) found.add(normalizedContract('GET', direct));
   return found;
 }

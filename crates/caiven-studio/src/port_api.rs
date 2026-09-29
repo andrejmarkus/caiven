@@ -231,8 +231,8 @@ fn parse_saved_token(text: &str, base: &str) -> Option<(String, String)> {
     let mut lines = text.lines();
     let username = lines.next()?;
     let token = lines.next()?;
-    // Legacy records lack a server identity. Require relinking rather than
-    // sending their credential to a potentially different Port instance.
+    // A token only goes back to the Port that issued it; a record without
+    // that server line or for another server requires relinking.
     let server = lines.next()?;
     if username.is_empty() || token.is_empty() || server != base {
         return None;
@@ -352,7 +352,7 @@ pub(crate) fn port_session() -> PortSession {
 pub(crate) fn port_link_start(app: tauri::AppHandle) -> Result<PortLinkPending, String> {
     let base = port_url();
     let response = agent()
-        .post(&format!("{base}/api/v2/auth/studio-link"))
+        .post(&format!("{base}/api/v1/auth/studio-link"))
         .send_string("")
         .map_err(error_message)?;
     let link: StudioLinkStart = serde_json::from_reader(response.into_reader())
@@ -375,7 +375,7 @@ pub(crate) fn port_link_poll(
 ) -> Result<Option<PortSession>, String> {
     let base = port_url();
     let response = agent()
-        .post(&format!("{base}/api/v2/auth/studio-link/poll"))
+        .post(&format!("{base}/api/v1/auth/studio-link/poll"))
         .set("Content-Type", "application/json")
         .send_string(
             &serde_json::json!({ "request_id": request_id, "poll_secret": poll_secret })
@@ -409,7 +409,7 @@ pub(crate) fn port_link_cancel(request_id: String, poll_secret: String) -> Resul
     let base = port_url();
     agent()
         .post(&format!(
-            "{base}/api/v2/auth/studio-link/{request_id}/cancel"
+            "{base}/api/v1/auth/studio-link/{request_id}/cancel"
         ))
         .set("Content-Type", "application/json")
         .send_string(
@@ -470,7 +470,7 @@ pub(crate) fn port_publish_target(project: PathBuf) -> PublishTarget {
     let cart_id = published_cart_id(&base, &project);
     let remixable = cart_id.as_deref().is_some_and(|id| {
         agent()
-            .get(&format!("{base}/api/v2/carts/{id}"))
+            .get(&format!("{base}/api/v1/carts/{id}"))
             .call()
             .ok()
             .and_then(|response| {
@@ -493,7 +493,7 @@ pub(crate) fn port_list_carts(
         "popular" | "trending" | "top" => sort,
         _ => "new".to_string(),
     };
-    let mut url = format!("{base}/api/v2/carts?page={page}&per_page=24&sort={sort}");
+    let mut url = format!("{base}/api/v1/carts?page={page}&per_page=24&sort={sort}");
     if !query.trim().is_empty() {
         url.push_str("&q=");
         url.push_str(&url_encode(query.trim()));
@@ -503,7 +503,7 @@ pub(crate) fn port_list_carts(
         .map_err(|error| format!("Invalid cart list: {error}"))?;
     for cart in &mut list.carts {
         if cart.has_screenshot && is_safe_id(&cart.id) {
-            cart.screenshot_url = format!("{base}/api/v2/carts/{}/screenshot", cart.id);
+            cart.screenshot_url = format!("{base}/api/v1/carts/{}/screenshot", cart.id);
         }
     }
     Ok(PortCartList {
@@ -520,7 +520,7 @@ pub(crate) fn port_download(id: String, title: String) -> Result<String, String>
     if !is_safe_id(&id) {
         return Err("Invalid cart id".to_string());
     }
-    let url = format!("{}/api/v2/carts/{id}/cart", port_url());
+    let url = format!("{}/api/v1/carts/{id}/cart", port_url());
     let mut bytes = Vec::new();
     agent()
         .get(&url)
@@ -636,11 +636,11 @@ pub(crate) fn publish(
         .unwrap_or("cart.cav");
     let (url, metadata) = match &meta.target_cart_id {
         Some(id) => (
-            format!("{base}/api/v2/carts/{id}/versions"),
+            format!("{base}/api/v1/carts/{id}/versions"),
             serde_json::json!({ "changelog": meta.changelog, "remixable": meta.remixable }),
         ),
         None => (
-            format!("{base}/api/v2/carts"),
+            format!("{base}/api/v1/carts"),
             serde_json::json!({
                 "title": meta.title,
                 "description": meta.description,
@@ -699,7 +699,7 @@ pub(crate) fn publish(
         )],
     );
     agent()
-        .post(&format!("{base}/api/v2/carts/{cart_id}/screenshot"))
+        .post(&format!("{base}/api/v1/carts/{cart_id}/screenshot"))
         .set("X-Api-Key", &token)
         .set(
             "Content-Type",

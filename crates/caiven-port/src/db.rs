@@ -1,9 +1,7 @@
-use std::path::Path;
-
 use anyhow::Result;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DatabaseBackend, DatabaseConnection,
-    EntityTrait, ExprTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, Statement,
+    EntityTrait, ExprTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
     TransactionTrait,
     sea_query::{Expr, Order},
 };
@@ -18,46 +16,9 @@ use crate::entities::{
 };
 use crate::models::{Cart, CartMeta, CartPatch, CartRef, TagCount};
 
-/// Sentinel owner id used for carts whose original account no longer
-/// exists — both pre-account carts migrated by `m20260715_000003_carts_v2`
-/// and carts orphaned by a deleted account (see `handlers::auth::delete_account`).
-pub const LEGACY_USER_ID: &str = "00000000-0000-0000-0000-000000000001";
-
-/// Ensures the legacy sentinel user row exists. The historical migration
-/// only seeds it when a null-owner cart already existed at migration time,
-/// so a database that's never had one (e.g. every fresh install) won't have
-/// this row until the first account deletion needs it.
-pub async fn ensure_legacy_user<C: ConnectionTrait>(db: &C) -> Result<()> {
-    if UserEntity::find_by_id(LEGACY_USER_ID)
-        .one(db)
-        .await?
-        .is_some()
-    {
-        return Ok(());
-    }
-    users::ActiveModel {
-        id: Set(LEGACY_USER_ID.to_string()),
-        username: Set("legacy".to_string()),
-        // Unusable placeholder: never a valid argon2 hash, so login always
-        // fails regardless of input.
-        password_hash: Set("!".to_string()),
-        is_admin: Set(false),
-        created_at: Set(chrono::Utc::now().to_rfc3339()),
-        email: Set(None),
-        email_verified: Set(false),
-        email_normalized: Set(None),
-        mfa_totp_secret: Set(None),
-        mfa_enabled: Set(false),
-        password_set: Set(false),
-        is_banned: Set(false),
-        banned_at: Set(None),
-        banned_reason: Set(None),
-        banned_by: Set(None),
-    }
-    .insert(db)
-    .await?;
-    Ok(())
-}
+/// Shown as a cart's author once its owning account is deleted (the
+/// schema then nulls `carts.owner_id`). Not a valid username.
+pub const DELETED_AUTHOR: &str = "[deleted]";
 
 fn normalize_tags(tags: &[String]) -> String {
     tags.iter()
@@ -68,7 +29,8 @@ fn normalize_tags(tags: &[String]) -> String {
 }
 
 /// Looks up whether `content_hash` already belongs to a cart owned by
-/// someone other than `exclude_owner_id`. Returns the existing cart's
+/// someone other than `exclude_owner_id` (carts of deleted accounts count
+/// as someone else's). Returns the existing cart's
 /// title and author for use in a rejection message. For a remix upload only
 /// originals count: two people applying the same suggested edit make the
 /// same bytes, and each remix carries its own attribution.
@@ -90,61 +52,16 @@ pub async fn find_other_owner_by_content_hash(
     }
     let mut query = CartEntity::find()
         .filter(carts::Column::Id.is_in(cart_ids))
-        .filter(carts::Column::OwnerId.ne(Some(exclude_owner_id.to_string())));
+        .filter(
+            Condition::any()
+                .add(carts::Column::OwnerId.ne(exclude_owner_id))
+                .add(carts::Column::OwnerId.is_null()),
+        );
     if is_remix {
         query = query.filter(carts::Column::ParentCartId.is_null());
     }
     let hit = query.one(db).await?.map(|cart| (cart.title, cart.author));
     Ok(hit)
-}
-
-/// Backfills hashes for pre-blob-storage versions whose bytes still live on
-/// disk. Blob-backed versions are handled inside hash migrations; this startup
-/// pass closes the remaining legacy-file gap before uploads are accepted and
-/// rebuilds hashes invalidated by canonicalization changes.
-pub async fn backfill_legacy_cart_content_hashes(
-    db: &DatabaseConnection,
-    data_dir: &Path,
-) -> Result<usize> {
-    let backend = db.get_database_backend();
-    let rows = db
-        .query_all_raw(sea_orm::Statement::from_string(
-            backend,
-            "SELECT id, legacy_cart_path FROM cart_versions \
-             WHERE content_hash IS NULL AND legacy_cart_path IS NOT NULL",
-        ))
-        .await?;
-    let mut updated = 0;
-    for row in rows {
-        let id: String = row.try_get("", "id")?;
-        let legacy_path: String = row.try_get("", "legacy_cart_path")?;
-        let bytes = match tokio::fs::read(data_dir.join(&legacy_path)).await {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                log::warn!("cannot read legacy cart {legacy_path} for hash backfill: {error}");
-                continue;
-            }
-        };
-        let content_hash = match caiven_cart::content_hash(&bytes) {
-            Ok(hash) => hash,
-            Err(error) => {
-                log::warn!("cannot hash legacy cart {legacy_path}: {error}");
-                continue;
-            }
-        };
-        let sql = match backend {
-            DatabaseBackend::Postgres => "UPDATE cart_versions SET content_hash = $1 WHERE id = $2",
-            _ => "UPDATE cart_versions SET content_hash = ? WHERE id = ?",
-        };
-        db.execute_raw(Statement::from_sql_and_values(
-            backend,
-            sql,
-            [content_hash.into(), id.into()],
-        ))
-        .await?;
-        updated += 1;
-    }
-    Ok(updated)
 }
 
 /// Where a remix came from; fixed at create time, never updated.
@@ -164,7 +81,7 @@ pub async fn insert_cart(
     meta: &CartMeta,
     lineage: Option<&Lineage>,
     cart_bytes: &[u8],
-    content_hash: Option<&str>,
+    content_hash: &str,
 ) -> Result<()> {
     let now = chrono::Utc::now().to_rfc3339();
     let txn = db.begin().await?;
@@ -199,7 +116,7 @@ pub async fn insert_cart(
         has_screenshot: Set(false),
         created_at: Set(now),
         editor_username: Set(author.to_string()),
-        content_hash: Set(content_hash.map(str::to_string)),
+        content_hash: Set(content_hash.to_string()),
     }
     .insert(&txn)
     .await?;
@@ -223,7 +140,7 @@ pub async fn insert_version(
     changelog: &str,
     editor_username: &str,
     cart_bytes: &[u8],
-    content_hash: Option<&str>,
+    content_hash: &str,
 ) -> Result<i32> {
     let txn = db.begin().await?;
     let next = latest_version(&txn, cart_id)
@@ -241,7 +158,7 @@ pub async fn insert_version(
         has_screenshot: Set(false),
         created_at: Set(chrono::Utc::now().to_rfc3339()),
         editor_username: Set(editor_username.to_string()),
-        content_hash: Set(content_hash.map(str::to_string)),
+        content_hash: Set(content_hash.to_string()),
     }
     .insert(&txn)
     .await?;

@@ -19,7 +19,7 @@ async function ok(response: APIResponse): Promise<APIResponse> {
 }
 
 async function register(page: Page, input: typeof admin) {
-  const response = await ok(await page.request.post('/api/v2/auth/register', { data: input }));
+  const response = await ok(await page.request.post('/api/v1/auth/register', { data: input }));
   return response.json();
 }
 
@@ -50,7 +50,7 @@ test('real SQLite contracts: auth, bytes, community, security, Studio link, pass
   const adminUser = await register(page, admin);
   expect(adminUser).toMatchObject({ username: admin.username, is_admin: true, email_verified: true });
   const cav = await readFile('../../../carts/dev/smoke.cav');
-  const upload = await ok(await page.request.post('/api/v2/carts', {
+  const upload = await ok(await page.request.post('/api/v1/carts', {
     headers: await csrf(page),
     multipart: {
       cart: { name: 'demo_smoke.cav', mimeType: 'application/octet-stream', buffer: cav },
@@ -58,10 +58,10 @@ test('real SQLite contracts: auth, bytes, community, security, Studio link, pass
     },
   }));
   const published = await upload.json();
-  const downloaded = await ok(await page.request.get(`/api/v2/carts/${published.id}/cart`));
+  const downloaded = await ok(await page.request.get(`/api/v1/carts/${published.id}/cart`));
   expect(Buffer.from(await downloaded.body())).toEqual(cav);
 
-  const version = await ok(await page.request.post(`/api/v2/carts/${published.id}/versions`, {
+  const version = await ok(await page.request.post(`/api/v1/carts/${published.id}/versions`, {
     headers: await csrf(page),
     multipart: {
       cart: { name: 'demo_smoke-v2.cav', mimeType: 'application/octet-stream', buffer: cav },
@@ -70,20 +70,20 @@ test('real SQLite contracts: auth, bytes, community, security, Studio link, pass
   }));
   expect((await version.json()).version).toBe(2);
 
-  const jamResponse = await ok(await page.request.post('/api/v2/admin/jams', {
+  const jamResponse = await ok(await page.request.post('/api/v1/admin/jams', {
     headers: await csrf(page), data: { title: 'Live Jam', slug: 'live-jam', description: 'Full stack', rules: 'Ship it', starts_at: '2026-07-01T00:00:00Z', submissions_close_at: '2026-08-10T00:00:00Z', ends_at: '2026-08-12T00:00:00Z' },
   }));
   expect((await jamResponse.json()).slug).toBe('live-jam');
 
-  const studioStart = await ok(await page.request.post('/api/v2/auth/studio-link'));
+  const studioStart = await ok(await page.request.post('/api/v1/auth/studio-link'));
   const link = await studioStart.json();
-  await ok(await page.request.post(`/api/v2/auth/studio-link/${link.request_id}/approve`, { headers: await csrf(page), data: { code: link.user_code } }));
-  const studioPoll = await ok(await page.request.post('/api/v2/auth/studio-link/poll', { data: { request_id: link.request_id, poll_secret: link.poll_secret } }));
+  await ok(await page.request.post(`/api/v1/auth/studio-link/${link.request_id}/approve`, { headers: await csrf(page), data: { code: link.user_code } }));
+  const studioPoll = await ok(await page.request.post('/api/v1/auth/studio-link/poll', { data: { request_id: link.request_id, poll_secret: link.poll_secret } }));
   expect(await studioPoll.json()).toMatchObject({ status: 'linked', username: admin.username });
 
-  const token = await ok(await page.request.post('/api/v2/auth/tokens', { headers: await csrf(page), data: { name: 'E2E token' } }));
+  const token = await ok(await page.request.post('/api/v1/auth/tokens', { headers: await csrf(page), data: { name: 'E2E token' } }));
   expect((await token.json()).token).toBeTruthy();
-  expect((await (await ok(await page.request.get('/api/v2/auth/sessions'))).json()).some((row: { current: boolean }) => row.current)).toBe(true);
+  expect((await (await ok(await page.request.get('/api/v1/auth/sessions'))).json()).some((row: { current: boolean }) => row.current)).toBe(true);
 
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('WebAuthn.enable');
@@ -98,27 +98,27 @@ test('real SQLite contracts: auth, bytes, community, security, Studio link, pass
   const canvas = page.locator('canvas');
   await expect(canvas).toBeVisible({ timeout: 30_000 });
   await expect.poll(async () => canvas.evaluate((node: HTMLCanvasElement) => node.getContext('2d')!.getImageData(0, 0, node.width, node.height).data.some((value, i) => i % 4 !== 3 && value !== 0)), { timeout: 30_000 }).toBe(true);
-  await expect.poll(async () => (await (await page.request.get(`/api/v2/carts/${published.id}`)).json()).plays, { timeout: 10_000 }).toBeGreaterThan(0);
+  await expect.poll(async () => (await (await page.request.get(`/api/v1/carts/${published.id}`)).json()).plays, { timeout: 10_000 }).toBeGreaterThan(0);
 
-  await ok(await page.request.post('/api/v2/auth/logout', { headers: await csrf(page) }));
+  await ok(await page.request.post('/api/v1/auth/logout', { headers: await csrf(page) }));
   const second = await register(page, player);
   expect(second.is_admin).toBe(false);
-  await ok(await page.request.post(`/api/v2/carts/${published.id}/comments`, { headers: await csrf(page), data: { body: 'Real comment' } }));
-  await ok(await page.request.put(`/api/v2/carts/${published.id}/rating`, { headers: await csrf(page), data: { score: 5 } }));
-  await ok(await page.request.put(`/api/v2/users/${admin.username}/follow`, { headers: await csrf(page) }));
-  const collection = await ok(await page.request.post('/api/v2/collections', { headers: await csrf(page), data: { title: 'Live Shelf', description: 'Real collection' } }));
+  await ok(await page.request.post(`/api/v1/carts/${published.id}/comments`, { headers: await csrf(page), data: { body: 'Real comment' } }));
+  await ok(await page.request.put(`/api/v1/carts/${published.id}/rating`, { headers: await csrf(page), data: { score: 5 } }));
+  await ok(await page.request.put(`/api/v1/users/${admin.username}/follow`, { headers: await csrf(page) }));
+  const collection = await ok(await page.request.post('/api/v1/collections', { headers: await csrf(page), data: { title: 'Live Shelf', description: 'Real collection' } }));
   const shelf = await collection.json();
-  await ok(await page.request.post(`/api/v2/collections/${shelf.slug}/carts`, { headers: await csrf(page), data: { cart_id: published.id } }));
-  await ok(await page.request.put(`/api/v2/collections/${shelf.slug}/follow`, { headers: await csrf(page) }));
+  await ok(await page.request.post(`/api/v1/collections/${shelf.slug}/carts`, { headers: await csrf(page), data: { cart_id: published.id } }));
+  await ok(await page.request.put(`/api/v1/collections/${shelf.slug}/follow`, { headers: await csrf(page) }));
 
-  const setup = await ok(await page.request.post('/api/v2/auth/mfa/setup', { headers: await csrf(page) }));
+  const setup = await ok(await page.request.post('/api/v1/auth/mfa/setup', { headers: await csrf(page) }));
   const secret = (await setup.json()).secret;
-  const confirmed = await ok(await page.request.post('/api/v2/auth/mfa/confirm', { headers: await csrf(page), data: { code: totp(secret) } }));
+  const confirmed = await ok(await page.request.post('/api/v1/auth/mfa/confirm', { headers: await csrf(page), data: { code: totp(secret) } }));
   const backup = (await confirmed.json()).backup_codes[0];
-  await ok(await page.request.post('/api/v2/auth/logout', { headers: await csrf(page) }));
-  const login = await ok(await page.request.post('/api/v2/auth/login', { data: { identifier: player.username, password: player.password } }));
+  await ok(await page.request.post('/api/v1/auth/logout', { headers: await csrf(page) }));
+  const login = await ok(await page.request.post('/api/v1/auth/login', { data: { identifier: player.username, password: player.password } }));
   const pending = await login.json();
   expect(pending.mfa_required).toBe(true);
-  const mfaLogin = await ok(await page.request.post('/api/v2/auth/login/mfa', { data: { pending_token: pending.pending_token, code: backup } }));
+  const mfaLogin = await ok(await page.request.post('/api/v1/auth/login/mfa', { data: { pending_token: pending.pending_token, code: backup } }));
   expect((await mfaLogin.json()).username).toBe(player.username);
 });

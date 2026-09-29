@@ -10,12 +10,12 @@ use crate::{
     models::{TagCount, UserProfile},
 };
 
-#[get("/api/v2/tags")]
+#[get("/api/v1/tags")]
 pub async fn list_tags(state: &State<PortState>) -> Result<Json<Vec<TagCount>>, ApiError> {
     Ok(Json(db::list_tags(&state.db).await?))
 }
 
-#[get("/api/v2/users/<username>?<page>&<per_page>")]
+#[get("/api/v1/users/<username>?<page>&<per_page>")]
 pub async fn user_profile(
     state: &State<PortState>,
     viewer: Option<AuthUser>,

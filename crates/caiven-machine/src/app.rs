@@ -121,10 +121,11 @@ impl App {
 
         // Asset RAM must be in place before the Lua load, since it runs
         // `_init()` immediately.
-        let lua_source =
-            self.core.vm.load_cart_sections(&cart.sections).context(
-                "cart has no Lua source section (bytecode carts are no longer supported)",
-            )?;
+        let lua_source = self
+            .core
+            .vm
+            .load_cart_sections(&cart.sections)
+            .context("cart has no Lua source section")?;
         info!(
             "loaded {} asset section(s) to RAM",
             cart.sections

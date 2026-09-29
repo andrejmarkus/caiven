@@ -770,10 +770,10 @@ pub fn constant_time_eq_str(a: &str, b: &str) -> bool {
         == 0
 }
 
-/// Like [`AuthUser`], but additionally requires a verified email —
-/// grandfathering in legacy accounts that predate email (no email on file
-/// at all) so they aren't locked out until they add one. Use this to gate
-/// actions that create public content (uploads, comments, etc.).
+/// Like [`AuthUser`], but additionally requires a verified email when one
+/// is on file — an OAuth account whose provider shared no email has none
+/// to verify. Use this to gate actions that create public content
+/// (uploads, comments, etc.).
 pub struct VerifiedUser(pub AuthUser);
 
 #[rocket::async_trait]
@@ -806,7 +806,7 @@ impl<'r> FromRequest<'r> for VerifiedUser {
 
 /// Like [`AuthUser`], but additionally requires `is_admin`. `AuthUser`
 /// itself already rejects banned users, so this needs no extra check. Use
-/// for every `/api/v2/admin/*` route so admin-gating is one consistent
+/// for every `/api/v1/admin/*` route so admin-gating is one consistent
 /// guard instead of scattered inline `if !user.is_admin` checks.
 pub struct AdminUser(pub AuthUser);
 

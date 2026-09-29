@@ -53,8 +53,7 @@ The application and SPA files remain root-owned and read-only to the process.
 ## Backup and recovery
 
 For PostgreSQL, use database-native consistent backups and test restoration into
-an isolated database. Cartridges and screenshots are stored in the database;
-retain legacy data directories if upgrading an older path-backed installation.
+an isolated database. Cartridges and screenshots are stored in the database.
 For SQLite, use the SQLite backup API or stop the service before copying the
 complete data directory. Copying only a live `port.db` can omit WAL data.
 

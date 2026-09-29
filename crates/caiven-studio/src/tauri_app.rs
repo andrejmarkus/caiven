@@ -644,16 +644,11 @@ impl StudioCore {
         let sources = if caiven_cart::is_project(path) {
             cart::load_project_sources(path)?
         } else {
-            meta.lua_source
-                .as_ref()
-                .map(|text| {
-                    vec![SourceFile {
-                        path: path.to_path_buf(),
-                        text: text.clone(),
-                        dirty: false,
-                    }]
-                })
-                .unwrap_or_default()
+            vec![SourceFile {
+                path: path.to_path_buf(),
+                text: meta.lua_source.clone(),
+                dirty: false,
+            }]
         };
 
         self.console.adopt_vm(vm);
@@ -664,8 +659,7 @@ impl StudioCore {
         {
             *self.console.vm.save_data_mut() = data;
         }
-        let entry_source = self.source_name(0);
-        self.debugger.set_dbg_path(debug_path(path), entry_source);
+        self.debugger.set_dbg_path(debug_path(path));
         self.diagnostics.clear();
         self.output = vec![format!("Opened {}", path.display())];
         self.collect_vm_output();
@@ -726,9 +720,8 @@ impl StudioCore {
         self.cart = Some(CartMeta {
             path: path.to_path_buf(),
             header: caiven_cart::CartHeader::default_for(&title),
-            program: Vec::new(),
             sections: cart::default_section_layout(),
-            lua_source: Some(source.to_string()),
+            lua_source: source.to_string(),
         });
         if !template.modules.is_empty()
             && let Some(cart) = self.cart.as_mut()
@@ -747,8 +740,7 @@ impl StudioCore {
                 preserved_data: Some(bytes),
             });
         }
-        let entry_source = self.source_name(0);
-        self.debugger.set_dbg_path(debug_path(path), entry_source);
+        self.debugger.set_dbg_path(debug_path(path));
         self.diagnostics.clear();
         self.output = vec![format!("Created {}", path.display())];
         self.run_state = RunState::Stopped;
@@ -998,7 +990,10 @@ impl StudioCore {
     fn cart_size(&self) -> CartSizePayload {
         let packed_bytes = self.cart.as_ref().map_or(0, |meta| {
             let modules = self.modules();
-            let entry = self.sources.first().map(|source| source.text.as_str());
+            let entry = self
+                .sources
+                .first()
+                .map_or(meta.lua_source.as_str(), |source| source.text.as_str());
             cart_io::packed_size(&self.console.vm, meta, entry, &modules)
         });
         CartSizePayload {
@@ -1654,7 +1649,7 @@ impl StudioCore {
             return Err("Nothing to save".to_string());
         };
         if let Some(entry) = entry {
-            meta.lua_source = Some(entry);
+            meta.lua_source = entry;
         }
         // Writes the pristine `asset_snapshot`, not live VM RAM: a cart
         // running mid-play may have mutated map/sprite RAM (collected
@@ -1771,7 +1766,7 @@ impl StudioCore {
             return Err("Nothing to export".to_string());
         };
         if let Some(entry) = entry {
-            meta.lua_source = Some(entry);
+            meta.lua_source = entry;
         }
         cart_io::export_binary(&self.console.vm, meta, path, &modules, minify)
             .map_err(|error| format!("{error:#}"))
@@ -1784,7 +1779,7 @@ impl StudioCore {
             return Err("Nothing to export".to_string());
         };
         if let Some(entry) = entry {
-            meta.lua_source = Some(entry);
+            meta.lua_source = entry;
         }
         cart_io::export_web(&self.console.vm, meta, path, &modules)
             .map_err(|error| format!("{error:#}"))
@@ -1797,7 +1792,7 @@ impl StudioCore {
             return Err("Nothing to export".to_string());
         };
         if let Some(entry) = entry {
-            meta.lua_source = Some(entry);
+            meta.lua_source = entry;
         }
         cart_io::export_screenshot(&self.console.vm, meta, path, &modules)
             .map_err(|error| format!("{error:#}"))
@@ -1810,7 +1805,7 @@ impl StudioCore {
             return Err("Nothing to export".to_string());
         };
         if let Some(entry) = entry {
-            meta.lua_source = Some(entry);
+            meta.lua_source = entry;
         }
         cart_io::export_source_zip(&self.console.vm, meta, path, &modules)
             .map_err(|error| format!("{error:#}"))

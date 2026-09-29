@@ -15,7 +15,8 @@ paths:
 - `capabilities/` and `gen/schemas/` define what the frontend is allowed to
   call — keep these in sync with actual command signatures; don't grant
   broader capability than a feature needs.
-- Hot-reload, undo/redo, and debugger state (`.cavdbg` sidecar) are
+- Hot-reload, undo/redo, and debugger state (`.caiven.dbg` /
+  `<cart>.cav.dbg` sidecar, `docs/formats.md`) are
   state-preserving by design (see recent git history) — don't reintroduce
   full-reload-loses-state regressions when touching this path.
 - See `crates/caiven-studio/CLAUDE.md` for the local dev loop

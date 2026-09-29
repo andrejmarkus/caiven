@@ -3,6 +3,10 @@
 Steering document: `docs/product/design-charter.md`. The charter's §4 table is
 the target; this file is how the code gets there.
 
+Version numbers quoted below (cart format 3 → 5, save data 1 → 2) predate the
+2026-09-29 baseline that reset every format to version 1; see
+`docs/formats.md`.
+
 Each item below is a **separate focused diff with its own tests**. Nothing is in
 production and no user has seen the console, so there are **no migration paths,
 no deprecation periods, and no compatibility shims** — old behaviour is deleted,

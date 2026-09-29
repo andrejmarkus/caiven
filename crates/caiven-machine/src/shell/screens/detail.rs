@@ -180,7 +180,7 @@ mod tests {
             title: "Ember Drift".to_string(),
             author: "Andrej".to_string(),
             bytes: 20_480,
-            kinds: vec![SectionKind::Program, SectionKind::SpriteSheet],
+            kinds: vec![SectionKind::LuaSource, SectionKind::SpriteSheet],
         }
     }
 

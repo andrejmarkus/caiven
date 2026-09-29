@@ -4,8 +4,7 @@
 //! directory into [`PortState`] and launches [`build_rocket`]. Tests build the
 //! same rocket against an in-memory database.
 
-use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::path::PathBuf;
 
 use rocket::{
     Request, Response,
@@ -23,8 +22,6 @@ pub mod models;
 pub mod oauth;
 pub mod turnstile;
 
-static LEGACY_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
-
 /// Outbound HTTP client for third-party calls (Pwned Passwords, Turnstile,
 /// OAuth token exchange). PORT-06: the default `reqwest::Client` has no
 /// timeout at all, so a hung third party leaves the request — and the
@@ -36,16 +33,6 @@ pub fn http_client() -> reqwest::Client {
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .expect("reqwest client with a plain timeout config always builds")
-}
-
-/// Configure the on-disk data directory used only as a compatibility fallback
-/// for SQLite installations upgraded from path-backed cartridge storage.
-pub fn set_legacy_data_dir(path: PathBuf) {
-    let _ = LEGACY_DATA_DIR.set(path);
-}
-
-pub(crate) fn legacy_data_dir() -> Option<&'static Path> {
-    LEGACY_DATA_DIR.get().map(PathBuf::as_path)
 }
 
 /// Enabled OAuth social-login providers, one slot per supported provider.
@@ -150,7 +137,7 @@ impl Fairing for AuthNoStore {
 
     async fn on_response<'r>(&self, request: &'r Request<'_>, response: &mut Response<'r>) {
         let path = request.uri().path().as_str();
-        if path.starts_with("/api/v2/auth/") || matches!(path, "/healthz" | "/readyz") {
+        if path.starts_with("/api/v1/auth/") || matches!(path, "/healthz" | "/readyz") {
             response.set_header(Header::new("Cache-Control", "no-store"));
         }
     }
@@ -212,12 +199,6 @@ pub fn build_rocket(config: rocket::Config, state: PortState) -> rocket::Rocket<
             rocket::routes![
                 handlers::health::live,
                 handlers::health::ready,
-                handlers::legacy::list_carts,
-                handlers::legacy::get_cart,
-                handlers::legacy::upload_cart,
-                handlers::legacy::download_cart,
-                handlers::legacy::upload_screenshot,
-                handlers::legacy::get_screenshot,
                 handlers::auth::register,
                 handlers::auth::login,
                 handlers::auth::logout,

@@ -106,13 +106,11 @@ async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
     env_logger::init();
     let args = Args::parse();
-    caiven_port::set_legacy_data_dir(args.data_dir.clone());
 
     let db_url = match &args.database_url {
         Some(url) => url.clone(),
         None => {
-            tokio::fs::create_dir_all(args.data_dir.join("carts")).await?;
-            tokio::fs::create_dir_all(args.data_dir.join("screenshots")).await?;
+            tokio::fs::create_dir_all(&args.data_dir).await?;
             let db_path = args.data_dir.join("port.db");
             // sqlx's sqlite URL parser rejects backslashes, which
             // `Path::display()` emits on Windows — normalize to forward
@@ -128,7 +126,6 @@ async fn main() -> Result<()> {
     opt.max_connections(10);
     let db = Database::connect(opt).await?;
     migration::Migrator::up(&db, None).await?;
-    caiven_port::db::backfill_legacy_cart_content_hashes(&db, &args.data_dir).await?;
 
     let limits = Limits::default()
         .limit("data-form", 2.mebibytes())

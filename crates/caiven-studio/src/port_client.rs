@@ -58,7 +58,7 @@ pub(crate) fn capture_screenshot(
     // `_init()` immediately.
     let lua_source = vm
         .load_cart_sections(&cart.sections)
-        .context("cart has no Lua source section (bytecode carts are no longer supported)")?;
+        .context("cart has no Lua source section")?;
 
     let font = Font::builtin()?;
     let input = Input::new();
@@ -105,7 +105,6 @@ mod tests {
     fn cart(source: &str) -> caiven_cart::Cart {
         caiven_cart::Cart {
             header: caiven_cart::CartHeader::new("Screenshot test", "Caiven"),
-            program: vec![],
             sections: vec![caiven_cart::CartSection {
                 kind: SectionKind::LuaSource,
                 data: source.as_bytes().to_vec(),

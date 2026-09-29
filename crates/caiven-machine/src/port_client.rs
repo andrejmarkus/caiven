@@ -85,7 +85,7 @@ fn error_message(error: ureq::Error) -> String {
 /// Fetches the first page of the Port listing, sorted as requested.
 pub fn list(sort: PortSort) -> Result<Vec<PortEntry>, String> {
     let url = format!(
-        "{}/api/v2/carts?page=1&per_page={PER_PAGE}&sort={}",
+        "{}/api/v1/carts?page=1&per_page={PER_PAGE}&sort={}",
         port_url(),
         sort.query_value()
     );
@@ -109,7 +109,7 @@ pub fn list(sort: PortSort) -> Result<Vec<PortEntry>, String> {
 /// unbounded body must not be allowed to grow this indefinitely; a cart
 /// that size is invalid anyway and `caiven_cart::parse` would reject it.
 pub fn download(id: &str) -> Result<Vec<u8>, String> {
-    let url = format!("{}/api/v2/carts/{id}/cart", port_url());
+    let url = format!("{}/api/v1/carts/{id}/cart", port_url());
     let mut bytes = Vec::new();
     agent()
         .get(&url)

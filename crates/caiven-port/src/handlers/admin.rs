@@ -66,7 +66,7 @@ async fn to_admin_user_info(
     })
 }
 
-#[get("/api/v2/admin/users?<page>&<per_page>&<q>&<filter>")]
+#[get("/api/v1/admin/users?<page>&<per_page>&<q>&<filter>")]
 pub async fn list_users(
     state: &State<PortState>,
     _admin: AdminUser,
@@ -124,7 +124,7 @@ async fn find_user(db: &sea_orm::DatabaseConnection, id: &str) -> Result<users::
         .ok_or_else(|| ApiError::not_found("user not found"))
 }
 
-#[post("/api/v2/admin/users/<id>/ban", data = "<input>")]
+#[post("/api/v1/admin/users/<id>/ban", data = "<input>")]
 pub async fn ban_user(
     state: &State<PortState>,
     admin: AdminUser,
@@ -153,7 +153,7 @@ pub async fn ban_user(
     Ok(Json(to_admin_user_info(&state.db, model).await?))
 }
 
-#[post("/api/v2/admin/users/<id>/unban")]
+#[post("/api/v1/admin/users/<id>/unban")]
 pub async fn unban_user(
     state: &State<PortState>,
     admin: AdminUser,
@@ -177,7 +177,7 @@ pub async fn unban_user(
     Ok(Json(to_admin_user_info(&state.db, model).await?))
 }
 
-#[post("/api/v2/admin/users/<id>/promote")]
+#[post("/api/v1/admin/users/<id>/promote")]
 pub async fn promote_user(
     state: &State<PortState>,
     admin: AdminUser,
@@ -198,7 +198,7 @@ pub async fn promote_user(
     Ok(Json(to_admin_user_info(&state.db, model).await?))
 }
 
-#[post("/api/v2/admin/users/<id>/demote")]
+#[post("/api/v1/admin/users/<id>/demote")]
 pub async fn demote_user(
     state: &State<PortState>,
     admin: AdminUser,

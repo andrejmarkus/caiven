@@ -168,9 +168,6 @@ pub(crate) fn cart_id(path: &Path) -> Option<String> {
 
 fn meta_from_cart(id: String, path: PathBuf, bytes: u64, cart: &Cart) -> CartMeta {
     let mut kinds = Vec::new();
-    // Program is section 0 and is not in `cart.sections`; a cart without it
-    // would not have parsed.
-    kinds.push(SectionKind::Program);
     for section in &cart.sections {
         if !kinds.contains(&section.kind) {
             kinds.push(section.kind);
@@ -193,15 +190,10 @@ mod tests {
     use caiven_cart::CartHeader;
 
     fn write_cart(dir: &Path, name: &str, title: &str, author: &str, extras: &[SectionKind]) {
-        let sections: Vec<(SectionKind, Vec<u8>)> =
-            extras.iter().map(|kind| (*kind, vec![7u8; 4])).collect();
-        caiven_cart::write(
-            &dir.join(name),
-            &CartHeader::new(title, author),
-            b"print('hi')",
-            &sections,
-        )
-        .expect("write test cart");
+        let mut sections = vec![(SectionKind::LuaSource, b"print('hi')".to_vec())];
+        sections.extend(extras.iter().map(|kind| (*kind, vec![7u8; 4])));
+        caiven_cart::write(&dir.join(name), &CartHeader::new(title, author), &sections)
+            .expect("write test cart");
     }
 
     #[test]
@@ -226,7 +218,7 @@ mod tests {
         assert_eq!(
             cart.kinds,
             vec![
-                SectionKind::Program,
+                SectionKind::LuaSource,
                 SectionKind::SpriteSheet,
                 SectionKind::Map
             ]

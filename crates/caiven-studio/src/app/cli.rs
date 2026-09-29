@@ -201,8 +201,8 @@ fn publish_cart(args: PublishArgs) -> Result<()> {
 
     let content_type = format!("multipart/form-data; boundary={boundary}");
     let upload_url = match cart_id {
-        Some(id) => format!("{port_url}/api/v2/carts/{id}/versions"),
-        None => format!("{port_url}/api/v2/carts"),
+        Some(id) => format!("{port_url}/api/v1/carts/{id}/versions"),
+        None => format!("{port_url}/api/v1/carts"),
     };
 
     let response = ureq::post(&upload_url)
@@ -223,7 +223,7 @@ fn publish_cart(args: PublishArgs) -> Result<()> {
         }
     };
 
-    println!("published: {port_url}/api/v2/carts/{cart_id}");
+    println!("published: {port_url}/api/v1/carts/{cart_id}");
 
     if !no_screenshot {
         let config = VmConfig::default();
@@ -240,7 +240,7 @@ fn publish_cart(args: PublishArgs) -> Result<()> {
             )],
         );
         let ct2 = format!("multipart/form-data; boundary={boundary2}");
-        let screenshot_url = format!("{port_url}/api/v2/carts/{cart_id}/screenshot");
+        let screenshot_url = format!("{port_url}/api/v1/carts/{cart_id}/screenshot");
 
         ureq::post(&screenshot_url)
             .set("X-Api-Key", api_key)
@@ -269,11 +269,9 @@ pub fn run() -> Result<()> {
             println!("cart: {}", cart.display());
             println!("  title:  {}", loaded.header.title);
             println!("  author: {}", loaded.header.author);
-            println!("  program: {} bytes", loaded.program.len());
-            println!("  sections ({}):", loaded.sections.len() + 1);
-            println!("    [0] Program  {} bytes", loaded.program.len());
+            println!("  sections ({}):", loaded.sections.len());
             for (i, s) in loaded.sections.iter().enumerate() {
-                println!("    [{}] {:?}  {} bytes", i + 1, s.kind, s.data.len());
+                println!("    [{i}] {:?}  {} bytes", s.kind, s.data.len());
             }
             Ok(())
         }
@@ -292,7 +290,7 @@ pub fn run() -> Result<()> {
                 .into_iter()
                 .map(|s| (s.kind, s.data))
                 .collect();
-            caiven_cart::write(out, &cart.header, &cart.program, &extra)
+            caiven_cart::write(out, &cart.header, &extra)
                 .with_context(|| format!("failed to write cart to {}", out.display()))?;
             println!("built {}", out.display());
             Ok(())
@@ -319,7 +317,7 @@ pub fn run() -> Result<()> {
                 .map(|s| (s.kind, s.data))
                 .collect();
 
-            let packed = crate::app::cart_io::pack_to_bytes(&cart.header, &cart.program, &extra)?;
+            let packed = caiven_cart::pack(&cart.header, &extra).context("failed to pack cart")?;
             let html = crate::app::web_export::build_web_html(&packed, &cart.header.title);
             std::fs::write(out, html)
                 .with_context(|| format!("failed to write web export to {}", out.display()))?;
@@ -361,7 +359,7 @@ pub fn run() -> Result<()> {
                     .into_iter()
                     .map(|s| (s.kind, s.data))
                     .collect();
-                caiven_cart::write(&temp, &project.header, &project.program, &extra)
+                caiven_cart::write(&temp, &project.header, &extra)
                     .with_context(|| format!("failed to pack project to {}", temp.display()))?;
                 Some(temp)
             } else {

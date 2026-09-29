@@ -13,7 +13,7 @@ test('publish cart and version sends multipart plus CSRF', async ({ page, mock }
   await page.getByRole('button', { name: 'Publish cart' }).click();
   await expect(page).toHaveURL(/\/cart\/uploaded-/);
   await expect(page.getByRole('heading', { name: 'Uploaded Cart' })).toBeVisible();
-  const upload = mock.calls('POST', '/api/v2/carts')[0];
+  const upload = mock.calls('POST', '/api/v1/carts')[0];
   expect(upload.headers['x-csrf-token']).toBe('mock-csrf');
   expect(upload.headers['content-type']).toContain('multipart/form-data');
 
@@ -32,7 +32,7 @@ test('comments, rating, collection, jam, and dashboard mutate state', async ({ p
   await page.getByRole('button', { name: 'Post comment' }).click();
   await expect(page.getByText('Stateful comment')).toBeVisible();
   expect(mock.comments.get('demo')?.at(-1)?.body).toBe('Stateful comment');
-  expect(mock.calls('POST', '/api/v2/carts/demo/comments')[0].headers['x-csrf-token']).toBe('mock-csrf');
+  expect(mock.calls('POST', '/api/v1/carts/demo/comments')[0].headers['x-csrf-token']).toBe('mock-csrf');
 
   await page.goto('/collections');
   await page.getByRole('button', { name: 'New collection' }).click();

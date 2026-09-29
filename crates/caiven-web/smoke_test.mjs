@@ -86,16 +86,19 @@ const oversized = Buffer.alloc(128 * 1024 + 1);
 bytes.copy(oversized);
 expectRejected(oversized, "oversized cartridge");
 
+// Format-v1 section table offset (docs/formats.md); a layout change must fail here, not pass vacuously.
+const TABLE = 74;
+if (bytes.readUInt16LE(6) !== 1) throw new Error("smoke fixture is not a format-v1 cart");
 const overlapping = Buffer.from(bytes);
 const sectionCount = overlapping.readUInt16LE(8);
 let payloadEntry;
 for (let i = 1; i < sectionCount; i++) {
-  const entry = 82 + i * 14;
+  const entry = TABLE + i * 14;
   if (overlapping.readUInt32LE(entry + 6) > 0) { payloadEntry = entry; break; }
 }
-if (payloadEntry === undefined) throw new Error("smoke fixture needs a nonempty asset section");
-// Give Program the same range and valid CRC as an asset without changing kinds.
-overlapping.copy(overlapping, 84, payloadEntry + 2, payloadEntry + 14);
+if (payloadEntry === undefined) throw new Error("smoke fixture needs a second nonempty section");
+// Give entry 0 the same range and valid CRC as another section without changing kinds.
+overlapping.copy(overlapping, TABLE + 2, payloadEntry + 2, payloadEntry + 14);
 expectRejected(overlapping, "overlapping cartridge sections");
 
 // A bad upload must not prevent a subsequent valid load.

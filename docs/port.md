@@ -44,22 +44,19 @@ cookie; the same account can also mint per-user API tokens (Profile page) for
 
 | Method                | Path                                           | Description                                                          |
 | :---------------------| :------------------------------------------------| :------------------------------------------------------------------- |
-| `POST`                | `/api/v2/auth/register` / `/login` / `/logout` | Account auth (session cookie)                                        |
-| `GET`                 | `/api/v2/auth/me`                              | Current user                                                         |
-| `GET`/`POST`/`DELETE` | `/api/v2/auth/tokens`                          | Manage per-user API tokens                                           |
-| `GET`                 | `/api/v2/carts`                                | List/search carts (`page`, `per_page`, `q`, `tag`, `author`, `sort`) |
-| `POST`                | `/api/v2/carts`                                | Upload new cart (multipart: `cart` + JSON `meta`; `meta.remixable`, `meta.parent_cart_id` for a remix) |
-| `GET`/`PATCH`/`DELETE`| `/api/v2/carts/:id`                            | Cart detail (incl. `parent`, `remix_count`, `recent_remixes`) / edit incl. `remixable` / delete (owner or admin) |
-| `POST`                | `/api/v2/carts/:id/funnel`                     | Record one remix-loop step (`{event}`), deduped per viewer — see `docs/product/quick-remix.md` |
-| `GET`                 | `/api/v2/admin/metrics/remix-funnel?days=7`    | Admin: remix funnel totals and per-cart rows (`since=`, `include_staff=`) |
-| `POST`                | `/api/v2/carts/:id/versions`                   | Upload a new version of an owned cart                                |
-| `GET`                 | `/api/v2/carts/:id/cart` \| `/screenshot`      | Download cart/screenshot (`?version=n`, defaults to latest)          |
-| `PUT`/`DELETE`        | `/api/v2/carts/:id/rating`                     | Rate a cart (1-5)                                                    |
-| `GET`/`POST`/`DELETE` | `/api/v2/carts/:id/comments[/:cid]`            | Comments                                                             |
-| `GET`                 | `/api/v2/tags` \| `/api/v2/users/:username`    | Discovery                                                            |
-
-Legacy `/api/carts*` routes (v1 shape, single cart file per cart) remain for
-backward compatibility — `caiven-studio publish` still targets them internally.
+| `POST`                | `/api/v1/auth/register` / `/login` / `/logout` | Account auth (session cookie)                                        |
+| `GET`                 | `/api/v1/auth/me`                              | Current user                                                         |
+| `GET`/`POST`/`DELETE` | `/api/v1/auth/tokens`                          | Manage per-user API tokens                                           |
+| `GET`                 | `/api/v1/carts`                                | List/search carts (`page`, `per_page`, `q`, `tag`, `author`, `sort`) |
+| `POST`                | `/api/v1/carts`                                | Upload new cart (multipart: `cart` + JSON `meta`; `meta.remixable`, `meta.parent_cart_id` for a remix) |
+| `GET`/`PATCH`/`DELETE`| `/api/v1/carts/:id`                            | Cart detail (incl. `parent`, `remix_count`, `recent_remixes`) / edit incl. `remixable` / delete (owner or admin) |
+| `POST`                | `/api/v1/carts/:id/funnel`                     | Record one remix-loop step (`{event}`), deduped per viewer — see `docs/product/quick-remix.md` |
+| `GET`                 | `/api/v1/admin/metrics/remix-funnel?days=7`    | Admin: remix funnel totals and per-cart rows (`since=`, `include_staff=`) |
+| `POST`                | `/api/v1/carts/:id/versions`                   | Upload a new version of an owned cart                                |
+| `GET`                 | `/api/v1/carts/:id/cart` \| `/screenshot`      | Download cart/screenshot (`?version=n`, defaults to latest)          |
+| `PUT`/`DELETE`        | `/api/v1/carts/:id/rating`                     | Rate a cart (1-5)                                                    |
+| `GET`/`POST`/`DELETE` | `/api/v1/carts/:id/comments[/:cid]`            | Comments                                                             |
+| `GET`                 | `/api/v1/tags` \| `/api/v1/users/:username`    | Discovery                                                            |
 
 ## Web Play
 

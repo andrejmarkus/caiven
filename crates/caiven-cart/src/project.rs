@@ -10,15 +10,15 @@
 //! my-game/
 //!   caiven.toml
 //!   main.lua
-//!   sprites.png            (__gfx__,   or sprites.hex)
+//!   sprites.png            (default sprite bank, or sprites.hex)
 //!   sprites_forest.png     (additional sprite bank "forest")
-//!   map.png                (__map__,   or map.hex)
+//!   map.png                (default map, or map.hex)
 //!   map_forest.png         (additional map bank "forest")
-//!   palette.png            (__pal__,   or palette.hex)
+//!   palette.png            (default palette, or palette.hex)
 //!   palette_night.png      (additional palette bank "night")
-//!   sfx.hex                (__sfx__)
+//!   sfx.hex                (default SFX bank)
 //!   sfx_boss.hex           (additional SFX bank "boss")
-//!   music.hex              (__music__)
+//!   music.hex              (default music bank)
 //!   music_boss.hex         (additional music bank "boss")
 //!   collision.hex          (per-cell collision, companion of map)
 //!   collision_forest.hex   (additional collision bank "forest", companion of map bank "forest")
@@ -44,8 +44,8 @@ use crate::bundle::{bundle_lua, list_lua_files, module_key};
 use crate::error::CartError;
 use crate::format::Cart;
 use crate::header::CartHeader;
+use crate::hex::{decode_hex_block, encode_hex_block, trim_trailing_zeros};
 use crate::section::{CartSection, SectionKind};
-use crate::text::{decode_hex_block, encode_hex_block, trim_trailing_zeros};
 use crate::{
     decode_asset_bank, decode_collision_types, encode_asset_bank, encode_collision_types,
     is_valid_bank_name,
@@ -55,67 +55,61 @@ const MANIFEST_FILE: &str = "caiven.toml";
 const DEFAULT_ENTRY: &str = "main.lua";
 const COLLISION_TYPES_FILE: &str = "collision_types.json";
 
-/// Current `[cart].version` written to new/re-saved `caiven.toml` manifests.
-const CURRENT_MANIFEST_VERSION: u16 = 1;
-
-/// Oldest manifest version this build still loads. Existing carts predate
-/// the `version` field entirely; those default to `CURRENT_MANIFEST_VERSION`
-/// via `default_manifest_version` below, so this only guards against a
-/// synthetic/future version this build genuinely doesn't understand.
-const MIN_SUPPORTED_MANIFEST_VERSION: u16 = 1;
+/// The only `[cart].version` this build reads and writes.
+const MANIFEST_VERSION: u16 = 1;
 
 /// On-disk DTO for `collision_types.json` — a readable/diffable stand-in
 /// for `caiven_core::CollisionType`, whose `flags` bitset is exposed here
-/// as a `shape` string (mutually-exclusive by convention — see
-/// `caiven_core::CollisionTypeFlags`). `solid` is read-only backward
-/// compatibility for files written before `shape` existed; new/re-saved
-/// files never write it (accept older, never emit the old shape — see
-/// `.claude/rules/cart-format.md`).
+/// as one `shape` (mutually exclusive by convention — see
+/// `caiven_core::CollisionTypeFlags`).
 #[derive(Serialize, Deserialize)]
 struct CollisionTypeDto {
     id: u8,
     name: String,
     color: [u8; 3],
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    shape: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    solid: Option<bool>,
+    shape: CollisionShape,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum CollisionShape {
+    None,
+    Solid,
+    OneWay,
+    SlopeLeft,
+    SlopeRight,
 }
 
 impl From<&caiven_core::CollisionType> for CollisionTypeDto {
     fn from(t: &caiven_core::CollisionType) -> Self {
         let shape = if t.flags.is_solid() {
-            "solid"
+            CollisionShape::Solid
         } else if t.flags.is_one_way() {
-            "one_way"
+            CollisionShape::OneWay
         } else if t.flags.is_slope_left() {
-            "slope_left"
+            CollisionShape::SlopeLeft
         } else if t.flags.is_slope_right() {
-            "slope_right"
+            CollisionShape::SlopeRight
         } else {
-            "none"
+            CollisionShape::None
         };
         Self {
             id: t.id,
             name: t.name.clone(),
             color: t.color,
-            shape: Some(shape.to_string()),
-            solid: None,
+            shape,
         }
     }
 }
 
 impl From<CollisionTypeDto> for caiven_core::CollisionType {
     fn from(dto: CollisionTypeDto) -> Self {
-        let bits = match dto.shape.as_deref() {
-            Some("solid") => caiven_core::CollisionTypeFlags::SOLID,
-            Some("one_way") => caiven_core::CollisionTypeFlags::ONE_WAY,
-            Some("slope_left") => caiven_core::CollisionTypeFlags::SLOPE_LEFT,
-            Some("slope_right") => caiven_core::CollisionTypeFlags::SLOPE_RIGHT,
-            Some(_) => 0,
-            // No `shape` key at all: pre-shape file, fall back to `solid`.
-            None if dto.solid.unwrap_or(false) => caiven_core::CollisionTypeFlags::SOLID,
-            None => 0,
+        let bits = match dto.shape {
+            CollisionShape::None => 0,
+            CollisionShape::Solid => caiven_core::CollisionTypeFlags::SOLID,
+            CollisionShape::OneWay => caiven_core::CollisionTypeFlags::ONE_WAY,
+            CollisionShape::SlopeLeft => caiven_core::CollisionTypeFlags::SLOPE_LEFT,
+            CollisionShape::SlopeRight => caiven_core::CollisionTypeFlags::SLOPE_RIGHT,
         };
         Self {
             id: dto.id,
@@ -179,38 +173,26 @@ struct CaivenToml {
     mods: ModsTable,
     /// Absent when the cart has never declared `[stdlib]` — distinct from
     /// `Some(StdlibTable { modules: vec![] })`, an explicit "core only"
-    /// declaration. Absence resolves to core-only too (see
+    /// declaration. Both resolve to core-only (see
     /// `caiven_vm::vm::Vm::set_prelude_modules`'s default), but the
-    /// distinction round-trips through `SectionKind::PreludeModules` so a
-    /// cart that explicitly opted into zero extra modules stays
-    /// distinguishable from one that predates this field entirely.
+    /// distinction round-trips through `SectionKind::PreludeModules`.
     stdlib: Option<StdlibTable>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct CartTable {
+    /// Manifest format version; required so a future format can always
+    /// tell a v1 manifest apart.
+    version: u16,
     title: String,
     #[serde(default)]
     author: String,
     #[serde(default = "default_entry")]
     entry: String,
-    #[serde(default)]
-    entry_point: u32,
-    #[serde(default)]
-    flags: u32,
-    /// Manifest format version. Absent on any `caiven.toml` written before
-    /// this field existed — those default to `CURRENT_MANIFEST_VERSION`
-    /// (the only version that has ever existed), not left unvalidated.
-    #[serde(default = "default_manifest_version")]
-    version: u16,
 }
 
 fn default_entry() -> String {
     DEFAULT_ENTRY.to_string()
-}
-
-fn default_manifest_version() -> u16 {
-    CURRENT_MANIFEST_VERSION
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -251,11 +233,10 @@ fn parse_manifest(dir: &Path) -> Result<CaivenToml, CartError> {
     let manifest_text = std::fs::read_to_string(&manifest_path)?;
     let manifest: CaivenToml = toml::from_str(&manifest_text)?;
     let version = manifest.cart.version;
-    if !(MIN_SUPPORTED_MANIFEST_VERSION..=CURRENT_MANIFEST_VERSION).contains(&version) {
+    if version != MANIFEST_VERSION {
         return Err(CartError::UnsupportedManifestVersion {
             found: version,
-            min_supported: MIN_SUPPORTED_MANIFEST_VERSION,
-            max_supported: CURRENT_MANIFEST_VERSION,
+            supported: MANIFEST_VERSION,
         });
     }
     Ok(manifest)
@@ -280,12 +261,7 @@ pub fn load_project(path: &Path) -> Result<Cart, CartError> {
     let dir = resolve_dir(path);
     let manifest = parse_manifest(&dir)?;
 
-    let header = CartHeader {
-        title: manifest.cart.title,
-        author: manifest.cart.author,
-        entry_point: manifest.cart.entry_point,
-        flags: manifest.cart.flags,
-    };
+    let header = CartHeader::new(manifest.cart.title, manifest.cart.author);
 
     let entry_rel = PathBuf::from(&manifest.cart.entry);
     let entry_path = dir.join(&entry_rel);
@@ -407,17 +383,13 @@ pub fn load_project(path: &Path) -> Result<Cart, CartError> {
         });
     }
 
-    Ok(Cart {
-        header,
-        program: Vec::new(),
-        sections,
-    })
+    Ok(Cart { header, sections })
 }
 
 /// Writes `header`, entry `lua` source, sibling `modules` (project-relative
 /// path -> source, e.g. `ui/panel.lua`), and asset `sections` out as a
 /// project directory at `dir`, creating it if needed. Sections with no asset
-/// file mapping (`Program`, `Meta`, `LuaSource`) are ignored; `ModManifest`
+/// file mapping (`Meta`, `LuaSource`, `Custom`) are ignored; `ModManifest`
 /// is folded into `caiven.toml`'s `[mods].require` instead of a `.hex` file,
 /// and `CollisionTypes` is written to `collision_types.json` (omitted when
 /// the table is exactly the built-in types).
@@ -466,8 +438,8 @@ pub fn save_project(
     }
 
     // Preserve an already-declared entry path instead of forcing it back to
-    // `main.lua` on every save — a manifest hand-edited (or created before
-    // Studio existed) to point `entry` elsewhere must keep pointing there.
+    // `main.lua` on every save — a manifest hand-edited to point `entry`
+    // elsewhere must keep pointing there.
     let entry_rel = parse_manifest(dir)
         .ok()
         .map(|m| m.cart.entry)
@@ -475,12 +447,10 @@ pub fn save_project(
 
     let manifest = CaivenToml {
         cart: CartTable {
+            version: MANIFEST_VERSION,
             title: header.title.clone(),
             author: header.author.clone(),
             entry: entry_rel.clone(),
-            entry_point: header.entry_point,
-            flags: header.flags,
-            version: CURRENT_MANIFEST_VERSION,
         },
         mods: ModsTable { require },
         stdlib,
@@ -631,9 +601,7 @@ mod tests {
     #[test]
     fn roundtrip_preserves_header_lua_and_sections() {
         let dir = tempfile::tempdir().unwrap();
-        let mut header = CartHeader::new("My Game", "andrej");
-        header.entry_point = 5;
-        header.flags = 2;
+        let header = CartHeader::new("My Game", "andrej");
         let lua = "function _update() end\n";
         // Collision is hex-only (no PNG codec) so this test exercises the
         // generic save/load plumbing independent of asset format choice —
@@ -648,8 +616,6 @@ mod tests {
 
         assert_eq!(cart.header.title, "My Game");
         assert_eq!(cart.header.author, "andrej");
-        assert_eq!(cart.header.entry_point, 5);
-        assert_eq!(cart.header.flags, 2);
 
         let lua_section = cart
             .sections
@@ -719,8 +685,7 @@ mod tests {
 
         // No PreludeModules section at all: caiven.toml gets no [stdlib]
         // table, and re-loading produces no PreludeModules section either —
-        // this is the "cart predates [stdlib]" case, distinct from a cart
-        // that explicitly declared zero extra modules.
+        // distinct from a cart that explicitly declared zero extra modules.
         save_project(dir.path(), &header, "-- empty\n", &[], &[], &[]).unwrap();
         let manifest_text = std::fs::read_to_string(dir.path().join(MANIFEST_FILE)).unwrap();
         assert!(!manifest_text.contains("[stdlib]"));
@@ -817,33 +782,21 @@ mod tests {
     }
 
     #[test]
-    fn collision_types_json_with_old_solid_field_still_loads() {
+    fn collision_types_json_requires_a_known_shape() {
         let dir = tempfile::tempdir().unwrap();
         let header = CartHeader::new("Blank", "");
         save_project(dir.path(), &header, "-- empty\n", &[], &[], &[]).unwrap();
 
-        std::fs::write(
-            dir.path().join(COLLISION_TYPES_FILE),
-            r#"[
-                {"id":0,"name":"walkable","color":[0,0,0],"solid":false},
-                {"id":1,"name":"solid","color":[255,176,0],"solid":true},
-                {"id":2,"name":"hazard","color":[224,32,32],"solid":false},
-                {"id":3,"name":"water","color":[0,128,255],"solid":false}
-            ]"#,
-        )
-        .unwrap();
-
-        let cart = load_project(dir.path()).unwrap();
-        let section = cart
-            .sections
-            .iter()
-            .find(|s| s.kind == SectionKind::CollisionTypes)
-            .unwrap();
-        let types = decode_collision_types(&section.data);
-        assert_eq!(types.len(), 4);
-        assert!(types[1].flags.is_solid()); // id 1 ("solid") must be solid
-        assert!(!types[3].flags.is_solid());
-        assert!(!types[3].flags.is_one_way());
+        for entry in [
+            r#"{"id":1,"name":"solid","color":[255,176,0]}"#,
+            r#"{"id":1,"name":"solid","color":[255,176,0],"shape":"wall"}"#,
+        ] {
+            std::fs::write(dir.path().join(COLLISION_TYPES_FILE), format!("[{entry}]")).unwrap();
+            assert!(matches!(
+                load_project(dir.path()),
+                Err(CartError::BadJson { .. })
+            ));
+        }
     }
 
     #[test]
@@ -902,11 +855,11 @@ mod tests {
     }
 
     #[test]
-    fn manifest_without_version_field_still_loads() {
+    fn minimal_v1_manifest_loads() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join(MANIFEST_FILE),
-            "[cart]\ntitle = \"X\"\nentry = \"main.lua\"\n",
+            "[cart]\nversion = 1\ntitle = \"X\"\n",
         )
         .unwrap();
         std::fs::write(dir.path().join(DEFAULT_ENTRY), "-- empty\n").unwrap();
@@ -916,19 +869,36 @@ mod tests {
     }
 
     #[test]
-    fn manifest_with_future_version_is_rejected() {
+    fn manifest_without_version_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join(MANIFEST_FILE),
-            "[cart]\ntitle = \"X\"\nentry = \"main.lua\"\nversion = 9999\n",
+            "[cart]\ntitle = \"X\"\nentry = \"main.lua\"\n",
         )
         .unwrap();
         std::fs::write(dir.path().join(DEFAULT_ENTRY), "-- empty\n").unwrap();
 
         assert!(matches!(
             load_project(dir.path()),
-            Err(CartError::UnsupportedManifestVersion { found: 9999, .. })
+            Err(CartError::BadToml(_))
         ));
+    }
+
+    #[test]
+    fn manifest_with_other_version_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(DEFAULT_ENTRY), "-- empty\n").unwrap();
+        for version in [0u16, 2, 9999] {
+            std::fs::write(
+                dir.path().join(MANIFEST_FILE),
+                format!("[cart]\nversion = {version}\ntitle = \"X\"\n"),
+            )
+            .unwrap();
+            assert!(matches!(
+                load_project(dir.path()),
+                Err(CartError::UnsupportedManifestVersion { found, supported: 1 }) if found == version
+            ));
+        }
     }
 
     #[test]
@@ -938,7 +908,8 @@ mod tests {
         save_project(dir.path(), &header, "-- code\n", &[], &[], &[]).unwrap();
 
         let manifest_text = std::fs::read_to_string(dir.path().join(MANIFEST_FILE)).unwrap();
-        assert!(manifest_text.contains(&format!("version = {CURRENT_MANIFEST_VERSION}")));
+        assert!(manifest_text.starts_with("[cart]\nversion = 1\n"));
+        assert!(!manifest_text.contains("entry_point"));
 
         // And it loads cleanly through the normal path.
         load_project(dir.path()).unwrap();
@@ -949,7 +920,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join(MANIFEST_FILE),
-            "[cart]\ntitle = \"X\"\nentry = \"main.lua\"\n",
+            "[cart]\nversion = 1\ntitle = \"X\"\nentry = \"main.lua\"\n",
         )
         .unwrap();
 
@@ -964,7 +935,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join(MANIFEST_FILE),
-            "[cart]\ntitle = \"X\"\nentry = \"game.lua\"\n",
+            "[cart]\nversion = 1\ntitle = \"X\"\nentry = \"game.lua\"\n",
         )
         .unwrap();
         std::fs::write(dir.path().join("game.lua"), "-- original\n").unwrap();
@@ -1039,8 +1010,7 @@ mod tests {
     fn resaving_preserves_existing_hex_format_over_png_default() {
         let dir = tempfile::tempdir().unwrap();
         let header = CartHeader::new("Game", "");
-        // Simulate an existing hex-authored asset (as if hand-written or
-        // migrated from before PNG support) that predates any save.
+        // An existing hand-written hex asset that predates any save.
         std::fs::write(dir.path().join("sprites.hex"), "0909090909090909\n").unwrap();
 
         save_project(
