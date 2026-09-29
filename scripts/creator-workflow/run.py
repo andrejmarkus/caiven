@@ -12,7 +12,7 @@ REPO = Path(__file__).resolve().parents[2]
 def run(args, env, *, test=False):
     print("+ " + " ".join(args), flush=True)
     result = subprocess.run(
-        args, cwd=REPO, env=env, text=True, stdout=subprocess.PIPE,
+        args, cwd=REPO, env=env, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, timeout=600,
     )
     print(result.stdout, end="", flush=True)
@@ -25,9 +25,11 @@ def main():
     with tempfile.TemporaryDirectory(prefix="caiven-creator-workflow-") as directory:
         root = Path(directory)
         env = dict(os.environ, CAIVEN_WORKFLOW_DIR=directory,
-                   APPDATA=str(root / "appdata"))
-        # APPDATA takes precedence over HOME for Studio history/token storage.
-        # Keep developer preferences and credentials outside this workflow.
+                   APPDATA=str(root / "appdata"),
+                   XDG_CONFIG_HOME=str(root / "config"),
+                   XDG_DATA_HOME=str(root / "data"))
+        # Keep developer preferences and credentials outside this workflow
+        # (APPDATA on Windows, XDG_* on Linux).
         for stage in ("save", "reopen"):
             run(["cargo", "test", "--locked", "-p", "caiven-studio",
                  "tauri_app::creator_workflow::creator_workflow_stage", "--",

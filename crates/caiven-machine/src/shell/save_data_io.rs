@@ -5,14 +5,9 @@
 
 use std::path::{Path, PathBuf};
 
-/// Where save data lives: a `saves/` directory beside the binary, same as
-/// `save_state::saves_dir()`.
+/// Where save data lives: the same `saves/` as save states.
 pub fn saves_dir() -> PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(Path::to_path_buf))
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("saves")
+    super::save_state::saves_dir()
 }
 
 /// The save-data file for a given cart id. `id` must already be a V56-safe

@@ -61,8 +61,6 @@ pub struct ControlsSection {
     a: Vec<String>,
     #[serde(default = "default_b")]
     b: Vec<String>,
-    /// Added after the original six. Absent in files written before SELECT
-    /// existed, so it falls back like everything else.
     #[serde(default = "default_select")]
     select: Vec<String>,
     /// START never reaches a cartridge — it opens the pause menu.
@@ -70,8 +68,7 @@ pub struct ControlsSection {
     start: Vec<String>,
 }
 
-/// Optional `[gamepad]` table. Absent in every `controls.toml` written before
-/// gamepad support existed, so each field falls back to the fixed mapping.
+/// Optional `[gamepad]` table; each missing field falls back to the fixed mapping.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GamepadSection {
     #[serde(default = "default_pad_up")]
@@ -110,21 +107,17 @@ fn default_a() -> Vec<String> {
     // sends the A face button as a Space keydown — there is no recognised
     // SDL_GameController on that hardware, so this is the only path A
     // reaches the VM through.
-    vec!["KeyJ".into(), "Space".into()]
+    vec!["KeyJ".into(), "KeyZ".into(), "Space".into()]
 }
 fn default_b() -> Vec<String> {
     // See `default_a`: OnionOS's Miyoo Mini keyboard emulation sends the B
     // face button as a Left Ctrl keydown.
-    vec!["KeyK".into(), "ControlLeft".into()]
+    vec!["KeyK".into(), "KeyX".into(), "ControlLeft".into()]
 }
 fn default_select() -> Vec<String> {
-    // See `default_a`: OnionOS's Miyoo Mini keyboard emulation sends the
-    // Select button as a Right Ctrl keydown.
-    vec![
-        "ShiftLeft".into(),
-        "ShiftRight".into(),
-        "ControlRight".into(),
-    ]
+    // Not Shift: five presses open Windows' Sticky Keys prompt. Right Ctrl is
+    // how OnionOS's Miyoo Mini keyboard emulation sends Select (see `default_a`).
+    vec!["Backspace".into(), "ControlRight".into()]
 }
 fn default_start() -> Vec<String> {
     vec!["Enter".into()]
@@ -454,11 +447,21 @@ mod tests {
     }
 
     #[test]
+    fn default_keys_match_the_web_and_studio_players() {
+        let map = InputMap::default();
+        assert_eq!(map.get_button(Key::KeyZ), Some(Button::A));
+        assert_eq!(map.get_button(Key::Space), Some(Button::A));
+        assert_eq!(map.get_button(Key::KeyX), Some(Button::B));
+    }
+
+    #[test]
     fn defaults_bind_select_and_start() {
         let map = InputMap::default();
-        assert_eq!(map.get_button(Key::ShiftLeft), Some(Button::Select));
-        assert_eq!(map.get_button(Key::ShiftRight), Some(Button::Select));
+        assert_eq!(map.get_button(Key::Backspace), Some(Button::Select));
         assert_eq!(map.get_button(Key::ControlRight), Some(Button::Select));
+        // Five Shift presses open Windows' Sticky Keys prompt mid-game.
+        assert_eq!(map.get_button(Key::ShiftLeft), None);
+        assert_eq!(map.get_button(Key::ShiftRight), None);
         assert_eq!(map.get_pad_button(PadButton::Back), Some(Button::Select));
 
         assert_eq!(map.get_system_button(Key::Enter), Some(SystemButton::Start));
@@ -485,7 +488,7 @@ mod tests {
             "#,
         );
         assert_eq!(map.get_button(Key::KeyJ), Some(Button::A));
-        assert_eq!(map.get_button(Key::ShiftLeft), Some(Button::Select));
+        assert_eq!(map.get_button(Key::Backspace), Some(Button::Select));
         assert_eq!(map.get_system_button(Key::Enter), Some(SystemButton::Start));
     }
 
@@ -550,7 +553,10 @@ mod tests {
         assert_eq!(reloaded.controls.names(Button::Up), ["KeyE"]);
         assert_eq!(reloaded.gamepad.names(Button::A), ["West"]);
         // Untouched bindings kept their values, not just their defaults.
-        assert_eq!(reloaded.controls.names(Button::B), ["KeyK", "ControlLeft"]);
+        assert_eq!(
+            reloaded.controls.names(Button::B),
+            ["KeyK", "KeyX", "ControlLeft"]
+        );
         assert_eq!(reloaded.gamepad.names(Button::B), ["East"]);
 
         let map = reloaded.to_input_map();

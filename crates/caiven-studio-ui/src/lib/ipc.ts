@@ -3,6 +3,7 @@ import type {
   PreludeModule, PublishResult, PublishTarget, SourceBuffer, StudioBootstrap, TickSnapshot,
 } from '../types';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
+import { safeFileName } from './format';
 
 const fallbackCode = `local SPEED = 2
 
@@ -253,7 +254,7 @@ export async function chooseExportPath(title: string): Promise<string | null> {
   if (!isTauri()) return null;
   return saveDialog({
     title: 'Pack cartridge',
-    defaultPath: `${title || 'cart'}.cav`,
+    defaultPath: `${safeFileName(title)}.cav`,
     filters: [{ name: 'Caiven cartridge', extensions: ['cav'] }],
   });
 }
@@ -266,7 +267,7 @@ export async function chooseExportWebPath(title: string): Promise<string | null>
   if (!isTauri()) return null;
   return saveDialog({
     title: 'Export to web',
-    defaultPath: `${title || 'cart'}.html`,
+    defaultPath: `${safeFileName(title)}.html`,
     filters: [{ name: 'Web page', extensions: ['html'] }],
   });
 }
@@ -281,7 +282,7 @@ export async function chooseExportScreenshotPath(title: string): Promise<string 
   if (!isTauri()) return null;
   return saveDialog({
     title: 'Export screenshot',
-    defaultPath: `${title || 'cart'}.png`,
+    defaultPath: `${safeFileName(title)}.png`,
     filters: [{ name: 'PNG image', extensions: ['png'] }],
   });
 }
@@ -294,7 +295,7 @@ export async function chooseExportSourceZipPath(title: string): Promise<string |
   if (!isTauri()) return null;
   return saveDialog({
     title: 'Export source',
-    defaultPath: `${title || 'cart'}.zip`,
+    defaultPath: `${safeFileName(title)}.zip`,
     filters: [{ name: 'Zip archive', extensions: ['zip'] }],
   });
 }

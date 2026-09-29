@@ -218,15 +218,8 @@ impl App {
     }
 }
 
-/// Where persisted settings live: a `settings.toml` beside the binary, the
-/// same exe-relative bargain `cart_library::default_dir()` makes for
-/// `carts/` — one folder a player can copy off a card wholesale.
 fn settings_path() -> PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(Path::to_path_buf))
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("settings.toml")
+    crate::data_dir::data_dir().join("settings.toml")
 }
 
 /// Loads persisted settings, falling back to defaults on a missing or
@@ -258,12 +251,8 @@ fn save_settings(path: &Path, settings: &Settings) {
     }
 }
 
-/// Where `controls.toml` lives: the same bare, CWD-relative name
-/// `caiven_vm::runtime::ConsoleCore` already reads it from — writing
-/// anywhere else would mean the remap screen's changes silently don't
-/// survive a restart (SPEC V40 round-trip).
 fn controls_path() -> PathBuf {
-    PathBuf::from("controls.toml")
+    crate::data_dir::data_dir().join("controls.toml")
 }
 
 /// The remap screen's per-row label for each of `BIND_ORDER`'s six buttons:
@@ -681,9 +670,15 @@ pub fn run() -> Result<()> {
     shell_state.set_settings(settings);
 
     let mut controls_doc = ControlsFile::load(&controls_path());
+    app.core.input_map = controls_doc.to_input_map();
     shell_state.set_binds(bind_labels(&controls_doc));
 
     let library_dir = cart_library::default_dir();
+    // Exists up front so a player can find where to drop `.cav` files.
+    if let Err(e) = std::fs::create_dir_all(&library_dir) {
+        error!("failed to create {}: {e}", library_dir.display());
+    }
+    info!("cart library: {}", library_dir.display());
     let mut carts: Vec<CartMeta> = Vec::new();
     let mut port_entries: Vec<PortEntry> = Vec::new();
     let port_worker = PortWorker::new();

@@ -4,7 +4,7 @@
   } from '@lucide/svelte';
   import { Button } from '@caiven/ui/button';
   import type { RunState } from '../types';
-  import { tidyPath } from '../lib/format';
+  import { shortcut, tidyPath } from '../lib/format';
 
   interface Props {
     title: string;
@@ -47,7 +47,7 @@
     <Button class="run-button" onclick={() => onTransport(running ? 'pause' : 'run')}>
       {#if running}<Pause size={15} />{:else}<Play size={15} fill="currentColor" />{/if}
       <span>{running ? 'Pause' : 'Run'}</span>
-      <kbd>⌘R</kbd>
+      <kbd>{shortcut('⌘R')}</kbd>
     </Button>
     <Button variant="outline" size="icon" title="Reset" onclick={() => onTransport('reset')}>
       <RotateCcw size={16} />
@@ -68,7 +68,7 @@
   <Button variant="outline" class="command-field" onclick={onPalette}>
     <Search size={15} />
     <span>Search or run a command</span>
-    <kbd>⌘K</kbd>
+    <kbd>{shortcut('⌘K')}</kbd>
   </Button>
   <Button variant="secondary" onclick={onSave}><Save size={15} />Save</Button>
   <Button variant="outline" onclick={onPublish}><Upload size={15} />Publish</Button>

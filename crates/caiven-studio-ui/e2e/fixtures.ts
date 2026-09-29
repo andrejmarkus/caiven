@@ -11,6 +11,8 @@ export interface E2EControl {
   setTickBanks(active: Partial<Record<BankKind, string>>): Promise<void>;
   setBankData(kind: BankKind, name: string, data: number[]): Promise<void>;
   snapshot(): Promise<Record<string, unknown>>;
+  /** Port link polls report "still pending" until this is called. */
+  approveLink(): Promise<void>;
 }
 
 declare global {
@@ -96,6 +98,7 @@ function installBridge() {
     { name: 'camera', globals: ['Camera'], enabled: false },
   ];
   let port = { authenticated: false, username: '', portUrl: 'http://port.test' };
+  let linkApproved = false;
   let assetIndexReads = 0;
   let cartSizeReads = 0;
 
@@ -275,7 +278,7 @@ function installBridge() {
     if (command === 'studio_remix_example') return { ...bootstrap(), path: String(args.path), title: String(args.exampleId) };
     if (command === 'port_session') return port;
     if (command === 'port_link_start') return { requestId: 'request-1', pollSecret: 'secret', expiresAt: '2099-01-01T00:00:00Z' };
-    if (command === 'port_link_poll') { port = { authenticated: true, username: 'tester', portUrl: 'http://port.test' }; return port; }
+    if (command === 'port_link_poll') { if (!linkApproved) return null; port = { authenticated: true, username: 'tester', portUrl: 'http://port.test' }; return port; }
     if (command === 'port_link_cancel') return null;
     if (command === 'port_logout') { port = { authenticated: false, username: '', portUrl: port.portUrl }; return port; }
     if (command === 'port_set_url') { port = { authenticated: false, username: '', portUrl: String(args.url) }; return port; }
@@ -306,6 +309,7 @@ function installBridge() {
         sync(kind);
       }
     },
+    async approveLink() { linkApproved = true; },
     async setBankData(kind, name, data) { banks[kind].set(name, [...data]); if (active[kind] === name) sync(kind); },
     async snapshot() { return { active: { ...active }, tickActive: { ...tickActive }, banks: Object.fromEntries((Object.keys(banks) as Kind[]).map((kind) => [kind, Object.fromEntries(banks[kind])])), flags: Object.fromEntries(flags), collision: Object.fromEntries(collision), ram: [...ram], sources: structuredClone(sources), recent: [...recent], breakpoints: structuredClone(breakpoints), watches: structuredClone(watches), port: { ...port }, assetIndexReads, cartSizeReads }; },
   };
@@ -327,6 +331,7 @@ export const test = base.extend<{ e2e: E2EControl; errorGuard: ErrorGuard }>({
       setTickBanks: (active) => page.evaluate((next) => window.__CAIVEN_E2E__.setTickBanks(next), active),
       setBankData: (kind, id, data) => page.evaluate(([nextKind, nextId, nextData]) => window.__CAIVEN_E2E__.setBankData(nextKind, nextId, nextData), [kind, id, data] as const),
       snapshot: () => page.evaluate(() => window.__CAIVEN_E2E__.snapshot()),
+      approveLink: () => page.evaluate(() => window.__CAIVEN_E2E__.approveLink()),
     });
   },
   errorGuard: [async ({ page }, use) => {

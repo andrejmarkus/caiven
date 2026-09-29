@@ -63,6 +63,7 @@
   const canPublish = $derived(changed && runOk);
   const constants = $derived(findConstants(source));
   const lineCount = $derived(source.split('\n').length);
+  const runKey = /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘Enter' : 'Ctrl+Enter';
   const shareUrl = $derived(published ? `${window.location.origin}/play/${published.id}` : '');
   const needsVerify = $derived(!!currentUser.value?.email && !currentUser.value.email_verified);
 
@@ -386,7 +387,7 @@
         <div class="flex items-center gap-2">
           <span class="text-sm font-semibold">Lua</span>
           {#if restored}<span class="text-xs text-muted-foreground">Restored your saved edit</span>{/if}
-          <span class="ml-auto text-xs text-muted-foreground">Reruns as you type · Ctrl+Enter</span>
+          <span class="ml-auto text-xs text-muted-foreground">Reruns as you type · {runKey}</span>
           <Button size="sm" onclick={() => run()} class={changed && ranSource !== source ? 'ember-glow' : ''}><PlayIcon class="size-4" fill="currentColor" />Run</Button>
         </div>
         {#if runError}

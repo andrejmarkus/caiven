@@ -21,6 +21,10 @@
     type CollisionBrush, type CollisionEdit, type PixelRegion,
   } from '../lib/editorMath';
   import { emptyHistory, pushEntry, undoEntry, redoEntry, type HistoryEntry, type HistoryState } from '../lib/history';
+  import { fileName, shortcut } from '../lib/format';
+
+  const copyCutPaste = [shortcut('⌘C'), shortcut('⌘X'), shortcut('⌘V')].join(' / ');
+  const clipboardHint = `${shortcut('⌘C')} copy · ${shortcut('⌘X')} cut · ${shortcut('⌘V')}`;
   import type LuaEditorModule from './LuaEditor.svelte';
   import MapCanvas from './MapCanvas.svelte';
   import SpriteCanvas, { type Pixel, type SpriteTool } from './SpriteCanvas.svelte';
@@ -1325,9 +1329,11 @@
   });
 
   function handleWorkspaceKeys(event: KeyboardEvent) {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z' && activeHistory) {
+    const historyKey = event.key.toLowerCase();
+    // Ctrl+Y is the Windows/Linux redo; Shift+Z works everywhere.
+    if ((event.metaKey || event.ctrlKey) && (historyKey === 'z' || historyKey === 'y') && activeHistory) {
       event.preventDefault();
-      if (event.shiftKey) redoActive(); else undoActive();
+      if (event.shiftKey || historyKey === 'y') redoActive(); else undoActive();
       return;
     }
     if ((event.metaKey || event.ctrlKey) && screen === 'map' && !isTypingTarget(event.target)) {
@@ -1461,7 +1467,7 @@
                 <span class="mini-cover" style={`--seed:${i}`}>
                   {#each Array(64) as _, p}<i style={`background:${palette[(p * 7 + i * 3) % 16]}`}></i>{/each}
                 </span>
-                <span><strong>{item.split('/')[item.split('/').length - 1]}</strong><code>{item}</code></span>
+                <span><strong>{fileName(item)}</strong><code>{item}</code></span>
                 <small>Recent</small>
               </button>
               <button class="recent-remove" aria-label={`Remove ${item} from recent carts`} title="Remove from recent carts" onclick={() => onRemoveRecent(item)}><X size={14} /></button>
@@ -1553,7 +1559,7 @@
         {/each}
         <button
           class:active={tool === 'select'}
-          title="Select — marquee a region, then Ctrl+C/X to copy/cut, Ctrl+V to paste"
+          title={`Select — marquee a region, then ${copyCutPaste} to copy/cut/paste`}
           onclick={() => tool = 'select'}
         ><BoxSelect size={18} /></button>
         <span></span>
@@ -1583,7 +1589,7 @@
         />
         <div class="map-zoom sprite-zoom" aria-label="Sprite zoom">{#each MAP_ZOOM_LEVELS as value}<button class:active={Math.abs(spriteZoom - value) < 0.02} onclick={() => spriteZoom = value}>{value * 100}%</button>{/each}</div>
         {#if tool === 'select'}
-          <p class="map-note subtle">{spriteSelection ? `${spriteSelection.w} × ${spriteSelection.h} selected` : 'Drag to select a region'} — Ctrl+C copy · Ctrl+X cut · Ctrl+V paste.</p>
+          <p class="map-note subtle">{spriteSelection ? `${spriteSelection.w} × ${spriteSelection.h} selected` : 'Drag to select a region'} — {clipboardHint} paste.</p>
         {/if}
         <div class="palette-strip">
           {#each palette as color, index}<button aria-label={`Color ${index}`} class:active={selectedColor === index} style={`--swatch:${color}`} onclick={() => selectedColor = index}></button>{/each}
@@ -1639,7 +1645,7 @@
         ><Puzzle size={18} /></button>
         <button
           class:active={mapTool === 'select'}
-          title="Select — marquee a region, then Ctrl+C/X to copy/cut, Ctrl+V to place"
+          title={`Select — marquee a region, then ${copyCutPaste} to copy/cut/place`}
           onclick={() => mapTool = 'select'}
         ><BoxSelect size={18} /></button>
         <span></span>
@@ -1742,10 +1748,10 @@
           <div class="collision-edit-note">
             <span class="eyebrow"><BoxSelect size={13} />Region select</span>
             <strong>{mapSelection ? `${mapSelection.w} × ${mapSelection.h} selected` : 'Drag to select a region'}</strong>
-            <p>Ctrl+C copy · Ctrl+X cut · Ctrl+V places the clipboard as a stamp — click or drag to drop it.</p>
+            <p>{clipboardHint} places the clipboard as a stamp — click or drag to drop it.</p>
             {#if mapSelection}
               <div class="selection-ops">
-                <button title="Paste in place (Ctrl+Shift+V)" disabled={!mapClipboard} onclick={pasteInPlace}>Paste in place</button>
+                <button title={`Paste in place (${shortcut('⇧⌘V')})`} disabled={!mapClipboard} onclick={pasteInPlace}>Paste in place</button>
                 <button title="Flip horizontally" onclick={() => transformMapSelection('flip')}><FlipHorizontal size={14} /></button>
                 <button title="Flip vertically" onclick={() => transformMapSelection('vflip')}><FlipVertical size={14} /></button>
                 <button
@@ -2127,7 +2133,7 @@
         </div>
         <p class="music-hints">
           <span>Drag row numbers to select a step range</span>
-          <span>Ctrl+C copy · Ctrl+X cut · Ctrl+V paste rows</span>
+          <span>{clipboardHint} paste rows</span>
           <span>Space to preview</span>
         </p>
       </div>

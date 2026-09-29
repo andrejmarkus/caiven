@@ -1,5 +1,5 @@
-//! Recently opened cart list, persisted next to the port auth token
-//! (`%APPDATA%/caiven-studio` / `~/.config/caiven-studio`).
+//! Recently opened cart list, persisted in Studio's config folder
+//! (`crate::config_dir`).
 
 use std::path::{Path, PathBuf};
 
@@ -27,22 +27,7 @@ fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
 }
 
 fn recent_file_path() -> Option<PathBuf> {
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        return Some(
-            PathBuf::from(appdata)
-                .join("caiven-studio")
-                .join("recent_carts"),
-        );
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        return Some(
-            PathBuf::from(home)
-                .join(".config")
-                .join("caiven-studio")
-                .join("recent_carts"),
-        );
-    }
-    None
+    crate::config_dir::config_dir().map(|dir| dir.join("recent_carts"))
 }
 
 /// Loads the recent list, dropping entries whose file no longer exists.

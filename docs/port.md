@@ -66,7 +66,7 @@ required. Backed by `crates/caiven-web`, a WASM (`wasm32-unknown-emscripten`)
 build of the VM that fetches the cart over the same REST API and renders to a
 `<canvas>` at 60fps.
 
-- **Controls:** arrows/WASD to move, `J`/`Z` = A, `K`/`X` = B, standard
+- **Controls:** arrows/WASD to move, `J`/`Z`/`Space` = A, `K`/`X` = B, `Backspace` = Select, standard
   Gamepad API support, and an on-screen touch d-pad + A/B on coarse-pointer
   (mobile) viewports.
 - **Audio:** the same square/noise synth used natively, driven by a

@@ -153,33 +153,12 @@ fn is_safe_id(id: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
-// Tests point this at a temp dir; mutating HOME via set_var races getenv in
-// parallel tests and segfaulted glibc on CI.
-#[cfg(test)]
-thread_local! {
-    static TEST_CONFIG_DIR: std::cell::RefCell<Option<PathBuf>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-fn config_dir() -> Option<PathBuf> {
-    #[cfg(test)]
-    if let Some(dir) = TEST_CONFIG_DIR.with(|dir| dir.borrow().clone()) {
-        return Some(dir);
-    }
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        return Some(PathBuf::from(appdata).join("caiven-studio"));
-    }
-    std::env::var("HOME")
-        .ok()
-        .map(|home| PathBuf::from(home).join(".config/caiven-studio"))
-}
-
 fn token_file_path() -> Option<PathBuf> {
-    config_dir().map(|dir| dir.join("port_token"))
+    crate::config_dir::config_dir().map(|dir| dir.join("port_token"))
 }
 
 fn url_file_path() -> Option<PathBuf> {
-    config_dir().map(|dir| dir.join("port_url"))
+    crate::config_dir::config_dir().map(|dir| dir.join("port_url"))
 }
 
 /// Trims trailing slashes and rejects anything that isn't a well-formed
@@ -277,7 +256,7 @@ fn save_token(base: &str, username: &str, token: &str) -> Result<(), String> {
 }
 
 fn published_file_path() -> Option<PathBuf> {
-    config_dir().map(|dir| dir.join("published_carts.json"))
+    crate::config_dir::config_dir().map(|dir| dir.join("published_carts.json"))
 }
 
 fn published_key(base: &str, project: &Path) -> String {
@@ -726,9 +705,12 @@ pub(crate) fn publish(
 #[cfg(test)]
 mod tests {
     use super::{
-        PortCartListWire, TEST_CONFIG_DIR, is_safe_id, load_saved_url, parse_saved_token,
-        port_set_url, published_cart_id, remember_published, url_encode, validate_port_url,
+        PortCartListWire, is_safe_id, load_saved_url, parse_saved_token, port_set_url,
+        published_cart_id, remember_published, url_encode, validate_port_url,
     };
+    // Tests point this at a temp dir; mutating HOME via set_var races getenv in
+    // parallel tests and segfaulted glibc on CI.
+    use crate::config_dir::TEST_CONFIG_DIR;
 
     #[test]
     fn port_metadata_survives_server_to_studio_conversion() {

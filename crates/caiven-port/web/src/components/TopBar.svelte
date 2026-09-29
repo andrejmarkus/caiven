@@ -19,6 +19,7 @@
 
   let q = $state('');
   let searchInput = $state<HTMLInputElement | null>(null);
+  const searchKey = /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘K' : 'Ctrl+K';
 
   function search(e: Event) {
     e.preventDefault();
@@ -57,7 +58,7 @@
         placeholder="Search carts, creators, tags…"
         class="h-auto min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-foreground shadow-none outline-none ring-0 placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0"
       />
-      <kbd class="hidden rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground lg:block">⌘K</kbd>
+      <kbd class="hidden rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground lg:block">{searchKey}</kbd>
     </div>
   </form>
   <div class="ml-auto flex items-center gap-2">

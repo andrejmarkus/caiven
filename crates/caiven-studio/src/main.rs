@@ -1,4 +1,5 @@
 mod app;
+mod config_dir;
 mod debugger;
 mod port_api;
 mod port_client;

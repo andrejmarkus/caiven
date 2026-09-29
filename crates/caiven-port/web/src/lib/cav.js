@@ -106,10 +106,10 @@ export function writeCav(cav) {
   return out;
 }
 
-/** @param {Cav} cav @returns {string | null} */
+/** Lua source as editable text; CRLF from a Windows editor becomes LF, as a textarea would make it. @param {Cav} cav @returns {string | null} */
 export function luaSource(cav) {
   const section = cav.sections.find((s) => s.kind === LUA_SOURCE);
-  return section ? new TextDecoder().decode(section.data) : null;
+  return section ? new TextDecoder().decode(section.data).replace(/\r\n?/g, '\n') : null;
 }
 
 /**

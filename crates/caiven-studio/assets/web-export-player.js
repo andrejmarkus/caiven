@@ -21,15 +21,16 @@
     return bytes;
   }
 
-  // Button indices per crates/caiven-vm/src/input/button.rs.
+  // Button indices per crates/caiven-vm/src/input/button.rs; physical keys
+  // (`KeyboardEvent.code`), same defaults as Machine and the Port player.
   const KEY_TO_BUTTON = {
-    ArrowUp: 0, w: 0, W: 0,
-    ArrowDown: 1, s: 1, S: 1,
-    ArrowLeft: 2, a: 2, A: 2,
-    ArrowRight: 3, d: 3, D: 3,
-    j: 4, J: 4, z: 4, Z: 4,
-    k: 5, K: 5, x: 5, X: 5,
-    Shift: 6,
+    ArrowUp: 0, KeyW: 0,
+    ArrowDown: 1, KeyS: 1,
+    ArrowLeft: 2, KeyA: 2,
+    ArrowRight: 3, KeyD: 3,
+    KeyJ: 4, KeyZ: 4, Space: 4,
+    KeyK: 5, KeyX: 5,
+    Backspace: 6,
   };
 
   // Standard-gamepad mapping button index -> Caiven button. 8 is Back/Select.
@@ -173,14 +174,14 @@
         // second line of defense.
         window.addEventListener("keydown", function (e) {
           if (document.activeElement !== canvas) return;
-          const btn = KEY_TO_BUTTON[e.key];
+          const btn = KEY_TO_BUTTON[e.code];
           if (btn === undefined) return;
           e.preventDefault();
           audio.ensureStarted();
           setButton(btn, true);
         });
         window.addEventListener("keyup", function (e) {
-          const btn = KEY_TO_BUTTON[e.key];
+          const btn = KEY_TO_BUTTON[e.code];
           if (btn === undefined) return;
           if (document.activeElement === canvas) e.preventDefault();
           setButton(btn, false);

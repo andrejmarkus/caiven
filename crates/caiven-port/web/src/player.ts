@@ -43,30 +43,16 @@ declare global {
   }
 }
 
+// Physical keys (`KeyboardEvent.code`), same defaults as Machine's controls.toml.
+// Space joins A because carts say "PRESS A" and the A key is Left.
 const KEY_TO_BUTTON: Record<string, number> = {
-  ArrowUp: 0,
-  w: 0,
-  W: 0,
-  ArrowDown: 1,
-  s: 1,
-  S: 1,
-  ArrowLeft: 2,
-  a: 2,
-  A: 2,
-  ArrowRight: 3,
-  d: 3,
-  D: 3,
-  j: 4,
-  J: 4,
-  z: 4,
-  Z: 4,
-  // Carts say "PRESS A"; the A key is Left, so Space is the obvious guess.
-  ' ': 4,
-  k: 5,
-  K: 5,
-  x: 5,
-  X: 5,
-  Shift: 6,
+  ArrowUp: 0, KeyW: 0,
+  ArrowDown: 1, KeyS: 1,
+  ArrowLeft: 2, KeyA: 2,
+  ArrowRight: 3, KeyD: 3,
+  KeyJ: 4, KeyZ: 4, Space: 4,
+  KeyK: 5, KeyX: 5,
+  Backspace: 6,
 };
 
 // Standard-gamepad mapping button index -> Caiven button.
@@ -319,7 +305,7 @@ export class CartPlayer {
 
   private onKeyDown = (e: KeyboardEvent): void => {
     if (document.activeElement !== this.canvas) return;
-    const btn = KEY_TO_BUTTON[e.key];
+    const btn = KEY_TO_BUTTON[e.code];
     if (btn === undefined) return;
     e.preventDefault();
     this.audio.ensureStarted();
@@ -327,7 +313,7 @@ export class CartPlayer {
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
-    const btn = KEY_TO_BUTTON[e.key];
+    const btn = KEY_TO_BUTTON[e.code];
     if (btn === undefined) return;
     if (document.activeElement === this.canvas) e.preventDefault();
     this.setButton(btn, false);

@@ -524,7 +524,7 @@ assert len(SFX_STEPS) == 16
 
 def write_sfx_hex():
     lines = [sfx_line(steps) for steps in SFX_STEPS]
-    (OUT / "sfx.hex").write_text("\n".join(lines) + "\n")
+    (OUT / "sfx.hex").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
 
 # ---------------------------------------------------------------------------
@@ -657,7 +657,7 @@ def write_music_hex():
     (OUT / "music.hex").write_text("\n".join(
         "".join(f"{b:02x}" for b in data[i:i + 64])
         for i in range(0, len(data), 64)
-    ) + "\n")
+    ) + "\n", encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":

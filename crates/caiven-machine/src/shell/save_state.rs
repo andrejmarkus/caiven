@@ -11,14 +11,9 @@ use std::path::{Path, PathBuf};
 const MAGIC: &[u8; 4] = b"CVST";
 const FORMAT_VERSION: u16 = 1;
 
-/// Where save states live: a `saves/` directory beside the binary, the same
-/// exe-relative bargain `cart_library::default_dir()` makes for `carts/`.
+/// Where save states live (see `data_dir`).
 pub fn saves_dir() -> PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(Path::to_path_buf))
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("saves")
+    crate::data_dir::data_dir().join("saves")
 }
 
 /// The save file for a given cart id. `id` must already be a V56-safe

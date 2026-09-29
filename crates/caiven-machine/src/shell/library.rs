@@ -20,17 +20,9 @@ use log::warn;
 /// The cartridge file extension the library scans for.
 pub const CART_EXTENSION: &str = "cav";
 
-/// Where the library lives when nothing overrides it: a `carts/` directory
-/// beside the binary. Handheld firmware drops the whole console into one
-/// folder on the card, so an exe-relative path is what makes the same
-/// install work from any mount point — and keeps carts, settings and saves
-/// together where a player can copy them off.
+/// Where the library lives when nothing overrides it (see `data_dir`).
 pub fn default_dir() -> PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(Path::to_path_buf))
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("carts")
+    crate::data_dir::data_dir().join("carts")
 }
 
 /// One cart as the library knows it: enough to draw a shelf tile and a

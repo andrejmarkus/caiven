@@ -24,5 +24,10 @@ paths:
   actual regression.
 - Never `std::env::set_var`/`remove_var` in Rust tests: a mutex only
   serializes writers, and any parallel test's `getenv` can SIGSEGV glibc
-  (Studio CI crash, 2026-09). Inject the value instead (e.g. `port_api.rs`
-  `TEST_CONFIG_DIR` thread-local).
+  (Studio CI crash, 2026-09). Inject the value instead (e.g. `config_dir.rs`
+  `TEST_CONFIG_DIR` thread-local, or a pure function like Machine's
+  `data_dir::pick`).
+- Never assert a UI state that only lasts until the next poll or timer; make
+  the mock hold it (e.g. Studio e2e `approveLink()` gates `port_link_poll`).
+- CI's `desktop-tests` job runs Rust, frontend unit tests and the creator
+  workflow on Windows and macOS; the rest of CI is Linux-only.

@@ -82,7 +82,8 @@ impl ConsoleCore {
         Ok(Self {
             screen: Screen::new(config.width, config.height),
             input: Input::new(),
-            input_map: InputMap::load("controls.toml"),
+            // The host decides where controls.toml lives and installs it.
+            input_map: InputMap::default(),
             vm,
             font,
             config,

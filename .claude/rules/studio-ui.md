@@ -22,6 +22,11 @@ paths:
   component locally instead of updating the shared one.
 - Run `npm run check` (svelte-check + tsc) before considering a UI change
   done.
+- Cross-platform (`src/lib/format.ts`): shortcut labels go through
+  `shortcut('⌘K')` (⌘ on Mac, `Ctrl+K` elsewhere), paths through
+  `fileName`/`tidyPath` (both separators), dialog default names through
+  `safeFileName`. Game input uses `event.code` (physical key, the same names
+  as controls.toml) with defaults matching Machine and the Port player.
 
 ## Verifying Studio's live behavior (CDP/Playwright/manual)
 

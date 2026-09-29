@@ -32,6 +32,12 @@ test('swapping Lua keeps every other section and re-parses', () => {
   assert.deepEqual(others(back), others(cav));
 });
 
+test('Lua source from a cart saved with CRLF reads back as LF text', () => {
+  const crlf = parseCav(withLuaSource(parseCav(smoke), 'local SPEED = 2 -- try 4\r\nfunction _update() end\r\n'));
+  assert.equal(luaSource(crlf), 'local SPEED = 2 -- try 4\nfunction _update() end\n');
+  assert.equal(findConstants(luaSource(crlf))[0].suggestion, '4');
+});
+
 test('header fields truncate on a character boundary', () => {
   const back = parseCav(withLuaSource(parseCav(smoke), '', { title: 'é'.repeat(40) }));
   assert.equal(back.title, 'é'.repeat(16));

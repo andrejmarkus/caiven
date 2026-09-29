@@ -73,11 +73,13 @@
   // 4 A, 5 B, 6 Select). START has no index — the Machine keeps it for its
   // pause menu, which Studio's preview does not have.
   const BUTTON_LABELS = ['Up', 'Down', 'Left', 'Right', 'A', 'B', 'Select'];
+  // Physical keys (`KeyboardEvent.code`, the names controls.toml uses), so the
+  // layout never moves them; same defaults as Machine and the web player.
   const DEFAULT_KEYMAP: Record<number, string[]> = {
-    0: ['ArrowUp', 'w'], 1: ['ArrowDown', 's'], 2: ['ArrowLeft', 'a'],
-    3: ['ArrowRight', 'd'], 4: ['j'], 5: ['k'], 6: ['Shift'],
+    0: ['ArrowUp', 'KeyW'], 1: ['ArrowDown', 'KeyS'], 2: ['ArrowLeft', 'KeyA'],
+    3: ['ArrowRight', 'KeyD'], 4: ['KeyJ', 'KeyZ', 'Space'], 5: ['KeyK', 'KeyX'], 6: ['Backspace'],
   };
-  const INPUT_STORAGE_KEY = 'caiven-studio-input';
+  const INPUT_STORAGE_KEY = 'caiven-studio-controls';
 
   function loadKeymap(): Record<number, string[]> {
     try {
@@ -103,11 +105,9 @@
     localStorage.setItem(INPUT_STORAGE_KEY, JSON.stringify(keymap));
   });
 
-  function gameButton(key: string): number | undefined {
-    const lower = key.length === 1 ? key.toLowerCase() : key;
+  function gameButton(code: string): number | undefined {
     for (const button of Object.keys(keymap)) {
-      const keys = keymap[Number(button)];
-      if (keys.includes(key) || keys.includes(lower)) return Number(button);
+      if (keymap[Number(button)].includes(code)) return Number(button);
     }
     return undefined;
   }
@@ -882,7 +882,7 @@
     const target = event.target as HTMLElement | null;
     const editing = target?.matches('input, textarea, [contenteditable="true"]');
     const cmd = event.metaKey || event.ctrlKey;
-    const button = gameButton(event.key);
+    const button = gameButton(event.code);
 
     if (!editing && !cmd && running && (overlay === null || overlay === 'focus') && button !== undefined) {
       event.preventDefault();
@@ -936,7 +936,7 @@
   }
 
   function handleKeyUp(event: KeyboardEvent) {
-    const button = gameButton(event.key);
+    const button = gameButton(event.code);
     if (button !== undefined) pressButton(button, false);
   }
 

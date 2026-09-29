@@ -14,6 +14,7 @@
   import type { ApiEntry, CartMeta, CartTemplateSummary, PauseReason, PortSession, PublishProgress, Screen } from '../types';
   import { TOUR_STEPS, moveTourStep } from '../lib/tour';
   import { SCREEN_HEIGHT, SCREEN_RGBA_LEN, SCREEN_WIDTH } from '../lib/ipc';
+  import { keyLabel, shortcut } from '../lib/format';
 
   interface Props {
     overlay: 'palette' | 'publish' | 'tour' | 'focus' | 'module' | 'new-cart' | 'controls' | null;
@@ -149,7 +150,8 @@
     if (listeningForButton === null) return;
     event.preventDefault();
     if (event.key === 'Escape') { listeningForButton = null; return; }
-    onRebindButton(listeningForButton, event.key);
+    if (!event.code) return;
+    onRebindButton(listeningForButton, event.code);
     listeningForButton = null;
   }
 
@@ -165,9 +167,13 @@
     return () => window.removeEventListener('keydown', handler, true);
   });
 
-  function keyLabel(key: string): string {
-    return key === ' ' ? 'Space' : key.length === 1 ? key.toUpperCase() : key.replace('Arrow', '');
-  }
+  type LayoutKeyboard = { getLayoutMap?: () => Promise<ReadonlyMap<string, string>> };
+  let keyboardLayout = $state<ReadonlyMap<string, string>>();
+  onMount(() => {
+    (navigator as Navigator & { keyboard?: LayoutKeyboard }).keyboard?.getLayoutMap?.()
+      .then((layout) => { keyboardLayout = layout; })
+      .catch(() => {});
+  });
 
   async function submitModule() {
     const name = moduleName.trim();
@@ -327,7 +333,7 @@
               {#each items as command (`${group}:${command.name}`)}
                 {@const Icon = command.icon}
                 <Command.Item value={`${group}:${command.name}`} onSelect={() => activate(command)}>
-                  <i><Icon size={15} /></i><span><strong>{command.name}</strong><small>{command.detail}</small></span>{#if command.keys}<kbd>{command.keys}</kbd>{/if}
+                  <i><Icon size={15} /></i><span><strong>{command.name}</strong><small>{command.detail}</small></span>{#if command.keys}<kbd>{shortcut(command.keys)}</kbd>{/if}
                 </Command.Item>
               {/each}
               </Command.Group>
@@ -470,7 +476,7 @@
                 class={listeningForButton === button ? 'listening' : undefined}
                 onclick={() => beginListening(button)}
               >
-                {#if listeningForButton === button}Press a key…{:else}{keymap[button]?.map(keyLabel).join(' / ') || '—'}{/if}
+                {#if listeningForButton === button}Press a key…{:else}{keymap[button]?.map((code) => keyLabel(code, keyboardLayout)).join(' / ') || '—'}{/if}
               </Button>
             </div>
           {/each}

@@ -8,6 +8,7 @@ games, use the [prebuilt downloads](../README.md#-quick-start) instead.
 - [Rust stable](https://rustup.rs/)
 - [Node.js 22](https://nodejs.org/) with npm
 - [Tauri system dependencies](https://v2.tauri.app/start/prerequisites/) for your OS
+- Linux only, for Machine audio and input: `libasound2-dev libxkbcommon-dev pkg-config`
 
 ## Installation
 

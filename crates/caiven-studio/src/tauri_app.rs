@@ -2749,7 +2749,7 @@ fn studio_tick(state: State<'_, StudioBridge>) -> Result<TickPayload, String> {
 }
 
 fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
-    use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 
     // A custom `.menu()` replaces Tauri's auto-generated default entirely, so
     // the standard macOS App menu (Quit/Hide/Services, Cmd+Q et al.) and the
@@ -2760,7 +2760,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         app.package_info().name.clone(),
         true,
         &[
-            &PredefinedMenuItem::about(app, None, Some(AboutMetadata::default()))?,
+            &PredefinedMenuItem::about(app, None, Some(tauri::menu::AboutMetadata::default()))?,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::services(app, None)?,
             &PredefinedMenuItem::separator(app)?,

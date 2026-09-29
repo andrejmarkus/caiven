@@ -199,7 +199,7 @@ test('art, sound, asset reference, and navigation flow', async ({ page, e2e }) =
   await page.getByTitle('Flip horizontally').click();
   await page.getByTitle('Rotate clockwise').click();
   await page.getByTitle('Move right').click();
-  await page.getByTitle('Paste in place (Ctrl+Shift+V)').click();
+  await page.getByTitle(/^Paste in place \(/).click();
 
   // Stamp naming uses Studio's own dialog (native window.prompt() never
   // shows in the Tauri webview) — the input arrives pre-filled with
@@ -354,7 +354,9 @@ test('project, library, Port account, download, and publish flow', async ({ page
   await page.getByTitle(/^Account/).click();
   await page.getByRole('button', { name: 'Link Port account' }).click();
   await expect(page.getByText('Finish linking in Port')).toBeVisible();
-  await expect(page.getByText('tester', { exact: true })).toBeVisible({ timeout: 3_000 });
+  await e2e.approveLink();
+  // Studio polls every 2s; allow one full interval plus render.
+  await expect(page.getByText('tester', { exact: true })).toBeVisible({ timeout: 5_000 });
 
   await page.getByRole('button', { name: 'Publish', exact: true }).click();
   await page.getByPlaceholder('What changed?').fill('E2E release');
@@ -474,7 +476,8 @@ test('Port unreachable, expired session, and publish failure stay actionable', a
 
   await page.getByTitle(/^Account/).click();
   await page.getByRole('button', { name: 'Link Port account' }).click();
-  await expect(page.getByText('tester', { exact: true })).toBeVisible({ timeout: 3_000 });
+  await e2e.approveLink();
+  await expect(page.getByText('tester', { exact: true })).toBeVisible({ timeout: 5_000 });
   await e2e.failNext('studio_port_publish', 'upload rejected');
   await page.getByRole('button', { name: 'Publish', exact: true }).click();
   await page.locator('.publish-dialog').getByRole('button', { name: 'Publish', exact: true }).click();

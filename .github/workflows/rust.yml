@@ -130,6 +130,51 @@ jobs:
             crates/caiven-port/web/test-results/live
           if-no-files-found: ignore
 
+  desktop-tests:
+    # Paths, line endings, key names and config folders differ per OS; the
+    # Linux job above cannot catch those. Port stays Linux-only (OpenSSL).
+    name: Test (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows
+            os: windows-latest
+          - label: macOS
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    env:
+      SDL_AUDIODRIVER: dummy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            crates/caiven-port/web/package-lock.json
+            crates/caiven-studio-ui/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Install frontend dependencies
+        run: |
+          npm --prefix crates/caiven-studio-ui ci
+          npm --prefix crates/caiven-port/web ci
+          npm --prefix crates/caiven-port/web exec playwright install chromium
+      - name: Test Studio frontend
+        run: npm --prefix crates/caiven-studio-ui test
+      - name: Test Port frontend
+        run: npm --prefix crates/caiven-port/web test
+      - name: Build Studio frontend
+        run: npm --prefix crates/caiven-studio-ui run build
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test
+        run: cargo test --locked --workspace --exclude caiven-port --exclude migration
+      - name: Verify native creator workflow
+        run: python scripts/creator-workflow/run.py
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
