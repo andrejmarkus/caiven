@@ -895,7 +895,8 @@
       overlay = null;
       releaseInputs();
       if (!closingFocus && studio.audio.sfxActive) void doAudio('sfx', studio.audio.sfxId, 'stop');
-      if (!closingFocus && studio.audio.musicActive) void doAudio('music', studio.audio.musicPattern, 'stop');
+      // Esc ends editor previews; a running game's music is the game's own.
+      if (!closingFocus && !running && studio.audio.musicActive) void doAudio('music', studio.audio.musicPattern, 'stop');
       return;
     }
     if (cmd && event.key.toLowerCase() === 'k') {

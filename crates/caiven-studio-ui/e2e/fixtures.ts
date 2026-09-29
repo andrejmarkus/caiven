@@ -13,6 +13,8 @@ export interface E2EControl {
   snapshot(): Promise<Record<string, unknown>>;
   /** Port link polls report "still pending" until this is called. */
   approveLink(): Promise<void>;
+  /** Audio state every tick reports, e.g. music a running game started. */
+  setTickAudio(next: Record<string, unknown>): Promise<void>;
 }
 
 declare global {
@@ -99,6 +101,7 @@ function installBridge() {
   ];
   let port = { authenticated: false, username: '', portUrl: 'http://port.test' };
   let linkApproved = false;
+  let tickAudio: Record<string, unknown> = {};
   let assetIndexReads = 0;
   let cartSizeReads = 0;
 
@@ -198,7 +201,7 @@ function installBridge() {
     ];
     if (command === 'studio_cart_size') return { packedBytes: 8192 + ++cartSizeReads, maxBytes: 131072 };
     if (command === 'studio_asset_index') { assetIndexReads += 1; return index(); }
-    if (command === 'studio_tick') return { runState, frame: frame++, fps: 60, frameTimeMs: 4.2, globals: [{ name: 'score', value: '7' }, { name: 'player', value: '{table}', nodeId: 'global:player' }], watches, callStack: [], pauseReason: null, audio: audio(), diagnostics: [], output: ['mock runtime ready'], activeSpriteBank: tickActive.sprites, activeMapBank: tickActive.map, activePaletteBank: tickActive.palette, activeSfxBank: tickActive.sfx, activeMusicBank: tickActive.music, assetDirty: false };
+    if (command === 'studio_tick') return { runState, frame: frame++, fps: 60, frameTimeMs: 4.2, globals: [{ name: 'score', value: '7' }, { name: 'player', value: '{table}', nodeId: 'global:player' }], watches, callStack: [], pauseReason: null, audio: { ...audio(), ...tickAudio }, diagnostics: [], output: ['mock runtime ready'], activeSpriteBank: tickActive.sprites, activeMapBank: tickActive.map, activePaletteBank: tickActive.palette, activeSfxBank: tickActive.sfx, activeMusicBank: tickActive.music, assetDirty: false };
     if (command === 'studio_frame') return Array(128 * 128).fill(0);
     if (command === 'studio_read_memory') return ram.slice(Number(args.address), Number(args.address) + Number(args.len));
     if (command === 'studio_asset_bank') {
@@ -310,6 +313,7 @@ function installBridge() {
       }
     },
     async approveLink() { linkApproved = true; },
+    async setTickAudio(next) { tickAudio = { ...next }; },
     async setBankData(kind, name, data) { banks[kind].set(name, [...data]); if (active[kind] === name) sync(kind); },
     async snapshot() { return { active: { ...active }, tickActive: { ...tickActive }, banks: Object.fromEntries((Object.keys(banks) as Kind[]).map((kind) => [kind, Object.fromEntries(banks[kind])])), flags: Object.fromEntries(flags), collision: Object.fromEntries(collision), ram: [...ram], sources: structuredClone(sources), recent: [...recent], breakpoints: structuredClone(breakpoints), watches: structuredClone(watches), port: { ...port }, assetIndexReads, cartSizeReads }; },
   };
@@ -332,6 +336,7 @@ export const test = base.extend<{ e2e: E2EControl; errorGuard: ErrorGuard }>({
       setBankData: (kind, id, data) => page.evaluate(([nextKind, nextId, nextData]) => window.__CAIVEN_E2E__.setBankData(nextKind, nextId, nextData), [kind, id, data] as const),
       snapshot: () => page.evaluate(() => window.__CAIVEN_E2E__.snapshot()),
       approveLink: () => page.evaluate(() => window.__CAIVEN_E2E__.approveLink()),
+      setTickAudio: (next) => page.evaluate((value) => window.__CAIVEN_E2E__.setTickAudio(value), next),
     });
   },
   errorGuard: [async ({ page }, use) => {

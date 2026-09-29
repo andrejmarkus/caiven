@@ -26,7 +26,7 @@ use self::sfx::{MusicPlayer, SfxPlayer, resolve_song_step};
 use crate::peripheral::{Peripheral, PeripheralRegistry};
 use crate::rendering::screen::ScreenLayer;
 use crate::vm::Camera;
-use crate::vm::audio::{SFX_VOICE_COUNT, Sound};
+use crate::vm::audio::{SFX_VOICE_COUNT, Sound, VOICE_COUNT, Voice};
 use caiven_cart::{
     CartSection, DEFAULT_BANK_NAME, SectionKind, decode_asset_bank, is_valid_bank_name,
 };
@@ -202,6 +202,7 @@ pub struct Vm {
     /// console's polyphony spent on an editor.
     preview_sfx: Option<u32>,
     next_sfx_age: u64,
+    suspended_audio: Option<SuspendedAudio>,
     peripherals: PeripheralRegistry,
     frame_count: u32,
     waiting: bool,
@@ -254,6 +255,7 @@ pub struct Vm {
 /// player ticks its first step; those are two different questions ("is
 /// this handle still this call's voice" vs. "has the audio thread's
 /// envelope/phase seen a retrigger").
+#[derive(Clone)]
 struct PooledSfx {
     player: SfxPlayer,
     age: u64,
@@ -270,6 +272,13 @@ impl PooledSfx {
             volume_scale: 1.0,
         }
     }
+}
+
+/// The game's audio parked by [`Vm::suspend_audio`].
+struct SuspendedAudio {
+    music_player: MusicPlayer,
+    sfx_pool: [PooledSfx; SFX_VOICE_COUNT],
+    voices: [Voice; VOICE_COUNT],
 }
 
 /// Packs a pool slot index and its current allocation epoch into a single
@@ -380,6 +389,7 @@ impl Vm {
             sfx_pool: std::array::from_fn(|_| PooledSfx::new()),
             preview_sfx: None,
             next_sfx_age: 0,
+            suspended_audio: None,
             peripherals,
             frame_count: 0,
             waiting: false,
@@ -473,18 +483,87 @@ impl Vm {
     /// which otherwise means audio the game itself triggered — including
     /// from `_init()` on cart load — just keeps sounding forever once
     /// nothing else is stepping the VM to wind it down.
+    /// Also discards audio parked by [`Vm::suspend_audio`].
     pub fn stop_audio(&mut self) {
+        self.suspended_audio = None;
         self.preview_sfx = None;
         self.music_player.stop();
         for pooled in &mut self.sfx_pool {
             pooled.player.stop();
         }
-        if let Ok(mut sound) = self.sound.lock() {
-            for voice in &mut sound.voices {
-                voice.gate = false;
-                voice.epoch = voice.epoch.wrapping_add(1);
-            }
+        let mut sound = self
+            .sound
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        for voice in &mut sound.voices {
+            voice.gate = false;
+            voice.epoch = voice.epoch.wrapping_add(1);
         }
+    }
+
+    /// Parks the game's music, sound effects and held notes and silences the
+    /// output, leaving the players free for editor previews while paused.
+    /// Calling it again while parked keeps the first parked state.
+    pub fn suspend_audio(&mut self) {
+        self.stop_sfx();
+        let parked = self
+            .suspended_audio
+            .take()
+            .unwrap_or_else(|| SuspendedAudio {
+                music_player: self.music_player.clone(),
+                sfx_pool: self.sfx_pool.clone(),
+                voices: self
+                    .sound
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .voices,
+            });
+        self.stop_audio();
+        self.suspended_audio = Some(parked);
+    }
+
+    /// Brings back what [`Vm::suspend_audio`] parked, replacing any preview.
+    pub fn resume_audio(&mut self) {
+        let Some(parked) = self.suspended_audio.take() else {
+            return;
+        };
+        self.preview_sfx = None;
+        // The loop toggle belongs to the music editor, not the parked game.
+        let loop_on = self.music_player.loop_on;
+        self.music_player = parked.music_player;
+        self.music_player.loop_on = loop_on;
+        self.sfx_pool = parked.sfx_pool;
+        let mut sound = self
+            .sound
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        for (voice, saved) in sound.voices.iter_mut().zip(parked.voices) {
+            // A fresh epoch restarts the note instead of a stale envelope.
+            *voice = Voice {
+                epoch: voice.epoch.wrapping_add(1),
+                ..saved
+            };
+        }
+    }
+
+    /// Moves this VM onto `shared`, the sound an open output already reads,
+    /// so a host swaps VMs without reopening the audio device.
+    pub(crate) fn attach_sound(&mut self, shared: Arc<Mutex<Sound>>) {
+        let mut next = self
+            .sound
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        let mut sound = shared
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // New epochs make the synth drop whatever the previous VM held.
+        for (voice, old) in next.voices.iter_mut().zip(sound.voices.iter()) {
+            voice.epoch = old.epoch.wrapping_add(1);
+        }
+        *sound = next;
+        drop(sound);
+        self.sound = shared;
     }
 
     pub fn load_section_to_ram(&mut self, base: usize, data: &[u8]) {

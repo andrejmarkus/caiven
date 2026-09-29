@@ -25,3 +25,8 @@ paths:
   SDL2 (`sdl2::audio::AudioCallback`) — never block or allocate unpredictably
   on that path; see `.claude/rules/security.md` for the sandbox-boundary
   angle.
+- Audio lifecycle: a host pausing the game calls `Vm::suspend_audio` and
+  `resume_audio`, never `stop_audio` (that discards music `_init()` started,
+  and Run from pause does not rerun `_init()`). `stop_audio` is for a fresh
+  run only. `ConsoleCore` keeps one output for its life: `adopt_vm` moves the
+  new VM onto the open sound, never reopens the device per cart.

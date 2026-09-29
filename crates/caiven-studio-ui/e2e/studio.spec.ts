@@ -95,6 +95,25 @@ test('code, runtime, shortcuts, watches, module, drawer, and console flow', asyn
   expect(commands).toEqual(expect.arrayContaining(['studio_save', 'studio_transport', 'studio_set_input', 'studio_add_watch', 'studio_create_module']));
 });
 
+test('Escape keeps a running game\'s music and stops a paused preview', async ({ page, e2e }) => {
+  const ticks = async () => (await e2e.calls()).filter((call) => call.command === 'studio_tick').length;
+  const audioActions = async () => (await e2e.calls()).filter((call) => call.command === 'studio_audio_transport').map((call) => call.args.action);
+
+  await page.getByRole('button', { name: /^Run/ }).click();
+  await expect(page.getByRole('button', { name: /^Pause/ })).toBeVisible();
+  await e2e.setTickAudio({ musicActive: true });
+  const seen = await ticks();
+  await expect.poll(ticks).toBeGreaterThan(seen + 1);
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('button', { name: /^Pause/ }).click();
+  await expect(page.getByRole('button', { name: /^Run/ })).toBeVisible();
+  const paused = await ticks();
+  await expect.poll(ticks).toBeGreaterThan(paused + 1);
+  await page.keyboard.press('Escape');
+  await expect.poll(audioActions).toEqual(['stop']);
+});
+
 test('debounced source buffer and saved dirty state survive browser reload', async ({ page, e2e }) => {
   const editor = page.locator('.cm-content');
   await editor.click();

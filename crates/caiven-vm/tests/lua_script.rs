@@ -922,6 +922,44 @@ fn stop_audio_silences_players_and_shared_channels() {
 }
 
 #[test]
+fn suspended_audio_is_silent_and_resumes_where_it_left_off() {
+    let mut vm = make_vm();
+    vm.load_section_to_ram(SFX_RAM_BASE, &[49, 12, 0, 0]);
+    vm.play_sfx_voice(0, 1.0);
+    vm.start_music(0);
+    vm.tick_audio_players();
+    let gated = |vm: &Vm| {
+        let sound = vm.get_sound_shared();
+        let sound = sound.lock().unwrap_or_else(|error| error.into_inner());
+        sound.voices.iter().filter(|voice| voice.gate).count()
+    };
+    assert_eq!(gated(&vm), 1);
+
+    vm.suspend_audio();
+    vm.suspend_audio();
+    assert!(!vm.music_player().active);
+    assert_eq!(gated(&vm), 0, "a suspended game is silent");
+
+    // An editor preview while suspended must not replace the game's audio.
+    vm.start_sfx(0);
+    vm.tick_audio_players();
+    vm.resume_audio();
+    assert!(vm.music_player().active);
+    assert!(!vm.sfx_player().active, "resuming ends the preview");
+    assert_eq!(gated(&vm), 1, "the held note comes straight back");
+}
+
+#[test]
+fn stop_audio_discards_suspended_audio() {
+    let mut vm = make_vm();
+    vm.start_music(0);
+    vm.suspend_audio();
+    vm.stop_audio();
+    vm.resume_audio();
+    assert!(!vm.music_player().active);
+}
+
+#[test]
 fn play_sfx_returns_a_distinct_handle_per_call() {
     let mut vm = make_vm();
     let input = Input::new();

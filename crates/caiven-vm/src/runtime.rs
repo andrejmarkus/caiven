@@ -50,7 +50,7 @@ pub struct ConsoleCore {
     /// Owns the audio output; dropping it silences the console. `None` when
     /// no output device could be opened — the console still runs, silently.
     pub audio: Option<Box<dyn AudioOut>>,
-    /// Reopens the audio output when the VM is replaced by `reset_vm`.
+    /// Opens the audio output; `adopt_vm` retries it while none is open.
     audio_factory: AudioFactory,
     pub timing: FixedTimestep,
     pub last_tick: Instant,
@@ -104,18 +104,19 @@ impl ConsoleCore {
         self.adopt_vm(vm);
     }
 
-    /// Replaces the VM with one already built and validated elsewhere,
-    /// rewiring audio exactly like `reset_vm`. Lets a caller load/validate a
-    /// candidate cart into a scratch `Vm` off to the side and only commit it
-    /// here once loading fully succeeded — the current VM (and whatever cart
-    /// it holds) is left untouched by a failed load.
-    pub fn adopt_vm(&mut self, vm: Vm) {
-        // Drop the old output before opening a new one: some backends only
-        // allow a single stream on the default device.
-        self.audio = None;
-        let audio = open_audio(&self.audio_factory, vm.get_sound_shared());
+    /// Replaces the VM with one already built and validated elsewhere, on
+    /// the same audio output. Lets a caller load/validate a candidate cart
+    /// into a scratch `Vm` off to the side and only commit it here once
+    /// loading fully succeeded — the current VM (and whatever cart it holds)
+    /// is left untouched by a failed load.
+    pub fn adopt_vm(&mut self, mut vm: Vm) {
+        // One output for the console's life: reopening it per cart restarts
+        // SDL's whole audio stack, and a failed reopen leaves it silent.
+        vm.attach_sound(self.vm.get_sound_shared());
         self.vm = vm;
-        self.audio = audio;
+        if self.audio.is_none() {
+            self.audio = open_audio(&self.audio_factory, self.vm.get_sound_shared());
+        }
     }
 
     /// Advances the fixed-timestep clock; returns how many frames to run now.
@@ -166,6 +167,38 @@ mod tests {
         assert_eq!(font.get_width(), 3);
         assert_eq!(font.get_height(), 5);
         assert!(font.get_glyph('A').is_some());
+    }
+
+    #[test]
+    fn adopting_a_vm_keeps_the_open_output_and_silences_the_old_cart() {
+        use crate::vm::audio::{AudioOut, SFX_VOICE_START, Sound};
+        use std::sync::{Arc, Mutex};
+
+        struct NullOut;
+        impl AudioOut for NullOut {}
+        let opened: std::rc::Rc<std::cell::RefCell<Vec<Arc<Mutex<Sound>>>>> = Default::default();
+        let seen = std::rc::Rc::clone(&opened);
+        let mut core = ConsoleCore::with_audio_factory(Box::new(move |sound| {
+            seen.borrow_mut().push(sound);
+            Ok(Box::new(NullOut) as Box<dyn AudioOut>)
+        }))
+        .expect("console core");
+
+        core.vm
+            .load_section_to_ram(caiven_core::memory::SFX_RAM_BASE, &[49, 12, 0, 0]);
+        core.vm.start_sfx(0);
+        core.vm.tick_audio_players();
+        core.reset_vm();
+        core.adopt_vm(crate::Vm::new(core.config));
+
+        let opened = opened.borrow();
+        assert_eq!(opened.len(), 1, "the output opens once, not per cart");
+        assert!(Arc::ptr_eq(&opened[0], &core.vm.get_sound_shared()));
+        let sound = opened[0].lock().expect("sound lock");
+        assert!(
+            !sound.voices[SFX_VOICE_START].gate,
+            "old cart's note is gone"
+        );
     }
 
     #[test]

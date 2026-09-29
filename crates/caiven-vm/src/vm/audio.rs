@@ -379,8 +379,8 @@ impl SdlAudio {
 /// owns an `AudioSubsystem` (`caiven-machine` opens one for video already)
 /// to hand `ConsoleCore` rather than have it open a second SDL context.
 ///
-/// The subsystem is cloned into the closure because `reset_vm` reopens the
-/// device on every cart reload.
+/// The subsystem is cloned into the closure because `adopt_vm` retries a
+/// device that failed to open.
 #[cfg(any(feature = "sdl2-bundled", feature = "sdl2-dynamic"))]
 pub fn sdl_audio_factory(audio: sdl2::AudioSubsystem) -> AudioFactory {
     Box::new(move |sound| {

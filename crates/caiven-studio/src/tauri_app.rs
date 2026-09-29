@@ -670,7 +670,8 @@ impl StudioCore {
         self.frame = 0;
         self.fps = 0.0;
         self.frame_time_ms = 0.0;
-        self.console.vm.stop_audio();
+        // Parked, not stopped: Run plays whatever `_init()` started.
+        self.console.vm.suspend_audio();
         self.removed_banks.clear();
         self.asset_dirty = false;
         self.refresh_asset_snapshot();
@@ -806,6 +807,8 @@ impl StudioCore {
     fn compile(&mut self) -> Result<(), String> {
         // Roots pin the previous run's Lua values; drop them with that run.
         self.console.vm.clear_debug_roots();
+        // A fresh run starts from silence, not the previous run's music.
+        self.console.vm.stop_audio();
         // Every fresh compile — Run from Stopped, Reset, Step from Stopped —
         // restores the pristine asset snapshot into RAM before `_init()`
         // runs, so gameplay's mutations from a previous play session (e.g.
@@ -831,6 +834,9 @@ impl StudioCore {
                 self.output.push("Build succeeded".to_string());
                 trim_output(&mut self.output);
                 self.refresh_asset_snapshot();
+                // The build's time must not come back as a catch-up burst
+                // that runs the first notes before the audio thread hears them.
+                self.console.reset_timing();
                 Ok(())
             }
             Err(error) => {
@@ -1299,6 +1305,7 @@ impl StudioCore {
                         .pause_reason
                         .as_ref()
                         .and_then(PauseReasonPayload::as_breakpoint);
+                    self.console.vm.resume_audio();
                 }
                 self.pause_reason = None;
                 self.run_state = RunState::Running;
@@ -1307,7 +1314,7 @@ impl StudioCore {
                 self.run_state = RunState::Paused;
                 self.pause_reason = Some(PauseReasonPayload::manual());
                 self.suppress_breakpoint_once = None;
-                self.console.vm.stop_audio();
+                self.console.vm.suspend_audio();
             }
             "reset" => {
                 self.compile()?;
@@ -1327,10 +1334,12 @@ impl StudioCore {
                 }
                 self.run_state = RunState::Paused;
                 self.pause_reason = None;
+                // The step advances the game's audio by one frame, then parks it.
+                self.console.vm.resume_audio();
                 if self.run_one_frame() {
                     self.pause_reason = Some(PauseReasonPayload::manual());
                 }
-                self.console.vm.stop_audio();
+                self.console.vm.suspend_audio();
             }
             _ => return Err(format!("Unknown transport action: {action}")),
         }
@@ -1383,7 +1392,7 @@ impl StudioCore {
                 let breakpoint = self.source_breakpoint(runtime_breakpoint);
                 self.run_state = RunState::Paused;
                 self.pause_reason = Some(PauseReasonPayload::breakpoint(&breakpoint));
-                self.console.vm.stop_audio();
+                self.console.vm.suspend_audio();
                 self.output.push(format!(
                     "Paused at {}:{}",
                     breakpoint.source, breakpoint.line
@@ -1393,7 +1402,7 @@ impl StudioCore {
             }
             LuaRunOutcome::Error(location, message) => {
                 self.run_state = RunState::Paused;
-                self.console.vm.stop_audio();
+                self.console.vm.suspend_audio();
                 let source = location
                     .as_ref()
                     .map(|location| {
@@ -3033,6 +3042,56 @@ mod tests {
         let snapshot = Arc::new(RwLock::new(SharedSnapshot::default()));
         write_shared_snapshot(&mut studio, &snapshot);
         assert_eq!(snapshot.read().unwrap().frame.len(), expected_len);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn music_started_in_init_plays_after_open_and_after_pause() {
+        // Open and Pause used to stop the game's audio, and Run from Paused
+        // does not recompile, so `_init()` music came back only after an edit.
+        let dir = temp_dir("init-music");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+        studio.sources[0].text =
+            "function _init() play_music(0) end\nfunction _update() end\n".to_string();
+        studio.save().expect("save");
+
+        let mut reopened = StudioCore::new(None).expect("studio core");
+        reopened.open(&dir).expect("open");
+        reopened.transport("run").expect("run");
+        assert!(reopened.console.vm.music_player().active, "Run after open");
+
+        reopened.transport("pause").expect("pause");
+        assert!(
+            !reopened.console.vm.music_player().active,
+            "paused is silent"
+        );
+        reopened.transport("step").expect("step");
+        assert!(
+            !reopened.console.vm.music_player().active,
+            "stepping is silent"
+        );
+        reopened.transport("run").expect("resume");
+        assert!(reopened.console.vm.music_player().active, "Run resumes it");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn reset_does_not_carry_the_previous_runs_music() {
+        let dir = temp_dir("reset-music");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+        studio.sources[0].text =
+            "function _init() play_music(0) end\nfunction _update() end\n".to_string();
+        studio.needs_compile = true;
+        studio.transport("run").expect("run");
+        assert!(studio.console.vm.music_player().active);
+
+        studio.sources[0].text = "function _init() end\nfunction _update() end\n".to_string();
+        studio.transport("reset").expect("reset");
+        assert!(!studio.console.vm.music_player().active);
 
         std::fs::remove_dir_all(&dir).ok();
     }
