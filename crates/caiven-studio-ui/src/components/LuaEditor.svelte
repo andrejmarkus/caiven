@@ -32,6 +32,7 @@
     { tag: t.string, color: '#9fd88c' },
     { tag: [t.definition(t.variableName), t.function(t.variableName)], color: 'var(--color-sheen-bright)' },
     { tag: t.propertyName, color: 'var(--color-sheen-bright)' },
+    { tag: t.standard(t.variableName), color: 'var(--color-ember-bright)' },
     { tag: t.variableName, color: 'var(--color-ink)' },
     { tag: t.operator, color: 'var(--color-ink-dim)' },
     { tag: [t.bracket, t.punctuation], color: 'var(--color-ink-dim)' },
