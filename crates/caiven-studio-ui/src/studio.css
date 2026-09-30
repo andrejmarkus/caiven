@@ -380,7 +380,7 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .watch-row strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); font-weight: 500; white-space: nowrap; }
 .watch-row > button { width: 22px; height: 22px; margin-left: auto; flex: none; display: grid; place-items: center; border: 0; border-radius: 5px; color: var(--color-ink-faint); background: transparent; }
 .watch-row > button:hover { color: var(--destructive); background: var(--color-void-900); }
-.watch-row.stack-frame { width: 100%; border: 0; color: inherit; background: transparent; text-align: left; }
+.watch-row.stack-frame { width: 100%; justify-content: flex-start; border: 0; color: inherit; background: transparent; text-align: left; }
 .watch-row small { margin-left: auto; color: var(--color-ember); font-family: var(--font-mono); }
 .watch-row small.negative { color: var(--destructive); }
 .watch-row .expand-toggle, .watch-row .expand-spacer { width: 14px; height: 14px; margin-left: 0; flex: none; display: grid; place-items: center; border: 0; border-radius: 3px; padding: 0; color: var(--color-ink-faint); background: transparent; }

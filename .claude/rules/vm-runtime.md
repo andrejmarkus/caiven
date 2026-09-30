@@ -30,3 +30,6 @@ paths:
   and Run from pause does not rerun `_init()`). `stop_audio` is for a fresh
   run only. `ConsoleCore` keeps one output for its life: `adopt_vm` moves the
   new VM onto the open sound, never reopens the device per cart.
+- Debugger views: carts keep state in file-scope `local`s (upvalues of
+  `_update` & co.), not `_G`. Any inspector reading only globals or frame
+  locals shows nothing for them; `file_scope_locals` in `lua_exec.rs` covers it.

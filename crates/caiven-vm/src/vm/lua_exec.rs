@@ -496,18 +496,39 @@ fn install_coroutine_budget_guard(
 /// hook, where every level is still live — the frame is gone the instant
 /// the hook returns, so this can't be deferred to after the run.
 fn capture_call_stack(lua: &Lua) -> Vec<(String, String)> {
+    // Entry callbacks are called from Rust, so Lua can't name their frames.
+    let globals = lua.globals();
+    let entries: Vec<(&str, Option<String>, Option<usize>)> = ["_init", "_update", "_draw"]
+        .into_iter()
+        .filter_map(|name| {
+            let info = globals.raw_get::<mlua::Function>(name).ok()?.info();
+            Some((name, info.source, info.line_defined))
+        })
+        .collect();
     let mut frames = Vec::new();
     let mut level = 0usize;
     while let Some(debug) = lua.inspect_stack(level) {
         let names = debug.names();
-        let label = names.name.map(|name| name.into_owned()).unwrap_or_else(|| {
-            if level == 0 {
-                "?".to_string()
-            } else {
-                "anonymous function".to_string()
-            }
-        });
         let source = debug.source();
+        let label = names
+            .name
+            .map(|name| name.into_owned())
+            .or_else(|| {
+                entries
+                    .iter()
+                    .find(|(_, entry_source, line_defined)| {
+                        entry_source.as_deref() == source.source.as_deref()
+                            && *line_defined == source.line_defined
+                    })
+                    .map(|(name, _, _)| name.to_string())
+            })
+            .unwrap_or_else(|| {
+                if level == 0 {
+                    "?".to_string()
+                } else {
+                    "anonymous function".to_string()
+                }
+            });
         let file = source
             .short_src
             .map(|src| src.into_owned())
@@ -843,6 +864,40 @@ fn list_function_upvalues_indexed(
             value.ok().map(|value| (i, name, value))
         })
         .collect()
+}
+
+/// Chunk-scope `local` state reachable from the entry callbacks — the tutorial
+/// idiom keeps all game state there, invisible to a plain `_G` walk.
+/// Helper functions are followed, not listed; first binding of a name wins.
+fn file_scope_locals(lua: &Lua) -> Vec<(String, mlua::Value)> {
+    let globals = lua.globals();
+    let mut pending: Vec<mlua::Function> = ["_init", "_update", "_draw"]
+        .iter()
+        .filter_map(|name| globals.raw_get::<mlua::Function>(*name).ok())
+        .collect();
+    let mut seen = std::collections::HashSet::new();
+    let mut out: Vec<(String, mlua::Value)> = Vec::new();
+    let mut next = 0;
+    while let Some(function) = pending.get(next).cloned() {
+        next += 1;
+        if !seen.insert(function.to_pointer()) {
+            continue;
+        }
+        for (name, value) in list_function_upvalues(lua, &function) {
+            // C upvalues are unnamed; `_ENV` is the globals table itself.
+            if name.is_empty() || name == "_ENV" {
+                continue;
+            }
+            match value {
+                mlua::Value::Function(child) => pending.push(child),
+                value if !out.iter().any(|(existing, _)| *existing == name) => {
+                    out.push((name, value));
+                }
+                _ => {}
+            }
+        }
+    }
+    out
 }
 
 fn describe_lua_value(value: &mlua::Value) -> String {
@@ -2346,11 +2401,12 @@ impl Vm {
             .collect()
     }
 
-    /// Snapshot of the script's global variables, for the Studio debugger's
-    /// state inspector. Excludes registered builtins, the gameplay prelude,
-    /// and Lua's own stdlib, so only script-defined state shows up. For locals
-    /// at a breakpoint, see [`Vm::lua_debug_locals`]. Table and function
-    /// values are rooted for [`Vm::expand_debug_node`].
+    /// Snapshot of the script's global variables plus its file-scope
+    /// `local`s, for the Studio debugger's state inspector. Excludes
+    /// registered builtins, the gameplay prelude, and Lua's own stdlib, so
+    /// only script-defined state shows up. For locals at a breakpoint, see
+    /// [`Vm::lua_debug_locals`]. Table and function values are rooted for
+    /// [`Vm::expand_debug_node`].
     pub fn lua_globals(&mut self) -> Vec<(String, DebugValue)> {
         let Some(script) = self.script.as_ref() else {
             return Vec::new();
@@ -2362,6 +2418,11 @@ impl Vm {
             .filter_map(|pair| pair.ok())
             .filter(|(k, _)| is_script_defined_name(k, &active_prelude_names))
             .collect();
+        for (name, value) in file_scope_locals(&script.lua) {
+            if !out.iter().any(|(existing, _)| *existing == name) {
+                out.push((name, value));
+            }
+        }
         out.sort_by(|a, b| a.0.cmp(&b.0));
         out.into_iter()
             .map(|(name, value)| {
@@ -2643,6 +2704,12 @@ impl Vm {
             .globals()
             .raw_get(parts[0])
             .map_err(|error| error.to_string())?;
+        if value.is_nil() {
+            value = file_scope_locals(&script.lua)
+                .into_iter()
+                .find(|(name, _)| name == parts[0])
+                .map_or(mlua::Value::Nil, |(_, local)| local);
+        }
         for part in &parts[1..] {
             value = match value {
                 mlua::Value::Table(table) => {
@@ -2699,6 +2766,36 @@ function _update() end",
         );
         assert!(vm.lua_watch("player.x + 1").is_err());
         assert!(!vm.lua_globals().iter().any(|(name, _)| name == "warn"));
+    }
+
+    #[test]
+    fn file_scope_locals_show_as_globals_and_watches() {
+        let mut vm = Vm::new(VmConfig::default());
+        vm.load_lua_source(
+            "local paddle_x = 12
+local balls = { { x = 3 } }
+local function step() paddle_x = paddle_x + #balls end
+function _update() step() end",
+            &Input::new(),
+            &Font::empty(),
+        )
+        .expect("file-scope fixture should load");
+        let globals: Vec<(String, String)> = vm
+            .lua_globals()
+            .into_iter()
+            .map(|(name, value)| (name, value.text))
+            .collect();
+        assert_eq!(
+            globals,
+            vec![
+                ("balls".to_string(), "{table}".to_string()),
+                ("paddle_x".to_string(), "12".to_string()),
+            ]
+        );
+        assert_eq!(
+            vm.lua_watch("paddle_x").map(|v| v.text),
+            Ok("12".to_string())
+        );
     }
 
     #[test]

@@ -1468,6 +1468,13 @@ fn bundled_module_breakpoint_keeps_source_and_line() {
             .any(|(_, location)| location.ends_with("util.lua:3")),
         "call stack should retain module frame"
     );
+    assert!(
+        vm.lua_call_stack()
+            .iter()
+            .any(|(label, _)| label == "_update"),
+        "entry callback frame should be named, got {:?}",
+        vm.lua_call_stack()
+    );
 }
 
 #[test]

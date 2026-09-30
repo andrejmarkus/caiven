@@ -189,7 +189,7 @@
         {#each locals as local (local.name)}
           <DebugValueRow label={local.name} value={local.value} nodeId={local.nodeId} onExpand={onExpandDebugValue} />
         {/each}
-        {#if !locals.length}<div class="watch-empty">Pause at a breakpoint to see local variables.</div>{/if}
+        {#if !locals.length}<div class="watch-empty">{pauseReason?.kind === 'breakpoint' ? 'No locals in this function yet. File-level locals are under Globals.' : 'Pause at a breakpoint to see local variables.'}</div>{/if}
       </div>
     {:else}
       <div class="watch-list">
@@ -200,7 +200,7 @@
             </Button>
           {/each}
         {:else}
-          <div class="watch-row"><span>Pause at a breakpoint to see the call stack.</span></div>
+          <div class="watch-empty">Pause at a breakpoint to see the call stack.</div>
         {/if}
       </div>
     {/if}
