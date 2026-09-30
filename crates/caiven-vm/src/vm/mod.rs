@@ -1,5 +1,6 @@
 pub mod api_registry;
 pub mod audio;
+pub mod breakable_lines;
 pub mod camera;
 pub mod config;
 mod execution;
@@ -15,8 +16,8 @@ pub use camera::*;
 pub use config::VmConfig;
 pub use fault::VmFault;
 pub use lua_exec::{
-    DebugValue, LuaBreakpoint, LuaRunOutcome, describe_lua_error, describe_lua_error_location,
-    prelude_module_catalog,
+    DebugValue, LuaBreakpoint, LuaRunOutcome, LuaStep, describe_lua_error,
+    describe_lua_error_location, is_watch_expression, prelude_module_catalog,
 };
 pub use palette::*;
 pub use save_data::{SAVE_DATA_BLOB_MAX_BYTES, SaveData, SaveDataError};
@@ -218,8 +219,10 @@ pub struct Vm {
     config: VmConfig,
     script: Option<lua_exec::LuaScript>,
     capture_lua_output: bool,
-    call_stack: Vec<(String, String)>,
-    /// Local variables at the innermost frame, captured at the moment the
+    call_stack: Vec<lua_exec::CallFrame>,
+    /// Index into `call_stack` whose locals `locals` holds.
+    selected_frame: usize,
+    /// Local variables of the selected frame, captured at the moment the
     /// last breakpoint hit — cleared once execution resumes past a
     /// breakpoint, same lifecycle as `call_stack`. See
     /// `Vm::run_frame_lua_bp` for how these are read via raw FFI.
@@ -229,6 +232,9 @@ pub struct Vm {
     /// once per tick via [`Vm::clear_debug_roots`] so ids from a prior
     /// pause never stay valid across a step/resume.
     debug_roots: std::collections::HashMap<String, mlua::Value>,
+    /// Expanded child node id → its parent's id and the step to it; resolved
+    /// against the parent's current value, so it survives the per-tick clear.
+    debug_children: std::collections::HashMap<String, (String, lua_exec::DebugStep)>,
     asset_banks: AssetBanks,
     save_data: SaveData,
     /// Cart-global collision-type table (names/colors/solid flags). Small
@@ -401,8 +407,10 @@ impl Vm {
             script: None,
             capture_lua_output: false,
             call_stack: Vec::new(),
+            selected_frame: 0,
             locals: Vec::new(),
             debug_roots: std::collections::HashMap::new(),
+            debug_children: std::collections::HashMap::new(),
             asset_banks: AssetBanks::new(),
             save_data: SaveData::new(),
             collision_types: caiven_core::builtin_collision_types(),

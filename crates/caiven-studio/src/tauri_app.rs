@@ -19,8 +19,9 @@ use caiven_vm::input::Button;
 use caiven_vm::runtime::ConsoleCore;
 use caiven_vm::vm::SaveData;
 use caiven_vm::vm::api_registry;
-use caiven_vm::{AssetBankKind, LuaBreakpoint, LuaRunOutcome, Vm};
+use caiven_vm::{AssetBankKind, BreakableLines, LuaBreakpoint, LuaRunOutcome, LuaStep, Vm};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock, mpsc};
 use std::time::{Duration, Instant};
@@ -160,6 +161,13 @@ impl PauseReasonPayload {
         }
     }
 
+    fn step(location: &Breakpoint) -> Self {
+        Self {
+            kind: "step".to_string(),
+            ..Self::breakpoint(location)
+        }
+    }
+
     fn error(source: String, line: Option<usize>, message: String) -> Self {
         Self {
             kind: "error".to_string(),
@@ -167,13 +175,6 @@ impl PauseReasonPayload {
             line,
             message: Some(message),
         }
-    }
-
-    fn as_breakpoint(&self) -> Option<Breakpoint> {
-        (self.kind == "breakpoint").then(|| Breakpoint {
-            source: self.source.clone().unwrap_or_default(),
-            line: self.line.unwrap_or_default(),
-        })
     }
 }
 
@@ -323,11 +324,14 @@ struct BootstrapPayload {
 struct TickPayload {
     run_state: RunState,
     frame: u64,
+    lua_runs: u64,
     fps: f32,
     frame_time_ms: f32,
     globals: Vec<GlobalPayload>,
     watches: Vec<GlobalPayload>,
     call_stack: Vec<CallFramePayload>,
+    /// Index into `call_stack` whose locals `locals` shows.
+    selected_frame: usize,
     locals: Vec<GlobalPayload>,
     pause_reason: Option<PauseReasonPayload>,
     audio: AudioPayload,
@@ -354,11 +358,13 @@ impl Default for SharedSnapshot {
             tick: TickPayload {
                 run_state: RunState::Stopped,
                 frame: 0,
+                lua_runs: 0,
                 fps: 0.0,
                 frame_time_ms: 0.0,
                 globals: Vec::new(),
                 watches: Vec::new(),
                 call_stack: Vec::new(),
+                selected_frame: 0,
                 locals: Vec::new(),
                 pause_reason: None,
                 audio: AudioPayload {
@@ -457,6 +463,14 @@ enum CoreCommand {
     ExpandDebugValue {
         node_id: String,
         reply: mpsc::Sender<Result<Vec<DebugChildPayload>, String>>,
+    },
+    SelectFrame {
+        index: usize,
+        reply: mpsc::Sender<Result<TickPayload, String>>,
+    },
+    PeekValue {
+        expression: String,
+        reply: mpsc::Sender<Result<String, String>>,
     },
     ClearOutput {
         reply: mpsc::Sender<Result<(), String>>,
@@ -560,7 +574,13 @@ struct StudioCore {
     frame_time_ms: f32,
     debugger: Debugger,
     pause_reason: Option<PauseReasonPayload>,
-    suppress_breakpoint_once: Option<Breakpoint>,
+    /// Set by `open()`, whose boot ran without the debugger: the first
+    /// Run/Step compiles again so breakpoints reach top-level code and `_init()`.
+    boot_on_run: bool,
+    /// Where breakpoints stop, per source name, for the code last compiled.
+    breakable: HashMap<String, BreakableLines>,
+    /// Lua runs so far; expanded debugger rows refetch when it changes.
+    lua_runs: u64,
     needs_compile: bool,
     diagnostics: Vec<DiagnosticPayload>,
     output: Vec<String>,
@@ -596,7 +616,9 @@ impl StudioCore {
             frame_time_ms: 0.0,
             debugger: Debugger::new(),
             pause_reason: None,
-            suppress_breakpoint_once: None,
+            boot_on_run: false,
+            breakable: HashMap::new(),
+            lua_runs: 0,
             needs_compile: false,
             diagnostics: Vec::new(),
             output: Vec::new(),
@@ -659,22 +681,27 @@ impl StudioCore {
         {
             *self.console.vm.save_data_mut() = data;
         }
+        // Snapshot before the boot, so `_init()` changes to RAM stay out of it.
+        self.refresh_asset_snapshot();
+        // Boot now so editors show what `_init()` sets up, e.g. palette colors.
+        self.console
+            .vm
+            .finish_lua_boot(&self.console.input, &self.console.font);
         self.debugger.set_dbg_path(debug_path(path));
         self.diagnostics.clear();
         self.output = vec![format!("Opened {}", path.display())];
         self.collect_vm_output();
         self.run_state = RunState::Paused;
         self.pause_reason = Some(PauseReasonPayload::manual());
-        self.suppress_breakpoint_once = None;
+        self.boot_on_run = true;
         self.needs_compile = false;
         self.frame = 0;
         self.fps = 0.0;
         self.frame_time_ms = 0.0;
-        // Parked, not stopped: Run plays whatever `_init()` started.
+        // Parked: `_init()` music waits for Run instead of playing now.
         self.console.vm.suspend_audio();
         self.removed_banks.clear();
         self.asset_dirty = false;
-        self.refresh_asset_snapshot();
         recent::push(&mut recent::load(), path);
         Ok(())
     }
@@ -746,7 +773,6 @@ impl StudioCore {
         self.output = vec![format!("Created {}", path.display())];
         self.run_state = RunState::Stopped;
         self.pause_reason = None;
-        self.suppress_breakpoint_once = None;
         self.needs_compile = true;
         self.frame = 0;
         self.fps = 0.0;
@@ -830,6 +856,8 @@ impl StudioCore {
                 self.diagnostics.clear();
                 self.pause_reason = None;
                 self.needs_compile = false;
+                self.boot_on_run = false;
+                self.breakable = self.breakable_lines();
                 self.collect_vm_output();
                 self.output.push("Build succeeded".to_string());
                 trim_output(&mut self.output);
@@ -1012,12 +1040,14 @@ impl StudioCore {
         self.console.vm.clear_debug_roots();
         TickPayload {
             run_state: self.run_state,
+            lua_runs: self.lua_runs,
             frame: self.frame,
             fps: self.fps,
             frame_time_ms: self.frame_time_ms,
             globals: self.globals(),
             watches: self.watches(),
             call_stack: self.call_stack(),
+            selected_frame: self.console.vm.lua_selected_frame(),
             locals: self.locals(),
             pause_reason: self.pause_reason.clone(),
             audio: self.audio_payload(),
@@ -1251,6 +1281,18 @@ impl StudioCore {
             .collect()
     }
 
+    /// A watch path's current value as text, for the editor's hover while paused.
+    fn peek_value(&mut self, expression: &str) -> Result<String, String> {
+        if self.run_state != RunState::Paused {
+            return Err("Pause the cart to read values".to_string());
+        }
+        match self.console.vm.lua_watch(expression) {
+            Ok(value) => Ok(value.text),
+            Err(error) if error == "nil" => Ok("nil".to_string()),
+            Err(error) => Err(error),
+        }
+    }
+
     /// Returns a previously rooted table/function's immediate children —
     /// read-only, same posture as `lua_watch`: never evaluates cart Lua,
     /// only walks an already-captured value (see `Vm::expand_debug_node`).
@@ -1298,13 +1340,9 @@ impl StudioCore {
                 if self.sources.is_empty() {
                     return Err("No cart open".to_string());
                 }
-                if self.run_state == RunState::Stopped || self.needs_compile {
+                if self.run_state == RunState::Stopped || self.needs_compile || self.boot_on_run {
                     self.compile()?;
                 } else {
-                    self.suppress_breakpoint_once = self
-                        .pause_reason
-                        .as_ref()
-                        .and_then(PauseReasonPayload::as_breakpoint);
                     self.console.vm.resume_audio();
                 }
                 self.pause_reason = None;
@@ -1313,30 +1351,32 @@ impl StudioCore {
             "pause" => {
                 self.run_state = RunState::Paused;
                 self.pause_reason = Some(PauseReasonPayload::manual());
-                self.suppress_breakpoint_once = None;
                 self.console.vm.suspend_audio();
             }
             "reset" => {
                 self.compile()?;
                 self.frame = 0;
                 self.pause_reason = None;
-                self.suppress_breakpoint_once = None;
                 self.run_state = RunState::Running;
             }
-            "step" => {
-                if self.run_state == RunState::Stopped || self.needs_compile {
+            "step" | "stepInto" | "stepOver" | "stepOut" => {
+                if self.run_state == RunState::Stopped || self.needs_compile || self.boot_on_run {
                     self.compile()?;
-                } else {
-                    self.suppress_breakpoint_once = self
-                        .pause_reason
-                        .as_ref()
-                        .and_then(PauseReasonPayload::as_breakpoint);
                 }
+                let step = match action {
+                    "stepInto" => Some(LuaStep::Into),
+                    "stepOver" => Some(LuaStep::Over),
+                    "stepOut" => Some(LuaStep::Out),
+                    _ => None,
+                };
                 self.run_state = RunState::Paused;
                 self.pause_reason = None;
                 // The step advances the game's audio by one frame, then parks it.
                 self.console.vm.resume_audio();
-                if self.run_one_frame() {
+                // A line step that ends the frame stops at the next frame's first line.
+                if self.run_one_frame(step)
+                    && (step.is_none() || self.run_one_frame(Some(LuaStep::Into)))
+                {
                     self.pause_reason = Some(PauseReasonPayload::manual());
                 }
                 self.console.vm.suspend_audio();
@@ -1346,23 +1386,34 @@ impl StudioCore {
         Ok(self.tick_payload())
     }
 
-    fn runtime_breakpoints(&mut self) -> Vec<LuaBreakpoint> {
+    fn runtime_breakpoints(&self) -> Vec<LuaBreakpoint> {
         let entry_source = self.source_name(0);
-        let suppressed = self.suppress_breakpoint_once.take();
         self.debugger
             .breakpoints()
             .iter()
-            .filter(|breakpoint| suppressed.as_ref() != Some(*breakpoint))
             .map(|breakpoint| {
+                // A header, `end` or blank line stops at the code it marks.
+                let line = self
+                    .breakable
+                    .get(&breakpoint.source)
+                    .map_or(breakpoint.line, |lines| lines.resolve(breakpoint.line));
                 LuaBreakpoint::new(
                     if breakpoint.source == entry_source {
                         "cart".to_string()
                     } else {
                         breakpoint.source.clone()
                     },
-                    breakpoint.line,
+                    line,
                 )
             })
+            .collect()
+    }
+
+    fn breakable_lines(&self) -> HashMap<String, BreakableLines> {
+        self.sources
+            .iter()
+            .enumerate()
+            .map(|(index, source)| (self.source_name(index), BreakableLines::of(&source.text)))
             .collect()
     }
 
@@ -1377,10 +1428,10 @@ impl StudioCore {
         }
     }
 
-    fn run_one_frame(&mut self) -> bool {
+    fn run_one_frame(&mut self, step: Option<LuaStep>) -> bool {
         let started = Instant::now();
         let breakpoints = self.runtime_breakpoints();
-        let outcome = self.console.run_frame_lua_bp(&breakpoints);
+        let outcome = self.console.run_frame_lua_step(&breakpoints, step);
         self.collect_vm_output();
         match outcome {
             LuaRunOutcome::Completed => {
@@ -1398,6 +1449,13 @@ impl StudioCore {
                     breakpoint.source, breakpoint.line
                 ));
                 trim_output(&mut self.output);
+                false
+            }
+            LuaRunOutcome::Step(location) => {
+                let location = self.source_breakpoint(location);
+                self.run_state = RunState::Paused;
+                self.pause_reason = Some(PauseReasonPayload::step(&location));
+                self.console.vm.suspend_audio();
                 false
             }
             LuaRunOutcome::Error(location, message) => {
@@ -1433,7 +1491,9 @@ impl StudioCore {
         }
     }
 
+    /// Every Lua run ends here, so it also counts runs for the debugger.
     fn collect_vm_output(&mut self) {
+        self.lua_runs = self.lua_runs.wrapping_add(1);
         self.output.extend(self.console.vm.take_lua_output());
         trim_output(&mut self.output);
     }
@@ -1610,7 +1670,7 @@ impl StudioCore {
         self.sources.clear();
         self.run_state = RunState::Stopped;
         self.pause_reason = None;
-        self.suppress_breakpoint_once = None;
+        self.boot_on_run = false;
         self.needs_compile = false;
         self.frame = 0;
         self.fps = 0.0;
@@ -1737,6 +1797,7 @@ impl StudioCore {
                 self.diagnostics.clear();
                 self.pause_reason = None;
                 self.needs_compile = false;
+                self.breakable = self.breakable_lines();
                 self.collect_vm_output();
                 self.output.push("Hot-reloaded".to_string());
                 trim_output(&mut self.output);
@@ -2062,8 +2123,8 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
             let _ = reply.send(result);
         }
         CoreCommand::AddWatch { expression, reply } => {
-            let result = if !valid_watch_expression(&expression) {
-                Err("Watch must be a dotted identifier".to_string())
+            let result = if !caiven_vm::is_watch_expression(&expression) {
+                Err("Watch must be a name like player.x or items[1]".to_string())
             } else if studio.debugger.add_watch(expression) {
                 Ok(studio.watches())
             } else {
@@ -2081,6 +2142,17 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
         }
         CoreCommand::ExpandDebugValue { node_id, reply } => {
             let _ = reply.send(studio.expand_debug_value(&node_id));
+        }
+        CoreCommand::SelectFrame { index, reply } => {
+            let result = studio
+                .console
+                .vm
+                .select_lua_frame(index)
+                .map(|()| studio.tick_payload());
+            let _ = reply.send(result);
+        }
+        CoreCommand::PeekValue { expression, reply } => {
+            let _ = reply.send(studio.peek_value(&expression));
         }
         CoreCommand::ClearOutput { reply } => {
             studio.output.clear();
@@ -2266,18 +2338,6 @@ fn parse_hex(value: &str) -> Result<(u8, u8, u8), String> {
     Ok((parse(0..2)?, parse(2..4)?, parse(4..6)?))
 }
 
-fn valid_watch_expression(expression: &str) -> bool {
-    let expression = expression.trim();
-    !expression.is_empty()
-        && expression.split('.').all(|part| {
-            !part.is_empty()
-                && !part.as_bytes()[0].is_ascii_digit()
-                && part
-                    .chars()
-                    .all(|character| character == '_' || character.is_ascii_alphanumeric())
-        })
-}
-
 fn spawn_core(initial_path: Option<PathBuf>) -> StudioBridge {
     let (tx, rx) = mpsc::channel();
     let snapshot = Arc::new(RwLock::new(SharedSnapshot::default()));
@@ -2316,7 +2376,7 @@ fn spawn_core(initial_path: Option<PathBuf>) -> StudioBridge {
                 let steps = studio.console.frame_steps();
                 for _ in 0..steps {
                     if studio.run_state == RunState::Running {
-                        if !studio.run_one_frame() {
+                        if !studio.run_one_frame(None) {
                             break;
                         }
                         fps_frames += 1;
@@ -2532,6 +2592,19 @@ fn studio_expand_debug_value(
     state: State<'_, StudioBridge>,
 ) -> Result<Vec<DebugChildPayload>, String> {
     state.request(|reply| CoreCommand::ExpandDebugValue { node_id, reply })
+}
+
+#[tauri::command]
+fn studio_select_frame(
+    index: usize,
+    state: State<'_, StudioBridge>,
+) -> Result<TickPayload, String> {
+    state.request(|reply| CoreCommand::SelectFrame { index, reply })
+}
+
+#[tauri::command]
+fn studio_peek_value(expression: String, state: State<'_, StudioBridge>) -> Result<String, String> {
+    state.request(|reply| CoreCommand::PeekValue { expression, reply })
 }
 
 #[tauri::command]
@@ -2956,6 +3029,8 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
             studio_add_watch,
             studio_remove_watch,
             studio_expand_debug_value,
+            studio_select_frame,
+            studio_peek_value,
             studio_clear_output,
             studio_remove_recent,
             studio_read_memory,
@@ -2996,8 +3071,7 @@ mod creator_workflow;
 mod tests {
     use super::{
         Breakpoint, CoreCommand, RunState, SharedSnapshot, StudioCore, debug_path, handle_command,
-        normalized_module_path, parse_hex, save_data_path, trim_output, valid_watch_expression,
-        write_shared_snapshot,
+        normalized_module_path, parse_hex, save_data_path, trim_output, write_shared_snapshot,
     };
     use caiven_cart::DEFAULT_BANK_NAME;
     use caiven_core::memory::{RGBA_BYTES, SCREEN_HEIGHT, SCREEN_WIDTH};
@@ -3060,6 +3134,8 @@ mod tests {
         let mut reopened = StudioCore::new(None).expect("studio core");
         reopened.open(&dir).expect("open");
         reopened.transport("run").expect("run");
+        // `_init()` runs on the first frame, as in the core loop.
+        assert!(reopened.run_one_frame(None));
         assert!(reopened.console.vm.music_player().active, "Run after open");
 
         reopened.transport("pause").expect("pause");
@@ -3087,6 +3163,7 @@ mod tests {
             "function _init() play_music(0) end\nfunction _update() end\n".to_string();
         studio.needs_compile = true;
         studio.transport("run").expect("run");
+        assert!(studio.run_one_frame(None));
         assert!(studio.console.vm.music_player().active);
 
         studio.sources[0].text = "function _init() end\nfunction _update() end\n".to_string();
@@ -3102,15 +3179,6 @@ mod tests {
         assert_eq!(parse_hex("#000000"), Ok((0, 0, 0)));
         assert!(parse_hex("FEB05D").is_err());
         assert!(parse_hex("#XYZXYZ").is_err());
-    }
-
-    #[test]
-    fn validates_safe_watch_paths() {
-        assert!(valid_watch_expression("player.x"));
-        assert!(valid_watch_expression("_state.enemy_2.hp"));
-        assert!(!valid_watch_expression("player.x + 1"));
-        assert!(!valid_watch_expression("player..x"));
-        assert!(!valid_watch_expression("2player.x"));
     }
 
     #[test]
@@ -3251,7 +3319,10 @@ mod tests {
         studio.needs_compile = true;
 
         studio.transport("run").expect("run");
-        assert!(studio.run_one_frame(), "the update frame must not fault");
+        assert!(
+            studio.run_one_frame(None),
+            "the update frame must not fault"
+        );
         assert_eq!(
             studio
                 .console
@@ -3304,7 +3375,10 @@ function _update() set_tile(0, 0, 5) end
         .to_string();
         studio.needs_compile = true;
         studio.transport("run").expect("run");
-        assert!(studio.run_one_frame(), "the update frame must not fault");
+        assert!(
+            studio.run_one_frame(None),
+            "the update frame must not fault"
+        );
         assert_eq!(
             studio
                 .console
@@ -3836,6 +3910,66 @@ function _update() set_tile(0, 0, 5) end
     }
 
     #[test]
+    fn breakpoint_inside_init_stops_the_first_run_after_open() {
+        let dir = temp_dir("init-breakpoint");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+        studio.sources[0].text =
+            "function _init()\n  ready = true\nend\nfunction _update() end\n".to_string();
+        studio.save().expect("save");
+
+        let mut reopened = StudioCore::new(None).expect("studio core");
+        reopened.open(&dir).expect("open");
+        reopened
+            .debugger
+            .toggle_line_breakpoint("main.lua".to_string(), 2);
+        reopened.transport("run").expect("run");
+        assert!(!reopened.run_one_frame(None), "_init() must stop at line 2");
+        let tick = reopened.tick_payload();
+        let pause_reason = tick.pause_reason.expect("paused inside _init");
+        assert_eq!(pause_reason.line, Some(2));
+        assert_eq!(tick.call_stack[0].label, "_init");
+
+        // Run finishes `_init()` instead of skipping it.
+        reopened.transport("run").expect("resume");
+        assert!(reopened.run_one_frame(None));
+        let ready = reopened.console.vm.lua_watch("ready").expect("watch ready");
+        assert_eq!(ready.text, "true");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn header_breakpoint_stops_in_the_body_and_run_continues_the_loop() {
+        let dir = temp_dir("header-breakpoint");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+        studio.sources[0].text =
+            "total = 0\nfunction _update()\n  local step = 1\n  for i = 1, 2 do\n    total = total + i * step\n  end\nend\n"
+                .to_string();
+        studio.needs_compile = true;
+        studio
+            .debugger
+            .toggle_line_breakpoint("main.lua".to_string(), 2);
+        studio
+            .debugger
+            .toggle_line_breakpoint("main.lua".to_string(), 5);
+
+        studio.transport("run").expect("run");
+        let mut stops = Vec::new();
+        while !studio.run_one_frame(None) {
+            stops.push(studio.pause_reason.as_ref().and_then(|reason| reason.line));
+            studio.transport("run").expect("continue");
+        }
+        // The header stops at the body's first line; the loop stops each pass.
+        assert_eq!(stops, [Some(3), Some(5), Some(5)]);
+        let total = studio.console.vm.lua_watch("total").expect("watch total");
+        assert_eq!(total.text, "3");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn step_transport_from_stopped_compiles_and_runs_one_frame() {
         let dir = temp_dir("transport-step-from-stopped");
         let mut studio = StudioCore::new(None).expect("studio core");
@@ -3926,6 +4060,107 @@ function _update() set_tile(0, 0, 5) end
         })
         .expect("remove watch");
         assert!(removed.is_empty());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn watches_reach_frame_locals_array_items_and_nested_tables() {
+        let dir = temp_dir("watch-paths");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+        studio.sources[0].text = "player = { bag = { gem = { hp = 1 } } }\nlist = { { x = 7 } }\nfunction _update()\n  local b = list[1]\n  player.bag.gem.hp = player.bag.gem.hp + 1\nend\n".to_string();
+        studio.needs_compile = true;
+        studio
+            .debugger
+            .toggle_line_breakpoint("main.lua".to_string(), 5);
+        for expression in ["player", "b.x", "list[1].x"] {
+            dispatch(&mut studio, |reply| CoreCommand::AddWatch {
+                expression: expression.to_string(),
+                reply,
+            })
+            .expect("add watch");
+        }
+        studio.transport("run").expect("run");
+        assert!(!studio.run_one_frame(None), "stops at line 5");
+
+        let watches = studio.tick_payload().watches;
+        let value = |name: &str| {
+            watches
+                .iter()
+                .find(|watch| watch.name == name)
+                .map(|watch| watch.value.clone())
+        };
+        assert_eq!(value("b.x").as_deref(), Some("7"), "frame local");
+        assert_eq!(value("list[1].x").as_deref(), Some("7"), "array item");
+
+        // A child stays expandable across ticks and shows the live value.
+        let player = studio.expand_debug_value("watch:player").expect("player");
+        let bag = player.iter().find(|child| child.key == "bag").expect("bag");
+        let bag_id = bag.node_id.clone().expect("bag is a table");
+        studio.tick_payload();
+        let gem_id = studio
+            .expand_debug_value(&bag_id)
+            .expect("bag after a tick")[0]
+            .node_id
+            .clone()
+            .expect("gem is a table");
+        studio.transport("run").expect("continue");
+        assert!(studio.run_one_frame(None), "frame finishes");
+        studio.tick_payload();
+        let gem = studio
+            .expand_debug_value(&gem_id)
+            .expect("gem after a frame");
+        assert_eq!(gem[0].value, "2");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn line_steps_select_frames_and_peek_values_while_paused() {
+        let dir = temp_dir("line-steps");
+        let mut studio = StudioCore::new(None).expect("studio core");
+        studio.new_project(&dir, "blank").expect("new project");
+        studio.sources[0].text = "function twice(n)\n  return n * 2\nend\nfunction _update()\n  local hp = 3\n  hp = twice(hp)\nend\n".to_string();
+        studio.needs_compile = true;
+        studio
+            .debugger
+            .toggle_line_breakpoint("main.lua".to_string(), 6);
+        assert!(
+            studio.peek_value("hp").is_err(),
+            "nothing to read while stopped"
+        );
+        studio.transport("run").expect("run");
+        assert!(!studio.run_one_frame(None), "stops at line 6");
+
+        let step = |studio: &mut StudioCore, action: &str| {
+            let reason = studio.transport(action).expect(action).pause_reason;
+            let reason = reason.expect("paused");
+            (reason.kind, reason.line)
+        };
+        assert_eq!(step(&mut studio, "stepInto"), ("step".to_string(), Some(2)));
+        assert_eq!(studio.tick_payload().call_stack[0].label, "twice");
+        assert_eq!(studio.peek_value("n"), Ok("3".to_string()));
+
+        let tick = dispatch(&mut studio, |reply| CoreCommand::SelectFrame {
+            index: 1,
+            reply,
+        })
+        .expect("select the caller");
+        assert_eq!(tick.selected_frame, 1);
+        assert!(
+            tick.locals
+                .iter()
+                .any(|local| local.name == "hp" && local.value == "3")
+        );
+        assert_eq!(studio.peek_value("hp"), Ok("3".to_string()));
+        assert_eq!(studio.peek_value("missing"), Ok("nil".to_string()));
+
+        assert_eq!(step(&mut studio, "stepOut"), ("step".to_string(), Some(7)));
+        assert_eq!(studio.tick_payload().selected_frame, 0);
+        assert_eq!(studio.peek_value("hp"), Ok("6".to_string()));
+        // Stepping off the frame's end stops at the next frame's first line.
+        assert_eq!(step(&mut studio, "stepOver"), ("step".to_string(), Some(5)));
 
         std::fs::remove_dir_all(&dir).ok();
     }

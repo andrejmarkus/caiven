@@ -27,6 +27,29 @@ export function collisionCellEdits(
   return [...edits].map(([offset, value]) => ({ offset, value }));
 }
 
+const LUA_KEYWORDS = new Set([
+  'and', 'break', 'do', 'else', 'elseif', 'end', 'false', 'for', 'function', 'goto', 'if', 'in',
+  'local', 'nil', 'not', 'or', 'repeat', 'return', 'then', 'true', 'until', 'while',
+]);
+
+/** The watch path (`player.x`, `items[1]`) ending at the part of `text` under `column`, for a hover. */
+export function watchPathAt(text: string, column: number): { from: number; to: number; path: string } | null {
+  for (const match of text.matchAll(/[A-Za-z_]\w*(?:\.[A-Za-z_]\w*|\[\d+\])*/g)) {
+    const start = match.index ?? 0;
+    if (column < start || column >= start + match[0].length) continue;
+    // A method name or a field of a call result has no path of its own.
+    if (start > 0 && /[.:]/.test(text[start - 1])) return null;
+    let end = 0;
+    for (const part of match[0].matchAll(/[A-Za-z_]\w*|\.[A-Za-z_]\w*|\[\d+\]/g)) {
+      end = (part.index ?? 0) + part[0].length;
+      if (start + end > column) break;
+    }
+    const path = match[0].slice(0, end);
+    return LUA_KEYWORDS.has(path) ? null : { from: start, to: start + end, path };
+  }
+  return null;
+}
+
 export function sourceOffset(source: string, line: number, column = 1): number {
   const lines = source.split('\n');
   const targetLine = Math.max(1, Math.min(lines.length, Math.trunc(line) || 1));

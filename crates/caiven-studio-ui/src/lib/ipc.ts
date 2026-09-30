@@ -1,6 +1,6 @@
 import type {
   ApiEntry, AssetBankState, AssetIndex, AudioAction, AudioState, Breakpoint, CartMeta, CartSize, CartTemplateSummary, CollisionType, DebugChild, ExampleSummary, GlobalValue, LocalCart, PortCartList, PortSession,
-  PreludeModule, PublishResult, PublishTarget, SourceBuffer, StudioBootstrap, TickSnapshot,
+  PreludeModule, PublishResult, PublishTarget, SourceBuffer, StudioBootstrap, TickSnapshot, TransportAction,
 } from '../types';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { safeFileName } from './format';
@@ -304,14 +304,17 @@ export async function exportCartridgeSourceZip(path: string): Promise<void> {
   await invoke('studio_export_source_zip', { path });
 }
 
-export async function transport(action: 'run' | 'pause' | 'reset' | 'step'): Promise<TickSnapshot> {
+function fallbackTick(): TickSnapshot {
+  return { runState: fallback.runState, frame: fallback.frame, fps: fallback.fps, frameTimeMs: 5.2, luaRuns: 0, globals: fallback.globals, watches: fallback.watches, callStack: fallback.callStack, selectedFrame: 0, locals: fallback.locals, pauseReason: fallback.pauseReason, audio: fallback.audio, diagnostics: fallback.diagnostics, output: fallback.output, activeSpriteBank: fallback.activeSpriteBank, activeMapBank: fallback.activeMapBank, activePaletteBank: fallback.activePaletteBank, activeSfxBank: fallback.activeSfxBank, activeMusicBank: fallback.activeMusicBank, assetDirty: false };
+}
+
+export async function transport(action: TransportAction): Promise<TickSnapshot> {
   if (!isTauri()) {
-    fallback.runState = action === 'pause' || action === 'step' ? 'paused' : 'running';
+    const paused = action !== 'run' && action !== 'reset';
+    fallback.runState = paused ? 'paused' : 'running';
     if (action === 'step') fallback.frame += 1;
-    fallback.pauseReason = action === 'pause' || action === 'step'
-      ? { kind: 'manual', source: null, line: null, message: null }
-      : null;
-    return { runState: fallback.runState, frame: fallback.frame, fps: fallback.fps, frameTimeMs: 5.2, globals: fallback.globals, watches: fallback.watches, callStack: fallback.callStack, locals: fallback.locals, pauseReason: fallback.pauseReason, audio: fallback.audio, diagnostics: fallback.diagnostics, output: fallback.output, activeSpriteBank: fallback.activeSpriteBank, activeMapBank: fallback.activeMapBank, activePaletteBank: fallback.activePaletteBank, activeSfxBank: fallback.activeSfxBank, activeMusicBank: fallback.activeMusicBank, assetDirty: false };
+    fallback.pauseReason = paused ? { kind: 'manual', source: null, line: null, message: null } : null;
+    return fallbackTick();
   }
   return invoke<TickSnapshot>('studio_transport', { action });
 }
@@ -333,7 +336,8 @@ export async function readFrame(): Promise<Uint8Array | null> {
 
 export async function readTick(): Promise<TickSnapshot> {
   if (isTauri()) return invoke<TickSnapshot>('studio_tick');
-  return { runState: fallback.runState, frame: fallback.frame++, fps: 60, frameTimeMs: 5.2, globals: fallback.globals, watches: fallback.watches, callStack: fallback.callStack, locals: fallback.locals, pauseReason: fallback.pauseReason, audio: fallback.audio, diagnostics: fallback.diagnostics, output: fallback.output, activeSpriteBank: fallback.activeSpriteBank, activeMapBank: fallback.activeMapBank, activePaletteBank: fallback.activePaletteBank, activeSfxBank: fallback.activeSfxBank, activeMusicBank: fallback.activeMusicBank, assetDirty: false };
+  fallback.frame += 1;
+  return { ...fallbackTick(), fps: 60 };
 }
 
 export async function setInput(button: number, pressed: boolean): Promise<void> {
@@ -378,6 +382,18 @@ export async function removeWatch(expression: string): Promise<GlobalValue[]> {
 export async function expandDebugValue(nodeId: string): Promise<DebugChild[]> {
   if (isTauri()) return invoke<DebugChild[]>('studio_expand_debug_value', { nodeId });
   return []; // browser/dev fallback — no live VM to expand against
+}
+
+/** Shows the locals of call stack frame `index`; watches follow it. */
+export async function selectFrame(index: number): Promise<TickSnapshot> {
+  if (isTauri()) return invoke<TickSnapshot>('studio_select_frame', { index });
+  return { ...fallbackTick(), selectedFrame: index };
+}
+
+/** A watch path's value while paused, or null when it can't be read. */
+export async function peekValue(expression: string): Promise<string | null> {
+  if (!isTauri()) return fallback.locals.find((local) => local.name === expression)?.value ?? null;
+  return invoke<string>('studio_peek_value', { expression }).catch(() => null);
 }
 
 export async function clearOutput(): Promise<void> {

@@ -13,10 +13,12 @@ export type Screen =
   | 'docs';
 
 export type RunState = 'running' | 'paused' | 'stopped';
+/** `step` runs one frame; the others step one Lua line. */
+export type TransportAction = 'run' | 'pause' | 'reset' | 'step' | 'stepOver' | 'stepInto' | 'stepOut';
 
 export interface Breakpoint { source: string; line: number; }
 export interface PauseReason {
-  kind: 'manual' | 'breakpoint' | 'error';
+  kind: 'manual' | 'breakpoint' | 'step' | 'error';
   source: string | null;
   line: number | null;
   message: string | null;
@@ -154,11 +156,15 @@ export interface StudioBootstrap {
 export interface TickSnapshot {
   runState: RunState;
   frame: number;
+  /** Bumps after every Lua run; expanded debugger rows refetch on change. */
+  luaRuns: number;
   fps: number;
   frameTimeMs: number;
   globals: GlobalValue[];
   watches: GlobalValue[];
   callStack: CallFrame[];
+  /** Index into `callStack` whose locals `locals` shows. */
+  selectedFrame: number;
   locals: GlobalValue[];
   pauseReason: PauseReason | null;
   audio: AudioState;

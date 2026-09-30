@@ -79,6 +79,9 @@
     frameData: Uint8Array | null;
     insertRequest: EditorInsertRequest | null;
     revealRequest: EditorRevealRequest | null;
+    /** Where a paused frame stopped, by source name. */
+    pausedAt: { source: string; line: number } | null;
+    onPeek: ((expression: string) => Promise<string | null>) | null;
     onInsertHandled: (id: number) => void;
     onRevealHandled: (id: number) => void;
     /** Shared with App so space-to-preview knows which slot is selected. */
@@ -133,7 +136,7 @@
   let {
     screen, sources, activeSource, palette, spriteSheet, map, spriteBanks, mapBanks, activeSpriteBank, activeMapBank, collision, collisionTypes, sfx, music,
     paletteBanks, sfxBanks, musicBanks, activePaletteBank, activeSfxBank, activeMusicBank, cartSize,
-    audio, assetIndex, diagnostics, breakpoints, title, author, path, meta, dirty, tourDone, recent, examples, api, preludeModules, frameData, insertRequest, revealRequest, onInsertHandled, onRevealHandled,
+    audio, assetIndex, diagnostics, breakpoints, title, author, path, meta, dirty, tourDone, recent, examples, api, preludeModules, frameData, insertRequest, revealRequest, pausedAt, onPeek, onInsertHandled, onRevealHandled,
     // Written through by the SFX/pattern list clicks below, so it must be
     // bindable — mutating it as a plain prop is a Svelte ownership violation.
     soundSelection = $bindable(),
@@ -1530,6 +1533,8 @@
                 {preludeModules}
                 {diagnostics}
                 {breakpoints}
+                pausedLine={pausedAt && pausedAt.source === active?.name ? pausedAt.line : null}
+                {onPeek}
                 {insertRequest}
                 {revealRequest}
                 {onInsertHandled}

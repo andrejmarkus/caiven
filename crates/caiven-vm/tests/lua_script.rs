@@ -9,7 +9,7 @@ use caiven_vm::vm::audio::{
 };
 use caiven_vm::vm::palette::DEFAULT_COLORS;
 use caiven_vm::{
-    LuaBreakpoint, LuaRunOutcome, Vm, VmConfig, VmFault, describe_lua_error,
+    LuaBreakpoint, LuaRunOutcome, LuaStep, Vm, VmConfig, VmFault, describe_lua_error,
     describe_lua_error_location,
 };
 
@@ -508,6 +508,161 @@ fn lua_run_frame_bp_stops_at_breakpointed_line() {
         other => panic!("expected a breakpoint stop, got {other:?}"),
     }
     assert_eq!(vm.get_fault(), None, "a breakpoint stop isn't a fault");
+}
+
+fn run_bp(vm: &mut Vm, line: usize) -> LuaRunOutcome {
+    vm.run_frame_lua_bp(
+        &Input::new(),
+        &Font::empty(),
+        &[LuaBreakpoint::new("*", line)],
+    )
+}
+
+fn watch_text(vm: &mut Vm, name: &str) -> String {
+    vm.lua_watch(name)
+        .map(|value| value.text)
+        .unwrap_or_else(|e| panic!("watch {name} failed: {e}"))
+}
+
+#[test]
+fn a_watch_sees_the_stopped_frames_locals_first() {
+    let src = "item = 0\nfunction _update()\n  local item = { hp = 4 }\n  local n = 2\n  item.hp = n\nend\n";
+    let mut vm = make_vm();
+    vm.load_lua_source(src, &Input::new(), &Font::empty())
+        .unwrap_or_else(|e| panic!("load failed: {e}"));
+    assert!(matches!(run_bp(&mut vm, 5), LuaRunOutcome::Breakpoint(_)));
+    assert_eq!(watch_text(&mut vm, "item.hp"), "4");
+    assert_eq!(watch_text(&mut vm, "n"), "2");
+
+    // A reload drops the old state's locals; expanding one would panic.
+    vm.load_lua_source(src, &Input::new(), &Font::empty())
+        .unwrap_or_else(|e| panic!("reload failed: {e}"));
+    assert!(vm.lua_debug_locals().is_empty());
+    assert_eq!(watch_text(&mut vm, "item"), "0");
+}
+
+fn step_line(vm: &mut Vm, step: LuaStep) -> Option<usize> {
+    match vm.run_frame_lua_step(&Input::new(), &Font::empty(), &[], Some(step)) {
+        LuaRunOutcome::Step(location) => Some(location.line),
+        LuaRunOutcome::Completed => None,
+        other => panic!("expected a step stop, got {other:?}"),
+    }
+}
+
+#[test]
+fn line_steps_go_into_over_and_out_of_calls_across_callbacks() {
+    let src = "function add(a, b)\n  local sum = a + b\n  return sum\nend\n\
+        function _update()\n  local base = 10\n  local x = add(base, 2)\n  x = x + 1\nend\n\
+        function _draw()\n  y = 1\nend\n";
+    let mut vm = make_vm();
+    vm.load_lua_source(src, &Input::new(), &Font::empty())
+        .unwrap_or_else(|e| panic!("load failed: {e}"));
+    assert!(matches!(run_bp(&mut vm, 7), LuaRunOutcome::Breakpoint(_)));
+
+    assert_eq!(step_line(&mut vm, LuaStep::Into), Some(2));
+    assert_eq!(vm.lua_call_stack()[0].0, "add");
+    assert_eq!(watch_text(&mut vm, "a"), "10");
+    // The caller's frame shows its own locals, and watches follow it.
+    vm.select_lua_frame(1)
+        .unwrap_or_else(|e| panic!("select failed: {e}"));
+    assert_eq!(vm.lua_selected_frame(), 1);
+    assert_eq!(watch_text(&mut vm, "base"), "10");
+    assert!(vm.select_lua_frame(9).is_err());
+
+    assert_eq!(step_line(&mut vm, LuaStep::Out), Some(8));
+    assert_eq!(
+        vm.lua_selected_frame(),
+        0,
+        "a new stop selects the top frame"
+    );
+    assert_eq!(step_line(&mut vm, LuaStep::Over), Some(9));
+    // Past the end of `_update()` the step lands in `_draw()`.
+    assert_eq!(step_line(&mut vm, LuaStep::Over), Some(11));
+    assert_eq!(step_line(&mut vm, LuaStep::Out), None);
+
+    // From a frame boundary a step stops at the next frame's first line,
+    // and stepping over a call does not enter it.
+    assert_eq!(step_line(&mut vm, LuaStep::Over), Some(6));
+    assert_eq!(step_line(&mut vm, LuaStep::Over), Some(7));
+    assert_eq!(step_line(&mut vm, LuaStep::Over), Some(8));
+    assert!(vm.select_lua_frame(0).is_ok());
+    assert_eq!(watch_text(&mut vm, "x"), "12");
+}
+
+#[test]
+fn deferred_boot_stops_in_top_level_code_and_init_then_continues() {
+    let src = "inits = 0\nfunction _init()\n  inits = inits + 1\nend\nfunction _update() end\n";
+    let mut vm = make_vm();
+    vm.load_lua_source_deferred(src, &Input::new(), &Font::empty())
+        .unwrap_or_else(|e| panic!("load failed: {e}"));
+
+    assert!(matches!(run_bp(&mut vm, 1), LuaRunOutcome::Breakpoint(bp) if bp.line == 1));
+    assert!(matches!(run_bp(&mut vm, 3), LuaRunOutcome::Breakpoint(bp) if bp.line == 3));
+    assert_eq!(vm.lua_call_stack()[0].0, "_init");
+    // Continuing finishes the suspended `_init()`; nothing runs twice.
+    for _ in 0..2 {
+        assert!(matches!(run_bp(&mut vm, 999), LuaRunOutcome::Completed));
+    }
+    assert_eq!(watch_text(&mut vm, "inits"), "1");
+
+    let mut plain = make_vm();
+    plain
+        .load_lua_source_deferred(src, &Input::new(), &Font::empty())
+        .unwrap_or_else(|e| panic!("load failed: {e}"));
+    plain.run_frame(&Input::new(), &Font::empty());
+    assert_eq!(watch_text(&mut plain, "inits"), "1");
+}
+
+#[test]
+fn a_breakpoint_in_a_loop_stops_every_pass_without_rerunning_code() {
+    let src =
+        "count = 0\nfunction _update()\n  for i = 1, 3 do\n    count = count + 1\n  end\nend\n";
+    let mut vm = make_vm();
+    vm.load_lua_source(src, &Input::new(), &Font::empty())
+        .unwrap_or_else(|e| panic!("load failed: {e}"));
+
+    for expected in ["0", "1", "2"] {
+        assert!(matches!(run_bp(&mut vm, 4), LuaRunOutcome::Breakpoint(bp) if bp.line == 4));
+        assert_eq!(watch_text(&mut vm, "count"), expected);
+        let locals = vm.lua_debug_locals();
+        assert!(locals.iter().any(|(name, _)| name == "i"), "{locals:?}");
+    }
+    assert!(matches!(run_bp(&mut vm, 4), LuaRunOutcome::Completed));
+    assert_eq!(watch_text(&mut vm, "count"), "3");
+}
+
+#[test]
+fn a_breakpoint_under_pcall_suspends_instead_of_raising() {
+    let src = "function step()\n  hits = (hits or 0) + 1\nend\nfunction _update()\n  ok = pcall(step)\nend\n";
+    let mut vm = make_vm();
+    vm.load_lua_source(src, &Input::new(), &Font::empty())
+        .unwrap_or_else(|e| panic!("load failed: {e}"));
+    assert!(matches!(run_bp(&mut vm, 2), LuaRunOutcome::Breakpoint(bp) if bp.line == 2));
+    assert!(matches!(run_bp(&mut vm, 999), LuaRunOutcome::Completed));
+    assert_eq!(watch_text(&mut vm, "ok"), "true");
+    assert_eq!(watch_text(&mut vm, "hits"), "1");
+}
+
+#[test]
+fn a_coroutine_does_not_disarm_breakpoints_or_the_watchdog() {
+    let src = "co = coroutine.create(function() while true do coroutine.yield() end end)\nfunction _update()\n  coroutine.resume(co)\n  x = 1\n  if spin then for i = 1, 60000000 do end end\nend\n";
+    let mut vm = make_vm();
+    vm.load_lua_source(src, &Input::new(), &Font::empty())
+        .unwrap_or_else(|e| panic!("load failed: {e}"));
+    for _ in 0..2 {
+        assert!(matches!(run_bp(&mut vm, 4), LuaRunOutcome::Breakpoint(bp) if bp.line == 4));
+        assert!(matches!(run_bp(&mut vm, 999), LuaRunOutcome::Completed));
+    }
+
+    let mut vm = make_vm();
+    vm.load_lua_source(
+        &format!("spin = true\n{src}"),
+        &Input::new(),
+        &Font::empty(),
+    )
+    .unwrap_or_else(|e| panic!("load failed: {e}"));
+    vm.run_frame(&Input::new(), &Font::empty());
+    assert_eq!(vm.get_fault(), Some(VmFault::ExecutionBudgetExceeded));
 }
 
 #[test]

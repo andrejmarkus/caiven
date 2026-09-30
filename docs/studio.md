@@ -64,11 +64,31 @@ unset); it is not forwarded to a different server selected in Studio.
 
 ## Debugger
 
-A breakpoint aborts the running `_update` at that line, so state changes made
-earlier in the same frame stay applied. Resuming runs `_update` again from the
-top, which means code above the breakpoint executes twice for that frame.
-Watches read plain globals and table fields only; they never call `__index`
-or any other cart code.
+A breakpoint pauses the frame at that line, and Run or Step continues it from
+there, so no code runs twice. Top-level code and `_init()` stop too: the first
+Run after opening a cart starts it fresh under the debugger. A breakpoint on a
+line without code (blank, comment, `end`, a function header) stops at the next
+line that runs; on a function header that is the first line of its body.
+Breakpoints don't stop inside coroutines, inside callbacks that C code calls
+(`table.sort` comparators) or in a module's top-level code, which `require`
+runs.
+
+When the game is paused, you can step one line at a time. The editor marks the line where the game stopped.
+
+| Key         | Step                                        |
+| :---------- | :------------------------------------------ |
+| `F10`       | Over: next line here or in the caller       |
+| `F11`       | Into: next line, entering calls             |
+| `Shift+F11` | Out: next line in the caller                |
+
+When a step reaches the end of a callback, it stops at the first line of the next callback, even if that is in the next frame. Step skips the same code that breakpoints skip.
+In the Call stack tab, click a call to see its locals. Watches and hover values then read that call too.
+While the game is paused, hover over a name in the editor to see its value.
+
+Watches take a name with `.field` and `[index]` steps (`enemies[1].hp`). At a
+breakpoint the name resolves like the stopped code sees it: its locals first,
+then globals and file-scope locals. Watches never call `__index` or any other
+cart code. Expanded tables stay open and refresh after every frame or step.
 
 ## Publishing
 

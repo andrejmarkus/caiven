@@ -30,9 +30,8 @@ use caiven_core::memory::{
     RTC_RAM_BASE, SFX_COUNT, SPRITE_BYTES, SPRITE_COUNT, SPRITE_SHEET_COLS, SPRITE_SHEET_RAM_BASE,
 };
 use caiven_core::{Color, Vec2};
-use mlua::{Debug, HookTriggers, Lua, LuaSerdeExt, MultiValue, Scope, StdLib, Table, VmState};
-use std::cell::RefCell;
-use std::rc::Rc;
+use mlua::{Lua, LuaSerdeExt, MultiValue, Scope, StdLib, Table};
+use std::cell::{Cell, RefCell};
 use std::sync::{Arc, Mutex};
 
 /// Names registered by [`register_builtins`] — excluded from
@@ -287,36 +286,65 @@ const LUA_MEMORY_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 pub(super) struct LuaScript {
     lua: Lua,
     output: Arc<Mutex<Vec<String>>>,
-    /// Every coroutine a cart has spawned via the wrapped `coroutine.create`/
-    /// `coroutine.wrap` installed by [`install_coroutine_budget_guard`] —
-    /// re-armed with the active execution budget at the top of every call
-    /// site that can resume one, so a coroutine created in an earlier call
-    /// counts against *that* call's budget rather than running forever on a
-    /// stale or absent hook.
-    coroutines: Rc<RefCell<Vec<mlua::Thread>>>,
-    /// The budget the wrapped `coroutine.create`/`coroutine.wrap` should arm
-    /// a brand-new thread with — set fresh before every chunk/`_init`/
-    /// `_update` call, cleared afterward so a thread can never be created
-    /// outside a window we control.
-    active_budget: Rc<RefCell<Option<BudgetCells>>>,
+    /// Boxed so the address registered for [`vm_hook`] never moves.
+    hooks: Box<HookState>,
+    /// Debug frames run here, so a breakpoint can suspend one mid-frame.
+    frame_thread: RefCell<Option<FrameThread>>,
+    /// The stage a breakpoint suspended; the next debug frame continues it.
+    suspended: Cell<Option<FrameStage>>,
+    /// Top-level chunk still owed by [`Vm::load_lua_source_deferred`]; the
+    /// next frame runs it first.
+    pending_chunk: RefCell<Option<mlua::Function>>,
+    /// `_init()` still owed by a deferred load; it runs right after the chunk.
+    init_pending: Cell<bool>,
 }
 
-/// `(instruction counter, budget-hit sink, budget)` for one execution-budget
-/// hook — shared between the main thread and any coroutine it spawns so they
-/// count against the same limit. See [`budget_hook`].
-type BudgetCells = (Rc<RefCell<u32>>, Rc<RefCell<Option<LuaBreakpoint>>>, u32);
+impl Drop for LuaScript {
+    fn drop(&mut self) {
+        // Values rooted elsewhere can keep the Lua state alive past `hooks`.
+        let _ = set_hook_state(&self.lua, std::ptr::null());
+    }
+}
+
+/// One step of a debug frame, in call order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FrameStage {
+    Chunk,
+    Init,
+    Update,
+    Draw,
+}
+
+struct FrameThread {
+    thread: mlua::Thread,
+    state: *mut mlua_sys::lua_State,
+}
 
 /// Result of one debug-aware Lua frame ([`Vm::run_frame_lua_bp`]).
 #[derive(Debug, Clone)]
 pub enum LuaRunOutcome {
-    /// `_update()` ran to completion.
+    /// The frame ran to completion.
     Completed,
-    /// Execution stopped at a breakpointed source line; the rest of this
-    /// frame's `_update()` did not run.
+    /// A breakpoint suspended the frame at this line; the next call
+    /// continues it from there.
     Breakpoint(LuaBreakpoint),
+    /// A line step ([`LuaStep`]) suspended the frame here, like a breakpoint.
+    Step(LuaBreakpoint),
     /// A genuine Lua runtime error (not a breakpoint stop), with the
     /// 1-based source line when [`describe_lua_error`] could recover one.
     Error(Option<LuaBreakpoint>, String),
+}
+
+/// A line step from a suspended frame. From a finished function or frame
+/// boundary, every kind stops at the next line that runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LuaStep {
+    /// The next line, entering any function it calls.
+    Into,
+    /// The next line in this function or its caller.
+    Over,
+    /// The next line in the caller.
+    Out,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -349,6 +377,8 @@ pub struct DebugValue {
 /// the owned value rooted for [`Vm::expand_debug_node`]. See
 /// [`read_active_locals`].
 pub(super) type RawLocal = (String, String, Option<mlua::Value>);
+/// A suspended call: label, `file:line` and its level on the frame thread.
+pub(super) type CallFrame = (String, String, std::os::raw::c_int);
 
 impl DebugValue {
     pub fn as_str(&self) -> &str {
@@ -376,6 +406,71 @@ impl PartialEq<String> for DebugValue {
     }
 }
 
+/// How a debugger child node is reached from its parent. Plain data, not a
+/// Lua value, so the path still resolves after the Lua state is rebuilt.
+#[derive(Clone, Debug)]
+pub(super) enum DebugStep {
+    Field(Vec<u8>),
+    Index(i64),
+    Upvalue(String),
+}
+
+impl DebugStep {
+    fn of_key(key: &mlua::Value) -> Option<Self> {
+        match key {
+            mlua::Value::String(name) => Some(Self::Field(name.as_bytes().to_vec())),
+            mlua::Value::Integer(index) => Some(Self::Index(*index)),
+            _ => None,
+        }
+    }
+
+    /// Raw read of this step from `table`; never runs a metamethod.
+    fn read(&self, lua: &Lua, table: &Table) -> mlua::Result<mlua::Value> {
+        match self {
+            Self::Field(name) => table.raw_get(lua.create_string(name)?),
+            Self::Index(index) => table.raw_get(*index),
+            Self::Upvalue(_) => Ok(mlua::Value::Nil),
+        }
+    }
+}
+
+const WATCH_SYNTAX_ERROR: &str = "Watch must be a name like player.x or items[1]";
+
+/// Whether [`Vm::lua_watch`] accepts `expression`: a name followed by
+/// `.field` and `[index]` steps.
+pub fn is_watch_expression(expression: &str) -> bool {
+    parse_watch_path(expression).is_some()
+}
+
+fn parse_watch_path(expression: &str) -> Option<(String, Vec<DebugStep>)> {
+    let mut rest = expression.trim();
+    let root = take_identifier(&mut rest)?;
+    let mut steps = Vec::new();
+    while !rest.is_empty() {
+        if let Some(after) = rest.strip_prefix('.') {
+            rest = after;
+            steps.push(DebugStep::Field(take_identifier(&mut rest)?.into_bytes()));
+        } else {
+            let (index, after) = rest.strip_prefix('[')?.split_once(']')?;
+            steps.push(DebugStep::Index(index.parse().ok()?));
+            rest = after;
+        }
+    }
+    Some((root, steps))
+}
+
+fn take_identifier(rest: &mut &str) -> Option<String> {
+    let end = rest
+        .find(|c: char| c != '_' && !c.is_ascii_alphanumeric())
+        .unwrap_or(rest.len());
+    let (name, after) = rest.split_at(end);
+    if !is_lua_identifier(name) {
+        return None;
+    }
+    *rest = after;
+    Some(name.to_string())
+}
+
 /// Maximum table entries [`Vm::expand_debug_node`] returns for one expand —
 /// keeps a single click bounded regardless of cart-authored table size.
 const MAX_EXPAND_ENTRIES: usize = 200;
@@ -384,119 +479,421 @@ fn normalized_debug_source(source: &str) -> String {
     source.trim_start_matches(['@', '=']).replace('\\', "/")
 }
 
-/// Normalized source name for a hook callback's current frame, falling back
-/// to `"cart"` when mlua can't resolve one — shared by the breakpoint and
-/// execution-budget hooks.
-fn hook_debug_source(debug: &mlua::Debug) -> String {
-    let debug_source = debug.source();
-    debug_source
-        .short_src
-        .as_deref()
-        .or(debug_source.source.as_deref())
-        .map(normalized_debug_source)
-        .unwrap_or_else(|| "cart".to_string())
-}
-
-/// Builds one execution-budget hook closure. Shared by the main thread's own
-/// hook and every coroutine's (see [`install_coroutine_budget_guard`]) so a
-/// hostile cart can't dodge the watchdog by looping forever inside a
-/// coroutine instead of the main chunk — both count against the same
-/// `instructions`/`budget_hit` cells.
-fn budget_hook(
-    instructions: Rc<RefCell<u32>>,
-    budget_hit: Rc<RefCell<Option<LuaBreakpoint>>>,
-    budget: u32,
-) -> impl Fn(&Lua, Debug) -> mlua::Result<VmState> {
-    move |_lua, debug| {
-        let mut count = instructions.borrow_mut();
-        *count += INSTRUCTION_HOOK_STRIDE;
-        if *count < budget {
-            return Ok(VmState::Continue);
-        }
-        let line = debug.curr_line();
-        *budget_hit.borrow_mut() = (line > 0).then(|| LuaBreakpoint {
-            source: hook_debug_source(&debug),
-            line: line as usize,
-        });
-        Err(mlua::Error::runtime(EXECUTION_BUDGET_MESSAGE))
+/// A frame that still owes the boot gets the load budget on top.
+fn frame_budget(boot_pending: bool) -> u32 {
+    if boot_pending {
+        FRAME_INSTRUCTION_BUDGET + INIT_INSTRUCTION_BUDGET
+    } else {
+        FRAME_INSTRUCTION_BUDGET
     }
 }
 
-/// Re-arms every already-tracked coroutine with this call's execution budget
-/// — called alongside `lua.set_hook` on the main thread at the top of
-/// [`Vm::load_lua_source`], [`Vm::hot_reload_lua_source`],
-/// [`Vm::run_frame_lua`], and [`Vm::run_frame_lua_bp`]. mlua only arms the
-/// thread `set_hook` is called on, and a hook set once at coroutine-creation
-/// time would otherwise keep counting instructions cumulatively across every
-/// later call instead of resetting per call like the main thread's does.
-fn rearm_coroutines(
-    coroutines: &RefCell<Vec<mlua::Thread>>,
-    instructions: &Rc<RefCell<u32>>,
-    budget_hit: &Rc<RefCell<Option<LuaBreakpoint>>>,
-    budget: u32,
-) {
-    let triggers = HookTriggers::new().every_nth_instruction(INSTRUCTION_HOOK_STRIDE);
-    for thread in coroutines.borrow().iter() {
-        thread.set_hook(
-            triggers,
-            budget_hook(instructions.clone(), budget_hit.clone(), budget),
-        );
+/// Registry slot holding the running script's [`HookState`] address.
+static HOOK_STATE_KEY: u8 = 0;
+
+fn hook_state_key() -> *const std::ffi::c_void {
+    std::ptr::addr_of!(HOOK_STATE_KEY).cast()
+}
+
+/// Watchdog and breakpoint state read by [`vm_hook`]. mlua keeps one hook
+/// callback per `Lua` and strips it from every other thread, so arming a
+/// coroutine used to disarm the main thread. One raw hook serves every
+/// thread instead, and a coroutine inherits it from the thread creating it.
+struct HookState {
+    /// Instructions the current call may run; 0 while nothing is watched.
+    budget: Cell<u32>,
+    instructions: Cell<u32>,
+    budget_hit: RefCell<Option<LuaBreakpoint>>,
+    breakpoints: RefCell<Vec<LuaBreakpoint>>,
+    /// Only the frame thread stops: a stop suspends it rather than unwinding.
+    frame_thread: Cell<*mut mlua_sys::lua_State>,
+    hit: RefCell<Option<LuaBreakpoint>>,
+    /// While a line step runs: stop at the next line at most this deep.
+    step_depth: Cell<Option<usize>>,
+    /// Stack depth of the last stop; the next step measures from it.
+    stop_depth: Cell<usize>,
+    /// The last stop came from a step, not a breakpoint.
+    stepped: Cell<bool>,
+}
+
+enum HookAction {
+    Continue,
+    Suspend,
+    OutOfBudget,
+}
+
+impl HookState {
+    fn new() -> Self {
+        HookState {
+            budget: Cell::new(0),
+            instructions: Cell::new(0),
+            budget_hit: RefCell::new(None),
+            breakpoints: RefCell::new(Vec::new()),
+            frame_thread: Cell::new(std::ptr::null_mut()),
+            hit: RefCell::new(None),
+            step_depth: Cell::new(None),
+            stop_depth: Cell::new(0),
+            stepped: Cell::new(false),
+        }
+    }
+
+    /// Starts watching one call with a fresh instruction budget.
+    fn watch(&self, budget: u32) {
+        self.budget.set(budget);
+        self.instructions.set(0);
+        self.budget_hit.replace(None);
+        self.hit.replace(None);
+        self.stepped.set(false);
+    }
+
+    fn stop_watching(&self) {
+        self.budget.set(0);
+        self.frame_thread.set(std::ptr::null_mut());
+        self.step_depth.set(None);
+    }
+
+    /// # Safety
+    /// `state` and `ar` must be the arguments Lua passed to the hook.
+    unsafe fn on_event(
+        &self,
+        state: *mut mlua_sys::lua_State,
+        ar: *mut mlua_sys::lua_Debug,
+    ) -> HookAction {
+        let budget = self.budget.get();
+        if budget == 0 {
+            return HookAction::Continue;
+        }
+        unsafe {
+            if (*ar).event == mlua_sys::LUA_HOOKCOUNT {
+                let count = self
+                    .instructions
+                    .get()
+                    .saturating_add(INSTRUCTION_HOOK_STRIDE);
+                self.instructions.set(count);
+                if count < budget {
+                    return HookAction::Continue;
+                }
+                if self.budget_hit.borrow().is_none()
+                    && mlua_sys::lua_getinfo(state, c"Sl".as_ptr(), ar) != 0
+                    && (*ar).currentline > 0
+                {
+                    self.budget_hit.replace(Some(LuaBreakpoint {
+                        source: raw_debug_source(ar),
+                        line: (*ar).currentline as usize,
+                    }));
+                }
+                return HookAction::OutOfBudget;
+            }
+            let line = (*ar).currentline;
+            if (*ar).event != mlua_sys::LUA_HOOKLINE
+                || line <= 0
+                || state != self.frame_thread.get()
+            {
+                return HookAction::Continue;
+            }
+            let line = line as usize;
+            let stepping = self
+                .step_depth
+                .get()
+                .is_some_and(|deepest| stack_depth(state) <= deepest);
+            let breakpoints = self.breakpoints.borrow();
+            if (!stepping && !breakpoints.iter().any(|breakpoint| breakpoint.line == line))
+                || mlua_sys::lua_getinfo(state, c"S".as_ptr(), ar) == 0
+            {
+                return HookAction::Continue;
+            }
+            let source = raw_debug_source(ar);
+            let at_breakpoint = breakpoints.iter().any(|breakpoint| {
+                breakpoint.line == line
+                    && (breakpoint.source == "*"
+                        || normalized_debug_source(&breakpoint.source) == source)
+            });
+            // Code called back from C (a `table.sort` comparator) can't suspend.
+            if !(stepping || at_breakpoint) || mlua_sys::lua_isyieldable(state) == 0 {
+                return HookAction::Continue;
+            }
+            drop(breakpoints);
+            self.stepped.set(!at_breakpoint);
+            self.stop_depth.set(stack_depth(state));
+            self.hit.replace(Some(LuaBreakpoint { source, line }));
+            HookAction::Suspend
+        }
     }
 }
 
-/// Overrides `coroutine.create`/`coroutine.wrap` so any thread a cart spawns
-/// is armed with the caller's active execution budget (`active_budget`, kept
-/// current by [`rearm_coroutines`]'s callers) the moment it's created, and
-/// tracked in `coroutines` so it keeps getting re-armed on every later call
-/// too. Installed once, in [`Vm::load_lua_source`] — it survives hot reload
-/// since that reuses the same `Lua` instance. See [`budget_hook`] for why
-/// this exists at all: a plain `coroutine.create` has no budget whatsoever.
-fn install_coroutine_budget_guard(
-    lua: &Lua,
-    globals: &Table,
-    coroutines: Rc<RefCell<Vec<mlua::Thread>>>,
-    active_budget: Rc<RefCell<Option<BudgetCells>>>,
-) -> mlua::Result<()> {
-    let coroutine: Table = globals.get("coroutine")?;
-
-    let arm = move |thread: &mlua::Thread, active_budget: &Rc<RefCell<Option<BudgetCells>>>| {
-        if let Some((instructions, budget_hit, budget)) = &*active_budget.borrow() {
-            thread.set_hook(
-                HookTriggers::new().every_nth_instruction(INSTRUCTION_HOOK_STRIDE),
-                budget_hook(instructions.clone(), budget_hit.clone(), *budget),
-            );
+/// The one hook for every thread of a script; see [`HookState`].
+unsafe extern "C-unwind" fn vm_hook(state: *mut mlua_sys::lua_State, ar: *mut mlua_sys::lua_Debug) {
+    unsafe {
+        mlua_sys::lua_rawgetp(state, mlua_sys::LUA_REGISTRYINDEX, hook_state_key());
+        let hooks = mlua_sys::lua_touserdata(state, -1)
+            .cast::<HookState>()
+            .cast_const();
+        mlua_sys::lua_pop(state, 1);
+        let Some(hooks) = hooks.as_ref() else {
+            return;
+        };
+        match hooks.on_event(state, ar) {
+            HookAction::Continue => {}
+            HookAction::Suspend => {
+                mlua_sys::lua_yield(state, 0);
+            }
+            // `lua_error` longjmps out of this frame; nothing here owns memory.
+            HookAction::OutOfBudget => {
+                mlua_sys::lua_pushlstring(
+                    state,
+                    EXECUTION_BUDGET_MESSAGE.as_ptr().cast(),
+                    EXECUTION_BUDGET_MESSAGE.len(),
+                );
+                mlua_sys::lua_error(state);
+            }
         }
+    }
+}
+
+/// Points [`vm_hook`] at `hooks`; null detaches it.
+fn set_hook_state(lua: &Lua, hooks: *const HookState) -> mlua::Result<()> {
+    unsafe {
+        lua.exec_raw::<()>((), |state| {
+            if hooks.is_null() {
+                mlua_sys::lua_pushnil(state);
+            } else {
+                mlua_sys::lua_pushlightuserdata(state, hooks.cast_mut().cast());
+            }
+            mlua_sys::lua_rawsetp(state, mlua_sys::LUA_REGISTRYINDEX, hook_state_key());
+        })
+    }
+}
+
+fn hook_mask(lines: bool) -> std::os::raw::c_int {
+    mlua_sys::LUA_MASKCOUNT | if lines { mlua_sys::LUA_MASKLINE } else { 0 }
+}
+
+/// Arms [`vm_hook`] on `state`, or disarms it for a zero `mask`.
+unsafe fn set_raw_hook(state: *mut mlua_sys::lua_State, mask: std::os::raw::c_int) {
+    let hook: Option<mlua_sys::lua_Hook> = (mask != 0).then_some(vm_hook);
+    unsafe {
+        mlua_sys::lua_sethook(
+            state,
+            hook,
+            mask,
+            INSTRUCTION_HOOK_STRIDE as std::os::raw::c_int,
+        )
     };
-
-    let create_coroutines = coroutines.clone();
-    let create_budget = active_budget.clone();
-    let wrapped_create = lua.create_function(move |lua, f: mlua::Function| {
-        let thread = lua.create_thread(f)?;
-        arm(&thread, &create_budget);
-        create_coroutines.borrow_mut().push(thread.clone());
-        Ok(thread)
-    })?;
-    coroutine.set("create", wrapped_create)?;
-
-    let wrap_coroutines = coroutines;
-    let wrap_budget = active_budget;
-    let wrapped_wrap = lua.create_function(move |lua, f: mlua::Function| {
-        let thread = lua.create_thread(f)?;
-        arm(&thread, &wrap_budget);
-        wrap_coroutines.borrow_mut().push(thread.clone());
-        lua.create_function(move |_, args: MultiValue| thread.resume::<MultiValue>(args))
-    })?;
-    coroutine.set("wrap", wrapped_wrap)?;
-
-    Ok(())
 }
 
-/// Walks the interpreter stack from the innermost frame outward, for the
-/// Studio debugger's Call stack panel. Called from inside the breakpoint
-/// hook, where every level is still live — the frame is gone the instant
-/// the hook returns, so this can't be deferred to after the run.
-fn capture_call_stack(lua: &Lua) -> Vec<(String, String)> {
-    // Entry callbacks are called from Rust, so Lua can't name their frames.
+/// Arms the main thread. Coroutines copy the hook of the thread creating them.
+fn set_main_hook(lua: &Lua, mask: std::os::raw::c_int) {
+    unsafe {
+        let _ = lua.exec_raw::<()>((), |state| set_raw_hook(state, mask));
+    }
+}
+
+fn raw_thread_state(lua: &Lua, thread: &mlua::Thread) -> mlua::Result<*mut mlua_sys::lua_State> {
+    let mut raw = std::ptr::null_mut();
+    unsafe {
+        lua.exec_raw::<()>(thread.clone(), |state| {
+            raw = mlua_sys::lua_tothread(state, -1);
+            mlua_sys::lua_pop(state, 1);
+        })?;
+    }
+    Ok(raw)
+}
+
+/// Resumes `thread` with raw `lua_resume`; `Ok(true)` once it finished,
+/// `Ok(false)` when it yielded. mlua's `Thread::resume` resets the thread's
+/// stack top afterwards, which cuts into the registers of a frame a
+/// breakpoint suspended.
+fn resume_raw(lua: &Lua, thread: *mut mlua_sys::lua_State) -> mlua::Result<bool> {
+    let mut status = mlua_sys::LUA_OK;
+    let error = unsafe {
+        lua.exec_raw::<mlua::Value>((), |state| {
+            let mut results = 0;
+            status = mlua_sys::lua_resume(thread, state, 0, &mut results);
+            if status == mlua_sys::LUA_OK || status == mlua_sys::LUA_YIELD {
+                mlua_sys::lua_pop(thread, results);
+            } else if mlua_sys::lua_type(thread, -1) == mlua_sys::LUA_TSTRING {
+                mlua_sys::luaL_traceback(state, thread, mlua_sys::lua_tostring(thread, -1), 0);
+                mlua_sys::lua_pop(thread, 1);
+            } else {
+                mlua_sys::lua_xmove(thread, state, 1);
+            }
+        })?
+    };
+    match status {
+        mlua_sys::LUA_OK => Ok(true),
+        mlua_sys::LUA_YIELD => Ok(false),
+        _ => Err(match error {
+            mlua::Value::Error(error) => *error,
+            mlua::Value::String(message) => {
+                mlua::Error::RuntimeError(message.to_string_lossy().to_string())
+            }
+            other => mlua::Error::RuntimeError(format!("{other:?}")),
+        }),
+    }
+}
+
+/// [`normalized_debug_source`] for a raw `lua_Debug` filled with "S".
+unsafe fn raw_debug_source(ar: *const mlua_sys::lua_Debug) -> String {
+    let short_src = unsafe { std::ffi::CStr::from_ptr((*ar).short_src.as_ptr()) };
+    let short_src = short_src.to_string_lossy();
+    if short_src.is_empty() {
+        "cart".to_string()
+    } else {
+        normalized_debug_source(&short_src)
+    }
+}
+
+/// Calls active on `state`, C ones included.
+unsafe fn stack_depth(state: *mut mlua_sys::lua_State) -> usize {
+    let mut depth = 0;
+    unsafe {
+        let mut ar: mlua_sys::lua_Debug = std::mem::zeroed();
+        while mlua_sys::lua_getstack(state, depth, &mut ar) != 0 {
+            depth += 1;
+        }
+    }
+    depth as usize
+}
+
+impl LuaScript {
+    fn boot_pending(&self) -> bool {
+        self.pending_chunk.borrow().is_some() || self.init_pending.get()
+    }
+
+    /// Runs what a deferred load still owes, on the calling thread.
+    fn run_pending_boot(&self) -> mlua::Result<()> {
+        let chunk = self.pending_chunk.borrow().clone();
+        if let Some(chunk) = chunk {
+            chunk.call::<()>(())?;
+            self.pending_chunk.take();
+        }
+        if self.init_pending.get() {
+            if let Ok(init) = self.lua.globals().get::<mlua::Function>("_init") {
+                init.call::<()>(())?;
+            }
+            self.init_pending.set(false);
+        }
+        Ok(())
+    }
+
+    fn first_stage(&self) -> FrameStage {
+        if self.pending_chunk.borrow().is_some() {
+            FrameStage::Chunk
+        } else if self.init_pending.get() {
+            FrameStage::Init
+        } else {
+            FrameStage::Update
+        }
+    }
+
+    /// Puts `function` on the frame thread, reusing the thread when it
+    /// finished cleanly last time.
+    fn start_frame_thread(&self, function: mlua::Function) -> mlua::Result<()> {
+        let mut slot = self.frame_thread.borrow_mut();
+        if let Some(frame) = slot.as_ref()
+            && frame.thread.reset(function.clone()).is_ok()
+        {
+            return Ok(());
+        }
+        let thread = self.lua.create_thread(function)?;
+        let state = raw_thread_state(&self.lua, &thread)?;
+        *slot = Some(FrameThread { thread, state });
+        Ok(())
+    }
+
+    /// Runs the owed boot, `_update()` and `_draw()` on the frame thread,
+    /// continuing `resume` when a breakpoint suspended the last call.
+    /// `Ok(true)` means a breakpoint suspended it again.
+    fn run_frame_stages(&self, resume: Option<FrameStage>, lines: bool) -> mlua::Result<bool> {
+        let globals = self.lua.globals();
+        let mut stage = resume.unwrap_or_else(|| self.first_stage());
+        let mut fresh = resume.is_none();
+        loop {
+            // A step that outlived its function stops at the next callback's first line.
+            if fresh && self.hooks.step_depth.get().is_some() {
+                self.hooks.step_depth.set(Some(usize::MAX));
+            }
+            let runnable = if fresh {
+                let function = match stage {
+                    FrameStage::Chunk => self.pending_chunk.borrow().clone(),
+                    FrameStage::Init => globals.get::<mlua::Function>("_init").ok(),
+                    FrameStage::Update => Some(globals.get::<mlua::Function>("_update")?),
+                    FrameStage::Draw => globals.get::<mlua::Function>("_draw").ok(),
+                };
+                match function {
+                    Some(function) => {
+                        self.start_frame_thread(function)?;
+                        true
+                    }
+                    None => false,
+                }
+            } else {
+                true
+            };
+            if runnable && self.resume_frame_thread(lines)? {
+                self.suspended.set(Some(stage));
+                return Ok(true);
+            }
+            stage = match stage {
+                FrameStage::Chunk => {
+                    self.pending_chunk.take();
+                    if self.init_pending.get() {
+                        FrameStage::Init
+                    } else {
+                        FrameStage::Update
+                    }
+                }
+                FrameStage::Init => {
+                    self.init_pending.set(false);
+                    FrameStage::Update
+                }
+                FrameStage::Update => FrameStage::Draw,
+                FrameStage::Draw => return Ok(false),
+            };
+            fresh = true;
+        }
+    }
+
+    /// Resumes the frame thread; `Ok(true)` when a breakpoint suspended it.
+    fn resume_frame_thread(&self, lines: bool) -> mlua::Result<bool> {
+        let Some((thread, state)) = self
+            .frame_thread
+            .borrow()
+            .as_ref()
+            .map(|frame| (frame.thread.clone(), frame.state))
+        else {
+            return Ok(false);
+        };
+        unsafe { set_raw_hook(state, hook_mask(lines)) };
+        self.hooks.frame_thread.set(state);
+        let resumed = resume_raw(&self.lua, state);
+        self.hooks.frame_thread.set(std::ptr::null_mut());
+        drop(thread);
+        match resumed {
+            Err(error) => {
+                self.frame_thread.take();
+                return Err(error);
+            }
+            Ok(true) => return Ok(false),
+            Ok(false) => {}
+        }
+        if self.hooks.hit.borrow().is_none() {
+            // The cart itself yielded; on the main thread that's an error too.
+            self.frame_thread.take();
+            return Err(mlua::Error::runtime(
+                "attempt to yield from outside a coroutine",
+            ));
+        }
+        Ok(true)
+    }
+}
+
+/// Walks a thread suspended at a breakpoint, innermost frame first, for the
+/// Studio debugger's Call stack panel: label, `file:line` and stack level.
+fn capture_call_stack(lua: &Lua, thread: *mut mlua_sys::lua_State) -> Vec<CallFrame> {
+    use std::ffi::CStr;
+
+    // Entry callbacks start the frame thread, so Lua can't name their frames.
     let globals = lua.globals();
     let entries: Vec<(&str, Option<String>, Option<usize>)> = ["_init", "_update", "_draw"]
         .into_iter()
@@ -506,51 +903,49 @@ fn capture_call_stack(lua: &Lua) -> Vec<(String, String)> {
         })
         .collect();
     let mut frames = Vec::new();
-    let mut level = 0usize;
-    while let Some(debug) = lua.inspect_stack(level) {
-        let names = debug.names();
-        let source = debug.source();
-        let label = names
-            .name
-            .map(|name| name.into_owned())
-            .or_else(|| {
-                entries
-                    .iter()
-                    .find(|(_, entry_source, line_defined)| {
-                        entry_source.as_deref() == source.source.as_deref()
-                            && *line_defined == source.line_defined
-                    })
-                    .map(|(name, _, _)| name.to_string())
-            })
-            .unwrap_or_else(|| {
-                if level == 0 {
-                    "?".to_string()
-                } else {
-                    "anonymous function".to_string()
-                }
-            });
-        let file = source
-            .short_src
-            .map(|src| src.into_owned())
-            .unwrap_or_else(|| "?".to_string());
-        let line = debug.curr_line();
-        if line > 0 {
-            frames.push((label, format!("{file}:{line}")));
-        }
-        level += 1;
-        if level > 64 {
-            break;
+    for level in 0..=64 {
+        unsafe {
+            let mut ar: mlua_sys::lua_Debug = std::mem::zeroed();
+            if mlua_sys::lua_getstack(thread, level, &mut ar) == 0
+                || mlua_sys::lua_getinfo(thread, c"nSl".as_ptr(), &mut ar) == 0
+            {
+                break;
+            }
+            let line = ar.currentline;
+            if line <= 0 {
+                continue;
+            }
+            let source = (!ar.source.is_null())
+                .then(|| CStr::from_ptr(ar.source).to_string_lossy().into_owned());
+            let line_defined = usize::try_from(ar.linedefined).ok();
+            let label = (!ar.name.is_null())
+                .then(|| CStr::from_ptr(ar.name).to_string_lossy().into_owned())
+                .or_else(|| {
+                    entries
+                        .iter()
+                        .find(|(_, entry_source, entry_line)| {
+                            *entry_source == source && *entry_line == line_defined
+                        })
+                        .map(|(name, _, _)| name.to_string())
+                })
+                .unwrap_or_else(|| {
+                    if !ar.what.is_null() && CStr::from_ptr(ar.what) == c"main" {
+                        "main chunk".to_string()
+                    } else if level == 0 {
+                        "?".to_string()
+                    } else {
+                        "anonymous function".to_string()
+                    }
+                });
+            let file = CStr::from_ptr(ar.short_src.as_ptr()).to_string_lossy();
+            frames.push((label, format!("{file}:{line}"), level));
         }
     }
     frames
 }
 
-/// Reads the innermost frame's active local variables via raw `lua_getlocal`
-/// (V23) — mlua's safe hook API has no locals accessor (R1), so this drops to
-/// `mlua_sys` through a reentrant `Lua::exec_raw` call from inside the
-/// already-active `EVERY_LINE` hook (proven safe by the T7 spike, R4).
-/// Read-only: nothing is pushed back via `lua_setlocal`, and this is only
-/// ever called from the Rust-side hook, never reachable from cart Lua (V8).
+/// Reads the active locals of the function a breakpoint suspended `thread`
+/// in, via raw `lua_getlocal` (mlua has no locals accessor). Read-only.
 ///
 /// `lua_getlocal` enumerates every local active at the current program
 /// counter, including ones a later `local` declaration shadows — later
@@ -558,31 +953,28 @@ fn capture_call_stack(lua: &Lua) -> Vec<(String, String)> {
 /// collision keeps the innermost (currently visible) binding. Names starting
 /// with `(` are compiler-internal (e.g. `(for state)`) and are skipped.
 ///
-/// Table/function locals additionally get an owned [`mlua::Value`] fetched
-/// via [`fetch_local_value`], so the Studio debugger's expand-on-demand
-/// inspector has something to root — a raw stack index doesn't survive past
-/// this hook returning, but a value round-tripped through `exec_raw` does
-/// (see that function's doc comment).
-fn read_active_locals(lua: &Lua, state: *mut mlua_sys::lua_State) -> Vec<RawLocal> {
+/// Table/function locals also get an owned [`mlua::Value`] (see
+/// [`fetch_local_value`]) for the expand-on-demand inspector to root.
+fn read_active_locals(
+    lua: &Lua,
+    thread: *mut mlua_sys::lua_State,
+    level: std::os::raw::c_int,
+) -> Vec<RawLocal> {
     use std::ffi::CStr;
     use std::os::raw::c_int;
-
-    // `exec_raw` invokes this closure via `lua_pcall` (see mlua's
-    // `protect_lua_closure`), which pushes its own trampoline C function
-    // onto the call stack — so level 0 here is that trampoline, and the
-    // frame we actually want (`_update`, where the `EVERY_LINE` hook fired)
-    // is level 1.
-    const CALLER_FRAME_LEVEL: std::os::raw::c_int = 1;
 
     let mut locals: Vec<RawLocal> = Vec::new();
     unsafe {
         let mut ar: mlua_sys::lua_Debug = std::mem::zeroed();
-        if mlua_sys::lua_getstack(state, CALLER_FRAME_LEVEL, &mut ar) == 0 {
+        // Level 0 is the function the breakpoint suspended.
+        if mlua_sys::lua_getstack(thread, level, &mut ar) == 0
+            || mlua_sys::lua_checkstack(thread, 1) == 0
+        {
             return locals;
         }
         let mut n: c_int = 1;
         loop {
-            let name_ptr = mlua_sys::lua_getlocal(state, &ar, n);
+            let name_ptr = mlua_sys::lua_getlocal(thread, &ar, n);
             if name_ptr.is_null() {
                 break;
             }
@@ -590,14 +982,14 @@ fn read_active_locals(lua: &Lua, state: *mut mlua_sys::lua_State) -> Vec<RawLoca
             n += 1;
             let name = CStr::from_ptr(name_ptr).to_string_lossy().into_owned();
             if name.starts_with('(') {
-                mlua_sys::lua_pop(state, 1);
+                mlua_sys::lua_pop(thread, 1);
                 continue;
             }
-            let raw_type = mlua_sys::lua_type(state, -1);
-            let value = describe_raw_stack_value(state, -1);
-            mlua_sys::lua_pop(state, 1);
+            let raw_type = mlua_sys::lua_type(thread, -1);
+            let value = describe_raw_stack_value(thread, -1);
+            mlua_sys::lua_pop(thread, 1);
             let owned = if matches!(raw_type, mlua_sys::LUA_TTABLE | mlua_sys::LUA_TFUNCTION) {
-                fetch_local_value(lua, &ar, local_index)
+                fetch_local_value(lua, thread, &ar, local_index)
             } else {
                 None
             };
@@ -613,26 +1005,22 @@ fn read_active_locals(lua: &Lua, state: *mut mlua_sys::lua_State) -> Vec<RawLoca
     locals
 }
 
-/// Re-fetches local slot `n` at `ar` (already known live — called
-/// immediately after the same slot was read by [`read_active_locals`]) as
-/// an owned [`mlua::Value`]. `lua_getlocal` can be called more than once
-/// for the same slot while the frame is still active, so this is just a
-/// second, cheap fetch. Reentrant `exec_raw` call from inside the
-/// already-active hook (same pattern already proven safe for the outer
-/// `read_active_locals` call — mlua's per-`Lua` lock is a reentrant mutex).
-/// The value `exec_raw`'s closure leaves on the stack is converted via
-/// `FromLuaMulti`, which for a table/function creates a real
-/// registry-backed reference — unlike a raw stack index, that reference
-/// stays valid after this hook (and the `_update` frame) unwinds.
+/// Fetches local slot `n` of the suspended `thread` as an owned
+/// [`mlua::Value`]: the slot is moved onto the main stack inside `exec_raw`,
+/// whose result conversion gives a table/function a registry reference that
+/// outlives the frame.
 unsafe fn fetch_local_value(
     lua: &Lua,
+    thread: *mut mlua_sys::lua_State,
     ar: &mlua_sys::lua_Debug,
     n: std::os::raw::c_int,
 ) -> Option<mlua::Value> {
     let ar_ptr = ar as *const mlua_sys::lua_Debug;
     unsafe {
         lua.exec_raw::<mlua::Value>((), move |state| {
-            mlua_sys::lua_getlocal(state, ar_ptr, n);
+            if !mlua_sys::lua_getlocal(thread, ar_ptr, n).is_null() {
+                mlua_sys::lua_xmove(thread, state, 1);
+            }
         })
         .ok()
     }
@@ -1876,6 +2264,28 @@ impl Vm {
     /// exactly like `_update()` can. Subsequent frames call `_update()` via
     /// [`Vm::run_frame`].
     pub fn load_lua_source(&mut self, src: &str, input: &Input, font: &Font) -> mlua::Result<()> {
+        self.load_lua(src, input, font, true)
+    }
+
+    /// Like [`Vm::load_lua_source`], but the cart's top-level code and
+    /// `_init()` run at the start of the next frame, under that frame's hooks,
+    /// so Studio breakpoints stop there too. A syntax error still fails here.
+    pub fn load_lua_source_deferred(
+        &mut self,
+        src: &str,
+        input: &Input,
+        font: &Font,
+    ) -> mlua::Result<()> {
+        self.load_lua(src, input, font, false)
+    }
+
+    fn load_lua(
+        &mut self,
+        src: &str,
+        input: &Input,
+        font: &Font,
+        boot_now: bool,
+    ) -> mlua::Result<()> {
         // Cart Lua must not reach the filesystem/process: mask out io/os at the
         // StdLib level, then null dofile/loadfile below since they bypass the
         // StdLib mask entirely. PACKAGE stays enabled (mlua auto-disables
@@ -1949,17 +2359,8 @@ impl Vm {
             register_print_sink(&lua, Arc::clone(&output))?;
         }
 
-        // A cart's top-level code and `_init()` currently ran with no
-        // instruction budget at all — only per-frame `_update()`/`_draw()`
-        // did. An infinite loop here hung load instead of the frame loop.
-        let coroutines: Rc<RefCell<Vec<mlua::Thread>>> = Rc::new(RefCell::new(Vec::new()));
-        let active_budget: Rc<RefCell<Option<BudgetCells>>> = Rc::new(RefCell::new(None));
-        install_coroutine_budget_guard(
-            &lua,
-            &lua.globals(),
-            coroutines.clone(),
-            active_budget.clone(),
-        )?;
+        let hooks = Box::new(HookState::new());
+        set_hook_state(&lua, &*hooks)?;
 
         let selected_modules: Vec<&'static PreludeModule> =
             self.selected_prelude_modules().collect();
@@ -1978,29 +2379,12 @@ impl Vm {
         let width = self.config.width;
         let height = self.config.height;
 
-        let instructions: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
-        let budget_hit: Rc<RefCell<Option<LuaBreakpoint>>> = Rc::new(RefCell::new(None));
-        *active_budget.borrow_mut() = Some((
-            instructions.clone(),
-            budget_hit.clone(),
-            INIT_INSTRUCTION_BUDGET,
-        ));
-        lua.set_hook(
-            HookTriggers::new().every_nth_instruction(INSTRUCTION_HOOK_STRIDE),
-            budget_hook(
-                instructions.clone(),
-                budget_hit.clone(),
-                INIT_INSTRUCTION_BUDGET,
-            ),
-        );
-        rearm_coroutines(
-            &coroutines,
-            &instructions,
-            &budget_hit,
-            INIT_INSTRUCTION_BUDGET,
-        );
+        // Top-level code and `_init()` get the watchdog too, so an endless
+        // loop there fails the load instead of hanging it.
+        hooks.watch(INIT_INSTRUCTION_BUDGET);
+        set_main_hook(&lua, hook_mask(false));
 
-        let result: mlua::Result<()> = lua.scope(|scope| {
+        let result: mlua::Result<Option<mlua::Function>> = lua.scope(|scope| {
             let globals = lua.globals();
             register_builtins(
                 scope,
@@ -2035,26 +2419,37 @@ impl Vm {
                     .set_name(format!("=prelude:{}", module.name))
                     .exec()?;
             }
-            lua.load(src).set_name(CHUNK_SOURCE_NAME).exec()?;
+            let chunk = lua.load(src).set_name(CHUNK_SOURCE_NAME).into_function()?;
+            if !boot_now {
+                return Ok(Some(chunk));
+            }
+            chunk.call::<()>(())?;
             if let Ok(init) = globals.get::<mlua::Function>("_init") {
                 init.call::<()>(())?;
             }
-            Ok(())
+            Ok(None)
         });
-        lua.remove_hook();
-        *active_budget.borrow_mut() = None;
-        result?;
+        set_main_hook(&lua, 0);
+        hooks.stop_watching();
+        let pending_chunk = result?;
 
         self.script = Some(LuaScript {
             lua,
             output,
-            coroutines,
-            active_budget,
+            hooks,
+            frame_thread: RefCell::new(None),
+            suspended: Cell::new(None),
+            init_pending: Cell::new(!boot_now),
+            pending_chunk: RefCell::new(pending_chunk),
         });
         self.fault = None;
         self.fault_message = None;
         self.waiting = false;
         self.call_stack.clear();
+        self.selected_frame = 0;
+        // Values of the old Lua state panic on use once it is gone.
+        self.locals.clear();
+        self.debug_roots.clear();
         Ok(())
     }
 
@@ -2074,10 +2469,24 @@ impl Vm {
         self.script.is_some()
     }
 
+    /// Runs the top-level code and `_init()` a deferred load still owes, now
+    /// and without breakpoints, for a host that shows the booted state before
+    /// the first frame.
+    pub fn finish_lua_boot(&mut self, input: &Input, font: &Font) {
+        if self.script.as_ref().is_some_and(LuaScript::boot_pending) {
+            self.run_lua_entry(input, font, false);
+        }
+    }
+
+    pub(super) fn run_frame_lua(&mut self, input: &Input, font: &Font) {
+        self.run_lua_entry(input, font, true);
+    }
+
     /// One Lua-driven frame: refills the builtin implementations against this
     /// frame's borrowed VM state via `Lua::scope` (the permanent globals are
-    /// trampolines into them), then calls the script's `_update()`/`_draw()`.
-    pub(super) fn run_frame_lua(&mut self, input: &Input, font: &Font) {
+    /// trampolines into them), runs any owed boot, then `_update()`/`_draw()`
+    /// unless `frame` is false.
+    fn run_lua_entry(&mut self, input: &Input, font: &Font, frame: bool) {
         let Some(script) = self.script.as_ref() else {
             return;
         };
@@ -2098,27 +2507,8 @@ impl Vm {
         let width = self.config.width;
         let height = self.config.height;
 
-        let budget_hit: Rc<RefCell<Option<LuaBreakpoint>>> = Rc::new(RefCell::new(None));
-        let instructions: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
-        *script.active_budget.borrow_mut() = Some((
-            instructions.clone(),
-            budget_hit.clone(),
-            FRAME_INSTRUCTION_BUDGET,
-        ));
-        lua.set_hook(
-            HookTriggers::new().every_nth_instruction(INSTRUCTION_HOOK_STRIDE),
-            budget_hook(
-                instructions.clone(),
-                budget_hit.clone(),
-                FRAME_INSTRUCTION_BUDGET,
-            ),
-        );
-        rearm_coroutines(
-            &script.coroutines,
-            &instructions,
-            &budget_hit,
-            FRAME_INSTRUCTION_BUDGET,
-        );
+        script.hooks.watch(frame_budget(script.boot_pending()));
+        set_main_hook(lua, hook_mask(false));
 
         let result: mlua::Result<()> = lua.scope(|scope| {
             let globals = lua.globals();
@@ -2145,6 +2535,10 @@ impl Vm {
                 self.frame_count,
             )?;
 
+            script.run_pending_boot()?;
+            if !frame {
+                return Ok(());
+            }
             let update: mlua::Function = globals.get("_update")?;
             update.call::<()>(())?;
             if let Ok(draw) = globals.get::<mlua::Function>("_draw") {
@@ -2152,15 +2546,16 @@ impl Vm {
             }
             Ok(())
         });
-        lua.remove_hook();
-        *script.active_budget.borrow_mut() = None;
+        set_main_hook(lua, 0);
+        script.hooks.stop_watching();
+        let budget_hit = script.hooks.budget_hit.borrow().clone();
 
         // Checked ahead of `result`, not just on `Err`: a cart can wrap its
         // own runaway loop in `pcall`, which swallows the hook's error
         // before it ever reaches `update.call`, so `result` comes back `Ok`
         // even though the watchdog had to step in. That must still surface
         // as a fault instead of silently reporting a normal frame.
-        if let Some(location) = budget_hit.borrow().clone() {
+        if let Some(location) = budget_hit {
             log::error!(
                 "Lua execution budget exceeded at {}:{}",
                 location.source,
@@ -2174,31 +2569,43 @@ impl Vm {
         }
     }
 
-    /// Like `Vm::run_frame_lua`, but also installs a line hook that aborts
-    /// `_update()` as soon as it reaches a breakpointed source line (the
-    /// execution-budget watchdog runs here too, same as in
-    /// `Vm::run_frame_lua`). The aborted call unwinds Lua's stack (mlua's
-    /// hooks can't yield outside a
-    /// coroutine while borrowing per-frame VM state via `Lua::scope`, so a
-    /// suspend-and-resume mid-statement debugger isn't possible here) —
-    /// globals and RAM at the moment of the stop are readable via
-    /// [`Vm::lua_globals`] and `peek_memory`; locals are readable too, via
-    /// [`Vm::lua_debug_locals`] — mlua's safe hook API has no `lua_getlocal`
-    /// binding, so that path drops to raw `mlua_sys` FFI (see
-    /// `read_active_locals`). Resuming re-runs `_update()` from the top,
-    /// same as any other frame.
+    /// Like `Vm::run_frame_lua`, but the frame runs on a Lua thread that a
+    /// breakpoint suspends rather than unwinds: this returns
+    /// [`LuaRunOutcome::Breakpoint`] with the frame still alive, and the next
+    /// call continues it from the breakpointed line, so no code runs twice.
+    /// While suspended, [`Vm::lua_globals`], [`Vm::lua_debug_locals`] and
+    /// [`Vm::lua_call_stack`] show the frame's live state.
     pub fn run_frame_lua_bp(
         &mut self,
         input: &Input,
         font: &Font,
         breakpoints: &[LuaBreakpoint],
     ) -> LuaRunOutcome {
-        // `run_frame` ticks these; this path grew separately and didn't, so
-        // Studio's Running state was silent even though a sound was "active".
-        self.tick_audio_players();
-        self.peripherals
-            .tick_all(&mut self.memory, self.frame_count);
-        self.frame_count = self.frame_count.wrapping_add(1);
+        self.run_frame_lua_step(input, font, breakpoints, None)
+    }
+
+    /// [`Vm::run_frame_lua_bp`] that also stops after one line `step`,
+    /// reporting [`LuaRunOutcome::Step`].
+    pub fn run_frame_lua_step(
+        &mut self,
+        input: &Input,
+        font: &Font,
+        breakpoints: &[LuaBreakpoint],
+        step: Option<LuaStep>,
+    ) -> LuaRunOutcome {
+        let resume = self
+            .script
+            .as_ref()
+            .and_then(|script| script.suspended.take());
+        // A continued frame already did this when it started.
+        if resume.is_none() {
+            // `run_frame` ticks these; this path grew separately and didn't, so
+            // Studio's Running state was silent even though a sound was "active".
+            self.tick_audio_players();
+            self.peripherals
+                .tick_all(&mut self.memory, self.frame_count);
+            self.frame_count = self.frame_count.wrapping_add(1);
+        }
 
         let Some(script) = self.script.as_ref() else {
             return LuaRunOutcome::Completed;
@@ -2220,90 +2627,21 @@ impl Vm {
         let width = self.config.width;
         let height = self.config.height;
 
-        let hit: Rc<RefCell<Option<LuaBreakpoint>>> = Rc::new(RefCell::new(None));
-        let stack: Rc<RefCell<Vec<(String, String)>>> = Rc::new(RefCell::new(Vec::new()));
-        let locals: Rc<RefCell<Vec<RawLocal>>> = Rc::new(RefCell::new(Vec::new()));
-        let budget_hit: Rc<RefCell<Option<LuaBreakpoint>>> = Rc::new(RefCell::new(None));
-        let instructions: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
-        {
-            let hit_hook = hit.clone();
-            let stack_hook = stack.clone();
-            let locals_hook = locals.clone();
-            let budget_sink = budget_hit.clone();
-            let instructions_hook = instructions.clone();
-            let bps: Vec<LuaBreakpoint> = breakpoints.to_vec();
-            // The execution-budget count trigger always runs; EVERY_LINE
-            // (real per-instruction overhead) is only added when there's
-            // actually something to break on.
-            let mut triggers = HookTriggers::new().every_nth_instruction(INSTRUCTION_HOOK_STRIDE);
-            if !bps.is_empty() {
-                triggers = triggers.every_line();
-            }
-            lua.set_hook(triggers, move |lua, debug| {
-                if debug.event() == mlua::DebugEvent::Count {
-                    let mut count = instructions_hook.borrow_mut();
-                    *count += INSTRUCTION_HOOK_STRIDE;
-                    if *count < FRAME_INSTRUCTION_BUDGET {
-                        return Ok(VmState::Continue);
-                    }
-                    let line = debug.curr_line();
-                    *budget_sink.borrow_mut() = (line > 0).then(|| LuaBreakpoint {
-                        source: hook_debug_source(&debug),
-                        line: line as usize,
-                    });
-                    return Err(mlua::Error::runtime(EXECUTION_BUDGET_MESSAGE));
-                }
+        script.hooks.watch(frame_budget(script.boot_pending()));
+        *script.hooks.breakpoints.borrow_mut() = breakpoints.to_vec();
+        let from = script.hooks.stop_depth.get();
+        script
+            .hooks
+            .step_depth
+            .set(step.map(|step| match (resume, step) {
+                (None, _) | (_, LuaStep::Into) => usize::MAX,
+                (Some(_), LuaStep::Over) => from,
+                (Some(_), LuaStep::Out) => from.saturating_sub(1),
+            }));
+        // Lua that a builtin runs on the main thread keeps the watchdog.
+        set_main_hook(lua, hook_mask(false));
 
-                let line = debug.curr_line();
-                let source = hook_debug_source(&debug);
-                let matched = (line > 0)
-                    .then(|| {
-                        bps.iter().find(|breakpoint| {
-                            breakpoint.line == line as usize
-                                && (breakpoint.source == "*"
-                                    || normalized_debug_source(&breakpoint.source) == source)
-                        })
-                    })
-                    .flatten();
-                if let Some(breakpoint) = matched {
-                    *hit_hook.borrow_mut() = Some(LuaBreakpoint {
-                        source,
-                        line: breakpoint.line,
-                    });
-                    *stack_hook.borrow_mut() = capture_call_stack(lua);
-                    // Reentrant `exec_raw` call from inside this
-                    // already-active hook — proven safe by the T7 spike
-                    // (R4). Reads locals via raw `mlua_sys` FFI since mlua's
-                    // safe hook API has no `lua_getlocal` binding (R1, V23).
-                    // `exec_raw`'s `R` is read off the Lua stack, not the
-                    // closure's return value, so the result is threaded out
-                    // via the captured cell instead.
-                    let mut read_locals = Vec::new();
-                    let _: mlua::Result<()> = unsafe {
-                        lua.exec_raw((), |state| read_locals = read_active_locals(lua, state))
-                    };
-                    *locals_hook.borrow_mut() = read_locals;
-                    return Err(mlua::Error::runtime("breakpoint"));
-                }
-                Ok(VmState::Continue)
-            });
-        }
-        // Breakpoint checking only applies to the main thread — a coroutine
-        // still only gets the plain budget hook, same as `run_frame_lua`.
-        *script.active_budget.borrow_mut() = Some((
-            instructions.clone(),
-            budget_hit.clone(),
-            FRAME_INSTRUCTION_BUDGET,
-        ));
-        rearm_coroutines(
-            &script.coroutines,
-            &instructions,
-            &budget_hit,
-            FRAME_INSTRUCTION_BUDGET,
-        );
-
-        let result: mlua::Result<()> = lua.scope(|scope| {
-            let globals = lua.globals();
+        let result: mlua::Result<bool> = lua.scope(|scope| {
             register_builtins(
                 scope,
                 &builtin_impls(lua)?,
@@ -2326,33 +2664,45 @@ impl Vm {
                 height,
                 self.frame_count,
             )?;
-
-            let update: mlua::Function = globals.get("_update")?;
-            update.call::<()>(())?;
-            if let Ok(draw) = globals.get::<mlua::Function>("_draw") {
-                draw.call::<()>(())?;
-            }
-            Ok(())
+            script.run_frame_stages(resume, !breakpoints.is_empty() || step.is_some())
         });
-        lua.remove_hook();
-        *script.active_budget.borrow_mut() = None;
+        set_main_hook(lua, 0);
+        script.hooks.stop_watching();
+        let hit = script.hooks.hit.borrow().clone();
+        let budget_hit = script.hooks.budget_hit.borrow().clone();
+        let stepped = script.hooks.stepped.get();
 
-        if hit.borrow().is_some() {
-            self.call_stack = stack.borrow().clone();
-            self.locals = locals.borrow().clone();
-        } else {
-            self.call_stack.clear();
-            self.locals.clear();
+        let suspended_thread = match result {
+            Ok(true) => script
+                .frame_thread
+                .borrow()
+                .as_ref()
+                .map(|frame| frame.state),
+            _ => None,
+        };
+        match suspended_thread {
+            Some(thread) => {
+                self.call_stack = capture_call_stack(lua, thread);
+                self.locals = read_active_locals(lua, thread, 0);
+            }
+            None => {
+                self.call_stack.clear();
+                self.locals.clear();
+            }
         }
+        self.selected_frame = 0;
 
-        let breakpoint = hit.borrow().clone();
         // `budget_hit` is checked ahead of `result` for the same reason as
         // `run_frame_lua`: a cart's own `pcall` around a runaway loop can
-        // swallow the watchdog's error before it reaches `update.call`,
-        // leaving `result` looking like a normal `Ok(())`.
-        match (breakpoint, budget_hit.borrow().clone(), result) {
-            (Some(breakpoint), _, _) => LuaRunOutcome::Breakpoint(breakpoint),
-            (None, Some(location), _) => {
+        // swallow the watchdog's error, leaving `result` looking normal.
+        match (result, hit, budget_hit) {
+            (_, _, Some(location)) => {
+                if let Some(script) = self.script.as_ref() {
+                    script.suspended.set(None);
+                    script.frame_thread.take();
+                }
+                self.call_stack.clear();
+                self.locals.clear();
                 log::error!(
                     "Lua execution budget exceeded at {}:{}",
                     location.source,
@@ -2361,8 +2711,10 @@ impl Vm {
                 self.set_fault(VmFault::ExecutionBudgetExceeded);
                 LuaRunOutcome::Error(Some(location), EXECUTION_BUDGET_MESSAGE.to_string())
             }
-            (None, None, Ok(())) => LuaRunOutcome::Completed,
-            (None, None, Err(e)) => {
+            (Ok(true), Some(location), None) if stepped => LuaRunOutcome::Step(location),
+            (Ok(true), Some(breakpoint), None) => LuaRunOutcome::Breakpoint(breakpoint),
+            (Ok(_), _, None) => LuaRunOutcome::Completed,
+            (Err(e), _, None) => {
                 log::error!("Lua runtime error: {e}");
                 let (location, message) = describe_lua_error_location(&e);
                 self.set_fault_with_message(VmFault::LuaError, Some(message.clone()));
@@ -2370,17 +2722,47 @@ impl Vm {
             }
         }
     }
-
     /// The Lua call stack captured at the moment the last breakpoint was
     /// hit, deepest frame first — cleared once execution resumes past a
     /// breakpoint. Each entry is `(frame label, "file:line")`.
     pub fn lua_call_stack(&self) -> Vec<(String, String)> {
-        self.call_stack.clone()
+        self.call_stack
+            .iter()
+            .map(|(label, location, _)| (label.clone(), location.clone()))
+            .collect()
+    }
+
+    /// Index into [`Vm::lua_call_stack`] whose locals the debugger shows.
+    pub fn lua_selected_frame(&self) -> usize {
+        self.selected_frame
+    }
+
+    /// Shows frame `index` of the suspended call stack in
+    /// [`Vm::lua_debug_locals`] and resolves watches against it.
+    pub fn select_lua_frame(&mut self, index: usize) -> Result<(), String> {
+        let (_, _, level) = self
+            .call_stack
+            .get(index)
+            .ok_or_else(|| "No such call stack frame".to_string())?;
+        let script = self
+            .script
+            .as_ref()
+            .ok_or_else(|| "No Lua cart loaded".to_string())?;
+        let thread = script
+            .frame_thread
+            .borrow()
+            .as_ref()
+            .filter(|_| script.suspended.get().is_some())
+            .map(|frame| frame.state)
+            .ok_or_else(|| "The frame is no longer paused".to_string())?;
+        self.locals = read_active_locals(&script.lua, thread, *level);
+        self.selected_frame = index;
+        Ok(())
     }
 
     /// Local variables at the innermost frame, captured at the moment the
     /// last breakpoint was hit — cleared once execution resumes past a
-    /// breakpoint. Read via raw FFI from inside the `EVERY_LINE` hook (see
+    /// breakpoint. Read via raw FFI from the suspended frame thread (see
     /// `read_active_locals`); empty if no breakpoint has fired yet. Table
     /// and function values are rooted for [`Vm::expand_debug_node`] — see
     /// `Vm::root_debug_value`.
@@ -2449,10 +2831,55 @@ impl Vm {
         DebugValue { text, node_id }
     }
 
+    /// Describes the child `key_text` of expanded node `parent`. A child an
+    /// expand handed out resolves by path from its parent's current value,
+    /// so it stays expandable, and live, after the next tick re-roots it.
+    fn child_debug_value(
+        &mut self,
+        parent: &str,
+        key_text: &str,
+        step: Option<DebugStep>,
+        value: mlua::Value,
+    ) -> DebugValue {
+        let id = format!("{parent}/{key_text}");
+        match step {
+            Some(step) if matches!(value, mlua::Value::Table(_) | mlua::Value::Function(_)) => {
+                self.debug_children
+                    .insert(id.clone(), (parent.to_string(), step));
+                DebugValue {
+                    text: describe_lua_value(&value),
+                    node_id: Some(id),
+                }
+            }
+            // A table or float key has no path; it lasts until the next tick.
+            _ => self.root_debug_value(id, value),
+        }
+    }
+
+    /// The current value behind `id`: a root, or a child walked from one.
+    fn resolve_debug_node(&self, id: &str) -> Option<mlua::Value> {
+        if let Some(value) = self.debug_roots.get(id) {
+            return Some(value.clone());
+        }
+        let (parent, step) = self.debug_children.get(id)?;
+        let lua = &self.script.as_ref()?.lua;
+        let value = match (self.resolve_debug_node(parent)?, step) {
+            (mlua::Value::Function(function), DebugStep::Upvalue(name)) => {
+                list_function_upvalues(lua, &function)
+                    .into_iter()
+                    .find(|(upvalue, _)| upvalue == name)?
+                    .1
+            }
+            (mlua::Value::Table(table), step) => step.read(lua, &table).ok()?,
+            _ => return None,
+        };
+        (!value.is_nil()).then_some(value)
+    }
+
     /// Drops every table/function value rooted for the debugger's
     /// expand-on-demand inspector — call once per tick, before re-gathering
-    /// locals/globals/watches, so a node id handed to the frontend never
-    /// stays valid past the pause/step it was captured in.
+    /// locals/globals/watches, so a root id never outlives the pause/step it
+    /// was captured in. Expanded children resolve through their root again.
     pub fn clear_debug_roots(&mut self) {
         self.debug_roots.clear();
     }
@@ -2460,17 +2887,15 @@ impl Vm {
     /// Returns the immediate children of a table/function previously
     /// rooted by [`Vm::lua_globals`], [`Vm::lua_debug_locals`],
     /// [`Vm::lua_watch`], or a prior call to this method. Read-only: never
-    /// evaluates Lua, only walks an already-captured value — same posture
-    /// as [`Vm::lua_watch`]. Returns `Err` (never panics) for an unknown or
-    /// stale id, e.g. after [`Vm::clear_debug_roots`] ran.
+    /// evaluates Lua, only walks the value — same posture as
+    /// [`Vm::lua_watch`]. Returns `Err` (never panics) for an unknown or
+    /// stale id, e.g. a root after [`Vm::clear_debug_roots`] ran.
     pub fn expand_debug_node(
         &mut self,
         node_id: &str,
     ) -> Result<Vec<(String, DebugValue)>, String> {
         let value = self
-            .debug_roots
-            .get(node_id)
-            .cloned()
+            .resolve_debug_node(node_id)
             .ok_or_else(|| "Value is no longer available".to_string())?;
         match value {
             mlua::Value::Table(table) => {
@@ -2488,8 +2913,8 @@ impl Vm {
                         break;
                     }
                     let key_text = describe_table_key(&key);
-                    let child_id = format!("{node_id}/{key_text}");
-                    let debug_value = self.root_debug_value(child_id, entry);
+                    let debug_value =
+                        self.child_debug_value(node_id, &key_text, DebugStep::of_key(&key), entry);
                     out.push((key_text, debug_value));
                 }
                 Ok(out)
@@ -2502,8 +2927,13 @@ impl Vm {
                 Ok(upvalues
                     .into_iter()
                     .map(|(name, value)| {
-                        let child_id = format!("{node_id}/upvalue:{name}");
-                        let debug_value = self.root_debug_value(child_id, value);
+                        let step = DebugStep::Upvalue(name.clone());
+                        let debug_value = self.child_debug_value(
+                            node_id,
+                            &format!("upvalue:{name}"),
+                            Some(step),
+                            value,
+                        );
                         (name, debug_value)
                     })
                     .collect())
@@ -2553,6 +2983,10 @@ impl Vm {
         let Some(script) = self.script.as_ref() else {
             return self.load_lua_source(src, input, font);
         };
+        // The boot never ran, so there is no state to keep.
+        if script.pending_chunk.borrow().is_some() {
+            return self.load_lua(src, input, font, false);
+        }
 
         // Syntax-check first: compiling without executing means a bad chunk
         // never touches the live instance at all.
@@ -2598,29 +3032,9 @@ impl Vm {
         let frame_count = self.frame_count;
         let collision_types = &self.collision_types;
 
-        // Same watchdog gap as `load_lua_source`: the re-exec below ran with
-        // no instruction budget at all before this fix.
-        let instructions: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
-        let budget_hit: Rc<RefCell<Option<LuaBreakpoint>>> = Rc::new(RefCell::new(None));
-        *script.active_budget.borrow_mut() = Some((
-            instructions.clone(),
-            budget_hit.clone(),
-            INIT_INSTRUCTION_BUDGET,
-        ));
-        lua.set_hook(
-            HookTriggers::new().every_nth_instruction(INSTRUCTION_HOOK_STRIDE),
-            budget_hook(
-                instructions.clone(),
-                budget_hit.clone(),
-                INIT_INSTRUCTION_BUDGET,
-            ),
-        );
-        rearm_coroutines(
-            &script.coroutines,
-            &instructions,
-            &budget_hit,
-            INIT_INSTRUCTION_BUDGET,
-        );
+        // The re-exec gets the same watchdog as `load_lua_source`.
+        script.hooks.watch(INIT_INSTRUCTION_BUDGET);
+        set_main_hook(lua, hook_mask(false));
 
         let result: mlua::Result<()> = lua.scope(|scope| {
             register_builtins(
@@ -2657,8 +3071,8 @@ impl Vm {
             // reload rather than a reset.
             Ok(())
         });
-        lua.remove_hook();
-        *script.active_budget.borrow_mut() = None;
+        set_main_hook(lua, 0);
+        script.hooks.stop_watching();
         result?;
 
         let globals = lua.globals();
@@ -2672,50 +3086,53 @@ impl Vm {
         self.fault_message = None;
         self.waiting = false;
         self.call_stack.clear();
+        self.selected_frame = 0;
         Ok(())
     }
 
-    /// Reads a dotted global/table path without executing Lua. Studio uses
-    /// this for debugger watches, so expressions cannot mutate cart state.
-    /// A table/function result is rooted under `"watch:<expression>"` for
-    /// [`Vm::expand_debug_node`].
+    /// Reads a watch path like `player.x` or `items[1].hp` without executing
+    /// Lua, so a watch can't mutate cart state. The name resolves like Lua
+    /// would at the breakpoint: a local of the stopped function first, then
+    /// globals and file-scope locals. A table/function result is rooted
+    /// under `"watch:<expression>"` for [`Vm::expand_debug_node`].
     pub fn lua_watch(&mut self, expression: &str) -> Result<DebugValue, String> {
-        let parts: Vec<_> = expression.split('.').collect();
-        if parts.is_empty()
-            || parts.iter().any(|part| {
-                part.is_empty()
-                    || !part
-                        .chars()
-                        .all(|char| char == '_' || char.is_ascii_alphanumeric())
-                    || part
-                        .chars()
-                        .next()
-                        .is_some_and(|char| char.is_ascii_digit())
-            })
-        {
-            return Err("Watch must be a dotted identifier".to_string());
-        }
+        let (root, steps) =
+            parse_watch_path(expression).ok_or_else(|| WATCH_SYNTAX_ERROR.to_string())?;
         let script = self
             .script
             .as_ref()
             .ok_or_else(|| "No Lua cart loaded".to_string())?;
-        let mut value: mlua::Value = script
-            .lua
-            .globals()
-            .raw_get(parts[0])
-            .map_err(|error| error.to_string())?;
-        if value.is_nil() {
-            value = file_scope_locals(&script.lua)
-                .into_iter()
-                .find(|(name, _)| name == parts[0])
-                .map_or(mlua::Value::Nil, |(_, local)| local);
-        }
-        for part in &parts[1..] {
-            value = match value {
-                mlua::Value::Table(table) => {
-                    table.raw_get(*part).map_err(|error| error.to_string())?
+        let mut value = match self.locals.iter().find(|(name, _, _)| *name == root) {
+            // Scalar locals are only kept as display text.
+            Some((_, text, None)) if steps.is_empty() => {
+                return Ok(DebugValue {
+                    text: text.clone(),
+                    node_id: None,
+                });
+            }
+            Some((_, _, owned)) => owned.clone().unwrap_or(mlua::Value::Nil),
+            None => {
+                let global: mlua::Value = script
+                    .lua
+                    .globals()
+                    .raw_get(root.as_str())
+                    .map_err(|error| error.to_string())?;
+                if global.is_nil() {
+                    file_scope_locals(&script.lua)
+                        .into_iter()
+                        .find(|(name, _)| *name == root)
+                        .map_or(mlua::Value::Nil, |(_, local)| local)
+                } else {
+                    global
                 }
-                _ => return Err(format!("{} is not a table", expression)),
+            }
+        };
+        for step in &steps {
+            value = match value {
+                mlua::Value::Table(table) => step
+                    .read(&script.lua, &table)
+                    .map_err(|error| error.to_string())?,
+                _ => return Err(format!("{expression} is not a table")),
             };
         }
         if matches!(value, mlua::Value::Nil) {
@@ -2766,6 +3183,37 @@ function _update() end",
         );
         assert!(vm.lua_watch("player.x + 1").is_err());
         assert!(!vm.lua_globals().iter().any(|(name, _)| name == "warn"));
+    }
+
+    #[test]
+    fn watch_expressions_are_names_fields_and_indexes() {
+        use super::is_watch_expression;
+        assert!(is_watch_expression("player.x"));
+        assert!(is_watch_expression(" _state.enemy_2.hp "));
+        assert!(is_watch_expression("enemies[1].hp"));
+        assert!(is_watch_expression("grid[2][-1]"));
+        assert!(!is_watch_expression("player.x + 1"));
+        assert!(!is_watch_expression("player..x"));
+        assert!(!is_watch_expression("2player.x"));
+        assert!(!is_watch_expression("enemies[i]"));
+        assert!(!is_watch_expression("enemies[1"));
+        assert!(!is_watch_expression("f()"));
+    }
+
+    #[test]
+    fn indexed_watch_reads_array_items() {
+        let mut vm = Vm::new(VmConfig::default());
+        vm.load_lua_source(
+            "enemies = { { hp = 3 }, { hp = 5 } }\nfunction _update() end",
+            &Input::new(),
+            &Font::empty(),
+        )
+        .expect("watch fixture should load");
+        assert_eq!(
+            vm.lua_watch("enemies[2].hp").map(|v| v.text),
+            Ok("5".to_string())
+        );
+        assert!(vm.lua_watch("enemies[3].hp").is_err());
     }
 
     #[test]

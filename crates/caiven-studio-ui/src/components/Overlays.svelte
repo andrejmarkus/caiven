@@ -491,9 +491,9 @@
         <div class="focus-screen">
           <canvas class="focus-pixels" bind:this={focusCanvas} width={SCREEN_WIDTH} height={SCREEN_HEIGHT} aria-label="Cart framebuffer"></canvas>
           <div class="scanline-overlay"></div><div class="crt-vignette"></div>
-          {#if pauseReason?.kind === 'breakpoint'}
+          {#if pauseReason?.kind === 'breakpoint' || pauseReason?.kind === 'step'}
             <div class="focus-breakpoint-banner">
-              Breakpoint <strong>{pauseReason.source}:{pauseReason.line ?? '?'}</strong>
+              {pauseReason.kind === 'step' ? 'Step' : 'Breakpoint'} <strong>{pauseReason.source}:{pauseReason.line ?? '?'}</strong>
             </div>
           {/if}
         </div>

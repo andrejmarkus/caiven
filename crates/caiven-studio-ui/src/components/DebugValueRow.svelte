@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { ChevronRight, ChevronDown, X } from '@lucide/svelte';
   import { Button } from '@caiven/ui/button';
   import type { DebugChild } from '../types';
@@ -9,32 +10,61 @@
     value: string;
     nodeId: string | null | undefined;
     depth?: number;
+    /** Changes whenever Lua ran; an expanded row then refetches its children. */
+    revision?: number;
     onExpand: (nodeId: string) => Promise<DebugChild[]>;
     onRemove?: (key: string) => void;
   }
 
-  let { label, value, nodeId, depth = 0, onExpand, onRemove }: Props = $props();
+  let { label, value, nodeId, depth = 0, revision = 0, onExpand, onRemove }: Props = $props();
 
   let expanded = $state(false);
   let children = $state<DebugChild[] | null>(null);
-  let loading = $state(false);
   let error = $state('');
+  let fetching = false;
+  let stale = false;
 
-  async function toggle() {
-    if (!nodeId) return;
-    if (!expanded && children === null) {
-      loading = true;
-      error = '';
-      try {
-        children = await onExpand(nodeId);
-      } catch {
-        error = 'expired';
-      } finally {
-        loading = false;
-      }
+  // One request at a time; a revision that lands mid-request fetches once more after it.
+  async function load() {
+    if (fetching) {
+      stale = true;
+      return;
     }
-    expanded = !expanded;
+    fetching = true;
+    try {
+      do {
+        stale = false;
+        if (!nodeId) break;
+        try {
+          children = await onExpand(nodeId);
+          error = '';
+        } catch {
+          children = null;
+          error = 'unavailable';
+        }
+      } while (stale && expanded);
+    } finally {
+      fetching = false;
+    }
   }
+
+  function toggle() {
+    if (!nodeId) return;
+    expanded = !expanded;
+    if (expanded) void load();
+  }
+
+  $effect(() => {
+    revision;
+    untrack(() => {
+      if (expanded) void load();
+    });
+  });
+
+  // A value that is no longer a table or function has nothing to show.
+  $effect(() => {
+    if (!nodeId) untrack(() => (expanded = false));
+  });
 </script>
 
 <div class="watch-row" style={`padding-left:${14 + depth * 14}px`}>
@@ -51,13 +81,13 @@
   {/if}
 </div>
 {#if expanded}
-  {#if loading}
-    <div class="watch-row" style={`padding-left:${14 + (depth + 1) * 14}px`}><span class="watch-empty-inline">Loading…</span></div>
-  {:else if error}
+  {#if error}
     <div class="watch-row" style={`padding-left:${14 + (depth + 1) * 14}px`}><span class="watch-empty-inline">{error}</span></div>
-  {:else if children && children.length}
+  {:else if children === null}
+    <div class="watch-row" style={`padding-left:${14 + (depth + 1) * 14}px`}><span class="watch-empty-inline">Loading…</span></div>
+  {:else if children.length}
     {#each children as child (child.key)}
-      <Self label={child.key} value={child.value} nodeId={child.nodeId} depth={depth + 1} {onExpand} />
+      <Self label={child.key} value={child.value} nodeId={child.nodeId} depth={depth + 1} {revision} {onExpand} />
     {/each}
   {:else}
     <div class="watch-row" style={`padding-left:${14 + (depth + 1) * 14}px`}><span class="watch-empty-inline">empty</span></div>

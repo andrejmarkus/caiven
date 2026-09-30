@@ -33,3 +33,22 @@ paths:
 - Debugger views: carts keep state in file-scope `local`s (upvalues of
   `_update` & co.), not `_G`. Any inspector reading only globals or frame
   locals shows nothing for them; `file_scope_locals` in `lua_exec.rs` covers it.
+- Studio loads carts with `load_lua_source_deferred`: top-level code and
+  `_init()` run at the top of the first frame, so breakpoints reach them.
+  Anything checking boot effects after a Studio load runs a frame (or
+  `finish_lua_boot`).
+- Hooks: never use mlua's `set_hook`/`Thread::set_hook`. mlua keeps one hooked
+  thread and strips the hook from the rest, so arming a coroutine silently
+  disarmed the main thread's watchdog and breakpoints. `vm_hook` is one raw
+  hook for every thread; coroutines inherit it.
+- A breakpoint suspends the frame thread from inside the hook. Resume it with
+  `resume_raw`, never mlua's `Thread::resume`: that resets the thread's stack
+  top afterwards and cuts into the suspended frame's live registers.
+- An `mlua::Value` outlives its `Lua` only as a weak ref: using it after a
+  reload panics ("Lua instance is destroyed"). `load_lua` clears every
+  debugger field holding values (`locals`, `debug_roots`); expanded child
+  nodes keep plain-data paths (`DebugStep`), not values.
+- Line steps (`LuaStep`) reuse the breakpoint stop: the hook suspends at the
+  next line no deeper than `HookState::step_depth`, measured by `stack_depth`
+  from the last stop. A new callback resets the limit to its first line, so a
+  step never runs past the end of `_update` into the rest of the frame.

@@ -6,11 +6,13 @@
   import * as Tabs from '@caiven/ui/tabs';
   import DebugValueRow from './DebugValueRow.svelte';
   import { SCREEN_HEIGHT, SCREEN_RGBA_LEN, SCREEN_WIDTH, isTauri } from '../lib/ipc';
+  import { shortcut } from '../lib/format';
   import type { CallFrame, DebugChild, Diagnostic, GlobalValue, PauseReason, RunState } from '../types';
 
   interface Props {
     runState: RunState;
     frame: number;
+    luaRuns: number;
     fps: number;
     frameTime: number;
     frameData: Uint8Array | null;
@@ -21,6 +23,9 @@
     globals: GlobalValue[];
     watches: GlobalValue[];
     callStack: CallFrame[];
+    /** Index into `callStack` whose locals `locals` holds. */
+    selectedFrame: number;
+    onSelectFrame: (index: number) => void;
     locals: GlobalValue[];
     breakpointCount: number;
     diagnostics: Diagnostic[];
@@ -33,7 +38,7 @@
     onClose: () => void;
   }
 
-  let { runState, frame, fps, frameTime, frameData, onFocus, held, onInput, globals, watches, callStack, locals, breakpointCount, diagnostics, pauseReason, onJumpToError, onJumpToLocation, onAddWatch, onRemoveWatch, onExpandDebugValue, onClose }: Props = $props();
+  let { runState, frame, luaRuns, fps, frameTime, frameData, onFocus, held, onInput, globals, watches, callStack, selectedFrame, onSelectFrame, locals, breakpointCount, diagnostics, pauseReason, onJumpToError, onJumpToLocation, onAddWatch, onRemoveWatch, onExpandDebugValue, onClose }: Props = $props();
   let canvas: HTMLCanvasElement;
   let debugTab = $state<'watches' | 'globals' | 'locals' | 'stack'>('watches');
   let watchExpression = $state('');
@@ -50,6 +55,7 @@
     frameBars = [...untrack(() => frameBars).slice(1), frameTime];
   });
   const scriptError = $derived(diagnostics.find((item) => item.severity === 'error'));
+  const atLine = $derived(pauseReason?.kind === 'breakpoint' || pauseReason?.kind === 'step');
   const keys = [
     ['↑ W', 0], ['↓ S', 1], ['← A', 2],
     ['→ D', 3], ['J  A', 4], ['K  B', 5],
@@ -138,8 +144,8 @@
         <div class="pause-scrim">
           {#if scriptError}
             <span>Script error</span><strong>{scriptError.title}</strong><p>{scriptError.detail}</p><Button variant="link" size="sm" onclick={() => onJumpToError(scriptError)}>Jump to line</Button>
-          {:else if pauseReason?.kind === 'breakpoint'}
-            <span>Breakpoint</span><strong>{pauseReason.source}:{pauseReason.line ?? '?'}</strong><p>Execution paused before next frame.</p><Button variant="link" size="sm" onclick={() => onJumpToLocation(pauseReason.source ?? '', pauseReason.line)}>Jump to line</Button>
+          {:else if atLine && pauseReason}
+            <span>{pauseReason.kind === 'step' ? 'Step' : 'Breakpoint'}</span><strong>{pauseReason.source}:{pauseReason.line ?? '?'}</strong><p>F10 steps over, F11 into, {shortcut('⇧F11')} out. Run continues.</p><Button variant="link" size="sm" onclick={() => onJumpToLocation(pauseReason.source ?? '', pauseReason.line)}>Jump to line</Button>
           {:else if runState === 'stopped'}
             <span>Stopped</span><strong>Cart not running</strong><p>Run cart to start VM.</p>
           {:else}
@@ -171,31 +177,32 @@
     {#if debugTab === 'watches'}
       <div class="watch-list">
         {#each watches as watch (watch.name)}
-          <DebugValueRow label={watch.name} value={watch.value} nodeId={watch.nodeId} onExpand={onExpandDebugValue} onRemove={onRemoveWatch} />
+          <DebugValueRow label={watch.name} value={watch.value} nodeId={watch.nodeId} revision={luaRuns} onExpand={onExpandDebugValue} onRemove={onRemoveWatch} />
         {/each}
-        {#if !watches.length}<div class="watch-empty">No watches. Add Lua expression below.</div>{/if}
+        {#if !watches.length}<div class="watch-empty">No watches. Add a variable below.</div>{/if}
       </div>
       {#if watchError}<div class="watch-error" role="alert">{watchError}</div>{/if}
-      <form class="add-watch" onsubmit={(event) => { event.preventDefault(); void submitWatch(); }}><Plus size={13} /><Input bind:value={watchExpression} placeholder="player.x" aria-label="Watch expression" oninput={() => watchError = ''} /><Button variant="outline" size="xs" disabled={watchBusy || !watchExpression.trim()}>{watchBusy ? '…' : 'Add'}</Button></form>
+      <form class="add-watch" onsubmit={(event) => { event.preventDefault(); void submitWatch(); }}><Plus size={13} /><Input bind:value={watchExpression} placeholder="player.x or items[1]" aria-label="Watch expression" oninput={() => watchError = ''} /><Button variant="outline" size="xs" disabled={watchBusy || !watchExpression.trim()}>{watchBusy ? '…' : 'Add'}</Button></form>
     {:else if debugTab === 'globals'}
       <div class="watch-list">
         {#each globals as global (global.name)}
-          <DebugValueRow label={global.name} value={global.value} nodeId={global.nodeId} onExpand={onExpandDebugValue} />
+          <DebugValueRow label={global.name} value={global.value} nodeId={global.nodeId} revision={luaRuns} onExpand={onExpandDebugValue} />
         {/each}
         {#if !globals.length}<div class="watch-empty">Pause cart to inspect globals.</div>{/if}
       </div>
     {:else if debugTab === 'locals'}
       <div class="watch-list">
-        {#each locals as local (local.name)}
-          <DebugValueRow label={local.name} value={local.value} nodeId={local.nodeId} onExpand={onExpandDebugValue} />
+        {#if callStack.length > 1 && callStack[selectedFrame]}<div class="locals-frame">in <strong>{callStack[selectedFrame].label}</strong></div>{/if}
+        {#each locals as local (`${selectedFrame}:${local.name}`)}
+          <DebugValueRow label={local.name} value={local.value} nodeId={local.nodeId} revision={luaRuns} onExpand={onExpandDebugValue} />
         {/each}
-        {#if !locals.length}<div class="watch-empty">{pauseReason?.kind === 'breakpoint' ? 'No locals in this function yet. File-level locals are under Globals.' : 'Pause at a breakpoint to see local variables.'}</div>{/if}
+        {#if !locals.length}<div class="watch-empty">{atLine ? 'No locals in this function yet. File-level locals are under Globals.' : 'Pause at a breakpoint to see local variables.'}</div>{/if}
       </div>
     {:else}
       <div class="watch-list">
         {#if callStack.length}
-          {#each callStack as frame}
-            <Button variant="ghost" class="watch-row stack-frame" onclick={() => jumpFrame(frame.location)}>
+          {#each callStack as frame, index}
+            <Button variant="ghost" class={`watch-row stack-frame${index === selectedFrame ? ' selected' : ''}`} aria-current={index === selectedFrame} title="Show this call's locals" onclick={() => { onSelectFrame(index); jumpFrame(frame.location); }}>
               <strong>{frame.label}</strong><code>{frame.location}</code>
             </Button>
           {/each}

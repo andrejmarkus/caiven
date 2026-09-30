@@ -21,8 +21,7 @@ struct SaveDbgFile<'a> {
     watches: &'a [String],
 }
 
-/// Breakpoint model shared with Caiven Studio's debugger panel (`studio::debug_panel`,
-/// `studio::code_panel`'s gutter); state lives here, egui rendering lives there.
+/// A project's breakpoints and watches, saved next to it in a `.dbg` file.
 pub struct Debugger {
     breakpoints: Vec<Breakpoint>,
     watches: Vec<String>,

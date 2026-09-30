@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { Annotation, EditorState, RangeSet, StateEffect, StateField } from '@codemirror/state';
   import {
-    EditorView, GutterMarker, drawSelection, dropCursor, gutter, highlightActiveLine,
+    Decoration, EditorView, GutterMarker, drawSelection, dropCursor, gutter, gutterLineClass, highlightActiveLine,
     highlightActiveLineGutter, highlightSpecialChars, hoverTooltip, keymap, lineNumbers,
     rectangularSelection,
   } from '@codemirror/view';
@@ -16,7 +16,7 @@
   import type {
     ApiEntry, Breakpoint, Diagnostic, EditorInsertRequest, EditorRevealRequest, PreludeModule,
   } from '../types';
-  import { sourceOffset } from '../lib/editorMath';
+  import { sourceOffset, watchPathAt } from '../lib/editorMath';
 
   // CodeMirror's own `defaultHighlightStyle` assumes a light background —
   // against this editor's dark theme it renders near-black text on black,
@@ -42,6 +42,10 @@
     preludeModules: PreludeModule[];
     diagnostics: Diagnostic[];
     breakpoints: Breakpoint[];
+    /** Line of this source the paused frame stopped on. */
+    pausedLine: number | null;
+    /** Reads a value for the hover while paused; null otherwise. */
+    onPeek: ((expression: string) => Promise<string | null>) | null;
     insertRequest: EditorInsertRequest | null;
     revealRequest: EditorRevealRequest | null;
     onInsertHandled: (id: number) => void;
@@ -53,7 +57,7 @@
   }
 
   let {
-    value, path, initialCursor, api, preludeModules, diagnostics, breakpoints, insertRequest, revealRequest,
+    value, path, initialCursor, api, preludeModules, diagnostics, breakpoints, pausedLine, onPeek, insertRequest, revealRequest,
     onInsertHandled, onRevealHandled, onChange, onCursor, onToggleBreakpoint, onEnableModule,
   }: Props = $props();
   let host: HTMLDivElement;
@@ -83,6 +87,31 @@
       }
       return markers.map(transaction.changes);
     },
+  });
+
+  class PausedGutterMarker extends GutterMarker {
+    elementClass = 'cm-paused-gutter';
+  }
+  const pausedGutter = new PausedGutterMarker();
+  const pausedLineDecoration = Decoration.line({ class: 'cm-paused-line' });
+  const setPausedLine = StateEffect.define<number | null>();
+  // Start of the line the frame stopped on; edits carry it along.
+  const pausedField = StateField.define<number | null>({
+    create: () => null,
+    update(position, transaction) {
+      for (const effect of transaction.effects) if (effect.is(setPausedLine)) return effect.value;
+      return position === null ? null : transaction.changes.mapPos(position);
+    },
+    provide: (field) => [
+      EditorView.decorations.compute([field], (state) => {
+        const position = state.field(field);
+        return position === null ? Decoration.none : Decoration.set([pausedLineDecoration.range(state.doc.lineAt(position).from)]);
+      }),
+      gutterLineClass.compute([field], (state) => {
+        const position = state.field(field);
+        return position === null ? RangeSet.empty : RangeSet.of([pausedGutter.range(state.doc.lineAt(position).from)]);
+      }),
+    ],
   });
 
   function completions(context: CompletionContext) {
@@ -124,6 +153,30 @@
     };
   });
 
+  const valueHover = hoverTooltip(async (editor, position, side) => {
+    if (!onPeek) return null;
+    const line = editor.state.doc.lineAt(position);
+    const column = position - line.from - (side < 0 ? 1 : 0);
+    if (line.text.slice(0, column).includes('--')) return null;
+    const target = watchPathAt(line.text, column);
+    if (!target || api.some((entry) => entry.name === target.path)) return null;
+    const value = await onPeek(target.path);
+    if (value === null) return null;
+    return {
+      pos: line.from + target.from,
+      end: line.from + target.to,
+      above: true,
+      create() {
+        const dom = document.createElement('div');
+        dom.className = 'cm-value-peek';
+        const name = document.createElement('code');
+        name.textContent = target.path;
+        dom.append(name, ` = ${value}`);
+        return { dom };
+      },
+    };
+  });
+
   let breakpointTimer: ReturnType<typeof setTimeout> | undefined;
 
   // Edits move gutter markers; push the moved lines back so the backend does not stop on stale ones.
@@ -145,6 +198,12 @@
         breakpoints.filter((breakpoint) => breakpoint.source === path).map((breakpoint) => breakpoint.line),
       ),
     });
+  }
+
+  function syncPausedLine() {
+    if (!view) return;
+    const doc = view.state.doc;
+    view.dispatch({ effects: setPausedLine.of(pausedLine && pausedLine <= doc.lines ? doc.line(pausedLine).from : null) });
   }
 
   function applyInsert() {
@@ -236,8 +295,8 @@
           lineNumbers(), highlightActiveLineGutter(), highlightSpecialChars(), history(),
           drawSelection(), dropCursor(), rectangularSelection(), bracketMatching(),
           syntaxHighlighting(luaHighlightStyle, { fallback: true }),
-          StreamLanguage.define(lua), autocompletion({ override: [completions] }), apiHover,
-          breakpointField,
+          StreamLanguage.define(lua), autocompletion({ override: [completions] }), apiHover, valueHover,
+          breakpointField, pausedField,
           gutter({
             class: 'cm-breakpoint-gutter',
             markers: (editor) => editor.state.field(breakpointField),
@@ -276,6 +335,7 @@
       }),
     });
     syncBreakpoints();
+    syncPausedLine();
     syncDiagnostics();
     applyInsert();
     applyReveal();
@@ -292,6 +352,7 @@
     }
   });
   $effect(() => { breakpoints; path; syncBreakpoints(); });
+  $effect(() => { pausedLine; syncPausedLine(); });
   $effect(() => { diagnostics; path; syncDiagnostics(); });
   $effect(() => { preludeModules; syncDiagnostics(); });
   $effect(() => { insertRequest; applyInsert(); });
@@ -305,6 +366,10 @@
   :global(.cm-breakpoint-gutter) { width: 14px; cursor: pointer; }
   :global(.cm-breakpoint-gutter .cm-gutterElement) { box-sizing: border-box; width: 14px; padding: 0; display: flex; align-items: center; justify-content: center; }
   :global(.cm-breakpoint-dot) { width: 8px; height: 8px; flex: none; display: block; margin: 0; border-radius: 50%; background: var(--color-ember); box-shadow: 0 0 6px rgba(254,176,93,.45); }
+  :global(.cm-paused-line) { background: rgba(245,197,66,.13); box-shadow: inset 2px 0 0 #f5c542; }
+  :global(.cm-gutterElement.cm-paused-gutter) { color: #f5c542; font-weight: 700; }
+  :global(.cm-value-peek) { max-width: 370px; padding: 6px 10px; font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
+  :global(.cm-value-peek code) { color: #73daca; font-weight: 700; }
   :global(.cm-api-doc) { max-width: 370px; padding: 10px 12px; }
   :global(.cm-api-doc code) { color: #73daca; font-weight: 700; }
   :global(.cm-api-doc p) { margin: 7px 0 0; color: #aaaabc; line-height: 1.5; }

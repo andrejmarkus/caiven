@@ -89,6 +89,11 @@ function installBridge() {
   let recent = ['/carts/test', '/carts/other'];
   let breakpoints: { source: string; line: number }[] = [];
   let watches: { name: string; value: string }[] = [];
+  // A line step pauses at main.lua:2 inside a helper called from _update.
+  let stepPause: { kind: string; source: string; line: number; message: null } | null = null;
+  let selectedFrame = 0;
+  const stepStack = [{ label: 'draw_player', location: 'main.lua:2' }, { label: '_update', location: 'main.lua:1' }];
+  const frameLocals = [[{ name: 'size', value: '8' }], [{ name: 'lives', value: '3' }]];
   let preludeModules = [
     { name: 'vec2', globals: ['Vec2', 'Sprite'], enabled: false },
     { name: 'collision', globals: ['aabb_overlap', 'circle_overlap', 'point_in_rect', 'point_in_circle', 'tile_solid', 'box_touches_solid'], enabled: false },
@@ -201,7 +206,7 @@ function installBridge() {
     ];
     if (command === 'studio_cart_size') return { packedBytes: 8192 + ++cartSizeReads, maxBytes: 131072 };
     if (command === 'studio_asset_index') { assetIndexReads += 1; return index(); }
-    if (command === 'studio_tick') return { runState, frame: frame++, fps: 60, frameTimeMs: 4.2, globals: [{ name: 'score', value: '7' }, { name: 'player', value: '{table}', nodeId: 'global:player' }], watches, callStack: [], pauseReason: null, audio: { ...audio(), ...tickAudio }, diagnostics: [], output: ['mock runtime ready'], activeSpriteBank: tickActive.sprites, activeMapBank: tickActive.map, activePaletteBank: tickActive.palette, activeSfxBank: tickActive.sfx, activeMusicBank: tickActive.music, assetDirty: false };
+    if (command === 'studio_tick') return { runState, frame: frame++, fps: 60, frameTimeMs: 4.2, luaRuns: frame, globals: [{ name: 'score', value: '7' }, { name: 'player', value: '{table}', nodeId: 'global:player' }], watches, callStack: stepPause ? stepStack : [], selectedFrame, locals: stepPause ? frameLocals[selectedFrame] : [], pauseReason: stepPause, audio: { ...audio(), ...tickAudio }, diagnostics: [], output: ['mock runtime ready'], activeSpriteBank: tickActive.sprites, activeMapBank: tickActive.map, activePaletteBank: tickActive.palette, activeSfxBank: tickActive.sfx, activeMusicBank: tickActive.music, assetDirty: false };
     if (command === 'studio_frame') return Array(128 * 128).fill(0);
     if (command === 'studio_read_memory') return ram.slice(Number(args.address), Number(args.address) + Number(args.len));
     if (command === 'studio_asset_bank') {
@@ -238,7 +243,16 @@ function installBridge() {
       if (entry) entry.enabled = Boolean(args.enabled);
       return { api: bootstrap().api, preludeModules: structuredClone(preludeModules) };
     }
-    if (command === 'studio_transport') { const action = String(args.action); runState = action === 'pause' || action === 'step' ? 'paused' : 'running'; if (action === 'step') frame += 1; return { ...(await invoke('studio_tick')), runState }; }
+    if (command === 'studio_transport') {
+      const action = String(args.action);
+      runState = action === 'run' || action === 'reset' ? 'running' : 'paused';
+      if (action === 'step') frame += 1;
+      stepPause = action.startsWith('step') && action !== 'step' ? { kind: 'step', source: 'main.lua', line: 2, message: null } : null;
+      selectedFrame = 0;
+      return { ...(await invoke('studio_tick')), runState };
+    }
+    if (command === 'studio_select_frame') { selectedFrame = Number(args.index); return invoke('studio_tick'); }
+    if (command === 'studio_peek_value') { if (!stepPause) throw new Error('Pause the cart to read values'); return args.expression === '_update' ? '{function}' : 'nil'; }
     if (command === 'studio_set_input') return null;
     if (command === 'studio_write_sprite') { const at = Number(args.sprite) * 64; banks.sprites.get(active.sprites)!.splice(at, 64, ...args.pixels as number[]); sync('sprites'); return null; }
     if (command === 'studio_write_palette') { const slot = Number(args.slot); const hex = String(args.hex); const bytes = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16)); banks.palette.get(active.palette)!.splice(slot * 3, 3, ...bytes); sync('palette'); return null; }

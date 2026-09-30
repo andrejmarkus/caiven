@@ -143,15 +143,31 @@ impl ConsoleCore {
     }
 
     /// Runs one Lua-scripted frame honoring line breakpoints; input latches
-    /// like `run_frame`. See [`crate::vm::Vm::run_frame_lua_bp`].
+    /// like `run_frame` once the frame finishes. See
+    /// [`crate::vm::Vm::run_frame_lua_bp`].
     pub fn run_frame_lua_bp(
         &mut self,
         breakpoints: &[crate::vm::LuaBreakpoint],
     ) -> crate::vm::LuaRunOutcome {
+        self.run_frame_lua_step(breakpoints, None)
+    }
+
+    /// [`Self::run_frame_lua_bp`] that also stops after one line `step`.
+    pub fn run_frame_lua_step(
+        &mut self,
+        breakpoints: &[crate::vm::LuaBreakpoint],
+        step: Option<crate::vm::LuaStep>,
+    ) -> crate::vm::LuaRunOutcome {
         let outcome = self
             .vm
-            .run_frame_lua_bp(&self.input, &self.font, breakpoints);
-        self.input.end_frame();
+            .run_frame_lua_step(&self.input, &self.font, breakpoints, step);
+        // A suspended frame still reads this frame's input when it continues.
+        if !matches!(
+            outcome,
+            crate::vm::LuaRunOutcome::Breakpoint(_) | crate::vm::LuaRunOutcome::Step(_)
+        ) {
+            self.input.end_frame();
+        }
         outcome
     }
 }

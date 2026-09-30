@@ -1,9 +1,9 @@
 <script lang="ts">
   import {
-    Play, Pause, RotateCcw, StepForward, Search, Save, Upload, Check,
+    Play, Pause, RotateCcw, StepForward, RedoDot, ArrowDownToDot, ArrowUpFromDot, Search, Save, Upload, Check,
   } from '@lucide/svelte';
   import { Button } from '@caiven/ui/button';
-  import type { RunState } from '../types';
+  import type { RunState, TransportAction } from '../types';
   import { shortcut, tidyPath } from '../lib/format';
 
   interface Props {
@@ -13,7 +13,7 @@
     runState: RunState;
     frame: number;
     fps: number;
-    onTransport: (action: 'run' | 'pause' | 'reset' | 'step') => void;
+    onTransport: (action: TransportAction) => void;
     onPalette: () => void;
     onSave: () => void;
     onPublish: () => void;
@@ -54,6 +54,15 @@
     </Button>
     <Button variant="outline" size="icon" title="Step one frame" disabled={running} onclick={() => onTransport('step')}>
       <StepForward size={16} />
+    </Button>
+    <Button variant="outline" size="icon" title="Step over (F10)" aria-label="Step over" disabled={running} onclick={() => onTransport('stepOver')}>
+      <RedoDot size={16} />
+    </Button>
+    <Button variant="outline" size="icon" title="Step into (F11)" aria-label="Step into" disabled={running} onclick={() => onTransport('stepInto')}>
+      <ArrowDownToDot size={16} />
+    </Button>
+    <Button variant="outline" size="icon" title={`Step out (${shortcut('⇧F11')})`} aria-label="Step out" disabled={running} onclick={() => onTransport('stepOut')}>
+      <ArrowUpFromDot size={16} />
     </Button>
     <div class="state-pill">
       <i class:running></i>

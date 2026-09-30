@@ -67,6 +67,8 @@ test('code, runtime, shortcuts, watches, module, drawer, and console flow', asyn
   await expect.poll(async () => (await e2e.calls()).some((call) => call.command === 'studio_expand_debug_value')).toBeTruthy();
   await expect(page.getByText('x', { exact: true })).toBeVisible();
   await expect(page.getByText('y', { exact: true })).toBeVisible();
+  // The mock bumps luaRuns every tick, so the open row refetches on its own.
+  await expect.poll(async () => (await e2e.calls()).filter((call) => call.command === 'studio_expand_debug_value').length).toBeGreaterThan(1);
   await page.getByRole('tab', { name: 'Watches' }).click();
 
   await page.keyboard.press('Control+S');
@@ -93,6 +95,30 @@ test('code, runtime, shortcuts, watches, module, drawer, and console flow', asyn
 
   const commands = (await e2e.calls()).map((call) => call.command);
   expect(commands).toEqual(expect.arrayContaining(['studio_save', 'studio_transport', 'studio_set_input', 'studio_add_watch', 'studio_create_module']));
+});
+
+test('line steps mark the paused line, switch call frames and show values on hover', async ({ page, e2e }) => {
+  const stepped = async (action: string) => (await e2e.calls()).some((call) => call.command === 'studio_transport' && call.args.action === action);
+  await page.locator('.cm-content').click();
+  await page.keyboard.press('F10');
+  await expect.poll(() => stepped('stepOver')).toBeTruthy();
+  await expect(page.locator('.cm-paused-line')).toHaveText('  sprite(0, 1, 2)');
+  await expect(page.locator('.pause-scrim')).toContainText('main.lua:2');
+
+  await page.getByRole('tab', { name: 'Call stack' }).click();
+  await page.getByRole('button', { name: /_update/ }).click();
+  await expect.poll(async () => (await e2e.calls()).some((call) => call.command === 'studio_select_frame' && call.args.index === 1)).toBeTruthy();
+  await expect(page.getByRole('button', { name: /_update/ })).toHaveAttribute('aria-current', 'true');
+  await page.getByRole('tab', { name: 'Locals' }).click();
+  await expect(page.getByText('lives', { exact: true })).toBeVisible();
+
+  await page.locator('.cm-content').getByText('_update', { exact: true }).hover();
+  await expect(page.locator('.cm-value-peek')).toHaveText('_update = {function}');
+
+  await page.getByRole('button', { name: 'Step out' }).click();
+  await expect.poll(() => stepped('stepOut')).toBeTruthy();
+  await page.keyboard.press('Control+R');
+  await expect(page.locator('.cm-paused-line')).toHaveCount(0);
 });
 
 test('Escape keeps a running game\'s music and stops a paused preview', async ({ page, e2e }) => {

@@ -14,14 +14,14 @@
   import Overlays from './components/Overlays.svelte';
   import type {
     AudioAction, CartTemplateSummary, Diagnostic, EditorInsertRequest, EditorRevealRequest, ExampleSummary, LocalCart, PortCart, PortSession,
-    PublishProgress, Screen, StudioBootstrap, TickSnapshot,
+    PublishProgress, Screen, StudioBootstrap, TickSnapshot, TransportAction,
   } from './types';
   import {
     bootstrap, chooseExportPath, chooseExportWebPath, chooseExportScreenshotPath, chooseExportSourceZipPath, chooseProject, exportCartridge, exportCartridgeWeb, exportCartridgeScreenshot, exportCartridgeSourceZip, fallbackExamples, fallbackTemplates, isTauri, listExamples, listTemplates, newProject,
     openProject, readAssetIndex, readCartSize, readFrame, readMemory, readTick, remixExample, saveProject, setInput, setStdlibModule, transport,
     addWatch, assetBank, audioTransport, clearOutput, closeProject, COLLISION_LEN, createModule, expandDebugValue, MEMORY, MUSIC_BANK_LEN, MUSIC_ORDER_OFFSET, MUSIC_PATTERN_LEN, portDownload, RAM_SIZE, portLinkCancel, portLinkPoll, portLinkStart, portListCarts,
     portLogout, portPublish, portPublishTarget, portSession, portSetUrl, scanLibrary, toggleBreakpoint, writeBuffer,
-    forceClose, removeRecent, removeWatch, writeCollisionCells, writeCollisionTypes, writeMapCells, writeMemory, writeMeta, writePalette, writeSprite,
+    forceClose, peekValue, removeRecent, removeWatch, selectFrame, writeCollisionCells, writeCollisionTypes, writeMapCells, writeMemory, writeMeta, writePalette, writeSprite,
   } from './lib/ipc';
   import { plural, tidyPath } from './lib/format';
   import { createGamepadInput } from './lib/gamepad';
@@ -45,6 +45,8 @@
   let status = $state('Starting Studio…');
   let frameData = $state<Uint8Array | null>(null);
   let frameTime = $state(5.2);
+  let luaRuns = $state(0);
+  let selectedFrame = $state(0);
   let metaDirty = $state(false);
   let writeTimer: ReturnType<typeof setTimeout> | undefined;
   let localCarts = $state<LocalCart[]>([]);
@@ -250,6 +252,8 @@
     const wasRunning = studio.runState === 'running';
     studio.runState = tick.runState;
     studio.frame = tick.frame;
+    luaRuns = tick.luaRuns;
+    selectedFrame = tick.selectedFrame;
     studio.fps = tick.fps;
     frameTime = tick.frameTimeMs;
     if (differs(studio.globals, tick.globals)) studio.globals = tick.globals;
@@ -280,14 +284,14 @@
 
     const reason = tick.pauseReason;
     const pauseKey = reason ? `${reason.kind}:${reason.source ?? ''}:${reason.line ?? ''}:${reason.message ?? ''}` : '';
-    if (reason?.kind === 'breakpoint' && pauseKey !== handledPause) {
+    if ((reason?.kind === 'breakpoint' || reason?.kind === 'step') && pauseKey !== handledPause) {
       const index = studio.sources.findIndex((source) => source.name === reason.source || source.path === reason.source);
       if (index >= 0) activeSource = index;
       screen = 'code';
       if (index >= 0 && reason.line) {
         revealRequest = { id: ++revealSerial, source: studio.sources[index].name, line: reason.line, column: 1 };
       }
-      status = `Paused at ${reason.source ?? 'source'}:${reason.line ?? '?'}`;
+      status = `${reason.kind === 'step' ? 'Stepped to' : 'Paused at'} ${reason.source ?? 'source'}:${reason.line ?? '?'}`;
     }
     handledPause = pauseKey;
     if (wasRunning && tick.runState !== 'running') releaseInputs();
@@ -362,7 +366,7 @@
     }
   }
 
-  async function doTransport(action: 'run' | 'pause' | 'reset' | 'step') {
+  async function doTransport(action: TransportAction) {
     try {
       if (action !== 'pause') {
         clearTimeout(writeTimer);
@@ -370,7 +374,7 @@
       }
       const tick = await transport(action);
       applyTick(tick);
-      if (tick.pauseReason?.kind !== 'breakpoint') {
+      if (tick.pauseReason?.kind !== 'breakpoint' && tick.pauseReason?.kind !== 'step') {
         status = action === 'step'
           ? `Stepped to frame ${tick.frame}`
           : `${tick.runState === 'running' ? 'Running' : tick.runState === 'paused' ? 'Paused' : 'Stopped'} · ${studio.title}`;
@@ -532,6 +536,19 @@
       return message;
     }
   }
+
+  async function doSelectFrame(index: number) {
+    try { applyTick(await selectFrame(index)); }
+    catch (error) { showToast(errorText(error)); }
+  }
+
+  // Where the paused frame stopped, for the editor's line marker.
+  const pausedAt = $derived.by(() => {
+    const reason = studio.pauseReason;
+    if ((reason?.kind !== 'breakpoint' && reason?.kind !== 'step') || !reason.line) return null;
+    const source = studio.sources.find((candidate) => candidate.name === reason.source || candidate.path === reason.source);
+    return source ? { source: source.name, line: reason.line } : null;
+  });
 
   async function doRemoveWatch(expression: string) {
     try { studio.watches = await removeWatch(expression); }
@@ -919,6 +936,13 @@
       showPublish();
       return;
     }
+    // Line steps work from the code editor too.
+    const step: TransportAction | null = event.key === 'F10' ? 'stepOver' : event.key === 'F11' ? (event.shiftKey ? 'stepOut' : 'stepInto') : null;
+    if (step) {
+      event.preventDefault();
+      if (!running) void doTransport(step);
+      return;
+    }
     if (editing) return;
     // Space previews whatever the sound editors have selected.
     if (event.key === ' ' && (screen === 'sfx' || screen === 'music')) {
@@ -1133,6 +1157,8 @@
           {frameData}
           {insertRequest}
           {revealRequest}
+          {pausedAt}
+          onPeek={studio.runState === 'paused' ? peekValue : null}
           onInsertHandled={(id) => { if (insertRequest?.id === id) insertRequest = null; }}
           onRevealHandled={(id) => { if (revealRequest?.id === id) revealRequest = null; }}
           onNavigate={navigate}
@@ -1191,6 +1217,7 @@
           <ConsolePane
             runState={studio.runState}
             frame={studio.frame}
+            {luaRuns}
             fps={studio.fps}
             {frameTime}
             {frameData}
@@ -1200,6 +1227,8 @@
             globals={studio.globals}
             watches={studio.watches}
             callStack={studio.callStack}
+            {selectedFrame}
+            onSelectFrame={(index) => void doSelectFrame(index)}
             locals={studio.locals}
             breakpointCount={studio.breakpoints.length}
             diagnostics={studio.diagnostics}

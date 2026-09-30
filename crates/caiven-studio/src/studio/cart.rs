@@ -87,10 +87,10 @@ pub fn load_cart(vm: &mut Vm, path: &Path, input: &Input, font: &Font) -> Result
         }
     }
 
-    // Asset RAM must be in place before the Lua load, since it runs
-    // `_init()` immediately.
+    // Asset RAM must be in place before the Lua load; `_init()` waits for the
+    // first frame so breakpoints and the loaded save data both reach it.
     let lua_source = lua_source.context("cart has no Lua source section")?;
-    vm.load_lua_source(&lua_source, input, font)
+    vm.load_lua_source_deferred(&lua_source, input, font)
         .map_err(|e| anyhow::anyhow!("{e}"))
         .with_context(|| format!("failed to load Lua cart {}", path.display()))?;
 
@@ -201,7 +201,7 @@ pub fn compile_sources_into_vm(
     font: &Font,
 ) -> std::result::Result<(), CompileError> {
     let bundled = bundle_sources(dir, sources)?;
-    vm.load_lua_source(&bundled, input, font)
+    vm.load_lua_source_deferred(&bundled, input, font)
         .map_err(|error| caiven_vm::describe_lua_error_location(&error))
         .map_err(compile_error_from_location)
 }
