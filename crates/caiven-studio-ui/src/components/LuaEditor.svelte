@@ -7,7 +7,7 @@
     rectangularSelection,
   } from '@codemirror/view';
   import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-  import { autocompletion, completionKeymap, startCompletion, type Completion, type CompletionContext } from '@codemirror/autocomplete';
+  import { acceptCompletion, autocompletion, completionKeymap, startCompletion, type Completion, type CompletionContext } from '@codemirror/autocomplete';
   import { bracketMatching, HighlightStyle, syntaxHighlighting, StreamLanguage } from '@codemirror/language';
   import { lintKeymap, setDiagnostics, type Diagnostic as CmDiagnostic } from '@codemirror/lint';
   import { searchKeymap } from '@codemirror/search';
@@ -393,7 +393,7 @@
             },
           }),
           highlightActiveLine(),
-          keymap.of([...defaultKeymap, ...historyKeymap, ...completionKeymap, ...searchKeymap, ...lintKeymap, indentWithTab]),
+          keymap.of([...defaultKeymap, ...historyKeymap, ...completionKeymap, ...searchKeymap, ...lintKeymap, { key: 'Tab', run: acceptCompletion }, indentWithTab]),
           EditorView.updateListener.of((update) => {
             if (update.docChanged && !update.transactions.some((transaction) => transaction.annotation(externalDocument))) {
               onChange(update.state.doc.toString());

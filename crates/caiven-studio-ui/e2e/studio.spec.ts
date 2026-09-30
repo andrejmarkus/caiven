@@ -584,6 +584,22 @@ test('require completes module names, hovers them, and completes what they retur
   await expect(page.locator('.cm-api-doc')).toContainText('.follow');
 });
 
+test('Tab accepts an open completion and indents otherwise', async ({ page, e2e: _e2e }) => {
+  const editor = page.locator('.cm-content');
+  await editor.click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('\nlocal tw = requ');
+  await expect(page.locator('.cm-tooltip-autocomplete li').filter({ hasText: /^require/ })).toBeVisible();
+  // CodeMirror ignores accept keys for 75 ms after the popup opens.
+  await page.waitForTimeout(100);
+  await page.keyboard.press('Tab');
+  await expect(editor).toContainText('local tw = require');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Tab');
+  await expect(page.locator('.cm-line').filter({ hasText: 'local tw = require' })).toHaveText(/^\s+local tw/);
+});
+
 test('a built-in module bound to another name completes under that name', async ({ page, e2e: _e2e }) => {
   const editor = page.locator('.cm-content');
   const options = page.locator('.cm-tooltip-autocomplete li');
