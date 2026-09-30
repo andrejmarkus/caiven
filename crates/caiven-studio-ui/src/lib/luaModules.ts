@@ -88,6 +88,16 @@ export function declaresLocal(text: string, name: string): boolean {
   return new RegExp(`\\blocal\\s+(?:${NAME}\\s*,\\s*)*${name}\\b`).test(text);
 }
 
+/** Console API minus members of built-in modules `text` never binds under their conventional local. */
+export function availableApi(
+  api: ApiEntry[], modules: { name: string; export: string }[], text: string, shadowed: string[] = [],
+): ApiEntry[] {
+  const hidden = modules
+    .filter((module) => shadowed.includes(module.name) || !declaresLocal(text, module.export))
+    .map((module) => module.export);
+  return api.filter((entry) => !hidden.some((name) => new RegExp(`^${name}(?:[.:]|$)`).test(entry.name)));
+}
+
 /**
  * Built-in API entries under the alias a file binds a module to:
  * `local tw = require "tween"` turns `tween.new` into `tw.new`.
@@ -107,10 +117,16 @@ export function builtinAliasEntries(
   return entries;
 }
 
-/** Project symbols visible from `text`: every module's globals plus `alias.member` for its requires. */
-export function projectEntries(modules: ProjectModule[], text: string): ApiEntry[] {
+/** Every module `text` requires, with or without a local. */
+export function requiredKeys(text: string): Set<string> {
+  return new Set([...text.matchAll(/require\s*\(?\s*["']([\w./]+)["']/g)].map((match) => match[1].replace(/\//g, '.')));
+}
+
+/** Project symbols visible from `text` (module `self`): its own globals, plus globals and `alias.member` of what it requires. */
+export function projectEntries(modules: ProjectModule[], text: string, self = ''): ApiEntry[] {
   const scans = new Map(modules.map((module) => [module.key, scanModule(module.key, module.text)]));
-  const entries = [...scans.values()].flatMap((scan) => scan.globals);
+  const entries = scanModule(self, text).globals;
+  for (const key of requiredKeys(text)) if (key !== self) entries.push(...(scans.get(key)?.globals ?? []));
   for (const [alias, key] of requireAliases(text)) {
     for (const entry of scans.get(key)?.exports ?? []) entries.push({ ...entry, name: `${alias}.${entry.name}` });
   }

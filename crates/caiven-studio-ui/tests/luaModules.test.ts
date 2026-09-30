@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  builtinAliasEntries, declaresLocal, localName, moduleKey, projectEntries, requireNameAt, scanModule,
+  availableApi, builtinAliasEntries, declaresLocal, localName, moduleKey, projectEntries, requireNameAt, scanModule,
 } from '../src/lib/luaModules.ts';
 
 const ENEMY = `local M = {}
@@ -40,7 +40,15 @@ test('project entries qualify exports by the local alias of each require', () =>
   const names = projectEntries(modules, 'local foes = require("enemy")\n').map((entry) => entry.name);
   assert.ok(names.includes('foes.new'));
   assert.ok(names.includes('draw_enemies'));
-  assert.ok(!projectEntries(modules, '').some((entry) => entry.name.endsWith('.new') && entry.name !== 'Enemy.new'));
+  assert.ok(names.includes('Enemy.update'));
+});
+
+test('project modules stay hidden until required; the file sees its own globals', () => {
+  const modules = [{ key: 'enemy', text: ENEMY, entry: false }];
+  assert.deepEqual(projectEntries(modules, ''), []);
+  assert.deepEqual(projectEntries(modules, 'function tick() end', 'main').map((entry) => entry.name), ['tick']);
+  assert.ok(projectEntries(modules, 'require "enemy"').some((entry) => entry.name === 'draw_enemies'));
+  assert.ok(!projectEntries(modules, 'require "enemy"').some((entry) => entry.name.endsWith('.new') && entry.name !== 'Enemy.new'));
 });
 
 test('require names are found under the cursor, slashes normalized', () => {
@@ -58,6 +66,19 @@ test('built-in entries follow the alias a file binds the module to', () => {
   const text = 'local tw = require "tween"\nlocal Camera = require "camera"\n';
   assert.deepEqual(builtinAliasEntries(api, modules, text).map((entry) => entry.name), ['tw.new']);
   assert.deepEqual(builtinAliasEntries(api, modules, text, ['tween']), []);
+});
+
+test('members of modules the file never requires stay out of the API list', () => {
+  const api = [
+    { name: 'draw_line', params: [], returns: 'nil', doc: '', category: 'Graphics' },
+    { name: 'tween.new', params: [], returns: 'table', doc: '', category: 'Gameplay stdlib' },
+    { name: 'Camera.follow', params: [], returns: 'nil', doc: '', category: 'Gameplay stdlib' },
+  ];
+  const modules = [{ name: 'tween', export: 'tween' }, { name: 'camera', export: 'Camera' }];
+  const names = (text: string, shadowed: string[] = []) => availableApi(api, modules, text, shadowed).map((entry) => entry.name);
+  assert.deepEqual(names(''), ['draw_line']);
+  assert.deepEqual(names('local Camera = require "camera"'), ['draw_line', 'Camera.follow']);
+  assert.deepEqual(names('local tween = require "tween"', ['tween']), ['draw_line']);
 });
 
 test('local declarations are recognised, globals and fields are not', () => {

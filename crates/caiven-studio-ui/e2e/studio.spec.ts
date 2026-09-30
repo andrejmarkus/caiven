@@ -611,3 +611,19 @@ test('a built-in module bound to another name completes under that name', async 
   await options.filter({ hasText: 'tw.new' }).click();
   await expect(editor).toContainText('tw.new(from, to)');
 });
+
+test('members of a module the file never requires are not offered', async ({ page, e2e: _e2e }) => {
+  const editor = page.locator('.cm-content');
+  const options = page.locator('.cm-tooltip-autocomplete li');
+  await editor.click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('\nCamera.f');
+  await page.keyboard.press('Control+Space');
+  await expect(options.filter({ hasText: 'Camera.follow' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.type('local Camera = require "camera"\n');
+  await page.keyboard.press('Control+End');
+  await page.keyboard.press('Control+Space');
+  await expect(options.filter({ hasText: 'Camera.follow' })).toBeVisible();
+});

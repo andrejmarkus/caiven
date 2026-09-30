@@ -18,7 +18,7 @@
   } from '../types';
   import { sourceOffset, watchPathAt } from '../lib/editorMath';
   import {
-    builtinAliasEntries, declaresLocal, localName, projectEntries, requireNameAt, scanModule, type ProjectModule,
+    availableApi, builtinAliasEntries, declaresLocal, localName, moduleKey, projectEntries, requireNameAt, scanModule, type ProjectModule,
   } from '../lib/luaModules';
 
   // CodeMirror's own `defaultHighlightStyle` assumes a light background —
@@ -156,7 +156,7 @@
   /** Everything the file can call: console API, built-ins under their aliases, project symbols. */
   function visibleEntries(text: string): ApiEntry[] {
     const shadowed = requirable().map((module) => module.key);
-    return [...api, ...builtinAliasEntries(api, preludeModules, text, shadowed), ...projectEntries(projectModules, text)];
+    return [...availableApi(api, preludeModules, text, shadowed), ...builtinAliasEntries(api, preludeModules, text, shadowed), ...projectEntries(projectModules, text, moduleKey(path))];
   }
 
   function completions(context: CompletionContext) {
