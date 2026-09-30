@@ -1,3 +1,10 @@
+local Vec2 = require "vec2"
+local collision = require "collision"
+local movement = require "movement"
+local anim = require "anim"
+local Particles = require "particles"
+local Entities = require "entities"
+
 TILE = 8
 -- One room is exactly one screen: 24 x 16 tiles at 192 x 128 pixels.
 ROOM_TILES_W = 24
@@ -436,7 +443,7 @@ local function player_touches_flag()
   local flag = ROOMS[16].flag
   if not flag then return false end
   local wp = room_point(ROOMS[16], flag)
-  return aabb_overlap(player.pos.x, player.pos.y, player.w, player.h,
+  return collision.aabb_overlap(player.pos.x, player.pos.y, player.w, player.h,
     wp.x, wp.y, 8, 8)
 end
 
@@ -448,7 +455,7 @@ function reset_game()
   spawn_berries()
   spawn_enemies()
   stop_music()
-  FLAG_ANIM = new_anim({ SPR_FLAG_A, SPR_FLAG_B }, 20)
+  FLAG_ANIM = anim.new({ SPR_FLAG_A, SPR_FLAG_B }, 20)
 end
 
 function spawn_berries()
@@ -542,7 +549,7 @@ end
 local function enemy_update(e)
   if enemy_should_turn(e) then e.vx = -e.vx end
   e.pos.x = e.pos.x + e.vx
-  anim_update(e.anim)
+  anim.update(e.anim)
 end
 
 function spawn_enemies()
@@ -555,7 +562,7 @@ function spawn_enemies()
         vx = ENEMY_SPEED,
         room = room,
         is_enemy = true,
-        anim = new_anim({ SPR_ENEMY1, SPR_ENEMY2 }, 10),
+        anim = anim.new({ SPR_ENEMY1, SPR_ENEMY2 }, 10),
         update = enemy_update,
       })
     end
@@ -617,7 +624,7 @@ function spawn_player(spawn)
     wall_dir = 0,
     walljump_lock = 0,
     dashes = 1, dash_timer = 0, dashing = false, dash_vx = 0, dash_vy = 0,
-    anim = new_anim({ SPR_PLAYER_RUN1, SPR_PLAYER_RUN3, SPR_PLAYER_RUN2, SPR_PLAYER_RUN3 }, 6),
+    anim = anim.new({ SPR_PLAYER_RUN1, SPR_PLAYER_RUN3, SPR_PLAYER_RUN2, SPR_PLAYER_RUN3 }, 6),
   }
 end
 
@@ -666,7 +673,7 @@ local function player_vertical(input)
 end
 
 local function player_move_and_collide()
-  local nx, ny_step, htouch = move_and_collide(player.pos.x, player.pos.y, player.w, player.h, player.vx, 0)
+  local nx, ny_step, htouch = movement.move_and_collide(player.pos.x, player.pos.y, player.w, player.h, player.vx, 0)
   player.pos.x = nx
   -- A step-up (climbing onto a one-tile ledge or a slope's tall edge)
   -- comes back as a raised y from the horizontal pass itself — apply it
@@ -677,7 +684,7 @@ local function player_move_and_collide()
   elseif htouch.right then player.wall_dir = 1
   else player.wall_dir = 0 end
 
-  local _, ny, touch = move_and_collide(player.pos.x, player.pos.y, player.w, player.h, 0, player.vy)
+  local _, ny, touch = movement.move_and_collide(player.pos.x, player.pos.y, player.w, player.h, 0, player.vy)
   player.pos.y = ny
 
   if touch.ground then
@@ -740,7 +747,7 @@ function physics_update(input)
 
   player_move_and_collide()
   if player.on_ground or player.wall_dir ~= 0 then player.dashes = 1 end
-  anim_update(player.anim)
+  anim.update(player.anim)
   Particles.update()
 end
 
@@ -776,7 +783,7 @@ function _update()
     physics_update(read_input())
     update_berries()
     update_enemies()
-    anim_update(FLAG_ANIM)
+    anim.update(FLAG_ANIM)
     update_camera(player.pos.x, player.pos.y)
     if player_touches_hazard() then start_dying() end
     if player_touches_flag() then
@@ -815,7 +822,7 @@ local function player_sprite()
   if not grounded then
     return player.vy < 0 and SPR_PLAYER_JUMP or SPR_PLAYER_FALL
   end
-  if math.abs(player.vx) > 0.1 then return anim_sprite(player.anim) end
+  if math.abs(player.vx) > 0.1 then return anim.sprite(player.anim) end
   return SPR_PLAYER_IDLE
 end
 
@@ -848,12 +855,12 @@ function _draw()
     if e.is_berry and e.room == room then
       sprite(SPR_BERRY, math.floor(e.pos.x), math.floor(e.pos.y))
     elseif e.is_enemy and e.room == room then
-      sprite(anim_sprite(e.anim), math.floor(e.pos.x), math.floor(e.pos.y), e.vx < 0)
+      sprite(anim.sprite(e.anim), math.floor(e.pos.x), math.floor(e.pos.y), e.vx < 0)
     end
   end
   if room.flag then
     local wp = room_point(room, room.flag)
-    sprite(anim_sprite(FLAG_ANIM), wp.x, wp.y)
+    sprite(anim.sprite(FLAG_ANIM), wp.x, wp.y)
   end
   if GAME.mode == "playing" or GAME.mode == "dying" then
     draw_text("DEATHS " .. GAME.deaths .. "  BERRIES " .. GAME.berries .. "/" .. TOTAL_BERRIES, 2, 2, 2)

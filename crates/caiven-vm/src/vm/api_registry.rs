@@ -243,7 +243,7 @@ pub const BUILTINS: &[ApiEntry] = &[
         name: "collision_is_solid",
         params: &[param!("id": "u8")],
         returns: "bool",
-        doc: "True if the collision type with this id is flagged solid. Used by tile_solid/box_touches_solid; undefined ids are never solid.",
+        doc: "True if the collision type with this id is flagged solid. Used by collision.tile_solid/box_touches_solid; undefined ids are never solid.",
     },
     ApiEntry {
         name: "collision_is_one_way",
@@ -434,7 +434,7 @@ pub const PRELUDE: &[ApiEntry] = &[
         doc: "Quadratic ease-in-then-out curve over t (0..1).",
     },
     ApiEntry {
-        name: "aabb_overlap",
+        name: "collision.aabb_overlap",
         params: &[
             param!("x1": "number"),
             param!("y1": "number"),
@@ -449,13 +449,13 @@ pub const PRELUDE: &[ApiEntry] = &[
         doc: "True if the two axis-aligned boxes overlap.",
     },
     ApiEntry {
-        name: "tile_solid",
+        name: "collision.tile_solid",
         params: &[param!("tx": "number"), param!("ty": "number")],
         returns: "bool",
         doc: "True if the collision type at (tx, ty) is flagged solid (see collision_is_solid) — any type with the SOLID flag, not just the built-in id 1.",
     },
     ApiEntry {
-        name: "box_touches_solid",
+        name: "collision.box_touches_solid",
         params: &[
             param!("x": "number"),
             param!("y": "number"),
@@ -466,7 +466,7 @@ pub const PRELUDE: &[ApiEntry] = &[
         doc: "True if the pixel-space box overlaps any solid map tile.",
     },
     ApiEntry {
-        name: "move_and_collide",
+        name: "movement.move_and_collide",
         params: &[
             param!("x": "number"),
             param!("y": "number"),
@@ -479,7 +479,7 @@ pub const PRELUDE: &[ApiEntry] = &[
         doc: "Axis-separated swept move of a w×h box from (x, y) by (dx, dy) against SOLID tiles (both axes), ONE_WAY tiles (vertical only, landed on only when descending from above), and SLOPE_LEFT/SLOPE_RIGHT tiles (vertical only, floor height sampled per pixel column). Returns nx, ny, and touch = {ground, ceiling, left, right} reporting which sides were blocked this call. Non-number arguments are a regular Lua error.",
     },
     ApiEntry {
-        name: "new_tween",
+        name: "tween.new",
         params: &[
             param!("from": "number"),
             param!("to": "number"),
@@ -490,25 +490,25 @@ pub const PRELUDE: &[ApiEntry] = &[
         doc: "Creates tween state; ease defaults to ease_linear.",
     },
     ApiEntry {
-        name: "tween_update",
+        name: "tween.update",
         params: &[param!("tw": "table")],
         returns: "number",
         doc: "Advances tw by one frame and returns its current value; tw.done flips true on arrival.",
     },
     ApiEntry {
-        name: "new_anim",
+        name: "anim.new",
         params: &[param!("frames": "table"), param!("frame_len": "number")],
         returns: "table",
         doc: "Creates animation state cycling through a list of sprite ids.",
     },
     ApiEntry {
-        name: "anim_update",
+        name: "anim.update",
         params: &[param!("anim": "table")],
         returns: "nil",
         doc: "Advances anim by one frame, looping back to the first frame at the end.",
     },
     ApiEntry {
-        name: "anim_sprite",
+        name: "anim.sprite",
         params: &[param!("anim": "table")],
         returns: "number",
         doc: "The sprite id anim is currently showing.",
@@ -611,7 +611,7 @@ pub const PRELUDE: &[ApiEntry] = &[
         doc: "Fisher-Yates shuffle of t, in place. Returns t.",
     },
     ApiEntry {
-        name: "circle_overlap",
+        name: "collision.circle_overlap",
         params: &[
             param!("x1": "number"),
             param!("y1": "number"),
@@ -624,7 +624,7 @@ pub const PRELUDE: &[ApiEntry] = &[
         doc: "Whether two circles overlap. Exactly-tangent circles (distance == sum of radii) count as not overlapping.",
     },
     ApiEntry {
-        name: "point_in_rect",
+        name: "collision.point_in_rect",
         params: &[
             param!("px": "number"),
             param!("py": "number"),
@@ -634,10 +634,10 @@ pub const PRELUDE: &[ApiEntry] = &[
             param!("h": "number"),
         ],
         returns: "bool",
-        doc: "Whether (px, py) is inside the rect (x, y, w, h). The left/top edges count as inside; the right/bottom edges don't (half-open, matching aabb_overlap's convention).",
+        doc: "Whether (px, py) is inside the rect (x, y, w, h). The left/top edges count as inside; the right/bottom edges don't (half-open, matching collision.aabb_overlap's convention).",
     },
     ApiEntry {
-        name: "point_in_circle",
+        name: "collision.point_in_circle",
         params: &[
             param!("px": "number"),
             param!("py": "number"),
@@ -649,13 +649,13 @@ pub const PRELUDE: &[ApiEntry] = &[
         doc: "Whether (px, py) is inside or exactly on the circle centered at (cx, cy) with radius r.",
     },
     ApiEntry {
-        name: "Sprite.new",
+        name: "Actor.new",
         params: &[param!("opts": "table")],
-        returns: "Sprite",
+        returns: "Actor",
         doc: "Bundle a sprite_id, Vec2 pos, and optional flip_x/flip_y/rotate (defaults false/false/0) into one drawable object. opts = { sprite_id, pos, flip_x, flip_y, rotate }.",
     },
     ApiEntry {
-        name: "Sprite:draw",
+        name: "Actor:draw",
         params: &[],
         returns: "nil",
         doc: "Draw the sprite at its current pos via the sprite() builtin. Move it by reassigning .pos (e.g. s.pos = s.pos + v).",
@@ -735,7 +735,7 @@ pub const PRELUDE: &[ApiEntry] = &[
             param!("h": "number"),
         ],
         returns: "table",
-        doc: "Entities in this list whose .pos (a Vec2) and .w/.h box overlaps (x, y, w, h), via aabb_overlap. Entities missing .pos/.w/.h are silently skipped (not an error) — matches the caller-defined entity shape convention used everywhere else in this module. Requires the collision module (for aabb_overlap) to also be enabled.",
+        doc: "Entities in this list whose .pos (a Vec2) and .w/.h box overlaps (x, y, w, h), via collision.aabb_overlap. Entities missing .pos/.w/.h are silently skipped (not an error) — matches the caller-defined entity shape convention used everywhere else in this module.",
     },
     ApiEntry {
         name: "Entities.new",
@@ -773,6 +773,12 @@ pub const PRELUDE: &[ApiEntry] = &[
 /// `lua_exec.rs`'s module doc comment), so hand-authored here rather than
 /// derived from anything.
 pub const STDLIB: &[ApiEntry] = &[
+    ApiEntry {
+        name: "require",
+        params: &[param!("name": "string")],
+        returns: "any",
+        doc: "Load a module once: a built-in one (require \"camera\") or a cart file (require \"ui.hud\" loads ui/hud.lua).",
+    },
     ApiEntry {
         name: "math.abs",
         params: &[param!("x": "number")],
@@ -961,23 +967,20 @@ pub fn all_names() -> impl Iterator<Item = &'static str> {
         .map(|e| e.name)
 }
 
-/// `PRELUDE` entries name members (`"Vec2.new"`, `"Camera:shake"`) rather
-/// than bare globals; the owning global is whatever precedes the first
-/// `.`/`:`.
+/// `PRELUDE` entries name members (`"Vec2.new"`, `"tween.update"`); the
+/// owning global or module local is whatever precedes the first `.`/`:`.
 fn root_identifier(entry_name: &str) -> &str {
     entry_name.split(['.', ':']).next().unwrap_or(entry_name)
 }
 
 /// Which opt-in prelude module a `PRELUDE` entry belongs to, or `None` for
 /// the always-on core (`lerp`, `clamp`, `ease_*`) or for `BUILTINS`/`STDLIB`
-/// entries (meaningless for those, but harmless to call). Used by Studio to
-/// scope the API payload and diagnostics to a cart's enabled `[stdlib]`
-/// modules.
+/// entries (meaningless for those, but harmless to call).
 pub fn prelude_entry_module(entry: &ApiEntry) -> Option<&'static str> {
     let root = root_identifier(entry.name);
-    super::lua_exec::prelude_module_globals()
+    super::lua_exec::prelude_module_catalog()
         .into_iter()
-        .find(|(_, globals)| globals.contains(&root))
+        .find(|(_, export)| *export == root)
         .map(|(name, _)| name)
 }
 
@@ -992,11 +995,10 @@ mod prelude_consistency_tests {
     #[test]
     fn every_prelude_entry_names_a_global_that_still_exists() {
         let core = super::super::lua_exec::core_prelude_names();
-        let modules = super::super::lua_exec::prelude_module_globals();
+        let modules = super::super::lua_exec::prelude_module_catalog();
         for entry in PRELUDE {
             let root = root_identifier(entry.name);
-            let known =
-                core.contains(&root) || modules.iter().any(|(_, globals)| globals.contains(&root));
+            let known = core.contains(&root) || modules.iter().any(|(_, export)| *export == root);
             assert!(
                 known,
                 "PRELUDE entry \"{}\" names global \"{root}\", which no core or \
@@ -1012,7 +1014,7 @@ mod prelude_consistency_tests {
     #[test]
     fn every_prelude_global_has_at_least_one_entry() {
         let core = super::super::lua_exec::core_prelude_names();
-        let modules = super::super::lua_exec::prelude_module_globals();
+        let modules = super::super::lua_exec::prelude_module_catalog();
         let documented_roots: std::collections::HashSet<&str> = PRELUDE
             .iter()
             .map(|entry| root_identifier(entry.name))
@@ -1029,13 +1031,11 @@ mod prelude_consistency_tests {
                 "core prelude global \"{name}\" has no PRELUDE entry"
             );
         }
-        for (module_name, globals) in &modules {
-            for &name in *globals {
-                assert!(
-                    documented_roots.contains(name),
-                    "module \"{module_name}\"'s global \"{name}\" has no PRELUDE entry"
-                );
-            }
+        for (module_name, export) in &modules {
+            assert!(
+                documented_roots.contains(export),
+                "module \"{module_name}\"'s table \"{export}\" has no PRELUDE entry"
+            );
         }
     }
 
@@ -1044,7 +1044,8 @@ mod prelude_consistency_tests {
         let vec2_new = lookup("Vec2.new").expect("Vec2.new should be a documented entry");
         assert_eq!(prelude_entry_module(vec2_new), Some("vec2"));
 
-        let aabb = lookup("aabb_overlap").expect("aabb_overlap should be a documented entry");
+        let aabb =
+            lookup("collision.aabb_overlap").expect("aabb_overlap should be a documented entry");
         assert_eq!(prelude_entry_module(aabb), Some("collision"));
 
         let lerp = lookup("lerp").expect("lerp should be a documented core entry");

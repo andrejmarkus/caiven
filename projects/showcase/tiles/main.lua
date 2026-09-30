@@ -1,5 +1,7 @@
 -- Tile maze — walk through a maze with collision detection
 -- Sprite 0: player, sprite 1: floor, sprite 2: wall
+local collision = require "collision"
+
 local MAZE_W, MAZE_H = 16, 16
 
 local maze = {
@@ -26,7 +28,7 @@ local player_x, player_y = 8, 8
 local function solid_at(px, py)
   local cx = math.floor(px / 8)
   local cy = math.floor(py / 8)
-  return tile_solid(cx, cy)
+  return collision.tile_solid(cx, cy)
 end
 
 function _init()

@@ -46,7 +46,7 @@ header, table or another payload, a CRC mismatch, and anything but exactly one
 | `0x0E` | `Collision` | Default collision layer, 1 byte per map cell |
 | `0x0F` | `CollisionBank` | Named collision layer, same wrapper as other banks |
 | `0x10` | `CollisionTypes` | `[count u8]`, then per type `id u8, flags u8, rgb[3], name_len u8, name` |
-| `0x11` | `PreludeModules` | `[stdlib] modules`, one per line; present (possibly empty) only when `[stdlib]` is declared |
+| `0x11` | — | Retired (was the `[stdlib]` module list); loaders ignore it, never reuse the id |
 
 Asset payloads may be shorter than their region; loaders zero-pad them. Bank
 names are 1–31 of `A-Z a-z 0-9 _ -`. The content hash Port uses for
@@ -66,9 +66,6 @@ entry = "main.lua"
 
 [mods]
 require = []
-
-[stdlib]           # optional; absent means core only
-modules = ["vec2", "collision"]
 ```
 
 | File | Content |

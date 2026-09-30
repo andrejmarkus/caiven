@@ -2,16 +2,15 @@ use caiven_vm::input::Input;
 use caiven_vm::rendering::font::Font;
 use caiven_vm::{Vm, VmConfig};
 
-fn make_vm() -> Vm {
-    Vm::new(VmConfig::default())
+fn load(src: &str) -> Result<Vm, mlua::Error> {
+    let mut vm = Vm::new(VmConfig::default());
+    vm.load_lua_source(src, &Input::new(), &Font::empty())
+        .map(|()| vm)
 }
 
 #[test]
 fn core_only_default_exposes_rng_and_easing() {
-    let mut vm = make_vm();
-    let input = Input::new();
-    let font = Font::empty();
-    vm.load_lua_source(
+    load(
         r#"
         function _update()
           local r = random_range(1, 10)
@@ -19,148 +18,132 @@ fn core_only_default_exposes_rng_and_easing() {
           local c = clamp(5, 0, 10)
         end
         "#,
-        &input,
-        &font,
     )
     .unwrap_or_else(|e| panic!("core-only cart should load: {e}"));
 }
 
 #[test]
-fn omitting_stdlib_leaves_gameplay_globals_nil() {
-    let mut vm = make_vm();
-    let input = Input::new();
-    let font = Font::empty();
-    vm.load_lua_source(
+fn modules_define_no_globals() {
+    load(
         r#"
-        assert(Vec2 == nil, "Vec2 should be nil without [stdlib] modules")
-        assert(Sprite == nil, "Sprite should be nil without [stdlib] modules")
-        assert(Camera == nil, "Camera should be nil without [stdlib] modules")
-        assert(Scenes == nil, "Scenes should be nil without [stdlib] modules")
-        assert(Entities == nil, "Entities should be nil without [stdlib] modules")
-        assert(Particles == nil, "Particles should be nil without [stdlib] modules")
-        assert(aabb_overlap == nil, "aabb_overlap should be nil without [stdlib] modules")
-        assert(new_tween == nil, "new_tween should be nil without [stdlib] modules")
-        function _update() end
+        for _, name in ipairs({ "vec2", "actor", "collision", "movement", "tween", "anim",
+                                "particles", "scenes", "entities", "camera" }) do
+          assert(type(require(name)) == "table", name .. " should return its table")
+        end
+        for _, global in ipairs({ "Vec2", "Actor", "Sprite", "Camera", "Scenes", "Entities",
+                                  "Particles", "collision", "tween", "anim", "movement",
+                                  "aabb_overlap", "new_tween", "move_and_collide" }) do
+          assert(_G[global] == nil, global .. " should not be a global")
+        end
         "#,
-        &input,
-        &font,
     )
     .unwrap_or_else(|e| panic!("assertions failed: {e}"));
 }
 
 #[test]
-fn declaring_a_module_exposes_exactly_its_globals() {
-    let mut vm = make_vm();
-    vm.set_prelude_modules(&["vec2"])
-        .unwrap_or_else(|e| panic!("set_prelude_modules failed: {e}"));
-    let input = Input::new();
-    let font = Font::empty();
-    vm.load_lua_source(
+fn module_tables_expose_their_functions() {
+    load(
         r#"
-        assert(Vec2 ~= nil, "Vec2 should be defined by the vec2 module")
-        assert(Sprite ~= nil, "Sprite should be defined by the vec2 module")
-        assert(Camera == nil, "Camera should stay nil, only vec2 was declared")
-        assert(Scenes == nil, "Scenes should stay nil, only vec2 was declared")
-        assert(aabb_overlap == nil, "aabb_overlap should stay nil, only vec2 was declared")
-        function _update() end
+        local Vec2 = require "vec2"
+        local tween = require "tween"
+        local anim = require "anim"
+        local collision = require "collision"
+        local movement = require "movement"
+        assert((Vec2.new(1, 2) + Vec2.new(1, 1)).x == 2)
+        local t = tween.new(0, 10, 2)
+        tween.update(t)
+        assert(tween.update(t) == 10 and t.done)
+        local a = anim.new({ 4, 5 }, 1)
+        anim.update(a)
+        assert(anim.sprite(a) == 5)
+        assert(collision.aabb_overlap(0, 0, 4, 4, 2, 2, 4, 4))
+        assert(type(movement.move_and_collide) == "function")
         "#,
-        &input,
-        &font,
     )
     .unwrap_or_else(|e| panic!("assertions failed: {e}"));
 }
 
 #[test]
-fn collision_and_movement_are_split_modules() {
-    let mut vm = make_vm();
-    vm.set_prelude_modules(&["collision"])
-        .unwrap_or_else(|e| panic!("set_prelude_modules failed: {e}"));
-    let input = Input::new();
-    let font = Font::empty();
-    vm.load_lua_source(
-        r#"
-        assert(aabb_overlap ~= nil, "aabb_overlap should be defined by the collision module")
-        assert(move_and_collide == nil, "move_and_collide should stay nil, only collision was declared")
-        function _update() end
-        "#,
-        &input,
-        &font,
-    )
-    .unwrap_or_else(|e| panic!("assertions failed: {e}"));
+fn require_returns_the_same_table_every_time() {
+    load(r#"assert(require "camera" == require "camera")"#)
+        .unwrap_or_else(|e| panic!("assertions failed: {e}"));
+}
 
-    let mut vm = make_vm();
-    vm.set_prelude_modules(&["movement"])
-        .unwrap_or_else(|e| panic!("set_prelude_modules failed: {e}"));
-    vm.load_lua_source(
+#[test]
+fn entities_loads_the_collision_it_needs() {
+    load(
         r#"
-        assert(move_and_collide ~= nil, "move_and_collide should be defined by the movement module")
-        assert(aabb_overlap == nil, "aabb_overlap should stay nil, only movement was declared")
-        function _update() end
+        local Entities = require "entities"
+        local Vec2 = require "vec2"
+        Entities.add({ pos = Vec2.new(0, 0), w = 4, h = 4 })
+        assert(#Entities.overlapping(2, 2, 4, 4) == 1)
         "#,
-        &input,
-        &font,
     )
     .unwrap_or_else(|e| panic!("assertions failed: {e}"));
 }
 
 #[test]
 fn unknown_module_name_errors_with_the_name() {
-    let mut vm = make_vm();
-    let err = vm
-        .set_prelude_modules(&["physics"])
-        .expect_err("unknown module name should be rejected");
+    let err = load(r#"require "physics""#)
+        .err()
+        .expect("unknown module name should be rejected");
     assert!(
-        err.contains("physics"),
+        err.to_string().contains("physics"),
         "error should name the unknown module, got: {err}"
     );
 }
 
 #[test]
-fn lua_globals_only_excludes_currently_selected_module_names() {
-    let mut vm = make_vm(); // core only — "camera" module not selected
-    let input = Input::new();
-    let font = Font::empty();
-    vm.load_lua_source(
-        r#"
-        Camera = "cart-defined, not the prelude module"
-        function _update() end
-        "#,
-        &input,
-        &font,
-    )
-    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+fn a_cart_module_with_a_builtin_name_wins() {
+    let bundled = caiven_cart::bundle_lua(
+        r#"assert(require "camera" == "mine", "cart module should shadow the builtin")"#,
+        &[("camera".to_string(), r#"return "mine""#.to_string())],
+    );
+    load(&bundled).unwrap_or_else(|e| panic!("assertions failed: {e}"));
+}
 
-    let globals = vm.lua_globals();
+#[test]
+fn a_missing_module_local_error_names_the_line_to_add() {
+    let mut vm = load("function _update() Camera.update() end")
+        .unwrap_or_else(|e| panic!("load failed: {e}"));
+    vm.run_frame(&Input::new(), &Font::empty());
+    let message = vm
+        .fault_message()
+        .expect("indexing a nil Camera should fault");
     assert!(
-        globals.iter().any(|(name, _)| name == "Camera"),
-        "cart-defined Camera should surface in the debugger snapshot when the camera module isn't selected, got: {globals:?}"
+        message.contains(r#"add local Camera = require "camera""#),
+        "expected a require hint, got: {message}"
     );
 }
 
 #[test]
-fn active_prelude_modules_reflects_set_prelude_modules() {
-    let mut vm = make_vm();
-    assert!(vm.active_prelude_modules().is_empty());
-    vm.set_prelude_modules(&["vec2", "camera"])
-        .unwrap_or_else(|e| panic!("set_prelude_modules failed: {e}"));
-    assert_eq!(vm.active_prelude_modules(), &["vec2", "camera"]);
+fn a_cart_global_named_like_a_module_stays_visible_to_the_debugger() {
+    let mut vm = load(
+        r#"
+        Camera = "cart-defined"
+        function _update() end
+        "#,
+    )
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    assert!(
+        vm.lua_globals().iter().any(|(name, _)| name == "Camera"),
+        "cart-defined Camera should surface in the debugger snapshot"
+    );
 }
 
 #[test]
-fn hot_reload_preserves_prelude_module_selection() {
-    let mut vm = make_vm();
-    vm.set_prelude_modules(&["vec2"])
-        .unwrap_or_else(|e| panic!("set_prelude_modules failed: {e}"));
+fn hot_reload_keeps_module_state() {
     let input = Input::new();
     let font = Font::empty();
-    vm.load_lua_source("function _update() end", &input, &font)
-        .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
-
-    vm.hot_reload_lua_source(
-        r#"
-        assert(Vec2 ~= nil, "Vec2 should still be available after reload without re-supplying set_prelude_modules")
+    let src = r#"local Particles = require "particles"
         function _update() end
-        "#,
+        function count() return Particles.count() end"#;
+    let mut vm = load(&format!(
+        "{src}\nrequire('particles').spawn(1, 1, 0, 0, 1, 99)"
+    ))
+    .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
+    vm.hot_reload_lua_source(
+        &format!("{src}\nassert(count() == 1, 'particle state should survive reload')"),
         &input,
         &font,
     )

@@ -22,6 +22,7 @@
   } from '../lib/editorMath';
   import { emptyHistory, pushEntry, undoEntry, redoEntry, type HistoryEntry, type HistoryState } from '../lib/history';
   import { fileName, shortcut } from '../lib/format';
+  import { moduleKey } from '../lib/luaModules';
 
   const copyCutPaste = [shortcut('⌘C'), shortcut('⌘X'), shortcut('⌘V')].join(' / ');
   const clipboardHint = `${shortcut('⌘C')} copy · ${shortcut('⌘X')} cut · ${shortcut('⌘V')}`;
@@ -102,7 +103,6 @@
     onAudio: (kind: 'sfx' | 'music', id: number, action: AudioAction) => void;
     onBreakpoint: (source: string, line: number) => void;
     onMeta: (title: string, author: string, meta: CartMeta) => void;
-    onSetStdlibModule: (module: string, enabled: boolean) => void;
     onCreateModule: () => void;
     onPalette: (slot: number, hex: string) => void;
     onTour: () => void;
@@ -141,7 +141,7 @@
     // bindable — mutating it as a plain prop is a Svelte ownership violation.
     soundSelection = $bindable(),
     onNavigate, onSource, onCode, onSprite, onCollision, onCollisionTypes, onMap, onAssetBank, onSfx, onMusic, onSong, onAudio,
-    onBreakpoint, onMeta, onSetStdlibModule, onCreateModule, onPalette, onTour, onOpen, onNew, onRemix,
+    onBreakpoint, onMeta, onCreateModule, onPalette, onTour, onOpen, onNew, onRemix,
     localCarts, portCarts, portAccount, portBusy, portError, portLinkPending, portLinkExpiresAt, portLinkUserCode, onScanLibrary,
     onSearchPort, onOpenLocal, onRemoveRecent, onDownloadPort, onOpenPortAccount, onPortLink, onPortLinkCancel, onPortLogout,
     onInsertBuiltin, onOpenSource, onHistoryStatus, onSetServerUrl,
@@ -272,6 +272,7 @@
   ];
 
   const active = $derived(sources[activeSource]);
+  const projectModules = $derived(sources.map((source, index) => ({ key: moduleKey(source.name), text: source.text, entry: index === 0 })));
   // selectedSprite is always the group's top-left slot; clamp the group so it
   // never reaches past the sheet's right/bottom edge from wherever it's anchored.
   const groupOriginSlot = $derived(selectedSprite);
@@ -1542,7 +1543,7 @@
                 onChange={onCode}
                 onCursor={(source, offset) => sourceCursor[source] = offset}
                 onToggleBreakpoint={onBreakpoint}
-                onEnableModule={(module) => onSetStdlibModule(module, true)}
+                {projectModules}
               />
             {/key}
           {:else}
@@ -2221,18 +2222,6 @@
           <label>Tags<div class="tag-input">{#each meta.tags as tag}<button onclick={() => onMeta(title, author, { ...meta, tags: meta.tags.filter((value) => value !== tag) })}>{tag} ×</button>{/each}<input placeholder="Add tag…" onkeydown={(event) => { if (event.key === 'Enter' && event.currentTarget.value.trim()) { event.preventDefault(); onMeta(title, author, { ...meta, tags: [...meta.tags, event.currentTarget.value.trim()] }); event.currentTarget.value = ''; } }} /></div></label>
           <div class="cart-facts">{#each [['Format',path.endsWith('.cav') ? '.cav' : 'project dir'],['Packed size',`${(cartSize.packedBytes / 1024).toFixed(1)} KiB`],['Sources',`${sources.length} module${sources.length === 1 ? '' : 's'}`],['Port',portAccount.authenticated ? portAccount.username : 'not signed in']] as fact}<span><small>{fact[0]}</small><code>{fact[1]}</code></span>{/each}</div>
           {#if !portAccount.authenticated}<Button class="cart-port-cta" onclick={onOpenPortAccount}>Open Port account</Button>{/if}
-          <div class="stdlib-modules">
-            <div class="stdlib-modules-heading">Stdlib modules<small>Enabling a module here makes its globals available to the cart's Lua source. The editor also offers a quick-fix to enable a module when you reference it in code.</small></div>
-            <div class="stdlib-modules-list">
-              {#each preludeModules as module (module.name)}
-                <label class="stdlib-module-row">
-                  <input type="checkbox" checked={module.enabled} onchange={(event) => onSetStdlibModule(module.name, event.currentTarget.checked)} />
-                  <span class="stdlib-module-name">{module.name}</span>
-                  <small class="stdlib-module-globals">{module.globals.join(', ')}</small>
-                </label>
-              {/each}
-            </div>
-          </div>
         </div>
         <aside class="cart-preview">
           <span class="eyebrow">Port preview</span>

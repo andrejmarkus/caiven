@@ -529,3 +529,69 @@ test('Port unreachable, expired session, and publish failure stay actionable', a
   await expect(page.locator('.publish-dialog')).toContainText('upload rejected');
   await expect(page.getByRole('heading', { name: 'Publishing to port' })).toBeVisible();
 });
+
+test('a module table used without its local offers a quick-fix that adds it', async ({ page, e2e: _e2e }) => {
+  const editor = page.locator('.cm-content');
+  await editor.click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('\nCamera.update()');
+  await page.locator('.cm-lintRange-warning').hover();
+  const fix = page.locator('.cm-diagnosticAction', { hasText: 'Add local Camera = require "camera"' });
+  await expect(fix).toBeVisible();
+  await fix.click();
+  await expect(editor).toContainText('local Camera = require "camera"');
+  await expect(fix).toHaveCount(0);
+});
+
+test('require completes module names, hovers them, and completes what they return', async ({ page, e2e: _e2e }) => {
+  const editor = page.locator('.cm-content');
+  const options = page.locator('.cm-tooltip-autocomplete li');
+  await editor.click();
+  await page.keyboard.press('Control+End');
+
+  // After an existing `local x =`, only the quoted name is inserted.
+  await page.keyboard.type('\nlocal foes = requ');
+  await options.filter({ hasText: /^require/ }).click();
+  await expect(options.filter({ hasText: 'enemy' })).toBeVisible();
+  await expect(options.filter({ hasText: 'camera' })).toBeVisible();
+  await expect(options.filter({ hasText: /^main/ })).toHaveCount(0);
+  await options.filter({ hasText: 'enemy' }).click();
+  await expect(editor).toContainText('local foes = require "enemy"');
+
+  await editor.getByText('"enemy"', { exact: true }).hover();
+  await expect(page.locator('.cm-api-doc')).toContainText('enemy.lua');
+  await expect(page.locator('.cm-api-doc')).toContainText('.spawn');
+
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('\nfoes.sp');
+  await options.filter({ hasText: 'foes.spawn' }).click();
+  await expect(editor).toContainText('foes.spawn(x, y)');
+
+  // A bare `require` line becomes the conventional `local X = require` line.
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('\nrequire ');
+  await options.filter({ hasText: 'camera' }).click();
+  await expect(editor).toContainText('local Camera = require "camera"');
+
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('\nrequ');
+  await options.filter({ hasText: /^require/ }).click();
+  await options.filter({ hasText: 'tween' }).click();
+  await expect(editor).toContainText('local tween = require "tween"');
+
+  await editor.getByText('"camera"', { exact: true }).hover();
+  await expect(page.locator('.cm-api-doc')).toContainText('local Camera = require "camera"');
+  await expect(page.locator('.cm-api-doc')).toContainText('.follow');
+});
+
+test('a built-in module bound to another name completes under that name', async ({ page, e2e: _e2e }) => {
+  const editor = page.locator('.cm-content');
+  const options = page.locator('.cm-tooltip-autocomplete li');
+  await editor.click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('\nlocal tw = require "tween"');
+  await page.keyboard.press('Escape');
+  await page.keyboard.type('\ntw.n');
+  await options.filter({ hasText: 'tw.new' }).click();
+  await expect(editor).toContainText('tw.new(from, to)');
+});

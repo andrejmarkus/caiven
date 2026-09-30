@@ -1,3 +1,8 @@
+local Vec2 = require "vec2"
+local movement = require "movement"
+local Entities = require "entities"
+local Camera = require "camera"
+
 GROUND_TY = 15
 LEDGE_TY = 14
 PLATFORM_TY = 10
@@ -42,10 +47,10 @@ function _update()
   if button_down(2) then dx = dx - 2 end
   if button_down(3) then dx = dx + 2 end
 
-  local nx = move_and_collide(player.pos.x, player.pos.y, player.w, player.h, dx, 0)
+  local nx = movement.move_and_collide(player.pos.x, player.pos.y, player.w, player.h, dx, 0)
   player.pos.x = nx
 
-  local _, ny, touch = move_and_collide(player.pos.x, player.pos.y, player.w, player.h, 0, player.vy)
+  local _, ny, touch = movement.move_and_collide(player.pos.x, player.pos.y, player.w, player.h, 0, player.vy)
   player.pos.y = ny
   if touch.ground then
     player.vy = 0

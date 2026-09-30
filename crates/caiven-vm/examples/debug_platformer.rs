@@ -2,7 +2,6 @@
 //! PNG screenshots at chosen frames. Not part of any shipped build — used to
 //! visually verify the platformer showcase cart headlessly (no GUI access
 //! in this environment). Delete once no longer needed.
-use caiven_cart::SectionKind;
 use caiven_core::memory::{COLLISION_RAM_BASE, MAP_RAM_BASE, MAP_W};
 use caiven_vm::input::Input;
 use caiven_vm::input::button::Button;
@@ -112,21 +111,6 @@ fn main() {
 
     let cart = caiven_cart::open(Path::new(&cav_path)).expect("failed to open cart");
     let mut vm = Vm::new(VmConfig::default());
-
-    if let Some(section) = cart
-        .sections
-        .iter()
-        .find(|s| s.kind == SectionKind::PreludeModules)
-    {
-        let manifest = String::from_utf8_lossy(&section.data);
-        let modules: Vec<&str> = manifest
-            .lines()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .collect();
-        vm.set_prelude_modules(&modules)
-            .expect("bad stdlib modules");
-    }
 
     let lua_source = vm
         .load_cart_sections(&cart.sections)

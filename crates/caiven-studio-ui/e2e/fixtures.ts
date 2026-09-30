@@ -77,7 +77,7 @@ function installBridge() {
   let frame = 42;
   const initialSources = [
     { path: '/carts/test/main.lua', name: 'main.lua', text: 'function _update()\n  sprite(0, 1, 2)\nend', dirty: false },
-    { path: '/carts/test/enemy.lua', name: 'enemy.lua', text: 'return {}', dirty: false },
+    { path: '/carts/test/enemy.lua', name: 'enemy.lua', text: 'local M = {}\n-- Spawns one enemy.\nfunction M.spawn(x, y) end\nreturn M\n', dirty: false },
   ];
   let sources = initialSources;
   try {
@@ -95,14 +95,16 @@ function installBridge() {
   const stepStack = [{ label: 'draw_player', location: 'main.lua:2' }, { label: '_update', location: 'main.lua:1' }];
   const frameLocals = [[{ name: 'size', value: '8' }], [{ name: 'lives', value: '3' }]];
   let preludeModules = [
-    { name: 'vec2', globals: ['Vec2', 'Sprite'], enabled: false },
-    { name: 'collision', globals: ['aabb_overlap', 'circle_overlap', 'point_in_rect', 'point_in_circle', 'tile_solid', 'box_touches_solid'], enabled: false },
-    { name: 'movement', globals: ['move_and_collide'], enabled: false },
-    { name: 'tween', globals: ['new_tween', 'tween_update', 'new_anim', 'anim_update', 'anim_sprite'], enabled: false },
-    { name: 'particles', globals: ['Particles'], enabled: false },
-    { name: 'scenes', globals: ['Scenes'], enabled: false },
-    { name: 'entities', globals: ['Entities'], enabled: false },
-    { name: 'camera', globals: ['Camera'], enabled: false },
+    { name: 'vec2', export: 'Vec2' },
+    { name: 'actor', export: 'Actor' },
+    { name: 'collision', export: 'collision' },
+    { name: 'movement', export: 'movement' },
+    { name: 'tween', export: 'tween' },
+    { name: 'anim', export: 'anim' },
+    { name: 'particles', export: 'Particles' },
+    { name: 'scenes', export: 'Scenes' },
+    { name: 'entities', export: 'Entities' },
+    { name: 'camera', export: 'Camera' },
   ];
   let port = { authenticated: false, username: '', portUrl: 'http://port.test' };
   let linkApproved = false;
@@ -143,7 +145,12 @@ function installBridge() {
     ram: [...ram], globals: [{ name: 'score', value: '7' }, { name: 'player', value: '{table}', nodeId: 'global:player' }], watches: structuredClone(watches), callStack: [], breakpoints: structuredClone(breakpoints),
     pauseReason: null, diagnostics: [], output: ['mock runtime ready'], meta: { description: 'Test cartridge', tags: ['e2e'] },
     assetIndex: index(), audio: audio(), recent: [...recent],
-    api: [{ name: 'sprite', params: [{ name: 'id', ty: 'int' }], returns: 'nil', doc: 'Draw sprite.', category: 'Graphics' }],
+    api: [
+      { name: 'sprite', params: [{ name: 'id', ty: 'int' }], returns: 'nil', doc: 'Draw sprite.', category: 'Graphics' },
+      { name: 'require', params: [{ name: 'name', ty: 'string' }], returns: 'any', doc: 'Load a module once.', category: 'Lua standard library' },
+      { name: 'tween.new', params: [{ name: 'from', ty: 'number' }, { name: 'to', ty: 'number' }], returns: 'table', doc: 'New tween.', category: 'Gameplay stdlib' },
+      { name: 'Camera.follow', params: [{ name: 'entity', ty: 'table' }], returns: 'nil', doc: 'Follow an entity.', category: 'Gameplay stdlib' },
+    ],
     preludeModules: structuredClone(preludeModules),
   });
 
@@ -237,12 +244,7 @@ function installBridge() {
       return result;
     }
     if (command === 'studio_write_buffer') { const source = sources.find((item) => item.path === args.path); if (source) { source.text = String(args.text); source.dirty = true; persistSources(); } return null; }
-    if (command === 'studio_save') { for (const source of sources) source.dirty = false; persistSources(); return { output: sources.map((source) => source.name), unusedModules: [] }; }
-    if (command === 'studio_set_stdlib_module') {
-      const entry = preludeModules.find((item) => item.name === args.module);
-      if (entry) entry.enabled = Boolean(args.enabled);
-      return { api: bootstrap().api, preludeModules: structuredClone(preludeModules) };
-    }
+    if (command === 'studio_save') { for (const source of sources) source.dirty = false; persistSources(); return { output: sources.map((source) => source.name) }; }
     if (command === 'studio_transport') {
       const action = String(args.action);
       runState = action === 'run' || action === 'reset' ? 'running' : 'paused';

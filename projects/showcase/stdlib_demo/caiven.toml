@@ -6,10 +6,3 @@ entry = "main.lua"
 
 [mods]
 require = []
-
-[stdlib]
-modules = [
-    "collision",
-    "tween",
-    "particles",
-]

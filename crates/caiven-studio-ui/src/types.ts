@@ -95,8 +95,8 @@ export interface ApiEntry {
 
 export interface PreludeModule {
   name: string;
-  globals: string[];
-  enabled: boolean;
+  /** Conventional local for the module's table, e.g. `Camera`. */
+  export: string;
 }
 
 export type CollisionShape = 'none' | 'solid' | 'one_way' | 'slope_left' | 'slope_right';

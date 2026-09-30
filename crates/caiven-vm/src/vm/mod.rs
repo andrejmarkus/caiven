@@ -243,11 +243,6 @@ pub struct Vm {
     /// and overwritten wholesale by a `SectionKind::CollisionTypes` section
     /// on cart load, so a cart without one still gets valid defaults.
     collision_types: Vec<caiven_core::CollisionType>,
-    /// Cart's opt-in gameplay-stdlib selection (`[stdlib] modules` in
-    /// `caiven.toml`), set via `Vm::set_prelude_modules` before the first
-    /// `load_lua_source`. Empty means core-only — there is no "load
-    /// everything" default. See `lua_exec::PRELUDE_MODULES`.
-    active_prelude_modules: Vec<&'static str>,
 }
 
 /// One slot of the round-robin SFX voice pool backing the polyphonic
@@ -414,7 +409,6 @@ impl Vm {
             asset_banks: AssetBanks::new(),
             save_data: SaveData::new(),
             collision_types: caiven_core::builtin_collision_types(),
-            active_prelude_modules: Vec::new(),
         }
     }
 
@@ -685,7 +679,6 @@ impl Vm {
                 SectionKind::MusicBank => MUSIC_RAM_BASE,
                 SectionKind::Meta
                 | SectionKind::ModManifest
-                | SectionKind::PreludeModules
                 | SectionKind::LuaSource
                 | SectionKind::Custom(_) => continue,
             };

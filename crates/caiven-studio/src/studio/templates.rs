@@ -14,8 +14,6 @@ pub struct CartTemplate {
     /// and `draw_map` builtins in `caiven-vm`). Empty for templates whose
     /// script never draws a sprite.
     pub sprite_seed: &'static [(u8, [u8; 64])],
-    /// Opt-in prelude modules the source calls into, enabled on creation.
-    pub modules: &'static [&'static str],
 }
 
 /// A filled circle/blob, 8x8, drawn with palette index `fill`.
@@ -114,6 +112,8 @@ end
 
 const TILES: &str = r#"-- Tile world: a map with per-cell collision
 -- Sprite 1 = floor, sprite 2 = wall
+local collision = require "collision"
+
 local MAZE_W, MAZE_H = 16, 16
 
 local maze = {
@@ -140,7 +140,7 @@ local player_x, player_y = 8, 8
 local function solid_at(px, py)
   local cx = math.floor(px / 8)
   local cy = math.floor(py / 8)
-  return tile_solid(cx, cy)
+  return collision.tile_solid(cx, cy)
 end
 
 function _init()
@@ -186,7 +186,6 @@ pub const TEMPLATES: [CartTemplate; 4] = [
         source: MOVER,
         // MOVER's _init sets palette index 1 to the light color it draws with.
         sprite_seed: &[(0, blob(1))],
-        modules: &[],
     },
     CartTemplate {
         id: "tap-to-score",
@@ -195,7 +194,6 @@ pub const TEMPLATES: [CartTemplate; 4] = [
         source: SCORE,
         // SCORE's _init sets palette index 1 to white for the ball.
         sprite_seed: &[(0, blob(1))],
-        modules: &[],
     },
     CartTemplate {
         id: "tile-world",
@@ -205,8 +203,6 @@ pub const TEMPLATES: [CartTemplate; 4] = [
         // TILES' _init sets index 1 = floor gray, index 2 = wall gray,
         // index 3 = player red; tile ids 1/2 index sprites 1/2 directly.
         sprite_seed: &[(0, blob(3)), (1, solid(1)), (2, solid(2))],
-        // tile_solid lives in the collision module.
-        modules: &["collision"],
     },
     CartTemplate {
         id: "blank",
@@ -214,7 +210,6 @@ pub const TEMPLATES: [CartTemplate; 4] = [
         description: "Empty _init and _update starting point",
         source: BLANK,
         sprite_seed: &[],
-        modules: &[],
     },
 ];
 
@@ -305,10 +300,6 @@ mod tests {
         let mut console = ConsoleCore::new().expect("console core");
         for template in &TEMPLATES {
             console.reset_vm();
-            console
-                .vm
-                .set_prelude_modules(template.modules)
-                .expect("template modules");
             let sources = [SourceFile {
                 path: PathBuf::from("main.lua"),
                 text: template.source.to_string(),

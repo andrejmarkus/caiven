@@ -18,7 +18,7 @@
   } from './types';
   import {
     bootstrap, chooseExportPath, chooseExportWebPath, chooseExportScreenshotPath, chooseExportSourceZipPath, chooseProject, exportCartridge, exportCartridgeWeb, exportCartridgeScreenshot, exportCartridgeSourceZip, fallbackExamples, fallbackTemplates, isTauri, listExamples, listTemplates, newProject,
-    openProject, readAssetIndex, readCartSize, readFrame, readMemory, readTick, remixExample, saveProject, setInput, setStdlibModule, transport,
+    openProject, readAssetIndex, readCartSize, readFrame, readMemory, readTick, remixExample, saveProject, setInput, transport,
     addWatch, assetBank, audioTransport, clearOutput, closeProject, COLLISION_LEN, createModule, expandDebugValue, MEMORY, MUSIC_BANK_LEN, MUSIC_ORDER_OFFSET, MUSIC_PATTERN_LEN, portDownload, RAM_SIZE, portLinkCancel, portLinkPoll, portLinkStart, portListCarts,
     portLogout, portPublish, portPublishTarget, portSession, portSetUrl, scanLibrary, toggleBreakpoint, writeBuffer,
     forceClose, peekValue, removeRecent, removeWatch, selectFrame, writeCollisionCells, writeCollisionTypes, writeMapCells, writeMemory, writeMeta, writePalette, writeSprite,
@@ -388,16 +388,11 @@
     try {
       clearTimeout(writeTimer);
       await Promise.all(studio.sources.filter((source) => source.dirty).map((source) => writeBuffer(source.path, source.text)));
-      const { output, unusedModules } = await saveProject();
+      const { output } = await saveProject();
       for (const source of studio.sources) source.dirty = false;
       metaDirty = false;
       status = `Saved ${plural(output.length, 'file')} · ${tidyPath(studio.path)}`;
       showToast(`Saved ${plural(output.length, 'file')} to ${tidyPath(studio.path)}`);
-      for (const module of unusedModules) {
-        if (await confirmAction(`Module '${module}' looks unused — disable it?`)) {
-          await doSetStdlibModule(module, false);
-        }
-      }
     } catch (error) {
       showToast(`Save failed: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -573,16 +568,6 @@
       studio.meta = previous.meta;
       metaDirty = previous.dirty;
       showToast(`Metadata failed: ${errorText(error)}`);
-    }
-  }
-
-  async function doSetStdlibModule(module: string, enabled: boolean) {
-    try {
-      const result = await setStdlibModule(module, enabled);
-      studio.api = result.api;
-      studio.preludeModules = result.preludeModules;
-    } catch (error) {
-      showToast(`Couldn't ${enabled ? 'enable' : 'disable'} module '${module}': ${errorText(error)}`);
     }
   }
 
@@ -1176,7 +1161,6 @@
           onAudio={(kind, id, action) => void doAudio(kind, id, action)}
           onBreakpoint={(source, line) => void doBreakpoint(source, line)}
           onMeta={(title, author, meta) => void doMeta(title, author, meta)}
-          onSetStdlibModule={(module, enabled) => void doSetStdlibModule(module, enabled)}
           onCreateModule={() => overlay = 'module'}
           onPalette={updatePalette}
           onTour={() => overlay = 'tour'}

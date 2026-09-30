@@ -67,3 +67,13 @@ right test. `cargo test -p caiven-vm` catches it only if you run the
 `hot_reload_tests` (they don't always fail under a parallel run — the
 crash can come and go with test scheduling, so a single flaky-looking abort
 is not safe to dismiss as flakiness without checking this first).
+
+## Opt-in prelude modules are real Lua modules
+
+A `prelude/<name>.lua` module returns its table and defines no globals;
+carts bind it with `local Camera = require "camera"`. `PreludeModule.export`
+in `lua_exec.rs` is that conventional local, and `PRELUDE` entries are named
+through it (`tween.new`, `Camera.follow`) — the drift tests match on it.
+Renaming a module function breaks the demo carts silently until
+`scripts/demo-carts/build.sh` rebuilds them; `tests/dev_carts.rs` then runs
+every `carts/dev/*.cav` and fails on any Lua fault.

@@ -1,4 +1,7 @@
-
+local collision = require "collision"
+local tween = require "tween"
+local anim = require "anim"
+local Particles = require "particles"
 
 GROUND_TILE_Y = 13
 GROUND_Y = GROUND_TILE_Y * 8
@@ -7,7 +10,7 @@ PLAYER_H = 8
 px = 60
 py = GROUND_Y - PLAYER_H
 vy = 0
-walk_anim = new_anim({ 2, 3 }, 8)
+walk_anim = anim.new({ 2, 3 }, 8)
 score = 0
 high_score = 0
 coin_x = 16
@@ -19,10 +22,10 @@ coin_y = GROUND_Y - 8
 end
 function _init()
 high_score = load_data().high_score or 0
-tweens[1] = new_tween(24, 116, 90, ease_linear)
-tweens[2] = new_tween(24, 116, 90, ease_in_quad)
-tweens[3] = new_tween(24, 116, 90, ease_out_quad)
-tweens[4] = new_tween(24, 116, 90, ease_in_out_quad)
+tweens[1] = tween.new(24, 116, 90, ease_linear)
+tweens[2] = tween.new(24, 116, 90, ease_in_quad)
+tweens[3] = tween.new(24, 116, 90, ease_out_quad)
+tweens[4] = tween.new(24, 116, 90, ease_in_out_quad)
 for i = 1, 4 do
 tweens[i].val = tweens[i].from
 end
@@ -38,7 +41,7 @@ px = px + 2
 moving = true
 end
 px = clamp(px, 0, 192 - PLAYER_W)
-local on_ground = box_touches_solid(px, py + PLAYER_H, PLAYER_W, 1)
+local on_ground = collision.box_touches_solid(px, py + PLAYER_H, PLAYER_W, 1)
 if on_ground then
 vy = 0
 if button_down(0) or button_down(4) then
@@ -48,13 +51,13 @@ else
 vy = clamp(vy + 1, -6, 4)
 end
 local next_y = py + vy
-if vy > 0 and box_touches_solid(px, next_y + PLAYER_H, PLAYER_W, 1) then
+if vy > 0 and collision.box_touches_solid(px, next_y + PLAYER_H, PLAYER_W, 1) then
 next_y = GROUND_Y - PLAYER_H
 vy = 0
 end
 py = next_y
-if moving then anim_update(walk_anim) end
-if aabb_overlap(px, py, PLAYER_W, PLAYER_H, coin_x, coin_y, 8, 8) then
+if moving then anim.update(walk_anim) end
+if collision.aabb_overlap(px, py, PLAYER_W, PLAYER_H, coin_x, coin_y, 8, 8) then
 for i = 1, 12 do
 Particles.spawn(px + 4, py + 4, (math.random(0, 100) - 50) / 25, -math.random(0, 20) / 10, 10, 25)
 end
@@ -81,9 +84,9 @@ end
 Particles.update()
 for i = 1, 4 do
 local tw = tweens[i]
-tw.val = tween_update(tw)
+tw.val = tween.update(tw)
 if tw.done then
-local nxt = new_tween(tw.to, tw.from, 90, tw.ease)
+local nxt = tween.new(tw.to, tw.from, 90, tw.ease)
 nxt.val = tw.val
 tweens[i] = nxt
 end
@@ -96,7 +99,7 @@ local bg = math.floor(lerp(10, 11, (math.sin(frame_count() * 0.03) + 1) / 2))
 fill_screen(bg)
 draw_map(0, GROUND_TILE_Y, 0, GROUND_Y, 16, 1)
 fill_rect(math.floor(coin_x), math.floor(coin_y), 8, 8, 13)
-sprite(anim_sprite(walk_anim), math.floor(px), math.floor(py))
+sprite(anim.sprite(walk_anim), math.floor(px), math.floor(py))
 Particles.draw()
 local ease_colors = { 6, 8, 14, 3 }
 local labels = { "LIN", "EIN", "EOUT", "INOUT" }

@@ -1,4 +1,4 @@
-Scenes = Scenes or { stack = {} }
+local Scenes = { stack = {} }
 
 function Scenes.push(scene)
   if scene.enter then scene.enter(scene) end
@@ -36,3 +36,5 @@ end
 function Scenes.current()
   return Scenes.stack[#Scenes.stack]
 end
+
+return Scenes

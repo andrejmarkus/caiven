@@ -6,11 +6,3 @@ entry = "main.lua"
 
 [mods]
 require = []
-
-[stdlib]
-modules = [
-    "vec2",
-    "scenes",
-    "entities",
-    "camera",
-]

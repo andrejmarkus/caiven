@@ -1,4 +1,4 @@
--- Core-only: no [stdlib] modules declared. Every name used below (clamp,
+-- Core-only: no modules required. Every name used below (clamp,
 -- lerp, easing, random_range, draw_text/draw_number/set_pixel/button_down)
 -- is either always-on prelude core or a console builtin -- no opt-in module
 -- needed for a cart this simple.

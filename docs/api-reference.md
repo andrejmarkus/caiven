@@ -107,40 +107,47 @@ or Studio), not by the Lua sandbox directly.
 ## Gameplay stdlib
 
 Pure Lua — read `crates/caiven-vm/src/vm/prelude/` for the source. Split into an
-always-on **core** plus opt-in **modules** a cart declares in `caiven.toml`:
+always-on **core** (globals) plus opt-in **modules**. A module is a normal Lua
+5.4 module: `require` returns its table and defines no globals, the same as
+a cart's own sibling `.lua` files. Bind it to a local, conventionally named
+as in the headings below:
 
-```toml
-[stdlib]
-modules = ["vec2", "scenes", "entities", "camera"]
+```lua
+local Camera = require "camera"
+local tween = require "tween"
+
+local fade = tween.new(0, 1, 30)
 ```
 
-**Breaking change:** a cart with no `[stdlib]` table gets **core only** — no
-`Vec2`, `Scenes`, `Entities`, `Camera`, collision helpers, tweens, or
-`Particles`. This replaced an old behavior where every cart got the entire
-stdlib unconditionally. If your cart uses any non-core name from the tables
-below, add `[stdlib] modules = [...]` listing every module it uses — the
-missing name otherwise resolves to Lua `nil` and errors on first use (a
-regular Lua runtime error, not a silent no-op). An unknown module name in
-that list is a hard error at cart load, naming the bad entry.
+Locals are per file, so every file that uses a module requires it; `require`
+loads each module once and returns the same table after that. Using the
+table without the local is a nil error ending with
+`add local Camera = require "camera" at the top of the file`, and Studio's
+editor offers that line as a quick-fix. `require` of an unknown name is a
+normal Lua error naming it. A cart file with the same name as a module
+(`camera.lua`) wins over the built-in one.
+
+Carts built before this change listed modules in `caiven.toml` under
+`[stdlib]` and got them as globals (`new_tween`, `aabb_overlap`, `Sprite`);
+that table and its `.cav` section are now ignored. Add the `local … =
+require` lines and call through the table (`tween.new`,
+`collision.aabb_overlap`, `Actor.new`).
 
 See it all in action in `carts/dev/stdlib_demo.cav`
 (`cargo run -p caiven-machine -- carts/dev/stdlib_demo.cav`): a tiny
 platformer with tile collision, a coin pickup that bursts particles, a
 walk-cycle sprite animation, and four side-by-side tweened dots comparing
-each easing curve — declares `[stdlib] modules = ["collision", "tween",
-"particles"]`.
+each easing curve — requires `collision`, `tween`, `anim` and `particles`.
 
 The `Scenes`/`Entities`/`Camera` trio has its own example:
 `carts/dev/scenes_demo.cav`
 (`cargo run -p caiven-machine -- carts/dev/scenes_demo.cav`) — a title
 screen, a play scene with a camera-followed player and two entities, and a
-game-over screen — declares `[stdlib] modules = ["vec2", "scenes",
-"entities", "camera"]`.
+game-over screen — requires `vec2`, `scenes`, `entities` and `camera`.
 
 Two more minimal carts show the two ends of the opt-in range:
-`carts/dev/stdlib_core_only.cav` declares `[stdlib] modules = []`
-explicitly (core-only, same as omitting `[stdlib]` entirely) and
-`carts/dev/stdlib_all_modules.cav` declares every module at once.
+`carts/dev/stdlib_core_only.cav` requires nothing and
+`carts/dev/stdlib_all_modules.cav` requires every module at once.
 
 ### `core` (always on, no declaration needed)
 
@@ -153,55 +160,65 @@ RNG is deterministic by default — the prelude core seeds `math.randomseed(1)` 
 | `random_range(lo, hi)` / `random_float(lo, hi)`            | Deterministic-by-default RNG (see above) — int inclusive / float `[lo, hi)` |
 | `choice(t)` / `shuffle(t)`                                 | Random element of a non-empty table / in-place Fisher-Yates shuffle        |
 
-### `vec2` — `Vec2`, `Sprite`
+### `vec2` — `local Vec2 = require "vec2"`
 
 | Function                                            | Description                                                                                                                                   |
 | :---------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Vec2.new(x, y)`                                    | 2D vector with `+`/`-`/unary `-`/`*` (scalar)/`==`; `v:length()`, `v:length_squared()`, `v:normalize()`, `v:dot(other)`, `v:distance(other)` |
-| `Sprite.new{sprite_id, pos, flip_x, flip_y, rotate}` / `s:draw()` | Bundles a sprite_id + Vec2 pos (+ optional orientation) into a drawable object                                                     |
 
-### `collision` — AABB/circle/point/tile helpers
+### `actor` — `local Actor = require "actor"`
 
-| Function                                                                   | Description                                                       |
-| :---------------------------------------------------------------------------| :----------------------------------------------------------------|
-| `aabb_overlap(x1, y1, w1, h1, x2, y2, w2, h2)`                             | Axis-aligned box overlap test                                     |
-| `circle_overlap(x1, y1, r1, x2, y2, r2)`                                   | Circle overlap test                                               |
-| `point_in_rect(px, py, x, y, w, h)` / `point_in_circle(px, py, cx, cy, r)` | Point containment tests                                           |
-| `tile_solid(tx, ty)`                                                       | Whether the per-cell collision value at `(tx, ty)` is `1` (solid) |
-| `box_touches_solid(x, y, w, h)`                                            | Whether a pixel-space box overlaps any solid tile                 |
+| Function                                                         | Description                                                                    |
+| :----------------------------------------------------------------- | :----------------------------------------------------------------------------- |
+| `Actor.new{sprite_id, pos, flip_x, flip_y, rotate}` / `a:draw()` | Bundles a sprite_id + Vec2 pos (+ optional orientation) into a drawable object |
 
-### `movement` — swept move + collision resolve
+### `collision` — `local collision = require "collision"`
 
-| Function                                                    | Description                                                    |
-| :-------------------------------------------------------------| :----------------------------------------------------------|
-| `move_and_collide(x, y, w, h, dx, dy)`                     | Axis-separated swept move against SOLID (both axes), ONE_WAY (vertical, landing only when descending from above), and slope tiles (vertical, per-column floor sampling); returns `nx, ny, touch = {ground, ceiling, left, right}` |
+| Function                                                                                       | Description                                                       |
+| :------------------------------------------------------------------------------------------------ | :---------------------------------------------------------------- |
+| `collision.aabb_overlap(x1, y1, w1, h1, x2, y2, w2, h2)`                                       | Axis-aligned box overlap test                                     |
+| `collision.circle_overlap(x1, y1, r1, x2, y2, r2)`                                             | Circle overlap test                                               |
+| `collision.point_in_rect(px, py, x, y, w, h)` / `.point_in_circle(px, py, cx, cy, r)`          | Point containment tests                                           |
+| `collision.tile_solid(tx, ty)`                                                                 | Whether the per-cell collision value at `(tx, ty)` is `1` (solid) |
+| `collision.box_touches_solid(x, y, w, h)`                                                      | Whether a pixel-space box overlaps any solid tile                 |
 
-### `tween` — value tweens and sprite animation
+### `movement` — `local movement = require "movement"`
 
-| Function                                                    | Description                                                    |
-| :-------------------------------------------------------------| :----------------------------------------------------------|
-| `new_tween(from, to, frames, ease)` / `tween_update(tw)`    | Frame-driven value tween; `tw.done` flips true on arrival      |
-| `new_anim(frames, frame_len)` / `anim_update(anim)` / `anim_sprite(anim)` | Frame-based sprite animation cycling through a sprite-id list |
+| Function                                        | Description                                                                                                                                                                                                                   |
+| :------------------------------------------------ | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `movement.move_and_collide(x, y, w, h, dx, dy)` | Axis-separated swept move against SOLID (both axes), ONE_WAY (vertical, landing only when descending from above), and slope tiles (vertical, per-column floor sampling); returns `nx, ny, touch = {ground, ceiling, left, right}` |
 
-### `particles` — `Particles`
+### `tween` — `local tween = require "tween"`
+
+| Function                                                | Description                                               |
+| :-------------------------------------------------------- | :-------------------------------------------------------- |
+| `tween.new(from, to, frames, ease)` / `tween.update(tw)` | Frame-driven value tween; `tw.done` flips true on arrival |
+
+### `anim` — `local anim = require "anim"`
+
+| Function                                                          | Description                                                   |
+| :------------------------------------------------------------------ | :------------------------------------------------------------ |
+| `anim.new(frames, frame_len)` / `anim.update(a)` / `anim.sprite(a)` | Frame-based sprite animation cycling through a sprite-id list |
+
+### `particles` — `local Particles = require "particles"`
 
 | Function                                                                                          | Description                                 |
 | :----------------------------------------------------------------------------------------------------| :------------------------------------------ |
 | `Particles.spawn(x, y, vx, vy, color, life)` / `.update()` / `.draw()` / `.clear()` / `.count()` | Simple velocity + lifetime particle system |
 
-### `scenes` — `Scenes`
+### `scenes` — `local Scenes = require "scenes"`
 
 | Function                                                                                     | Description                                                                    |
 | :------------------------------------------------------------------------------------------------| :---------------------------------------------------------------------------- |
 | `Scenes.push(scene)` / `.pop()` / `.switch(scene)` / `.update()` / `.draw()` / `.current()` | Stack-based scene manager; scene = table with optional enter/exit/update/draw |
 
-### `entities` — `Entities`
+### `entities` — `local Entities = require "entities"`
 
 | Function                                                                                  | Description                                                                                       |
 | :----------------------------------------------------------------------------------------------| :------------------------------------------------------------------------------------------------ |
-| `Entities.add(e)` / `.update_all()` / `.draw_all()` / `.clear()` / `.count()` / `.overlapping(x,y,w,h)` / `.new()` | Entity list with lifecycle (e.dead removes on next update_all()); overlapping() returns entries whose .pos(Vec2)+.w/.h box overlaps the query box (requires the collision module too, for aabb_overlap); .new() gives an independent list |
+| `Entities.add(e)` / `.update_all()` / `.draw_all()` / `.clear()` / `.count()` / `.overlapping(x,y,w,h)` / `.new()` | Entity list with lifecycle (e.dead removes on next update_all()); overlapping() returns entries whose .pos(Vec2)+.w/.h box overlaps the query box (loads the collision module itself); .new() gives an independent list |
 
-### `camera` — `Camera`
+### `camera` — `local Camera = require "camera"`
 
 | Function                                                                                | Description                                                                        |
 | :-------------------------------------------------------------------------------------------| :---------------------------------------------------------------------------- |

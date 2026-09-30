@@ -7,7 +7,7 @@
     rectangularSelection,
   } from '@codemirror/view';
   import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-  import { autocompletion, completionKeymap, type CompletionContext } from '@codemirror/autocomplete';
+  import { autocompletion, completionKeymap, startCompletion, type Completion, type CompletionContext } from '@codemirror/autocomplete';
   import { bracketMatching, HighlightStyle, syntaxHighlighting, StreamLanguage } from '@codemirror/language';
   import { lintKeymap, setDiagnostics, type Diagnostic as CmDiagnostic } from '@codemirror/lint';
   import { searchKeymap } from '@codemirror/search';
@@ -17,6 +17,9 @@
     ApiEntry, Breakpoint, Diagnostic, EditorInsertRequest, EditorRevealRequest, PreludeModule,
   } from '../types';
   import { sourceOffset, watchPathAt } from '../lib/editorMath';
+  import {
+    builtinAliasEntries, declaresLocal, localName, projectEntries, requireNameAt, scanModule, type ProjectModule,
+  } from '../lib/luaModules';
 
   // CodeMirror's own `defaultHighlightStyle` assumes a light background —
   // against this editor's dark theme it renders near-black text on black,
@@ -53,12 +56,13 @@
     onChange: (value: string) => void;
     onCursor: (source: string, offset: number) => void;
     onToggleBreakpoint: (source: string, line: number) => void;
-    onEnableModule: (module: string) => void;
+    /** Every cart source, for `require` names and project symbols. */
+    projectModules: ProjectModule[];
   }
 
   let {
     value, path, initialCursor, api, preludeModules, diagnostics, breakpoints, pausedLine, onPeek, insertRequest, revealRequest,
-    onInsertHandled, onRevealHandled, onChange, onCursor, onToggleBreakpoint, onEnableModule,
+    onInsertHandled, onRevealHandled, onChange, onCursor, onToggleBreakpoint, projectModules,
   }: Props = $props();
   let host: HTMLDivElement;
   let view: EditorView | undefined;
@@ -114,43 +118,121 @@
     ],
   });
 
+  const requirable = () => projectModules.filter((module) => !module.entry);
+  const signature = (entry: ApiEntry, typed = false) =>
+    `(${entry.params.map((param) => (typed && param.ty ? `${param.name}: ${param.ty}` : param.name)).join(', ')})${entry.returns ? ` → ${entry.returns}` : ''}`;
+
+  type Apply = string | ((editor: EditorView, completion: Completion, from: number, to: number) => void);
+
+  /** Module names for a `require`; `apply` builds the insertion from the key and its conventional local. */
+  function moduleOptions(apply: (key: string, local: string) => Apply) {
+    const own = requirable().map((module) => ({ label: module.key, type: 'namespace', detail: 'project module', apply: apply(module.key, localName(module.key)) }));
+    const builtin = preludeModules
+      .filter((module) => !own.some((option) => option.label === module.name))
+      .map((module) => ({
+        label: module.name, type: 'namespace', detail: 'built-in', info: `local ${module.export} = require "${module.name}"`,
+        apply: apply(module.name, module.export),
+      }));
+    return [...own, ...builtin];
+  }
+
+  // A `require` alone on its line becomes the whole conventional line,
+  // swallowing any closing quote/paren already typed after the cursor.
+  const localLine = (start: number, key: string, local: string): Apply => (editor, _completion, _from, to) => {
+    let end = to;
+    if (/["']/.test(editor.state.sliceDoc(end, end + 1))) end += 1;
+    if (editor.state.sliceDoc(end, end + 1) === ')') end += 1;
+    const insert = `local ${local} = require "${key}"`;
+    editor.dispatch({ changes: { from: start, to: end, insert }, selection: { anchor: start + insert.length } });
+  };
+
+  // `require ""` with the cursor between the quotes, then the module list.
+  const applyRequire = (editor: EditorView, _completion: Completion, from: number, to: number) => {
+    editor.dispatch({ changes: { from, to, insert: 'require ""' }, selection: { anchor: from + 9 } });
+    startCompletion(editor);
+  };
+
+  /** Everything the file can call: console API, built-ins under their aliases, project symbols. */
+  function visibleEntries(text: string): ApiEntry[] {
+    const shadowed = requirable().map((module) => module.key);
+    return [...api, ...builtinAliasEntries(api, preludeModules, text, shadowed), ...projectEntries(projectModules, text)];
+  }
+
   function completions(context: CompletionContext) {
+    const call = context.matchBefore(/require\s*(\(\s*)?(["'][\w./]*)?/);
+    if (call && /^require\s*(\(\s*)?(["']|\s|\()/.test(call.text)) {
+      const lineStart = context.state.doc.lineAt(call.from).from;
+      const bare = /^\s*$/.test(context.state.sliceDoc(lineStart, call.from));
+      const quote = call.text.search(/["']/);
+      const paren = call.text.includes('(');
+      const apply = (key: string, local: string): Apply => {
+        if (bare) return localLine(call.from, key, local);
+        if (quote >= 0) return key;
+        return paren ? `"${key}")` : `"${key}"`;
+      };
+      const from = quote >= 0 ? call.from + quote + 1 : context.pos;
+      return { from, options: moduleOptions(apply), validFor: /^[\w./]*$/ };
+    }
     const word = context.matchBefore(/[\w.]*/);
     if (!word || (!context.explicit && word.from === word.to)) return null;
     return {
       from: word.from,
-      options: api.map((entry) => ({
-        label: entry.name,
-        type: 'function',
-        detail: `(${entry.params.map((param) => param.name).join(', ')}) → ${entry.returns}`,
-        info: entry.doc,
-        apply: `${entry.name}(${entry.params.map((param) => param.name).join(', ')})`,
-      })),
+      options: visibleEntries(context.state.doc.toString()).map((entry) => {
+        const value = entry.category === 'Project value';
+        return {
+          label: entry.name,
+          type: value ? 'variable' : 'function',
+          detail: value ? entry.category : signature(entry),
+          info: entry.doc,
+          apply: entry.name === 'require' ? applyRequire
+            : value ? entry.name : `${entry.name}(${entry.params.map((param) => param.name).join(', ')})`,
+        };
+      }),
     };
+  }
+
+  function requireHover(name: string): { title: string; body: string } | null {
+    const own = requirable().find((module) => module.key === name);
+    if (own) {
+      const scan = scanModule(own.key, own.text);
+      const names = [...scan.exports.map((entry) => `.${entry.name}`), ...scan.globals.map((entry) => entry.name)];
+      return { title: `${name.replace(/\./g, '/')}.lua`, body: names.length ? `Project module. Provides ${names.join(', ')}.` : 'Project module.' };
+    }
+    const builtin = preludeModules.find((module) => module.name === name);
+    if (!builtin) return null;
+    const members = api.filter((entry) => new RegExp(`^${builtin.export}[.:]`).test(entry.name)).map((entry) => entry.name.slice(builtin.export.length));
+    return { title: `local ${builtin.export} = require "${name}"`, body: `Built-in module. Provides ${members.join(', ')}.` };
   }
 
   const apiHover = hoverTooltip((editor, position) => {
     const line = editor.state.doc.lineAt(position);
-    const left = line.text.slice(0, position - line.from).match(/[\w.]+$/)?.[0] ?? '';
-    const right = line.text.slice(position - line.from).match(/^[\w.]*/)?.[0] ?? '';
-    const word = left + right;
-    const entry = api.find((candidate) => candidate.name === word);
-    if (!entry) return null;
-    return {
-      pos: position - left.length,
-      end: position + right.length,
+    const card = (pos: number, end: number, title: string, body: string) => ({
+      pos,
+      end,
       above: true,
       create() {
         const dom = document.createElement('div');
         dom.className = 'cm-api-doc';
-        const signature = document.createElement('code');
-        signature.textContent = `${entry.name}(${entry.params.map((param) => `${param.name}: ${param.ty}`).join(', ')}) → ${entry.returns}`;
+        const heading = document.createElement('code');
+        heading.textContent = title;
         const copy = document.createElement('p');
-        copy.textContent = entry.doc;
-        dom.append(signature, copy);
+        copy.textContent = body;
+        dom.append(heading, copy);
         return { dom };
       },
-    };
+    });
+    const required = requireNameAt(line.text, position - line.from);
+    if (required) {
+      const info = requireHover(required.name);
+      return info ? card(line.from + required.from, line.from + required.to, info.title, info.body) : null;
+    }
+    const left = line.text.slice(0, position - line.from).match(/[\w.]+$/)?.[0] ?? '';
+    const right = line.text.slice(position - line.from).match(/^[\w.]*/)?.[0] ?? '';
+    const word = left + right;
+    const entry = visibleEntries(editor.state.doc.toString()).find((candidate) => candidate.name === word);
+    if (!entry) return null;
+    const title = entry.category === 'Project value' ? entry.name : `${entry.name}${signature(entry, true)}`;
+    return card(position - left.length, position + right.length, title, entry.doc);
   });
 
   const valueHover = hoverTooltip(async (editor, position, side) => {
@@ -231,21 +313,19 @@
     onRevealHandled(revealRequest.id);
   }
 
-  /** Best-effort lexical scan (not a parser) for references to a disabled
-   * prelude module's globals, so the editor can offer a quick-fix that
-   * enables the module — not a completion, since the module isn't active.
-   * Skips `.`/`:` member access (`foo.Vec2`) and `--` comment tails; false
-   * positives on string literals containing the same text are acceptable. */
-  function disabledModuleDiagnostics(): CmDiagnostic[] {
+  /** Best-effort lexical scan (not a parser) for a module's conventional
+   * local (`Camera`, `tween`) used in a file that never declares it, with a
+   * quick-fix adding the `local … = require` line. Skips `.`/`:` member
+   * access and `--` comment tails; false positives on strings are fine. */
+  function missingRequireDiagnostics(): CmDiagnostic[] {
     if (!view) return [];
+    const text = view.state.doc.toString();
     const disabledGlobals = new Map<string, string>();
     for (const module of preludeModules) {
-      if (module.enabled) continue;
-      for (const global of module.globals) disabledGlobals.set(global, module.name);
+      if (!declaresLocal(text, module.export)) disabledGlobals.set(module.export, module.name);
     }
     if (disabledGlobals.size === 0) return [];
 
-    const text = view.state.doc.toString();
     const items: CmDiagnostic[] = [];
     const wordPattern = /[A-Za-z_][A-Za-z0-9_]*/g;
     let match: RegExpExecArray | null;
@@ -262,8 +342,11 @@
         from: start,
         to: start + word.length,
         severity: 'warning',
-        message: `${word} not available — module '${moduleName}' not enabled`,
-        actions: [{ name: `Enable '${moduleName}'`, apply: () => onEnableModule(moduleName) }],
+        message: `${word} comes from module '${moduleName}' — add local ${word} = require "${moduleName}"`,
+        actions: [{
+          name: `Add local ${word} = require "${moduleName}"`,
+          apply: (editor) => editor.dispatch({ changes: { from: 0, insert: `local ${word} = require "${moduleName}"\n` } }),
+        }],
       });
     }
     return items;
@@ -282,7 +365,7 @@
           message: `${item.title}: ${item.detail}`,
         };
       });
-    view.dispatch(setDiagnostics(view.state, [...items, ...disabledModuleDiagnostics()]));
+    view.dispatch(setDiagnostics(view.state, [...items, ...missingRequireDiagnostics()]));
   }
 
   onMount(() => {

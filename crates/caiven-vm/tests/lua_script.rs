@@ -13,25 +13,13 @@ use caiven_vm::{
     describe_lua_error_location,
 };
 
-/// Most existing tests predate the opt-in `[stdlib] modules` split and
-/// exercise the full gameplay stdlib, so the shared helper opts every cart
-/// into every module. The core-only default (no `[stdlib]` declared) has its
-/// own dedicated coverage in `prelude_modules.rs`.
 fn make_vm() -> Vm {
-    let mut vm = Vm::new(VmConfig::default());
-    vm.set_prelude_modules(&[
-        "vec2",
-        "collision",
-        "movement",
-        "tween",
-        "particles",
-        "scenes",
-        "entities",
-        "camera",
-    ])
-    .unwrap_or_else(|e| panic!("set_prelude_modules failed: {e}"));
-    vm
+    Vm::new(VmConfig::default())
 }
+
+/// Lua prefix binding every gameplay module to its conventional local; kept
+/// on one line so the test source's own line numbers don't shift.
+const REQUIRE_ALL: &str = "local Vec2, Actor, collision, movement, tween, anim, Particles, Scenes, Entities, Camera = require 'vec2', require 'actor', require 'collision', require 'movement', require 'tween', require 'anim', require 'particles', require 'scenes', require 'entities', require 'camera' ";
 
 /// The opaque RGBA a palette slot renders as by default. Tests that only care
 /// *which* slot was drawn ask for it this way, so a palette redesign does not
@@ -1791,7 +1779,7 @@ fn run_and_get(src_update_body: &str, snapshot_vars: &[&str]) -> Vec<String> {
     let mut vm = make_vm();
     let input = Input::new();
     let font = Font::empty();
-    let src = format!("function _update()\n{src_update_body}\nend\n");
+    let src = format!("{REQUIRE_ALL}function _update()\n{src_update_body}\nend\n");
     vm.load_lua_source(&src, &input, &font)
         .unwrap_or_else(|e| panic!("load_lua_source failed: {e}"));
     vm.run_frame(&input, &font);
@@ -1832,7 +1820,7 @@ fn prelude_easing_bounds() {
 #[test]
 fn prelude_aabb_overlap() {
     let got = run_and_get(
-        "a = aabb_overlap(0,0,10,10, 5,5,10,10)\nb = aabb_overlap(0,0,5,5, 10,10,5,5)",
+        "a = collision.aabb_overlap(0,0,10,10, 5,5,10,10)\nb = collision.aabb_overlap(0,0,5,5, 10,10,5,5)",
         &["a", "b"],
     );
     assert_eq!(got, vec!["true", "false"]);
@@ -1843,10 +1831,10 @@ fn prelude_tile_solid_and_box_touches_solid() {
     let got = run_and_get(
         r#"
         set_collision(0, 0, 1)
-        a = tile_solid(0, 0)
-        b = tile_solid(1, 0)
-        c = box_touches_solid(0, 0, SPRITE_SIZE, SPRITE_SIZE)
-        d = box_touches_solid(SPRITE_SIZE * 3, SPRITE_SIZE * 3, SPRITE_SIZE, SPRITE_SIZE)
+        a = collision.tile_solid(0, 0)
+        b = collision.tile_solid(1, 0)
+        c = collision.box_touches_solid(0, 0, SPRITE_SIZE, SPRITE_SIZE)
+        d = collision.box_touches_solid(SPRITE_SIZE * 3, SPRITE_SIZE * 3, SPRITE_SIZE, SPRITE_SIZE)
         "#,
         &["a", "b", "c", "d"],
     );
@@ -1868,10 +1856,10 @@ fn custom_solid_collision_type_is_respected_by_tile_solid() {
     let input = Input::new();
     let font = Font::empty();
     vm.load_lua_source(
-        r#"
+        r#"local Vec2, Actor, collision, movement, tween, anim, Particles, Scenes, Entities, Camera = require 'vec2', require 'actor', require 'collision', require 'movement', require 'tween', require 'anim', require 'particles', require 'scenes', require 'entities', require 'camera' 
         function _update()
           set_collision(0, 0, 3)
-          solid = tile_solid(0, 0)
+          solid = collision.tile_solid(0, 0)
           is_solid = collision_is_solid(3)
           name = collision_type_name(3)
           id = collision_type_id("water")
@@ -1969,7 +1957,7 @@ fn move_and_collide_flat_ground_clamps_and_reports_ground_touch() {
     let got = run_and_get(
         r#"
         set_collision(0, 1, 1)
-        nx, ny, touch = move_and_collide(0, 0, SPRITE_SIZE, SPRITE_SIZE, 0, SPRITE_SIZE)
+        nx, ny, touch = movement.move_and_collide(0, 0, SPRITE_SIZE, SPRITE_SIZE, 0, SPRITE_SIZE)
         ground = touch.ground
         "#,
         &["ny", "ground"],
@@ -1983,9 +1971,9 @@ fn move_and_collide_wall_blocks_horizontal_both_directions() {
         r#"
         set_collision(1, 0, 1)
         set_collision(62, 0, 1)
-        nx1, ny1, t1 = move_and_collide(0, 0, SPRITE_SIZE, SPRITE_SIZE, SPRITE_SIZE, 0)
+        nx1, ny1, t1 = movement.move_and_collide(0, 0, SPRITE_SIZE, SPRITE_SIZE, SPRITE_SIZE, 0)
         right = t1.right
-        nx2, ny2, t2 = move_and_collide(SPRITE_SIZE * 63, 0, SPRITE_SIZE, SPRITE_SIZE, -SPRITE_SIZE, 0)
+        nx2, ny2, t2 = movement.move_and_collide(SPRITE_SIZE * 63, 0, SPRITE_SIZE, SPRITE_SIZE, -SPRITE_SIZE, 0)
         left = t2.left
         "#,
         &["nx1", "right", "left"],
@@ -1998,7 +1986,7 @@ fn move_and_collide_ceiling_blocks_upward_movement() {
     let got = run_and_get(
         r#"
         set_collision(0, 0, 1)
-        nx, ny, touch = move_and_collide(0, SPRITE_SIZE, SPRITE_SIZE, SPRITE_SIZE, 0, -SPRITE_SIZE)
+        nx, ny, touch = movement.move_and_collide(0, SPRITE_SIZE, SPRITE_SIZE, SPRITE_SIZE, 0, -SPRITE_SIZE)
         ceiling = touch.ceiling
         "#,
         &["ny", "ceiling"],
@@ -2021,15 +2009,15 @@ fn move_and_collide_one_way_platform_lands_from_above_but_not_below() {
     let input = Input::new();
     let font = Font::empty();
     vm.load_lua_source(
-        r#"
+        r#"local Vec2, Actor, collision, movement, tween, anim, Particles, Scenes, Entities, Camera = require 'vec2', require 'actor', require 'collision', require 'movement', require 'tween', require 'anim', require 'particles', require 'scenes', require 'entities', require 'camera' 
         function _update()
           set_collision(0, 1, 3)
           -- already resting on top of the platform: descending is blocked, stays put
-          _, landed_y, landed_touch = move_and_collide(0, 0, SPRITE_SIZE, SPRITE_SIZE, 0, SPRITE_SIZE)
+          _, landed_y, landed_touch = movement.move_and_collide(0, 0, SPRITE_SIZE, SPRITE_SIZE, 0, SPRITE_SIZE)
           landed_ground = landed_touch.ground
 
           -- already below the platform, moving up: passes through
-          _, passed_y, passed_touch = move_and_collide(0, SPRITE_SIZE * 2, SPRITE_SIZE, SPRITE_SIZE, 0, -SPRITE_SIZE)
+          _, passed_y, passed_touch = movement.move_and_collide(0, SPRITE_SIZE * 2, SPRITE_SIZE, SPRITE_SIZE, 0, -SPRITE_SIZE)
           passed_ceiling = passed_touch.ceiling
         end
         "#,
@@ -2070,15 +2058,15 @@ fn move_and_collide_one_way_platform_never_blocks_horizontal_movement() {
     let input = Input::new();
     let font = Font::empty();
     vm.load_lua_source(
-        r#"
+        r#"local Vec2, Actor, collision, movement, tween, anim, Particles, Scenes, Entities, Camera = require 'vec2', require 'actor', require 'collision', require 'movement', require 'tween', require 'anim', require 'particles', require 'scenes', require 'entities', require 'camera' 
         function _update()
           set_collision(1, 0, 3)
           -- standing beside a one-way tile, moving right into it: passes through
-          right_x, _, right_touch = move_and_collide(0, 0, SPRITE_SIZE, SPRITE_SIZE, SPRITE_SIZE, 0)
+          right_x, _, right_touch = movement.move_and_collide(0, 0, SPRITE_SIZE, SPRITE_SIZE, SPRITE_SIZE, 0)
           right_blocked = right_touch.right
 
           -- standing on the far side, moving left into the same tile: passes through
-          left_x, _, left_touch = move_and_collide(SPRITE_SIZE * 2, 0, SPRITE_SIZE, SPRITE_SIZE, -SPRITE_SIZE, 0)
+          left_x, _, left_touch = movement.move_and_collide(SPRITE_SIZE * 2, 0, SPRITE_SIZE, SPRITE_SIZE, -SPRITE_SIZE, 0)
           left_blocked = left_touch.left
         end
         "#,
@@ -2131,14 +2119,14 @@ fn move_and_collide_one_way_platform_holds_a_resting_entity_across_frames() {
     let input = Input::new();
     let font = Font::empty();
     vm.load_lua_source(
-        r#"
+        r#"local Vec2, Actor, collision, movement, tween, anim, Particles, Scenes, Entities, Camera = require 'vec2', require 'actor', require 'collision', require 'movement', require 'tween', require 'anim', require 'particles', require 'scenes', require 'entities', require 'camera' 
         function _update()
           set_collision(0, 10, 3)
           -- Land flush on the platform (bottom edge exactly at its top).
-          local landed_x, landed_y = move_and_collide(0, 72, 6, 8, 0, 8)
+          local landed_x, landed_y = movement.move_and_collide(0, 72, 6, 8, 0, 8)
           -- Then take a small (sub-pixel-of-a-tile) step down, as gravity
           -- resuming from a zeroed, "already resting" velocity would.
-          local _, after_y, after_touch = move_and_collide(0, landed_y, 6, 8, 0, 0.35)
+          local _, after_y, after_touch = movement.move_and_collide(0, landed_y, 6, 8, 0, 0.35)
           result_y = after_y
           result_ground = after_touch.ground
         end
@@ -2188,7 +2176,7 @@ fn move_and_collide_walking_onto_a_slope_from_its_lower_neighboring_floor_climbs
     let input = Input::new();
     let font = Font::empty();
     vm.load_lua_source(
-        r#"
+        r#"local Vec2, Actor, collision, movement, tween, anim, Particles, Scenes, Entities, Camera = require 'vec2', require 'actor', require 'collision', require 'movement', require 'tween', require 'anim', require 'particles', require 'scenes', require 'entities', require 'camera' 
         function _update()
           -- Lower floor at tile row 5; a slope one row up at row 4, tile
           -- column 1; the upper floor continuing at row 4, column 2 —
@@ -2202,8 +2190,8 @@ fn move_and_collide_walking_onto_a_slope_from_its_lower_neighboring_floor_climbs
 
           local x, y, w, h = 0, 32, 6, 8
           for _ = 1, 30 do
-            x = move_and_collide(x, y, w, h, 1.2, 0)
-            local _, ny, touch = move_and_collide(x, y, w, h, 0, 0.35)
+            x = movement.move_and_collide(x, y, w, h, 1.2, 0)
+            local _, ny, touch = movement.move_and_collide(x, y, w, h, 0, 0.35)
             y = ny
             if touch.ground then
               y = ny
@@ -2257,13 +2245,13 @@ fn move_and_collide_slope_right_resolves_floor_height_by_column() {
     let input = Input::new();
     let font = Font::empty();
     vm.load_lua_source(
-        r#"
+        r#"local Vec2, Actor, collision, movement, tween, anim, Particles, Scenes, Entities, Camera = require 'vec2', require 'actor', require 'collision', require 'movement', require 'tween', require 'anim', require 'particles', require 'scenes', require 'entities', require 'camera' 
         function _update()
           set_collision(0, 1, 3)
           -- a 1px-wide probe at the tile's left edge (lx=0): floor_y_in_tile = ss-1-0 = 7
-          _, y_left, _ = move_and_collide(0, 0, 1, 1, 0, SPRITE_SIZE * 2 - 1)
+          _, y_left, _ = movement.move_and_collide(0, 0, 1, 1, 0, SPRITE_SIZE * 2 - 1)
           -- a 1px-wide probe at the tile's right edge (lx=7): floor_y_in_tile = ss-1-7 = 0
-          _, y_right, _ = move_and_collide(SPRITE_SIZE - 1, 0, 1, 1, 0, SPRITE_SIZE * 2 - 1)
+          _, y_right, _ = movement.move_and_collide(SPRITE_SIZE - 1, 0, 1, 1, 0, SPRITE_SIZE * 2 - 1)
         end
         "#,
         &input,
@@ -2292,7 +2280,7 @@ fn move_and_collide_rejects_non_number_args() {
     let input = Input::new();
     let font = Font::empty();
     vm.load_lua_source(
-        r#"function _update() move_and_collide(0, 0, SPRITE_SIZE, SPRITE_SIZE, "x", 0) end"#,
+        r#"local Vec2, Actor, collision, movement, tween, anim, Particles, Scenes, Entities, Camera = require 'vec2', require 'actor', require 'collision', require 'movement', require 'tween', require 'anim', require 'particles', require 'scenes', require 'entities', require 'camera' function _update() movement.move_and_collide(0, 0, SPRITE_SIZE, SPRITE_SIZE, "x", 0) end"#,
         &input,
         &font,
     )
@@ -2340,9 +2328,9 @@ fn entities_overlapping_works_on_independent_lists() {
 fn prelude_tween_reaches_target_and_marks_done() {
     let got = run_and_get(
         r#"
-        tw = new_tween(0, 10, 5)
+        tw = tween.new(0, 10, 5)
         for i = 1, 5 do
-          v = tween_update(tw)
+          v = tween.update(tw)
         end
         done = tw.done
         "#,
@@ -2355,11 +2343,11 @@ fn prelude_tween_reaches_target_and_marks_done() {
 fn prelude_anim_cycles_frames() {
     let got = run_and_get(
         r#"
-        a = new_anim({7, 8, 9}, 2)
-        for i = 1, 2 do anim_update(a) end
-        first = anim_sprite(a)
-        for i = 1, 2 do anim_update(a) end
-        second = anim_sprite(a)
+        a = anim.new({7, 8, 9}, 2)
+        for i = 1, 2 do anim.update(a) end
+        first = anim.sprite(a)
+        for i = 1, 2 do anim.update(a) end
+        second = anim.sprite(a)
         "#,
         &["first", "second"],
     );
@@ -2815,9 +2803,9 @@ fn prelude_rng_choice_and_shuffle() {
 fn prelude_circle_overlap() {
     let got = run_and_get(
         r#"
-        touching = circle_overlap(0, 0, 5, 8, 0, 5)
-        separate = circle_overlap(0, 0, 5, 20, 0, 5)
-        tangent = circle_overlap(0, 0, 5, 10, 0, 5)
+        touching = collision.circle_overlap(0, 0, 5, 8, 0, 5)
+        separate = collision.circle_overlap(0, 0, 5, 20, 0, 5)
+        tangent = collision.circle_overlap(0, 0, 5, 10, 0, 5)
         "#,
         &["touching", "separate", "tangent"],
     );
@@ -2828,10 +2816,10 @@ fn prelude_circle_overlap() {
 fn prelude_point_in_rect() {
     let got = run_and_get(
         r#"
-        inside = point_in_rect(5, 5, 0, 0, 10, 10)
-        outside = point_in_rect(15, 5, 0, 0, 10, 10)
-        on_left_edge = point_in_rect(0, 5, 0, 0, 10, 10)
-        just_past_right_edge = point_in_rect(10, 5, 0, 0, 10, 10)
+        inside = collision.point_in_rect(5, 5, 0, 0, 10, 10)
+        outside = collision.point_in_rect(15, 5, 0, 0, 10, 10)
+        on_left_edge = collision.point_in_rect(0, 5, 0, 0, 10, 10)
+        just_past_right_edge = collision.point_in_rect(10, 5, 0, 0, 10, 10)
         "#,
         &["inside", "outside", "on_left_edge", "just_past_right_edge"],
     );
@@ -2842,9 +2830,9 @@ fn prelude_point_in_rect() {
 fn prelude_point_in_circle() {
     let got = run_and_get(
         r#"
-        inside = point_in_circle(2, 0, 0, 0, 5)
-        outside = point_in_circle(10, 0, 0, 0, 5)
-        on_edge = point_in_circle(5, 0, 0, 0, 5)
+        inside = collision.point_in_circle(2, 0, 0, 0, 5)
+        outside = collision.point_in_circle(10, 0, 0, 0, 5)
+        on_edge = collision.point_in_circle(5, 0, 0, 0, 5)
         "#,
         &["inside", "outside", "on_edge"],
     );
@@ -2857,8 +2845,8 @@ fn prelude_sprite_wrapper_draws_via_sprite_builtin() {
     let font = Font::empty();
     poke_l_sprite(&mut vm);
     vm.load_lua_source(
-        r#"
-        s = Sprite.new{ sprite_id = 0, pos = Vec2.new(10, 10), flip_x = true, flip_y = false, rotate = 0 }
+        r#"local Vec2, Actor, collision, movement, tween, anim, Particles, Scenes, Entities, Camera = require 'vec2', require 'actor', require 'collision', require 'movement', require 'tween', require 'anim', require 'particles', require 'scenes', require 'entities', require 'camera' 
+        s = Actor.new{ sprite_id = 0, pos = Vec2.new(10, 10), flip_x = true, flip_y = false, rotate = 0 }
         function _update() end
         function _draw() s:draw() end
         "#,
@@ -2888,8 +2876,8 @@ fn prelude_sprite_wrapper_moves_via_pos_mutation() {
     let font = Font::empty();
     poke_l_sprite(&mut vm);
     vm.load_lua_source(
-        r#"
-        s = Sprite.new{ sprite_id = 0, pos = Vec2.new(0, 0) }
+        r#"local Vec2, Actor, collision, movement, tween, anim, Particles, Scenes, Entities, Camera = require 'vec2', require 'actor', require 'collision', require 'movement', require 'tween', require 'anim', require 'particles', require 'scenes', require 'entities', require 'camera' 
+        s = Actor.new{ sprite_id = 0, pos = Vec2.new(0, 0) }
         function _update()
           s.pos = s.pos + Vec2.new(10, 10)
         end
@@ -2922,8 +2910,8 @@ fn prelude_vec2_rng_collision_sprite_work_together() {
     let font = Font::empty();
     poke_l_sprite(&mut vm);
     vm.load_lua_source(
-        r#"
-        enemy = Sprite.new{
+        r#"local Vec2, Actor, collision, movement, tween, anim, Particles, Scenes, Entities, Camera = require 'vec2', require 'actor', require 'collision', require 'movement', require 'tween', require 'anim', require 'particles', require 'scenes', require 'entities', require 'camera' 
+        enemy = Actor.new{
           sprite_id = 0,
           pos = Vec2.new(random_range(0, 50), random_range(0, 50)),
         }
@@ -2933,11 +2921,11 @@ fn prelude_vec2_rng_collision_sprite_work_together() {
         function _update()
           local dx = enemy.pos.x - player_pos.x
           local dy = enemy.pos.y - player_pos.y
-          touching = circle_overlap(
+          touching = collision.circle_overlap(
             player_pos.x, player_pos.y, player_radius,
             enemy.pos.x, enemy.pos.y, 4
           )
-          contained = point_in_rect(enemy.pos.x, enemy.pos.y, 0, 0, 128, 128)
+          contained = collision.point_in_rect(enemy.pos.x, enemy.pos.y, 0, 0, 128, 128)
         end
         function _draw()
           enemy:draw()
@@ -3128,7 +3116,7 @@ fn prelude_camera_update_clamps_negative_target_without_faulting() {
     let input = Input::new();
     let font = Font::empty();
     vm.load_lua_source(
-        r#"
+        r#"local Vec2, Actor, collision, movement, tween, anim, Particles, Scenes, Entities, Camera = require 'vec2', require 'actor', require 'collision', require 'movement', require 'tween', require 'anim', require 'particles', require 'scenes', require 'entities', require 'camera' 
         local enemy = { pos = Vec2.new(-9999, -9999) }
         Camera.follow(enemy, { lerp = 1 })
         function _update()

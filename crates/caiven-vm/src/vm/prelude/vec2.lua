@@ -1,4 +1,4 @@
-Vec2 = Vec2 or {}
+local Vec2 = {}
 Vec2.__index = Vec2
 
 local function is_vec2(v)
@@ -68,19 +68,4 @@ function Vec2:distance(other)
   return (self - other):length()
 end
 
-Sprite = Sprite or {}
-Sprite.__index = Sprite
-
-function Sprite.new(opts)
-  return setmetatable({
-    sprite_id = opts.sprite_id,
-    pos = opts.pos,
-    flip_x = opts.flip_x or false,
-    flip_y = opts.flip_y or false,
-    rotate = opts.rotate or 0,
-  }, Sprite)
-end
-
-function Sprite:draw()
-  sprite(self.sprite_id, self.pos.x, self.pos.y, self.flip_x, self.flip_y, self.rotate)
-end
+return Vec2

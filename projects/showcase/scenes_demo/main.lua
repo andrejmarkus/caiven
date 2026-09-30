@@ -1,3 +1,7 @@
+local Vec2 = require "vec2"
+local Scenes = require "scenes"
+local Entities = require "entities"
+local Camera = require "camera"
 
 PLAYER_SPEED = 1
 

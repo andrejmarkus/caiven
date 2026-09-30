@@ -76,7 +76,7 @@ end
 
 -- Axis-separated swept move + resolve against SOLID/ONE_WAY/slope tiles.
 -- Returns nx, ny, touch = { ground, ceiling, left, right }.
-function move_and_collide(x, y, w, h, dx, dy)
+local function move_and_collide(x, y, w, h, dx, dy)
   local ss = SPRITE_SIZE
   local touch = { ground = false, ceiling = false, left = false, right = false }
 
@@ -227,3 +227,5 @@ function move_and_collide(x, y, w, h, dx, dy)
 
   return nx, ny, touch
 end
+
+return { move_and_collide = move_and_collide }

@@ -155,79 +155,74 @@ const CHUNK_NAME: &str = "cart";
 const CHUNK_SOURCE_NAME: &str = "=cart";
 
 /// Always-on prelude core (RNG, lerp/clamp/easing) — pure Lua, loaded into
-/// globals before every module and the cart's own source, so it's available
-/// from `_init()` onward like any builtin. Every cart gets this regardless of
-/// which [`PRELUDE_MODULES`] it selects.
+/// globals before the cart's own source, so it's available from `_init()`
+/// onward like any builtin. Every cart gets this regardless of which
+/// [`PRELUDE_MODULES`] it requires.
 const PRELUDE_CORE: &str = include_str!("prelude/core.lua");
 
-/// One opt-in gameplay-stdlib module: a pure-Lua source chunk plus the global
-/// names it defines (used to keep [`Vm::lua_globals`]'s exclusion set and
-/// hot-reload's upvalue-join filter in sync with whichever modules are
-/// actually loaded for a cart).
+/// One opt-in gameplay-stdlib module: a pure-Lua chunk that returns its
+/// table, like any Lua 5.4 module. It defines no globals.
 struct PreludeModule {
-    /// Manifest-facing id — what a cart's `caiven.toml` `[stdlib] modules`
-    /// entry names to opt in.
+    /// `require` name — `require "camera"` loads the `camera` module.
     name: &'static str,
     source: &'static str,
-    globals: &'static [&'static str],
+    /// Conventional local for the returned table (`local Camera = require
+    /// "camera"`), used by the missing-require hint and the API registry.
+    export: &'static str,
 }
 
-/// Opt-in gameplay-facing stdlib (Vec2/Sprite, AABB/tile collision, swept
-/// movement, tweens, particles, Scenes, Entities, Camera). Loaded in this
-/// order after [`PRELUDE_CORE`] and before the cart's own source.
+/// Opt-in gameplay-facing stdlib. Registered in `package.preload`, so a cart
+/// loads one with `local Camera = require "camera"`.
 const PRELUDE_MODULES: &[PreludeModule] = &[
     PreludeModule {
         name: "vec2",
         source: include_str!("prelude/vec2.lua"),
-        globals: &["Vec2", "Sprite"],
+        export: "Vec2",
+    },
+    PreludeModule {
+        name: "actor",
+        source: include_str!("prelude/actor.lua"),
+        export: "Actor",
     },
     PreludeModule {
         name: "collision",
         source: include_str!("prelude/collision.lua"),
-        globals: &[
-            "aabb_overlap",
-            "circle_overlap",
-            "point_in_rect",
-            "point_in_circle",
-            "tile_solid",
-            "box_touches_solid",
-        ],
+        export: "collision",
     },
     PreludeModule {
         name: "movement",
         source: include_str!("prelude/movement.lua"),
-        globals: &["move_and_collide"],
+        export: "movement",
     },
     PreludeModule {
         name: "tween",
         source: include_str!("prelude/tween.lua"),
-        globals: &[
-            "new_tween",
-            "tween_update",
-            "new_anim",
-            "anim_update",
-            "anim_sprite",
-        ],
+        export: "tween",
+    },
+    PreludeModule {
+        name: "anim",
+        source: include_str!("prelude/anim.lua"),
+        export: "anim",
     },
     PreludeModule {
         name: "particles",
         source: include_str!("prelude/particles.lua"),
-        globals: &["Particles"],
+        export: "Particles",
     },
     PreludeModule {
         name: "scenes",
         source: include_str!("prelude/scenes.lua"),
-        globals: &["Scenes"],
+        export: "Scenes",
     },
     PreludeModule {
         name: "entities",
         source: include_str!("prelude/entities.lua"),
-        globals: &["Entities"],
+        export: "Entities",
     },
     PreludeModule {
         name: "camera",
         source: include_str!("prelude/camera.lua"),
-        globals: &["Camera"],
+        export: "Camera",
     },
 ];
 
@@ -238,20 +233,43 @@ pub(super) fn core_prelude_names() -> &'static [&'static str] {
     CORE_PRELUDE_NAMES
 }
 
-/// Each opt-in prelude module's manifest name and the globals it defines —
-/// same purpose as [`core_prelude_names`], for the modules rather than core.
-pub(super) fn prelude_module_globals() -> Vec<(&'static str, &'static [&'static str])> {
+/// Each opt-in prelude module's `require` name and the conventional local
+/// its table is bound to (`("camera", "Camera")`) — what Studio uses for
+/// `require` completion and the editor's missing-`require` diagnostic.
+pub fn prelude_module_catalog() -> Vec<(&'static str, &'static str)> {
     PRELUDE_MODULES
         .iter()
-        .map(|module| (module.name, module.globals))
+        .map(|module| (module.name, module.export))
         .collect()
 }
 
-/// Manifest-facing catalog of opt-in prelude modules and the globals each
-/// defines — what Studio uses to build the enable/disable UI and the
-/// disabled-module editor diagnostic.
-pub fn prelude_module_catalog() -> Vec<(&'static str, &'static [&'static str])> {
-    prelude_module_globals()
+/// Puts every [`PRELUDE_MODULES`] entry in `package.preload`. A cart module
+/// with the same name is registered later by the bundle and wins.
+fn register_prelude_modules(lua: &Lua) -> mlua::Result<()> {
+    let package: Table = lua.globals().get("package")?;
+    let preload: Table = package.get("preload")?;
+    for module in PRELUDE_MODULES {
+        let loader = lua
+            .load(module.source)
+            .set_name(format!("=prelude:{}", module.name))
+            .into_function()?;
+        preload.set(module.name, loader)?;
+    }
+    Ok(())
+}
+
+/// Appends `add local Camera = require "camera"` when a runtime error names
+/// a nil variable spelled like a prelude module's conventional local.
+fn missing_require_hint(message: &str) -> Option<String> {
+    let start = message.find("(global '")? + "(global '".len();
+    let name = &message[start..start + message[start..].find('\'')?];
+    let module = PRELUDE_MODULES
+        .iter()
+        .find(|module| module.export == name)?;
+    Some(format!(
+        "{message} — add local {} = require \"{}\" at the top of the file",
+        module.export, module.name
+    ))
 }
 
 /// Frames per second `time()` assumes when converting `frame_count`.
@@ -1119,16 +1137,15 @@ pub fn describe_lua_error_location(err: &mlua::Error) -> (Option<LuaBreakpoint>,
         .find(|candidate| candidate.source.ends_with(".lua"))
         .cloned()
         .or_else(|| candidates.into_iter().next());
-    (location, raw)
+    let message = missing_require_hint(&raw).unwrap_or(raw);
+    (location, message)
 }
 
 /// Whether a global name is script-defined state rather than API surface —
 /// used by [`Vm::lua_globals`] (debugger inspector), which deliberately
 /// excludes `_init`/`_update`/`_draw` since they're entry points, not state.
-/// `active_prelude_names` is the cart's *currently selected* prelude module
-/// globals (see [`Vm::active_prelude_names`]), not the full static set — a
-/// cart that excludes `camera` must not have a cart-defined global also
-/// named `Camera` hidden from the inspector.
+/// `active_prelude_names` is the always-on prelude core; opt-in modules
+/// define no globals, so a cart-defined global `Camera` stays visible.
 fn is_script_defined_name(name: &str, active_prelude_names: &[&str]) -> bool {
     !BUILTIN_NAMES.contains(&name)
         && !active_prelude_names.contains(&name)
@@ -2210,55 +2227,6 @@ fn register_builtins<'scope, 'env>(
 }
 
 impl Vm {
-    /// Sets the cart's opt-in gameplay-stdlib module selection (`[stdlib]
-    /// modules` in `caiven.toml`), validated against [`prelude_module_catalog`].
-    /// Errors by name on any unknown module rather than silently dropping it
-    /// — a typo'd module name should fail cart load, not quietly leave
-    /// globals missing. Takes effect on the next [`Vm::load_lua_source`] or
-    /// [`Vm::hot_reload_lua_source`]; the resolved set is stored on the `Vm`
-    /// so hot-reload doesn't need it re-supplied.
-    pub fn set_prelude_modules(&mut self, modules: &[&str]) -> Result<(), String> {
-        let mut resolved = Vec::with_capacity(modules.len());
-        for &name in modules {
-            let module = PRELUDE_MODULES
-                .iter()
-                .find(|candidate| candidate.name == name)
-                .ok_or_else(|| format!("unknown stdlib module: \"{name}\""))?;
-            resolved.push(module.name);
-        }
-        self.active_prelude_modules = resolved;
-        Ok(())
-    }
-
-    /// The cart's currently enabled `[stdlib]` module names, as last set by
-    /// [`Vm::set_prelude_modules`].
-    pub fn active_prelude_modules(&self) -> &[&'static str] {
-        &self.active_prelude_modules
-    }
-
-    /// The cart's currently selected [`PRELUDE_MODULES`] entries, in table
-    /// order (not manifest order, so load order is deterministic regardless
-    /// of how a cart lists them).
-    fn selected_prelude_modules(&self) -> impl Iterator<Item = &'static PreludeModule> + '_ {
-        PRELUDE_MODULES
-            .iter()
-            .filter(move |module| self.active_prelude_modules.contains(&module.name))
-    }
-
-    /// Union of [`CORE_PRELUDE_NAMES`] and the currently selected modules'
-    /// globals — the debugger/hot-reload exclusion set for *this* cart, as
-    /// opposed to the full static list. See [`is_script_defined_name`].
-    /// `Particles` is a table, not a function; it's still excluded wholesale
-    /// rather than snapshotted, since its `list` field churns every frame
-    /// and isn't useful in a "what does the script think" debugger view.
-    fn active_prelude_names(&self) -> Vec<&'static str> {
-        let mut names: Vec<&'static str> = CORE_PRELUDE_NAMES.to_vec();
-        for module in self.selected_prelude_modules() {
-            names.extend_from_slice(module.globals);
-        }
-        names
-    }
-
     /// Loads Lua source, registering the full builtin API first so top-level
     /// script code and `_init()` (called once here, if present) can use it
     /// exactly like `_update()` can. Subsequent frames call `_update()` via
@@ -2362,8 +2330,6 @@ impl Vm {
         let hooks = Box::new(HookState::new());
         set_hook_state(&lua, &*hooks)?;
 
-        let selected_modules: Vec<&'static PreludeModule> =
-            self.selected_prelude_modules().collect();
         let world = RefCell::new(&mut self.world);
         let ui = RefCell::new(&mut self.ui);
         let memory = RefCell::new(&mut self.memory);
@@ -2414,11 +2380,7 @@ impl Vm {
             }
 
             lua.load(PRELUDE_CORE).set_name("=prelude:core").exec()?;
-            for module in &selected_modules {
-                lua.load(module.source)
-                    .set_name(format!("=prelude:{}", module.name))
-                    .exec()?;
-            }
+            register_prelude_modules(&lua)?;
             let chunk = lua.load(src).set_name(CHUNK_SOURCE_NAME).into_function()?;
             if !boot_now {
                 return Ok(Some(chunk));
@@ -2793,12 +2755,12 @@ impl Vm {
         let Some(script) = self.script.as_ref() else {
             return Vec::new();
         };
-        let active_prelude_names = self.active_prelude_names();
+        let active_prelude_names = CORE_PRELUDE_NAMES;
         let globals = script.lua.globals();
         let mut out: Vec<(String, mlua::Value)> = globals
             .pairs::<String, mlua::Value>()
             .filter_map(|pair| pair.ok())
-            .filter(|(k, _)| is_script_defined_name(k, &active_prelude_names))
+            .filter(|(k, _)| is_script_defined_name(k, active_prelude_names))
             .collect();
         for (name, value) in file_scope_locals(&script.lua) {
             if !out.iter().any(|(existing, _)| *existing == name) {
@@ -2998,13 +2960,13 @@ impl Vm {
 
         // Snapshot old script-defined top-level functions by name, to join
         // upvalues against once the new chunk has executed.
-        let active_prelude_names = self.active_prelude_names();
+        let active_prelude_names = CORE_PRELUDE_NAMES;
         let old_functions: Vec<(String, mlua::Function)> = {
             let globals = script.lua.globals();
             globals
                 .pairs::<String, mlua::Value>()
                 .filter_map(|pair| pair.ok())
-                .filter(|(name, _)| is_reload_join_candidate(name, &active_prelude_names))
+                .filter(|(name, _)| is_reload_join_candidate(name, active_prelude_names))
                 .filter_map(|(name, value)| match value {
                     mlua::Value::Function(f) => Some((name, f)),
                     _ => None,
@@ -3012,8 +2974,6 @@ impl Vm {
                 .collect()
         };
         let lua = &script.lua;
-        let selected_modules: Vec<&'static PreludeModule> =
-            self.selected_prelude_modules().collect();
 
         let world = RefCell::new(&mut self.world);
         let ui = RefCell::new(&mut self.ui);
@@ -3060,12 +3020,9 @@ impl Vm {
                 frame_count,
             )?;
 
+            // Required modules stay cached in `package.loaded`, so their state
+            // (particles, scene stack) survives the reload.
             lua.load(PRELUDE_CORE).set_name("=prelude:core").exec()?;
-            for module in &selected_modules {
-                lua.load(module.source)
-                    .set_name(format!("=prelude:{}", module.name))
-                    .exec()?;
-            }
             lua.load(src).set_name(CHUNK_SOURCE_NAME).exec()?;
             // Deliberately not calling `_init()` — that's what makes this a
             // reload rather than a reset.
@@ -3613,9 +3570,8 @@ function get_score() return score end
         let input = Input::new();
         let font = Font::empty();
         let mut vm = Vm::new(VmConfig::default());
-        let src = "function _update() end";
-        vm.set_prelude_modules(&["vec2", "particles", "scenes", "entities", "camera"])
-            .expect("modules should exist");
+        let src = "Vec2, Particles, Scenes, Entities, Camera = require 'vec2', require 'particles', require 'scenes', require 'entities', require 'camera'
+            function _update() end";
         vm.load_lua_source(src, &input, &font)
             .expect("chunk should load");
         let lua = &vm.script.as_ref().expect("script").lua;
