@@ -31,6 +31,8 @@ if [[ -z "$changed_pkgs" ]]; then
 fi
 
 for pkg in $changed_pkgs; do
+  # `crates/*/tests/**` also matches the npm packages' test folders.
+  [[ -f "crates/$pkg/Cargo.toml" ]] || continue
   echo "== $pkg =="
   run cargo clippy -p "$pkg" --locked --all-targets -- -D warnings -A unused-imports
   run cargo test -p "$pkg" --locked --verbose

@@ -20,7 +20,7 @@ run cargo doc --locked --no-deps
 if command -v cargo-audit >/dev/null 2>&1; then
   # Keep in sync with .github/workflows/rust.yml's cargo-audit step and its
   # rationale comment for why each of these is ignored.
-  run cargo audit --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2026-0235
+  run cargo audit --ignore RUSTSEC-2026-0235 --ignore RUSTSEC-2026-0258
 else
   echo "cargo-audit not installed; skipping (install: cargo install cargo-audit)" >&2
 fi
