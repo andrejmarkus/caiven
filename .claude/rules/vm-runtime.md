@@ -52,3 +52,7 @@ paths:
   next line no deeper than `HookState::step_depth`, measured by `stack_depth`
   from the last stop. A new callback resets the limit to its first line, so a
   step never runs past the end of `_update` into the rest of the frame.
+- Layers clear to transparent (`clear_screen()` is alpha 0); only
+  `Screen::construct` turns them into a frame, backed with opaque black.
+  Anything producing an image (screenshots, covers, canvases) composes
+  through it, never its own layer merge, or covers export as blank PNGs.
