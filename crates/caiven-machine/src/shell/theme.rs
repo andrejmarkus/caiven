@@ -68,21 +68,13 @@ pub mod color {
     pub const EMBER: Color = Color::rgb(0xFEB05D);
     /// Text and icons drawn on top of an ember fill.
     pub const EMBER_INK: Color = Color::rgb(0x3A2308);
-    /// Hover tint. Desktop only — a handheld has no hover state.
-    pub const EMBER_BRIGHT: Color = Color::rgb(0xFFC685);
 
     /// Background of the "Installed" badge. Never a button, never a large
     /// surface.
     pub const SHEEN_WASH: Color = Color::rgb(0x343A4A);
-    /// Text on `SHEEN_WASH`; the Port hostname in the status bar.
-    pub const SHEEN_BRIGHT: Color = Color::rgb(0x93A8DE);
 
-    /// Delete-cart fill and crash-screen accents.
-    pub const DESTRUCTIVE: Color = Color::rgb(0xE5555F);
     /// Destructive text on a dark surface.
     pub const DESTRUCTIVE_BRIGHT: Color = Color::rgb(0xF27B83);
-    /// Text on a destructive fill.
-    pub const DESTRUCTIVE_INK: Color = Color::rgb(0x2B0709);
 
     /// App background.
     pub const VOID_900: Color = Color::rgb(0x2B2A2A);
@@ -114,11 +106,6 @@ pub mod color {
         Color::rgb(0x7D523A),
         Color::rgb(0xC83C46),
     ];
-
-    /// Logo body color. Deliberately not exported as a UI surface — the
-    /// handoff forbids it appearing as one, and it exists here only so the
-    /// wordmark has a name to reach for if a mark is ever drawn.
-    pub const OBSIDIAN_LOGO_ONLY: Color = Color::rgb(0x3B3E48);
 }
 
 /// The type faces. Which file backs each is the font module's business
@@ -378,55 +365,6 @@ pub mod space {
     pub const X6: u32 = 24;
 }
 
-/// A drop shadow. Shadows are black-only; the one exception is
-/// [`shadow::EMBER_GLOW`].
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Shadow {
-    pub offset_x: f32,
-    pub offset_y: f32,
-    pub blur: f32,
-    pub color: Color,
-}
-
-pub mod shadow {
-    use super::{Color, Shadow, color};
-
-    const fn black(alpha: f32) -> Color {
-        color::CART_BACKDROP.with_alpha(alpha)
-    }
-
-    pub const SM: Shadow = Shadow {
-        offset_x: 0.0,
-        offset_y: 1.0,
-        blur: 2.0,
-        color: black(0.35),
-    };
-    pub const MD: Shadow = Shadow {
-        offset_x: 0.0,
-        offset_y: 4.0,
-        blur: 12.0,
-        color: black(0.4),
-    };
-    /// The pause card.
-    pub const LG: Shadow = Shadow {
-        offset_x: 0.0,
-        offset_y: 12.0,
-        blur: 32.0,
-        color: black(0.5),
-    };
-
-    /// The single permitted colored glow: hero cover, focused Port row,
-    /// focused remap row, the status-bar dot. Drawn as a 1px ember ring
-    /// under a soft ember bloom.
-    pub const EMBER_GLOW_RING: Color = color::EMBER.with_alpha(0.35);
-    pub const EMBER_GLOW: Shadow = Shadow {
-        offset_x: 0.0,
-        offset_y: 0.0,
-        blur: 24.0,
-        color: color::EMBER.with_alpha(0.18),
-    };
-}
-
 /// Focus treatments. Focus is always ember and always visible — it is the
 /// only thing telling the user where they are.
 pub mod focus {
@@ -435,8 +373,6 @@ pub mod focus {
     /// Ring width on the hero cover and focused rows.
     pub const RING_WIDTH: f32 = 2.0;
     pub const RING_COLOR: Color = color::EMBER;
-    /// Bloom around the hero cover.
-    pub const HERO_BLOOM: Color = color::EMBER.with_alpha(0.22);
     /// Border on an unfocused shelf tile, which is 1px rather than 2px.
     pub const UNFOCUSED_BORDER: Color = color::VOID_600;
     /// Unfocused shelf tiles are dimmed rather than recolored.
@@ -449,15 +385,8 @@ pub mod focus {
 pub mod motion {
     use std::time::Duration;
 
-    /// Selection feedback.
-    pub const SELECT: Duration = Duration::from_millis(120);
-    /// Panel and pane changes.
-    pub const PANEL: Duration = Duration::from_millis(180);
     /// Boot glow, and the boot progress bar it paces.
     pub const BOOT: Duration = Duration::from_millis(1200);
-
-    /// `cubic-bezier(.16, 1, .3, 1)` — the one easing curve.
-    pub const EASE: [f32; 4] = [0.16, 1.0, 0.3, 1.0];
 }
 
 #[cfg(test)]

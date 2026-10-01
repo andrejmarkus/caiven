@@ -1,8 +1,0 @@
-[cart]
-version = 1
-title = "tiles"
-author = ""
-entry = "main.lua"
-
-[mods]
-require = []

@@ -125,7 +125,7 @@
     const context = canvas.getContext('2d');
     if (!context) return;
     const image = context.createImageData(MAP_PX_W, MAP_PX_H);
-    const colors = palette.map((hex) => [...hexToRgb(hex), 255]);
+    const colors = palette.map((hex): [number, number, number, number] => [...hexToRgb(hex), 255]);
     for (let tileY = 0; tileY < MAP_H; tileY += 1) for (let tileX = 0; tileX < MAP_W; tileX += 1) {
       paintTile(image, colors, tileX, tileY);
     }
@@ -155,7 +155,7 @@
     if (!canvas || !buffer) { render(); return; }
     const context = canvas.getContext('2d');
     if (!context) return;
-    const colors = palette.map((hex) => [...hexToRgb(hex), 255]);
+    const colors = palette.map((hex): [number, number, number, number] => [...hexToRgb(hex), 255]);
     let x0 = MAP_W, y0 = MAP_H, x1 = -1, y1 = -1;
     for (const offset of offsets) {
       const tileX = offset % MAP_W, tileY = Math.floor(offset / MAP_W);

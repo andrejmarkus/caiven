@@ -14,8 +14,9 @@ for dir in projects/showcase/*/; do
   "$BIN" build "$dir" --out "crates/caiven-studio/resources/examples/${name}.cav" --no-minify
 done
 
+# Showcase carts double as dev carts, so tests/dev_carts.rs runs them too.
 mkdir -p carts/dev
-for dir in projects/dev/*/; do
+for dir in projects/showcase/*/ projects/dev/*/; do
   name=$(basename "$dir")
   "$BIN" build "$dir" --out "carts/dev/${name}.cav"
 done
