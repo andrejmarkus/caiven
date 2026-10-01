@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { api } from '../api';
+  import { api, type Cart } from '../api';
+  import ScreenshotImg from './ScreenshotImg.svelte';
   import { currentUser, setUser } from '../stores.svelte';
   import { link, navigate } from '../router.svelte';
   import Logo from '$lib/components/Logo.svelte';
@@ -19,11 +20,46 @@
 
   let q = $state('');
   let searchInput = $state<HTMLInputElement | null>(null);
-  const searchKey = /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘K' : 'Ctrl+K';
+  let results = $state<Cart[]>([]);
+  let open = $state(false);
+  let active = $state(-1);
+
+  $effect(() => {
+    const term = q.trim();
+    active = -1;
+    if (!term) return void (results = []);
+    let stale = false;
+    const timer = setTimeout(async () => {
+      try {
+        const list = await api.listCarts({ q: term, per_page: 5 });
+        if (!stale) results = list.carts;
+      } catch {
+        if (!stale) results = [];
+      }
+    }, 200);
+    return () => { stale = true; clearTimeout(timer); };
+  });
+
+  function close() {
+    open = false;
+    active = -1;
+  }
 
   function search(e: Event) {
     e.preventDefault();
+    const picked = results[active];
+    close();
+    if (picked) return navigate(`/cart/${picked.id}`);
     navigate(`/browse${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ''}`);
+  }
+
+  function onSearchKey(e: KeyboardEvent) {
+    if (e.key === 'Escape') return close();
+    if (!results.length || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
+    e.preventDefault();
+    open = true;
+    const n = results.length;
+    active = e.key === 'ArrowDown' ? (active + 1) % n : (active - 1 + n) % n;
   }
 
   async function logout() {
@@ -49,17 +85,45 @@
     <Logo size={28} />
     <span class="font-display text-sm font-semibold text-foreground">Caiven Port</span>
   </a>
-  <form onsubmit={search} class="hidden w-full max-w-[520px] sm:block">
+  <form onsubmit={search} onfocusout={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && close()} class="relative hidden w-full max-w-[520px] sm:block">
     <div class="flex h-10 items-center gap-2.5 rounded-md border border-border bg-card px-3 focus-within:border-primary">
       <SearchIcon class="size-4 text-muted-foreground" />
       <Input
         bind:ref={searchInput}
         bind:value={q}
         placeholder="Search carts, creators, tags…"
+        role="combobox"
+        aria-expanded={open && results.length > 0}
+        aria-controls="search-preview"
+        aria-activedescendant={active >= 0 ? `search-preview-${active}` : undefined}
+        autocomplete="off"
+        onfocus={() => (open = true)}
+        oninput={() => (open = true)}
+        onkeydown={onSearchKey}
         class="h-auto min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-foreground shadow-none outline-none ring-0 placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0"
       />
-      <kbd class="hidden rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground lg:block">{searchKey}</kbd>
     </div>
+    {#if open && q.trim() && results.length}
+      <ul id="search-preview" role="listbox" class="absolute inset-x-0 top-full mt-1 overflow-hidden rounded-md border border-border bg-popover py-1 shadow-lg">
+        {#each results as cart, i (cart.id)}
+          <li id="search-preview-{i}" role="option" aria-selected={i === active}>
+            <a
+              href="/cart/{cart.id}"
+              use:link
+              onclick={close}
+              class="flex items-center gap-3 px-3 py-2 text-foreground hover:bg-accent hover:no-underline {i === active ? 'bg-accent' : ''}"
+            >
+              <span class="h-8 w-12 shrink-0 overflow-hidden rounded-sm"><ScreenshotImg id={cart.id} hasScreenshot={cart.has_screenshot} /></span>
+              <span class="min-w-0">
+                <span class="block truncate text-sm font-medium">{cart.title}</span>
+                <span class="label-mono block truncate text-[10px] text-muted-foreground">{cart.owner ?? cart.author}</span>
+              </span>
+            </a>
+          </li>
+        {/each}
+        <li><button type="submit" class="w-full px-3 py-2 text-left text-xs text-muted-foreground hover:bg-accent">See all results for “{q.trim()}”</button></li>
+      </ul>
+    {/if}
   </form>
   <div class="ml-auto flex items-center gap-2">
     {#if currentUser.value}

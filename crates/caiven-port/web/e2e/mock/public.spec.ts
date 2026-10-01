@@ -44,3 +44,17 @@ test('filters and empty results preserve query contract', async ({ page, mock })
   await page.goto('/browse?q=does-not-exist');
   await expect(page.getByRole('heading', { name: 'Nothing matches that' })).toBeVisible();
 });
+
+test('search bar previews matches and opens one with the keyboard', async ({ page, mock }, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith('desktop'), 'top-bar search is desktop-only');
+  await page.goto('/');
+  const search = page.getByRole('combobox');
+  await search.fill('orb');
+  await expect(page.getByRole('option', { name: /Tiny Orbit/ })).toBeVisible();
+  expect(mock.calls('GET', '/api/v1/carts').at(-1)!.query).toMatchObject({ q: 'orb', per_page: '5' });
+  await search.press('Escape');
+  await expect(page.getByRole('listbox')).toBeHidden();
+  await search.press('ArrowDown');
+  await search.press('Enter');
+  await expect(page).toHaveURL(/\/cart\/orbit$/);
+});
