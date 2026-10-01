@@ -25,6 +25,7 @@ test('registration, duplicate conflict, invalid login, MFA, OAuth presentation',
   await page.getByLabel('Username', { exact: true }).fill('new-player');
   await page.getByLabel('Email').fill('new@example.test');
   await page.getByLabel('Password').fill('GoodPass!1');
+  await page.getByRole('checkbox').check();
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL('/');
   expect(mock.users.has('new-player')).toBe(true);

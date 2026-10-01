@@ -86,6 +86,15 @@ struct Args {
     discord_client_id: Option<String>,
     #[arg(long, env = "DISCORD_CLIENT_SECRET")]
     discord_client_secret: Option<String>,
+
+    /// Operator identity for the legal pages, and the inbox that receives
+    /// content reports. Required by EU law for a public instance.
+    #[arg(long, env = "CAIVEN_OPERATOR_NAME")]
+    operator_name: Option<String>,
+    #[arg(long, env = "CAIVEN_OPERATOR_ADDRESS")]
+    operator_address: Option<String>,
+    #[arg(long, env = "CAIVEN_CONTACT_EMAIL")]
+    contact_email: Option<String>,
 }
 
 fn provider_pair(
@@ -190,6 +199,28 @@ async fn main() -> Result<()> {
     };
     let local_origin = format!("http://{local_host}:{}", args.port);
 
+    if args.operator_name.is_none() || args.contact_email.is_none() {
+        log::warn!(
+            "CAIVEN_OPERATOR_NAME / CAIVEN_CONTACT_EMAIL not set; legal pages and content reports are incomplete"
+        );
+    }
+    let legal = caiven_port::LegalInfo {
+        operator_name: args.operator_name,
+        operator_address: args.operator_address,
+        contact_email: args.contact_email,
+    };
+
+    let sweep_db = db.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(6 * 3600));
+        loop {
+            tick.tick().await;
+            if let Err(e) = caiven_port::retention::sweep(&sweep_db).await {
+                log::error!("retention sweep failed: {e}");
+            }
+        }
+    });
+
     let state = PortState {
         db,
         rate: caiven_port::auth::RateLimiter::default(),
@@ -203,6 +234,7 @@ async fn main() -> Result<()> {
         turnstile_secret: args.turnstile_secret_key,
         oauth,
         webauthn,
+        legal,
     };
 
     build_rocket(config, state)

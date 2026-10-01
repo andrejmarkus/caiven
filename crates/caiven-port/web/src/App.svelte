@@ -25,6 +25,9 @@
   import ResetPassword from './pages/ResetPassword.svelte';
   import Upload from './pages/Upload.svelte';
   import LinkStudio from './pages/LinkStudio.svelte';
+  import Privacy from './pages/Privacy.svelte';
+  import Terms from './pages/Terms.svelte';
+  import Report from './pages/Report.svelte';
   import { Toaster } from '@caiven/ui/sonner';
 
   hydrateUser();
@@ -62,6 +65,9 @@
   {:else if match.name === 'reset-password'}<ResetPassword />
   {:else if match.name === 'upload'}<Upload />
   {:else if match.name === 'link-studio'}<LinkStudio />
+  {:else if match.name === 'privacy'}<Privacy />
+  {:else if match.name === 'terms'}<Terms />
+  {:else if match.name === 'report'}<Report />
   {:else if match.name === 'admin'}
     {#if !currentUser.value?.is_admin}
       <div class="container-page py-24 text-center"><h1 class="text-2xl font-semibold">Not authorized</h1><p class="mt-2 text-muted-foreground">This area is admin-only.</p></div>

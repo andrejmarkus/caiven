@@ -62,7 +62,7 @@ export const UI_CONTRACTS = [
   'POST /api/v1/auth/webauthn/register/finish', 'POST /api/v1/auth/webauthn/login/start',
   'POST /api/v1/auth/webauthn/login/finish', 'GET /api/v1/auth/webauthn/credentials',
   'DELETE /api/v1/auth/webauthn/credentials/:id', 'GET /api/v1/auth/audit-log',
-  'DELETE /api/v1/auth/account', 'GET /api/v1/auth/export',
+  'DELETE /api/v1/auth/account', 'GET /api/v1/auth/export', 'GET /api/v1/legal', 'POST /api/v1/reports',
   'GET /api/v1/auth/oauth/:provider/start',
   'GET /api/v1/carts', 'POST /api/v1/carts', 'GET /api/v1/carts/:id',
   'PATCH /api/v1/carts/:id', 'DELETE /api/v1/carts/:id', 'POST /api/v1/carts/:id/versions',
@@ -252,6 +252,8 @@ export class MockApi {
     if (path.endsWith('/webauthn/login/start') && method === 'POST') return this.json(route, { token: 'login-token', options: { publicKey: {} } });
     if (path.endsWith('/webauthn/login/finish') && method === 'POST') { await this.loginAs('admin'); return this.json(route, this.user); }
     if (path === '/api/v1/auth/audit-log' && method === 'GET') return this.json(route, [{ event: 'login', ip: '127.0.0.1', user_agent: 'Playwright', metadata: null, created_at: now }]);
+    if (method === 'GET' && path === '/api/v1/legal') return this.json(route, { operator_name: 'Test Operator', operator_address: '1 Test St', contact_email: 'abuse@example.test' });
+    if (method === 'POST' && path === '/api/v1/reports') return route.fulfill({ status: 200, body: '' });
     if (path === '/api/v1/auth/export' && method === 'GET') return this.json(route, { user: this.user, carts: this.carts });
     if (path === '/api/v1/auth/account' && method === 'DELETE') { this.user = null; return route.fulfill({ status: 204 }); }
     if (/^\/api\/v1\/auth\/studio-link\/[^/]+\/approve$/.test(path) && method === 'POST') return route.fulfill({ status: 204 });

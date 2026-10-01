@@ -4,6 +4,7 @@
   import TopBar from './TopBar.svelte';
   import MobileTabs from './MobileTabs.svelte';
   import { currentUser } from '../stores.svelte';
+  import { link } from '../router.svelte';
   import { api } from '../api';
   import { Button } from '@caiven/ui/button';
 
@@ -43,8 +44,14 @@
         </Button>
       </div>
     {/if}
-    <main class="min-h-[calc(100vh-4rem)] pb-16 md:pb-0">
-      {@render children()}
+    <main class="flex min-h-[calc(100vh-4rem)] flex-col pb-16 md:pb-0">
+      <div class="flex-1">{@render children()}</div>
+      <footer class="mx-auto flex w-full max-w-[92rem] flex-wrap px-6 gap-x-5 gap-y-1 py-6 text-xs text-muted-foreground">
+        <a href="/terms" use:link class="hover:text-foreground">Terms</a>
+        <a href="/privacy" use:link class="hover:text-foreground">Privacy</a>
+        <a href="/report" use:link class="hover:text-foreground">Report content</a>
+        <a href="/terms#contact" use:link class="hover:text-foreground">Contact</a>
+      </footer>
     </main>
   </div>
   <MobileTabs />

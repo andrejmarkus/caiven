@@ -27,6 +27,22 @@ export interface CartRef {
   uploaded_at: string;
 }
 
+export interface LegalInfo {
+  operator_name: string | null;
+  operator_address: string | null;
+  contact_email: string | null;
+}
+
+export interface ReportInput {
+  url: string;
+  category: string;
+  explanation: string;
+  name: string;
+  email: string;
+  good_faith: boolean;
+  turnstile_token?: string;
+}
+
 export type FunnelEvent = 'qualified_play' | 'remix_opened' | 'remix_ran' | 'publish_started';
 
 export interface CartMetaInput {
@@ -381,6 +397,8 @@ export const api = {
   deletePasskey: (id: string) => request<void>(`/auth/webauthn/credentials/${id}`, { method: 'DELETE' }),
 
   auditLog: (page = 0, per_page = 20) => request<AuditEntry[]>(`/auth/audit-log${qs({ page, per_page })}`),
+  legal: () => request<LegalInfo>('/legal'),
+  report: (input: ReportInput) => request<void>('/reports', { method: 'POST', body: JSON.stringify(input) }),
   deleteAccount: (currentPassword: string, code?: string) =>
     request<void>('/auth/account', {
       method: 'DELETE',

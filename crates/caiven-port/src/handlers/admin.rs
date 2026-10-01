@@ -22,6 +22,49 @@ fn now() -> String {
     Utc::now().to_rfc3339()
 }
 
+/// Logs a moderation action and emails the affected user a statement of
+/// reasons (EU DSA Art. 17): what was done, why, and how to contest it.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn moderate(
+    state: &PortState,
+    actor_id: &str,
+    action: &str,
+    target_type: &str,
+    target_id: &str,
+    affected_user_id: Option<&str>,
+    what: &str,
+    reason: Option<&str>,
+) {
+    let reason = reason.map(str::trim).filter(|r| !r.is_empty());
+    log_action(&state.db, actor_id, action, target_type, target_id, reason).await;
+    let Some(affected) = affected_user_id else {
+        return;
+    };
+    let Ok(Some(user)) = users::Entity::find_by_id(affected).one(&state.db).await else {
+        return;
+    };
+    let Some(email) = user.email else {
+        return;
+    };
+    let origin = state.base_url.as_deref().unwrap_or(&state.local_origin);
+    let contact = state
+        .legal
+        .contact_email
+        .as_deref()
+        .unwrap_or("the contact address on the Terms page");
+    let body = format!(
+        "A Caiven moderator {what}.\n\nReason: {}\nGround: Caiven Terms of Service, \"Content rules\" ({origin}/terms#content-rules).\nThis decision was made by a person, not an automated system, and applies everywhere Caiven Port is offered.\n\nIf you think this is a mistake, reply to {contact} within 6 months and the decision will be reviewed. You can also take the matter to a competent court or an out-of-court dispute settlement body.",
+        reason.unwrap_or("it breaks the Terms of Service."),
+    );
+    crate::mailer::send_or_log_alert(
+        state.mailer.as_ref(),
+        &email,
+        "A moderation decision about your Caiven account",
+        &body,
+    )
+    .await;
+}
+
 async fn log_action(
     db: &sea_orm::DatabaseConnection,
     actor_id: &str,
@@ -148,7 +191,17 @@ pub async fn ban_user(
     let model = active.update(&state.db).await?;
 
     delete_all_sessions(&state.db, id).await?;
-    log_action(&state.db, &admin.id, "ban_user", "user", id, Some(reason)).await;
+    moderate(
+        state,
+        &admin.id,
+        "ban_user",
+        "user",
+        id,
+        Some(id),
+        "suspended your account",
+        Some(reason),
+    )
+    .await;
 
     Ok(Json(to_admin_user_info(&state.db, model).await?))
 }

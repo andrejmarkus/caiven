@@ -35,6 +35,7 @@ Production setup (TLS proxy, env vars, backups) is in
 | `--data-dir`                          | `data`                        | Fallback SQLite database directory, used only when `--database-url` is unset        |
 | `--web-dir`                           | `crates/caiven-port/web/dist` | Built SPA directory (`npm run build` output in `crates/caiven-port/web/`)           |
 | `--ip-header` (env `CAIVEN_IP_HEADER`) | unset                        | Client-IP header a trusted proxy overwrites (e.g. `X-Real-IP`). Needed behind a proxy |
+| `CAIVEN_OPERATOR_NAME` / `_ADDRESS` / `CAIVEN_CONTACT_EMAIL` | unset | Operator shown on `/terms` and `/privacy`; content reports go to the email |
 
 Open the base URL in a browser to register an account, browse/search/filter
 carts by tag, author or sort (new/popular/top), upload new carts or versions,
@@ -57,6 +58,8 @@ cookie; the same account can also mint per-user API tokens (Profile page) for
 | `PUT`/`DELETE`        | `/api/v1/carts/:id/rating`                     | Rate a cart (1-5)                                                    |
 | `GET`/`POST`/`DELETE` | `/api/v1/carts/:id/comments[/:cid]`            | Comments                                                             |
 | `GET`                 | `/api/v1/tags` \| `/api/v1/users/:username`    | Discovery                                                            |
+| `GET` / `POST`        | `/api/v1/legal` / `/api/v1/reports`            | Operator identity / content report (DSA notice), mailed to the operator |
+| `DELETE`              | `/api/v1/carts/:id?reason=` (and comments)    | Admin takedown of others' content emails the owner a statement of reasons |
 
 ## Web Play
 

@@ -510,7 +510,7 @@
 
     <section class="surface-panel mt-5 rounded-lg border-destructive/40 p-6">
       <h2 class="flex items-center gap-2 font-semibold text-destructive"><LockIcon class="size-4" />Danger zone</h2>
-      <p class="mt-2 text-sm text-muted-foreground">Export your data, or permanently delete your account.</p>
+      <p class="mt-2 text-sm text-muted-foreground">Export your data, or permanently delete your account. Published carts stay playable, credited to "[deleted]"; delete them first to remove them.</p>
 
       <div class="mt-4">
         <Button variant="outline" size="sm" href={api.exportUrl()} target="_blank" rel="noopener">
@@ -520,10 +520,12 @@
 
       {#if deleteError}<p class="mt-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">{deleteError}</p>{/if}
       <form onsubmit={deleteAccount} class="mt-4 space-y-3">
-        <label class="block">
-          <span class="mb-1.5 block text-xs font-semibold text-muted-foreground">Current password</span>
-          <Input type="password" bind:value={deletePassword} autocomplete="current-password" required />
-        </label>
+        {#if currentUser.value.password_set}
+          <label class="block">
+            <span class="mb-1.5 block text-xs font-semibold text-muted-foreground">Current password</span>
+            <Input type="password" bind:value={deletePassword} autocomplete="current-password" required />
+          </label>
+        {/if}
         {#if mfaEnabled}
           <label class="block">
             <span class="mb-1.5 block text-xs font-semibold text-muted-foreground">Two-factor code or backup code</span>

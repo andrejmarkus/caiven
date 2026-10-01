@@ -70,6 +70,7 @@ test('anonymous player remixes a seed cart and publishes a linked child', async 
   await page.getByLabel('Username').fill(remixer.username);
   await page.getByLabel('Email').fill(remixer.email);
   await page.getByLabel('Password').fill(remixer.password);
+  await page.getByRole('checkbox').check();
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL(new RegExp(`/remix/${seed.id}`));
   await expect.poll(() => editorText(editor)).toBe(SEED.replace('= 8', '= 12'));
@@ -114,6 +115,7 @@ test('anonymous player remixes a seed cart and publishes a linked child', async 
   await other.getByLabel('Username').fill(third.username);
   await other.getByLabel('Email').fill(third.email);
   await other.getByLabel('Password').fill(third.password);
+  await other.getByRole('checkbox').check();
   await other.getByRole('button', { name: 'Create account' }).click();
   const otherForm = other.getByRole('form', { name: 'Publish your remix' });
   await expect(otherForm).toBeVisible({ timeout: 30_000 });

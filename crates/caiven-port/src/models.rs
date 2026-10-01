@@ -609,6 +609,8 @@ pub struct AuditEntry {
 #[derive(Debug, Deserialize)]
 #[serde(crate = "rocket::serde")]
 pub struct DeleteAccountInput {
+    /// Ignored for OAuth-only accounts, which have no password.
+    #[serde(default)]
     pub current_password: String,
     /// Required only when the account has MFA enabled.
     #[serde(default)]

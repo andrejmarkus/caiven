@@ -44,6 +44,29 @@ orchestrator. Startup applies migrations before serving requests.
    proxy's IP: registration's 5-per-hour limit becomes site-wide and
    anonymous plays and funnel steps collapse into one viewer. Set it only when
    Port is unreachable except through that proxy, or clients choose their IP.
+7. Set `CAIVEN_OPERATOR_NAME` and `CAIVEN_CONTACT_EMAIL`. They fill `/terms`
+   and `/privacy`, and content reports (`/report`) are mailed to the contact
+   address. Reports fail with 500 until it and SMTP are set.
+   `CAIVEN_OPERATOR_ADDRESS` is optional; left unset, the pages omit it.
+
+## Legal launch checklist
+
+Port ships Terms, Privacy and a report form (GDPR, EU DSA Art. 11–17, US DMCA,
+COPPA). These steps happen outside the code:
+
+| Step | Why |
+| --- | --- |
+| Sign the DPA of your hosting and SMTP provider; prefer EU hosting | GDPR Art. 28; the privacy page says "run from the EU" |
+| Optional: register a DMCA designated agent at copyright.gov/dmca-directory (USD 6, renew every 3 years) | Only US safe harbour depends on it |
+| Rotate proxy access logs within 14 days and backups within 30 days | Periods promised on `/privacy` |
+| Keep a short record of processing activities (the `/privacy` table is the source) | GDPR Art. 30 |
+| On a data breach, notify the Slovak authority (ÚOOÚ) within 72 hours; email affected users if the risk is high | GDPR Art. 33–34 |
+| Answer report and appeal emails, and write each decision down | DSA Art. 16–17; the `moderation_actions` table keeps 3 years |
+| Report threats to life or safety you learn of to the police | DSA Art. 18 |
+| Changing a retention period: change `src/retention.rs` and `Privacy.svelte` together, and email users 30 days ahead for material Terms changes | The texts promise it |
+
+Get the texts reviewed by a lawyer before they carry real traffic; they are a
+grounded starting point, not legal advice.
 
 The image runs as UID/GID `10001:10001`, with `/app/data` writable for fallback
 SQLite storage. Mount persistent storage there for SQLite; existing bind mounts

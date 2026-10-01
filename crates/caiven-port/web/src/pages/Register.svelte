@@ -18,6 +18,7 @@
   let error = $state('');
   let busy = $state(false);
   let turnstileToken = $state('');
+  let accepted = $state(false);
   let authConfig = $state<AuthConfigInfo | null>(null);
 
   api.authConfig().then((c) => (authConfig = c)).catch(() => {});
@@ -58,6 +59,7 @@
         {/if}
         {#if authConfig}
           <OAuthButtons providers={authConfig.providers} />
+          <p class="mb-4 text-xs text-muted-foreground">By continuing with a provider, you confirm you're at least 16 and agree to the <a href="/terms" target="_blank">Terms</a> and <a href="/privacy" target="_blank">Privacy policy</a>.</p>
         {/if}
         <Field.FieldGroup>
           <Field.Field>
@@ -75,6 +77,10 @@
             <Input id="p" type="password" bind:value={password} autocomplete="new-password" minlength={8} maxlength={128} required />
             <Field.FieldDescription>At least 8 characters, with an uppercase letter and a special character.</Field.FieldDescription>
           </Field.Field>
+          <label class="flex items-start gap-2 text-sm">
+            <input type="checkbox" bind:checked={accepted} required class="mt-1" />
+            <span>I'm at least 16 and agree to the <a href="/terms" target="_blank">Terms</a> and <a href="/privacy" target="_blank">Privacy policy</a>.</span>
+          </label>
           {#if authConfig?.turnstile_site_key}
             <Turnstile siteKey={authConfig.turnstile_site_key} onToken={(t) => (turnstileToken = t)} />
           {/if}

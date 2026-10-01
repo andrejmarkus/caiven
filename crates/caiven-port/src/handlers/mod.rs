@@ -7,6 +7,7 @@ pub mod community;
 pub mod discovery;
 pub mod funnel;
 pub mod health;
+pub mod legal;
 pub mod social;
 pub mod spa;
 pub mod versions;

@@ -84,6 +84,7 @@
           <div class="mt-7 flex flex-wrap gap-2">
             <a href="/play/{cart.id}" use:link class={buttonVariants({ size: 'lg', class: 'ember-glow' })}><PlayIcon fill="currentColor" />Play now</a>
             {#if cart.remixable}<a href="/remix/{cart.id}" use:link class={buttonVariants({ variant: 'secondary', size: 'lg' })}><CodeIcon />Remix this</a>{/if}
+            <a href={`/report?url=${encodeURIComponent(window.location.href)}`} use:link class="self-center text-xs text-muted-foreground hover:text-foreground hover:underline">Report</a>
             <a href={api.cartUrl(cart.id)} class={buttonVariants({ variant: 'secondary', size: 'lg' })}><DownloadIcon />.cav</a>
             <Button variant="secondary" size="lg" onclick={openCollections}><FolderPlusIcon />Add to collection</Button>
             {#if isOwner}<a href="/upload?cart={cart.id}" use:link class={buttonVariants({ variant: 'secondary', size: 'lg' })}>New version</a>{/if}

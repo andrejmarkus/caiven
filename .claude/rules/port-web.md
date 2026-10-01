@@ -38,3 +38,14 @@ paths:
 - Its completion data is `@caiven/ui/lua-api.json`, generated from
   `api_registry`; `caiven-vm/tests/lua_api_json_sync.rs` fails when stale
   and its header has the regenerate command.
+- SPA `use:link` routes through `navigate()`, which handles `#hash` via
+  `scrollToHash` after render. A page whose anchors need ids built at mount
+  (e.g. `LegalPage`) must call `scrollToHash(location.hash)` itself for fresh
+  loads. To test scrolling, click with `dispatchEvent('click')`: Playwright's
+  `click()` scrolls the target into view first and hides the bug.
+- `.container-page` / `.container-narrow` (caiven-ui `theme.css`) carry
+  `flex: 1` in the utilities layer, after Tailwind's own, so `flex-none`
+  can't override it. Don't put them on a flex child that must keep its size
+  (e.g. the AppShell footer); use `mx-auto w-full max-w-* px-6` instead.
+  Check layout positions on the text's top edge: flex items stretch, so a
+  box's bottom can look right while its text sits mid-page.

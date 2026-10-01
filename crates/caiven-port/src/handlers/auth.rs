@@ -20,8 +20,8 @@ use crate::{
     auth::{self, AuthUser, CSRF_COOKIE, ClientIp, SESSION_COOKIE, SessionUser, UserAgent},
     db,
     entities::{
-        api_tokens, audit_log as audit_log_entity, carts, oauth_identities, sessions,
-        studio_link_requests, users, webauthn_credentials,
+        api_tokens, audit_log as audit_log_entity, cart_versions, carts, oauth_identities,
+        sessions, studio_link_requests, users, webauthn_credentials,
     },
     error::ApiError,
     mailer,
@@ -1897,11 +1897,14 @@ pub async fn delete_account(
         .await
         .map_err(ApiError::from)?
         .ok_or(ApiError::Unauthorized)?;
-    if !auth::verify_login_password(
-        input.current_password.clone(),
-        Some(model.password_hash.clone()),
-    )
-    .await
+    // OAuth-only accounts have no password to re-enter; the cookie-only
+    // session plus the typed-username confirmation in the UI must suffice.
+    if model.password_set
+        && !auth::verify_login_password(
+            input.current_password.clone(),
+            Some(model.password_hash.clone()),
+        )
+        .await
     {
         return Err(ApiError::Unauthorized);
     }
@@ -1949,6 +1952,15 @@ pub async fn delete_account(
         .exec(&txn)
         .await
         .map_err(ApiError::from)?;
+    cart_versions::Entity::update_many()
+        .col_expr(
+            cart_versions::Column::EditorUsername,
+            sea_orm::sea_query::Expr::value(db::DELETED_AUTHOR),
+        )
+        .filter(cart_versions::Column::EditorUsername.eq(&model.username))
+        .exec(&txn)
+        .await
+        .map_err(ApiError::from)?;
     users::Entity::delete_by_id(&user.id)
         .exec(&txn)
         .await
@@ -1965,29 +1977,52 @@ pub async fn export_data(
     state: &State<PortState>,
     user: SessionUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let user = user.0;
-    let model = users::Entity::find_by_id(&user.id)
-        .one(&state.db)
-        .await
-        .map_err(ApiError::from)?
+    use crate::entities::{
+        collection_follows, collections, comments, follows, jam_entries, ratings,
+    };
+    let db = &state.db;
+    let id = user.0.id;
+    let model = users::Entity::find_by_id(&id)
+        .one(db)
+        .await?
         .ok_or(ApiError::Unauthorized)?;
 
     let owned_carts = carts::Entity::find()
-        .filter(carts::Column::OwnerId.eq(&user.id))
-        .all(&state.db)
-        .await
-        .map_err(ApiError::from)?;
+        .filter(carts::Column::OwnerId.eq(&id))
+        .all(db)
+        .await?;
     let sessions_rows = sessions::Entity::find()
-        .filter(sessions::Column::UserId.eq(&user.id))
-        .all(&state.db)
-        .await
-        .map_err(ApiError::from)?;
+        .filter(sessions::Column::UserId.eq(&id))
+        .all(db)
+        .await?;
     let audit_rows = audit_log_entity::Entity::find()
-        .filter(audit_log_entity::Column::UserId.eq(&user.id))
+        .filter(audit_log_entity::Column::UserId.eq(&id))
         .order_by_desc(audit_log_entity::Column::CreatedAt)
-        .all(&state.db)
-        .await
-        .map_err(ApiError::from)?;
+        .all(db)
+        .await?;
+    let identities = oauth_identities::Entity::find()
+        .filter(oauth_identities::Column::UserId.eq(&id))
+        .all(db)
+        .await?;
+    let passkeys = webauthn_credentials::Entity::find()
+        .filter(webauthn_credentials::Column::UserId.eq(&id))
+        .all(db)
+        .await?;
+    let tokens = api_tokens::Entity::find()
+        .filter(api_tokens::Column::UserId.eq(&id))
+        .all(db)
+        .await?;
+    let following = follows::Entity::find()
+        .filter(follows::Column::FollowerId.eq(&id))
+        .all(db)
+        .await?;
+    let followed_names: Vec<String> = users::Entity::find()
+        .filter(users::Column::Id.is_in(following.iter().map(|f| f.followed_id.clone())))
+        .all(db)
+        .await?
+        .into_iter()
+        .map(|u| u.username)
+        .collect();
 
     Ok(Json(serde_json::json!({
         "profile": {
@@ -1996,6 +2031,9 @@ pub async fn export_data(
             "email": model.email,
             "email_verified": model.email_verified,
             "is_admin": model.is_admin,
+            "mfa_enabled": model.mfa_enabled,
+            "is_banned": model.is_banned,
+            "banned_reason": model.banned_reason,
             "created_at": model.created_at,
         },
         "carts": owned_carts.iter().map(|c| serde_json::json!({
@@ -2005,15 +2043,41 @@ pub async fn export_data(
             "tags": c.tags,
             "uploaded_at": c.uploaded_at,
             "downloads": c.downloads,
+            "plays": c.plays,
+            "remixable": c.remixable,
+        })).collect::<Vec<_>>(),
+        "comments": comments::Entity::find().filter(comments::Column::UserId.eq(&id)).all(db).await?,
+        "ratings": ratings::Entity::find().filter(ratings::Column::UserId.eq(&id)).all(db).await?,
+        "following": followed_names,
+        "collections": collections::Entity::find().filter(collections::Column::OwnerId.eq(&id)).all(db).await?,
+        "followed_collections": collection_follows::Entity::find().filter(collection_follows::Column::UserId.eq(&id)).all(db).await?,
+        "jam_entries": jam_entries::Entity::find().filter(jam_entries::Column::UserId.eq(&id)).all(db).await?,
+        "linked_accounts": identities.iter().map(|i| serde_json::json!({
+            "provider": i.provider,
+            "email": i.email,
+            "created_at": i.created_at,
+        })).collect::<Vec<_>>(),
+        "passkeys": passkeys.iter().map(|p| serde_json::json!({
+            "label": p.label,
+            "created_at": p.created_at,
+            "last_used_at": p.last_used_at,
+        })).collect::<Vec<_>>(),
+        "api_tokens": tokens.iter().map(|t| serde_json::json!({
+            "name": t.name,
+            "scope": t.scope,
+            "created_at": t.created_at,
+            "last_used_at": t.last_used_at,
         })).collect::<Vec<_>>(),
         "sessions": sessions_rows.iter().map(|s| serde_json::json!({
             "created_at": s.created_at,
+            "last_seen_at": s.last_seen_at,
             "ip": s.ip,
             "user_agent": s.user_agent,
         })).collect::<Vec<_>>(),
         "audit_log": audit_rows.iter().map(|a| serde_json::json!({
             "event": a.event,
             "ip": a.ip,
+            "user_agent": a.user_agent,
             "created_at": a.created_at,
         })).collect::<Vec<_>>(),
     })))

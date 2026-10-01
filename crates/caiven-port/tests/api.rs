@@ -7,7 +7,10 @@ use caiven_port::{
     PortState,
     auth::{self, CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE},
     build_rocket,
-    entities::{email_tokens, sessions, users, webauthn_challenges, webauthn_credentials},
+    entities::{
+        audit_log, email_tokens, moderation_actions, play_events, sessions, users,
+        webauthn_challenges, webauthn_credentials,
+    },
 };
 use migration::MigratorTrait;
 use rocket::data::{Limits, ToByteUnit};
@@ -850,7 +853,7 @@ async fn ownership_enforced_admin_can_override() {
     assert_eq!(resp.status(), Status::Forbidden);
 
     let resp = client
-        .delete(format!("/api/v1/carts/{id}"))
+        .delete(format!("/api/v1/carts/{id}?reason=Copyright%20notice"))
         .header(Header::new("X-Api-Key", admin_token.clone()))
         .dispatch()
         .await;
@@ -858,6 +861,17 @@ async fn ownership_enforced_admin_can_override() {
 
     let resp = client.get(format!("/api/v1/carts/{id}")).dispatch().await;
     assert_eq!(resp.status(), Status::NotFound);
+
+    // A takedown of someone else's cart is recorded with its reason.
+    let db = &client.rocket().state::<PortState>().unwrap().db;
+    let action = moderation_actions::Entity::find()
+        .filter(moderation_actions::Column::TargetId.eq(&id))
+        .one(db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(action.action, "delete_cart");
+    assert_eq!(action.reason.as_deref(), Some("Copyright notice"));
 }
 
 #[rocket::async_test]
@@ -2342,14 +2356,226 @@ async fn data_export_includes_profile_and_owned_carts() {
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Ok);
+    let cart: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let id = cart["id"].as_str().unwrap();
+    let resp = client
+        .post(format!("/api/v1/carts/{id}/comments"))
+        .header(csrf_header(&client))
+        .header(ContentType::JSON)
+        .body(r#"{"body":"my own words"}"#)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Ok);
 
     let resp = client.get("/api/v1/auth/export").dispatch().await;
     assert_eq!(resp.status(), Status::Ok);
-    let export: serde_json::Value =
-        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let body = resp.into_string().await.unwrap();
+    let export: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert_eq!(export["profile"]["username"], "exportuser");
     assert_eq!(export["carts"].as_array().unwrap().len(), 1);
     assert_eq!(export["carts"][0]["title"], "Mine");
+    assert_eq!(export["comments"][0]["body"], "my own words");
+    assert!(export["sessions"][0]["last_seen_at"].is_string());
+    // Credential material never leaves the server.
+    assert!(!body.contains("token_hash") && !body.contains("passkey_json"));
+}
+
+#[rocket::async_test]
+async fn oauth_only_account_can_be_deleted_without_a_password() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    assert_eq!(
+        register(&client, "oauthonly", TEST_PASSWORD).await,
+        Status::Ok
+    );
+    let db = &client.rocket().state::<PortState>().unwrap().db;
+    let user = users::Entity::find()
+        .filter(users::Column::Username.eq("oauthonly"))
+        .one(db)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut active: users::ActiveModel = user.into();
+    active.password_set = Set(false);
+    active.update(db).await.unwrap();
+
+    let resp = client
+        .delete("/api/v1/auth/account")
+        .header(ContentType::JSON)
+        .header(csrf_header(&client))
+        .body("{}")
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::NoContent);
+    assert_eq!(users::Entity::find().count(db).await.unwrap(), 0);
+}
+
+#[rocket::async_test]
+async fn password_account_deletion_still_requires_the_password() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    assert_eq!(register(&client, "keepme", TEST_PASSWORD).await, Status::Ok);
+    let resp = client
+        .delete("/api/v1/auth/account")
+        .header(ContentType::JSON)
+        .header(csrf_header(&client))
+        .body("{}")
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::Unauthorized);
+}
+
+async fn report_client(dir: &std::path::Path, contact: Option<&str>) -> Client {
+    let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
+    migration::Migrator::up(&db, None).await.unwrap();
+    let mut state = PortState::for_testing(db, dir.to_path_buf(), false);
+    state.legal.contact_email = contact.map(str::to_string);
+    let config = rocket::Config {
+        log_level: rocket::config::LogLevel::Off,
+        ..rocket::Config::debug_default()
+    };
+    Client::tracked(build_rocket(config, state)).await.unwrap()
+}
+
+const VALID_REPORT: &str = r#"{"url":"https://port.example/cart/x","category":"copyright","explanation":"This is my game, uploaded without permission.","email":"me@example.test","good_faith":true}"#;
+
+#[rocket::async_test]
+async fn content_report_validates_and_needs_a_configured_inbox() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = report_client(dir.path(), Some("abuse@example.test")).await;
+
+    let resp = client.get("/api/v1/legal").dispatch().await;
+    let legal: serde_json::Value =
+        serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    assert_eq!(legal["contact_email"], "abuse@example.test");
+
+    for bad in [
+        VALID_REPORT.replace(r#""good_faith":true"#, r#""good_faith":false"#),
+        VALID_REPORT.replace("copyright", "spam"),
+        VALID_REPORT.replace("This is my game, uploaded without permission.", "short"),
+        VALID_REPORT.replace("https://port.example/cart/x", "a\\nBcc: x@evil.test"),
+    ] {
+        let resp = client
+            .post("/api/v1/reports")
+            .header(ContentType::JSON)
+            .body(bad.clone())
+            .dispatch()
+            .await;
+        assert_eq!(resp.status(), Status::BadRequest, "{bad}");
+    }
+    let resp = client
+        .post("/api/v1/reports")
+        .header(ContentType::JSON)
+        .body(VALID_REPORT)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::NoContent);
+
+    let unconfigured = report_client(dir.path(), None).await;
+    let resp = unconfigured
+        .post("/api/v1/reports")
+        .header(ContentType::JSON)
+        .body(VALID_REPORT)
+        .dispatch()
+        .await;
+    assert_eq!(resp.status(), Status::InternalServerError);
+}
+
+#[rocket::async_test]
+async fn retention_sweep_purges_expired_and_anonymizes_old_viewers() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = test_client(dir.path()).await;
+    assert_eq!(register(&client, "keeper", TEST_PASSWORD).await, Status::Ok);
+    let db = &client.rocket().state::<PortState>().unwrap().db;
+    let user_id = users::Entity::find().one(db).await.unwrap().unwrap().id;
+    let resp = upload(
+        &client,
+        &register_get_token_and_logout(&client, "uploader").await,
+        &sample_cart(),
+        r#"{"title":"Old"}"#,
+    )
+    .await;
+    let cart: serde_json::Value = serde_json::from_str(&resp.into_string().await.unwrap()).unwrap();
+    let cart_id = cart["id"].as_str().unwrap().to_string();
+
+    let long_ago = (chrono::Utc::now() - chrono::Duration::days(400)).to_rfc3339();
+    let soon = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
+    sessions::ActiveModel {
+        id: Set("live-session".into()),
+        user_id: Set(user_id.clone()),
+        created_at: Set(long_ago.clone()),
+        expires_at: Set(soon),
+        user_agent: Set(None),
+        ip: Set(None),
+        last_seen_at: Set(long_ago.clone()),
+    }
+    .insert(db)
+    .await
+    .unwrap();
+    sessions::ActiveModel {
+        id: Set("expired-session".into()),
+        user_id: Set(user_id.clone()),
+        created_at: Set(long_ago.clone()),
+        expires_at: Set(long_ago.clone()),
+        user_agent: Set(None),
+        ip: Set(Some("203.0.113.9".into())),
+        last_seen_at: Set(long_ago.clone()),
+    }
+    .insert(db)
+    .await
+    .unwrap();
+    audit_log::ActiveModel {
+        id: Set("old-audit".into()),
+        user_id: Set(user_id.clone()),
+        event: Set("login".into()),
+        ip: Set(Some("203.0.113.9".into())),
+        user_agent: Set(None),
+        metadata: Set(None),
+        created_at: Set(long_ago.clone()),
+    }
+    .insert(db)
+    .await
+    .unwrap();
+    play_events::ActiveModel {
+        id: Set("old-play".into()),
+        cart_id: Set(cart_id.clone()),
+        session_key: Set("s".into()),
+        viewer_key: Set(auth::sha256_hex("ip:203.0.113.9")),
+        played_at: Set(long_ago),
+    }
+    .insert(db)
+    .await
+    .unwrap();
+
+    caiven_port::retention::sweep(db).await.unwrap();
+
+    assert!(
+        sessions::Entity::find_by_id("expired-session")
+            .one(db)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        audit_log::Entity::find_by_id("old-audit")
+            .one(db)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let play = play_events::Entity::find_by_id("old-play")
+        .one(db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(play.viewer_key, "old-play");
+    assert!(
+        sessions::Entity::find_by_id("live-session")
+            .one(db)
+            .await
+            .unwrap()
+            .is_some()
+    );
 }
 
 #[rocket::async_test]

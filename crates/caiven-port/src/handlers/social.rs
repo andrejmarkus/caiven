@@ -109,12 +109,13 @@ pub async fn add_comment(
     }))
 }
 
-#[delete("/api/v1/carts/<id>/comments/<comment_id>")]
+#[delete("/api/v1/carts/<id>/comments/<comment_id>?<reason>")]
 pub async fn delete_comment(
     state: &State<PortState>,
     user: AuthUser,
     id: &str,
     comment_id: &str,
+    reason: Option<&str>,
 ) -> Result<(), ApiError> {
     user.require_full_scope()?;
     if !valid_id(id) {
@@ -137,5 +138,19 @@ pub async fn delete_comment(
     }
 
     db::delete_comment(&state.db, comment_id).await?;
+    // Cart owners curating their own thread aren't platform moderation.
+    if !is_comment_owner && !is_cart_owner {
+        super::admin::moderate(
+            state,
+            &user.id,
+            "delete_comment",
+            "comment",
+            comment_id,
+            Some(&comment.user_id),
+            &format!("removed your comment on \"{}\"", cart.title),
+            reason,
+        )
+        .await;
+    }
     Ok(())
 }

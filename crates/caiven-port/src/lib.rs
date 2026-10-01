@@ -20,6 +20,7 @@ pub mod handlers;
 pub mod mailer;
 pub mod models;
 pub mod oauth;
+pub mod retention;
 pub mod turnstile;
 
 /// Outbound HTTP client for third-party calls (Pwned Passwords, Turnstile,
@@ -83,6 +84,16 @@ pub struct PortState {
     /// relying-party origin is mandatory to configure it at all — matches
     /// how OAuth degrades gracefully without one.
     pub webauthn: Option<webauthn_rs::Webauthn>,
+    pub legal: LegalInfo,
+}
+
+/// Operator identity shown on the legal pages and where abuse notices go.
+/// Env-configured so a self-hosted Port names its own operator.
+#[derive(Default, Clone, serde::Serialize)]
+pub struct LegalInfo {
+    pub operator_name: Option<String>,
+    pub operator_address: Option<String>,
+    pub contact_email: Option<String>,
 }
 
 impl PortState {
@@ -106,6 +117,7 @@ impl PortState {
             turnstile_secret: None,
             oauth: OAuthProviders::default(),
             webauthn: None,
+            legal: LegalInfo::default(),
         }
     }
 }
@@ -237,6 +249,8 @@ pub fn build_rocket(config: rocket::Config, state: PortState) -> rocket::Rocket<
                 handlers::auth::audit_log,
                 handlers::auth::delete_account,
                 handlers::auth::export_data,
+                handlers::legal::legal_info,
+                handlers::legal::submit_report,
                 handlers::carts::list_carts,
                 handlers::carts::get_cart,
                 handlers::carts::upload_cart,

@@ -257,11 +257,12 @@ pub async fn update_cart(
     Ok(Json(db::get(&state.db, id).await?.expect("just updated")))
 }
 
-#[delete("/api/v1/carts/<id>")]
+#[delete("/api/v1/carts/<id>?<reason>")]
 pub async fn delete_cart(
     user: AuthUser,
     state: &State<PortState>,
     id: &str,
+    reason: Option<&str>,
 ) -> Result<(), ApiError> {
     user.require_full_scope()?;
     if !valid_id(id) {
@@ -273,5 +274,18 @@ pub async fn delete_cart(
     require_owner(&user, &cart)?;
 
     db::delete_cart(&state.db, id).await?;
+    if cart.owner_id.as_deref() != Some(user.id.as_str()) {
+        super::admin::moderate(
+            state,
+            &user.id,
+            "delete_cart",
+            "cart",
+            id,
+            cart.owner_id.as_deref(),
+            &format!("removed your cart \"{}\"", cart.title),
+            reason,
+        )
+        .await;
+    }
     Ok(())
 }

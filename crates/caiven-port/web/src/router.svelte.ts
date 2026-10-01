@@ -1,3 +1,5 @@
+import { tick } from 'svelte';
+
 let path = $state(window.location.pathname);
 let search = $state(window.location.search);
 
@@ -17,11 +19,17 @@ export const route = {
 
 export function navigate(to: string): void {
   const url = new URL(to, window.location.origin);
-  if (url.pathname !== window.location.pathname || url.search !== window.location.search) {
+  if (url.href !== window.location.href) {
     window.history.pushState({}, '', to);
   }
   path = url.pathname;
   search = url.search;
+  if (url.hash) scrollToHash(url.hash);
+}
+
+/// The target only exists once the new page has rendered.
+export function scrollToHash(hash: string): void {
+  tick().then(() => document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView());
 }
 
 /// Same-origin path from `?next=`, or `fallback` for anything that could
@@ -78,6 +86,9 @@ export function matchRoute(p: string): RouteMatch {
   if (segs[0] === 'forgot-password') return { name: 'forgot-password', params: {} };
   if (segs[0] === 'reset-password') return { name: 'reset-password', params: {} };
   if (segs[0] === 'upload') return { name: 'upload', params: {} };
+  if (segs[0] === 'privacy') return { name: 'privacy', params: {} };
+  if (segs[0] === 'terms') return { name: 'terms', params: {} };
+  if (segs[0] === 'report') return { name: 'report', params: {} };
   if (segs[0] === 'admin') return { name: 'admin', params: { section: segs[1] ?? 'users' } };
   if (segs[0] === 'link-studio') return { name: 'link-studio', params: {} };
   if (segs[0] === 'cart' && segs[1]) return { name: 'cart', params: { id: segs[1] } };
