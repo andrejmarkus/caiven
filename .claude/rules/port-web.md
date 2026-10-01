@@ -27,6 +27,10 @@ paths:
   transient frame, and UI text from the previous step may still be visible.
   Re-baseline per step or poll toward a known value, and treat an alpha-0
   read as "no picture", never as the changed game (live CI flake, 2026-09).
+- Polling a periodic animation for "it changed" needs off-beat `intervals`
+  (e.g. `[37]`): `expect.poll`'s default steps settle at 1 s, a whole
+  number of blink periods at 60 Hz, so every read can hit the same phase
+  (`remix.spec.ts` Stop test, ~8% CI flake, 2026-10).
 - `e2e/support/mock-api.ts` matches routes with escaped regexes
   (`\/api\/v1\/carts`); an API path rename must grep for that form too, or
   mocked routes silently stop matching.

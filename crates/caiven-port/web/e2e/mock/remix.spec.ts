@@ -164,12 +164,14 @@ test('long code scrolls inside the editor, left of a game that stays in view', a
 
 test('Stop freezes the game until Run, even while edits rerun', async ({ page, mock }) => {
   const BLINK = 'local t = 0\nfunction _update()\n  t = t + 1\n  fill_screen(t // 6 % 2 == 0 and 8 or 12)\nend\n';
+  // Default 1 s poll steps are whole blink periods at 60 Hz, so every read can land on one phase.
+  const offbeat = { intervals: [37] };
   mock.carts[0].remixable = true;
   mock.cartBytes = Buffer.from(withLuaSource(parseCav(new Uint8Array(mock.cartBytes)), BLINK));
   await page.goto('/remix/demo');
   await expect.poll(() => pixel(page), { timeout: 30_000 }).not.toEqual([0, 0, 0, 0]);
   const first = await pixel(page);
-  await expect.poll(() => pixel(page)).not.toEqual(first);
+  await expect.poll(() => pixel(page), offbeat).not.toEqual(first);
 
   await page.getByRole('button', { name: 'Stop', exact: true }).click();
   await expect(page.getByTestId('game-stopped')).toBeVisible();
@@ -188,7 +190,7 @@ test('Stop freezes the game until Run, even while edits rerun', async ({ page, m
   await page.getByRole('button', { name: 'Run', exact: true }).click();
   await expect(page.getByTestId('game-stopped')).toHaveCount(0);
   const resumed = await pixel(page);
-  await expect.poll(() => pixel(page)).not.toEqual(resumed);
+  await expect.poll(() => pixel(page), offbeat).not.toEqual(resumed);
 
   // Run on a broken edit still resumes: the last working build plays on.
   await page.getByRole('button', { name: 'Stop', exact: true }).click();
@@ -197,7 +199,7 @@ test('Stop freezes the game until Run, even while edits rerun', async ({ page, m
   await expect(page.getByRole('alert')).toContainText('Line 4');
   await expect(page.getByTestId('game-stopped')).toHaveCount(0);
   const fallback = await pixel(page);
-  await expect.poll(() => pixel(page)).not.toEqual(fallback);
+  await expect.poll(() => pixel(page), offbeat).not.toEqual(fallback);
 });
 
 test('typed edits rerun on their own once typing pauses', async ({ page, mock }) => {
