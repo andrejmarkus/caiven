@@ -63,7 +63,7 @@ pub fn palette_to_png(palette: &[u8]) -> Result<Vec<u8>, String> {
     let mut rgb = vec![0u8; PALETTE_SIZE * 3];
     let n = rgb.len().min(palette.len());
     rgb[..n].copy_from_slice(&palette[..n]);
-    encode_rgb(PALETTE_SIZE as u32, 1, &rgb)
+    encode_plain(PALETTE_SIZE as u32, 1, png::ColorType::Rgb, &rgb)
 }
 
 /// Decodes a 16×1 (or 4×4, or any 16-pixel layout) RGB/RGBA PNG back into a
@@ -84,7 +84,7 @@ pub fn map_to_png(map: &[u8]) -> Result<Vec<u8>, String> {
     let mut gray = vec![0u8; MAP_LEN];
     let n = gray.len().min(map.len());
     gray[..n].copy_from_slice(&map[..n]);
-    encode_gray(MAP_W as u32, MAP_H as u32, &gray)
+    encode_plain(MAP_W as u32, MAP_H as u32, png::ColorType::Grayscale, &gray)
 }
 
 /// Decodes a 192×128 grayscale (or indexed/RGB, using the red channel) PNG
@@ -95,6 +95,27 @@ pub fn png_to_map(bytes: &[u8]) -> Result<Vec<u8>, String> {
         return Err(format!("map PNG must be {MAP_W}x{MAP_H}, got {w}x{h}"));
     }
     Ok(gray)
+}
+
+/// Encodes a frame of 8-bit RGBA pixels, e.g. a cart screenshot.
+pub fn rgba_to_png(w: u32, h: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
+    encode_plain(w, h, png::ColorType::Rgba, rgba)
+}
+
+/// Decodes any PNG to 8-bit RGBA; only RGBA input keeps its alpha.
+pub fn png_to_rgba(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
+    let d = decode(bytes)?;
+    if d.color == png::ColorType::Rgba {
+        return Ok((d.width, d.height, d.samples()?));
+    }
+    let (w, h, rgb) = decode_to_rgb(bytes)?;
+    let rgba = rgb
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .flat_map(|p| [p[0], p[1], p[2], 255])
+        .collect();
+    Ok((w, h, rgba))
 }
 
 fn encode_indexed(w: u32, h: u32, indices: &[u8], palette: &[u8]) -> Result<Vec<u8>, String> {
@@ -115,24 +136,13 @@ fn encode_indexed(w: u32, h: u32, indices: &[u8], palette: &[u8]) -> Result<Vec<
     Ok(out)
 }
 
-fn encode_rgb(w: u32, h: u32, rgb: &[u8]) -> Result<Vec<u8>, String> {
+fn encode_plain(w: u32, h: u32, color: png::ColorType, data: &[u8]) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     let mut encoder = png::Encoder::new(&mut out, w, h);
-    encoder.set_color(png::ColorType::Rgb);
+    encoder.set_color(color);
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
-    writer.write_image_data(rgb).map_err(|e| e.to_string())?;
-    drop(writer);
-    Ok(out)
-}
-
-fn encode_gray(w: u32, h: u32, gray: &[u8]) -> Result<Vec<u8>, String> {
-    let mut out = Vec::new();
-    let mut encoder = png::Encoder::new(&mut out, w, h);
-    encoder.set_color(png::ColorType::Grayscale);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
-    writer.write_image_data(gray).map_err(|e| e.to_string())?;
+    writer.write_image_data(data).map_err(|e| e.to_string())?;
     drop(writer);
     Ok(out)
 }
@@ -384,6 +394,17 @@ mod tests {
     }
 
     #[test]
+    fn rgba_roundtrips_and_rgb_decodes_opaque() {
+        let rgba = [1, 2, 3, 0, 4, 5, 6, 255];
+        assert_eq!(
+            png_to_rgba(&rgba_to_png(2, 1, &rgba).unwrap()).unwrap(),
+            (2, 1, rgba.to_vec())
+        );
+        let rgb = encode_plain(1, 1, png::ColorType::Rgb, &[7, 8, 9]).unwrap();
+        assert_eq!(png_to_rgba(&rgb).unwrap().2, [7, 8, 9, 255]);
+    }
+
+    #[test]
     fn sprite_sheet_roundtrips_through_png() {
         let palette = test_palette();
         let mut sheet = vec![0u8; SHEET_LEN];
@@ -418,7 +439,7 @@ mod tests {
 
     #[test]
     fn wrong_sprite_sheet_dimensions_are_rejected() {
-        let png = encode_gray(8, 8, &[0u8; 64]).unwrap();
+        let png = encode_plain(8, 8, png::ColorType::Grayscale, &[0u8; 64]).unwrap();
         assert!(png_to_sprites(&png, &test_palette()).is_err());
     }
 

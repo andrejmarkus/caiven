@@ -27,7 +27,6 @@ anyhow = { workspace = true }
 chrono = { workspace = true }
 caiven-cart = { workspace = true }
 caiven-core = { workspace = true }
-image = { workspace = true }
 log = { workspace = true }
 # save_data/load_data (lua_exec.rs) need lua.from_value/to_value, which live
 # behind mlua's "serialize" feature — not enabled by the workspace default.

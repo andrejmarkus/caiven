@@ -65,15 +65,9 @@ pub(crate) fn capture_screenshot(
         vm.ui_pixels(),
     );
 
-    let img = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(config.width, config.height, rgba)
-        .context("failed to create image buffer")?;
-    let mut png_bytes = Vec::new();
-    img.write_to(
-        &mut std::io::Cursor::new(&mut png_bytes),
-        image::ImageFormat::Png,
-    )
-    .context("failed to encode screenshot PNG")?;
-    Ok(png_bytes)
+    caiven_cart::asset_png::rgba_to_png(config.width, config.height, &rgba)
+        .map_err(anyhow::Error::msg)
+        .context("failed to encode screenshot PNG")
 }
 
 #[cfg(test)]
@@ -98,9 +92,14 @@ mod tests {
             1,
         )
         .unwrap();
-        let image = image::load_from_memory(&png).unwrap().to_rgba8();
-        let background = *image.get_pixel(191, 127);
-        assert!(image.pixels().any(|pixel| *pixel != background));
+        let (_, _, rgba) = caiven_cart::asset_png::png_to_rgba(&png).unwrap();
+        let background = &rgba[rgba.len() - 4..];
+        assert!(
+            rgba.as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel != background)
+        );
     }
 
     // Remix starters are published remixable, so each must survive real
@@ -279,9 +278,9 @@ mod tests {
             1,
         )
         .unwrap();
-        let image = image::load_from_memory(&png).unwrap().to_rgba8();
-        assert!(image.pixels().all(|pixel| pixel[3] == 255));
-        assert_eq!(image.get_pixel(191, 127).0, [0, 0, 0, 255]);
+        let (_, _, rgba) = caiven_cart::asset_png::png_to_rgba(&png).unwrap();
+        assert!(rgba.as_chunks::<4>().0.iter().all(|pixel| pixel[3] == 255));
+        assert_eq!(&rgba[rgba.len() - 4..], [0, 0, 0, 255]);
     }
 
     #[test]
