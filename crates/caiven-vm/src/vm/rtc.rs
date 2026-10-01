@@ -1,34 +1,15 @@
-//! Real-time clock peripheral — proves out the [`Peripheral`] trait as a
-//! Rust-native modding mechanism: mapped registers in RAM, written each
-//! tick, readable from Lua via the `real_time()` builtin.
+//! Real-time clock: UTC hour/minute/second mapped into RAM each tick,
+//! readable from Lua via the `real_time()` builtin.
 
-use crate::peripheral::Peripheral;
 use crate::vm::memory::Memory;
 use caiven_core::memory::RTC_RAM_BASE;
-use chrono::{Timelike, Utc};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-pub struct RealTimeClock;
-
-impl Peripheral for RealTimeClock {
-    fn name(&self) -> &'static str {
-        "rtc"
-    }
-
-    fn init(&mut self, mem: &mut Memory) {
-        write_time(mem);
-    }
-
-    fn tick(&mut self, mem: &mut Memory, _frame: u32) {
-        write_time(mem);
-    }
-}
-
-fn write_time(mem: &mut Memory) {
-    // Deliberately UTC, not `Local::now()`: this crate also builds for
-    // `wasm32-unknown-unknown` (`caiven-web`), where chrono's local-time
-    // support isn't available. Documented as UTC in `docs/api-reference.md`.
-    let now = Utc::now();
-    let _ = mem.write(RTC_RAM_BASE, now.hour() as u8);
-    let _ = mem.write(RTC_RAM_BASE + 1, now.minute() as u8);
-    let _ = mem.write(RTC_RAM_BASE + 2, now.second() as u8);
+pub(super) fn write_time(mem: &mut Memory) {
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() % 86_400);
+    let _ = mem.write(RTC_RAM_BASE, (secs / 3600) as u8);
+    let _ = mem.write(RTC_RAM_BASE + 1, (secs % 3600 / 60) as u8);
+    let _ = mem.write(RTC_RAM_BASE + 2, (secs % 60) as u8);
 }

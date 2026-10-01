@@ -1355,7 +1355,8 @@ pub async fn oauth_start(
     );
 
     let redirect_uri = oauth_redirect_uri(state, provider);
-    let url = oauth::build_authorize_url(provider, cfg, &redirect_uri, &csrf_state, &challenge);
+    let url = oauth::build_authorize_url(provider, cfg, &redirect_uri, &csrf_state, &challenge)
+        .map_err(|_| ApiError::internal("invalid OAuth authorize URL"))?;
     Ok(Redirect::to(url))
 }
 

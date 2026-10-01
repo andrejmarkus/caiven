@@ -3,6 +3,3 @@ version = 1
 title = "stdlib_demo"
 author = ""
 entry = "main.lua"
-
-[mods]
-require = []

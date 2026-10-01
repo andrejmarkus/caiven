@@ -489,9 +489,6 @@ enum CoreCommand {
         cells: Vec<CollisionCellPayload>,
         reply: mpsc::Sender<Result<(), String>>,
     },
-    ReadCollisionTypes {
-        reply: mpsc::Sender<Result<Vec<CollisionTypePayload>, String>>,
-    },
     /// Replaces the whole collision-type table — the editor's "manage
     /// types" UI always sends the full set it computed, rather than deltas,
     /// so there's no ordering/race concern between concurrent edits.
@@ -1776,12 +1773,8 @@ fn palette_hex(console: &ConsoleCore) -> Vec<String> {
         .get_palette()
         .iter()
         .map(|color| {
-            format!(
-                "#{:02X}{:02X}{:02X}",
-                color.get_r(),
-                color.get_g(),
-                color.get_b()
-            )
+            let [r, g, b] = color.to_rgb();
+            format!("#{r:02X}{g:02X}{b:02X}")
         })
         .collect()
 }
@@ -2113,16 +2106,6 @@ fn handle_command(studio: &mut StudioCore, command: CoreCommand) {
                 Ok(())
             };
             let _ = reply.send(result);
-        }
-        CoreCommand::ReadCollisionTypes { reply } => {
-            let types = studio
-                .console
-                .vm
-                .collision_types()
-                .iter()
-                .map(CollisionTypePayload::from)
-                .collect();
-            let _ = reply.send(Ok(types));
         }
         CoreCommand::WriteCollisionTypes { types, reply } => {
             studio
@@ -2538,13 +2521,6 @@ fn studio_write_collision_cells(
 }
 
 #[tauri::command]
-fn studio_read_collision_types(
-    state: State<'_, StudioBridge>,
-) -> Result<Vec<CollisionTypePayload>, String> {
-    state.request(|reply| CoreCommand::ReadCollisionTypes { reply })
-}
-
-#[tauri::command]
 fn studio_write_collision_types(
     types: Vec<CollisionTypePayload>,
     state: State<'_, StudioBridge>,
@@ -2900,7 +2876,6 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
             studio_write_memory,
             studio_write_map_cells,
             studio_write_collision_cells,
-            studio_read_collision_types,
             studio_write_collision_types,
             studio_write_meta,
             studio_create_module,

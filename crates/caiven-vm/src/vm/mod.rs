@@ -1,7 +1,6 @@
 pub mod api_registry;
 pub mod audio;
 pub mod breakable_lines;
-pub mod camera;
 pub mod config;
 mod execution;
 pub mod fault;
@@ -12,7 +11,6 @@ mod rtc;
 pub mod save_data;
 pub mod sfx;
 
-pub use camera::*;
 pub use config::VmConfig;
 pub use fault::VmFault;
 pub use lua_exec::{
@@ -24,9 +22,7 @@ pub use save_data::{SAVE_DATA_BLOB_MAX_BYTES, SaveData, SaveDataError};
 
 use self::memory::Memory;
 use self::sfx::{MusicPlayer, SfxPlayer, resolve_song_step};
-use crate::peripheral::{Peripheral, PeripheralRegistry};
 use crate::rendering::screen::ScreenLayer;
-use crate::vm::Camera;
 use crate::vm::audio::{SFX_VOICE_COUNT, Sound, VOICE_COUNT, Voice};
 use caiven_cart::{
     CartSection, DEFAULT_BANK_NAME, SectionKind, decode_asset_bank, is_valid_bank_name,
@@ -192,7 +188,7 @@ impl AssetBanks {
 
 pub struct Vm {
     memory: Memory,
-    camera: Camera,
+    camera: Vec2,
     palette: Palette,
     sound: Arc<Mutex<Sound>>,
     music_player: MusicPlayer,
@@ -204,9 +200,7 @@ pub struct Vm {
     preview_sfx: Option<u32>,
     next_sfx_age: u64,
     suspended_audio: Option<SuspendedAudio>,
-    peripherals: PeripheralRegistry,
     frame_count: u32,
-    waiting: bool,
     fault: Option<VmFault>,
     /// Plain-language description of `fault`, when there's more to say than
     /// the variant itself carries — set alongside `fault` by `set_fault`.
@@ -370,9 +364,7 @@ fn release_sfx_voice(
 impl Vm {
     pub fn new(config: VmConfig) -> Self {
         let mut memory = Memory::new(config.memory_size);
-        let mut peripherals = PeripheralRegistry::new();
-        peripherals.register(rtc::RealTimeClock);
-        peripherals.init_all(&mut memory);
+        rtc::write_time(&mut memory);
         // RAM is the palette's source of truth; seed it so a save or bank
         // switch before any cart poke sees the real default colors.
         for (i, &(r, g, b)) in palette::DEFAULT_COLORS.iter().enumerate() {
@@ -383,7 +375,7 @@ impl Vm {
 
         Self {
             memory,
-            camera: Camera::new(Vec2::new(0, 0)),
+            camera: Vec2::default(),
             palette: Palette::new(config.palette_size),
             sound: Arc::new(Mutex::new(Sound::default())),
             music_player: MusicPlayer::new(),
@@ -391,9 +383,7 @@ impl Vm {
             preview_sfx: None,
             next_sfx_age: 0,
             suspended_audio: None,
-            peripherals,
             frame_count: 0,
-            waiting: false,
             fault: None,
             fault_message: None,
             world: ScreenLayer::new(config.width, config.height),
@@ -442,14 +432,6 @@ impl Vm {
         self.capture_lua_output
     }
 
-    pub fn register_peripheral(&mut self, p: impl Peripheral + 'static) {
-        self.peripherals.register(p);
-    }
-
-    pub fn registered_peripheral_names(&self) -> Vec<&'static str> {
-        self.peripherals.names()
-    }
-
     pub fn set_fault(&mut self, fault: VmFault) {
         // `LuaError` callers always know more than the bare variant (the
         // actual error text) and go through `set_fault_with_message`
@@ -472,7 +454,6 @@ impl Vm {
         error!("VM FAULT: {:?}", fault);
         self.fault = Some(fault);
         self.fault_message = message;
-        self.waiting = true;
     }
 
     pub fn get_sound_shared(&self) -> Arc<Mutex<Sound>> {
@@ -677,10 +658,7 @@ impl Vm {
                 SectionKind::Palette => PALETTE_RAM_BASE,
                 SectionKind::SfxBank => SFX_RAM_BASE,
                 SectionKind::MusicBank => MUSIC_RAM_BASE,
-                SectionKind::Meta
-                | SectionKind::ModManifest
-                | SectionKind::LuaSource
-                | SectionKind::Custom(_) => continue,
+                SectionKind::Meta | SectionKind::LuaSource | SectionKind::Custom(_) => continue,
             };
             self.load_section_to_ram(ram_base, &section.data);
             if section.kind == SectionKind::Palette {
@@ -821,24 +799,8 @@ impl Vm {
         }
     }
 
-    pub fn get_memory_length(&self) -> usize {
-        self.memory.get_length()
-    }
-
     pub fn peek_memory(&self, address: usize) -> u8 {
         self.memory.read(address).unwrap_or(0)
-    }
-
-    pub fn get_camera_x(&self) -> u32 {
-        self.camera.get_x()
-    }
-
-    pub fn get_camera_y(&self) -> u32 {
-        self.camera.get_y()
-    }
-
-    pub fn is_waiting(&self) -> bool {
-        self.waiting
     }
 
     /// Frames run since load — the console-time clock a host can attach to
@@ -892,7 +854,7 @@ impl Vm {
     /// Full RAM snapshot — the flat buffer backing sprites, map, palette
     /// region, sfx/music banks, collision and heap. Used by front-ends for
     /// save-state persistence; RTC's 3 live-register bytes ride along
-    /// harmlessly, since the RTC peripheral overwrites them every tick
+    /// harmlessly, since the RTC overwrites them every tick
     /// regardless of what a restore puts there.
     pub fn ram(&self) -> &[u8] {
         self.memory.get_ram()

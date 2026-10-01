@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   autotileBitmask, autotileEdits, collisionCellEdits, composeGroup, decomposeGroup, dragPanScroll, filledRectangle,
-  flipHorizontal, flipVertical, floodCells, moveCursor, moveRegion, nextMapZoom, pasteRegion, rasterLine,
+  flipHorizontal, flipVertical, floodCells, hexToRgb, moveCursor, moveRegion, nextMapZoom, pasteRegion, rasterLine,
   rectangleOutline, regionFromPoints, regionValues, rotateClockwise, rotateCounterClockwise,
   strokeCells,
 } from '../src/lib/editorMath.ts';
@@ -170,4 +170,9 @@ test('composeGroup/decomposeGroup round-trip a multi-slot sprite-sheet block', (
   assert.deepEqual(parts.map((p) => p.slot), [0, 1]);
   assert.equal(parts[0].pixels[0], 9);
   assert.equal(parts[1].pixels[0], 3);
+});
+
+test('hexToRgb parses #rrggbb and treats empty as black', () => {
+  assert.deepEqual(hexToRgb('#ff8001'), [255, 128, 1]);
+  assert.deepEqual(hexToRgb(''), [0, 0, 0]);
 });

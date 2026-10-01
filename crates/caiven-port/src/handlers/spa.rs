@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use rocket::{State, fs::NamedFile, get, response::content::RawHtml};
 
-use crate::{PortState, db, handlers::valid_id};
+use crate::{PortState, db, handlers::valid_id, mailer::escape_html};
 
 #[get("/<path..>", rank = 20)]
 pub async fn fallback(path: PathBuf, state: &State<PortState>) -> Option<NamedFile> {
@@ -120,12 +120,4 @@ fn with_head(html: &str, title: &str, tags: &str) -> String {
         Some(at) => format!("{}{tags}{}", &html[..at], &html[at..]),
         None => html,
     }
-}
-
-fn escape_html(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
 }

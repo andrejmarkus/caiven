@@ -22,22 +22,6 @@ impl Color {
     pub fn to_rgb(self) -> [u8; 3] {
         [self.r, self.g, self.b]
     }
-
-    pub fn get_r(self) -> u8 {
-        self.r
-    }
-
-    pub fn get_g(self) -> u8 {
-        self.g
-    }
-
-    pub fn get_b(self) -> u8 {
-        self.b
-    }
-
-    pub fn get_a(self) -> u8 {
-        self.a
-    }
 }
 
 #[cfg(test)]
@@ -51,9 +35,8 @@ mod tests {
     }
 
     #[test]
-    fn new_rgba_and_getters_roundtrip() {
-        let c = Color::new_rgba(1, 2, 3, 4);
-        assert_eq!((c.get_r(), c.get_g(), c.get_b(), c.get_a()), (1, 2, 3, 4));
+    fn new_rgba_roundtrips() {
+        assert_eq!(Color::new_rgba(1, 2, 3, 4).to_rgba(), [1, 2, 3, 4]);
     }
 
     #[test]

@@ -3,6 +3,3 @@ version = 1
 title = "demo_string"
 author = ""
 entry = "main.lua"
-
-[mods]
-require = []

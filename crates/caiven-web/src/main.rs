@@ -78,14 +78,6 @@ impl Player {
     fn load_cart(&mut self, bytes: &[u8]) -> anyhow::Result<()> {
         let cart = caiven_cart::parse(bytes)?;
 
-        for section in &cart.sections {
-            if section.kind == caiven_cart::SectionKind::ModManifest {
-                let manifest = String::from_utf8_lossy(&section.data);
-                let registered = self.vm.registered_peripheral_names();
-                check_mod_manifest(&manifest, &registered)?;
-            }
-        }
-
         let lua_source = self
             .vm
             .load_cart_sections(&cart.sections)
@@ -142,17 +134,6 @@ impl Player {
             }
         }
     }
-}
-
-/// Same rule `caiven-machine`/`caiven-studio` enforce before loading a cart:
-/// every peripheral its `ModManifest` section names must be registered.
-fn check_mod_manifest(manifest: &str, registered: &[&str]) -> anyhow::Result<()> {
-    for required in manifest.lines().map(str::trim).filter(|s| !s.is_empty()) {
-        if !registered.contains(&required) {
-            anyhow::bail!("cart requires mod '{}' but it is not loaded", required);
-        }
-    }
-    Ok(())
 }
 
 thread_local! {

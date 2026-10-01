@@ -147,14 +147,11 @@ impl Vm {
     }
 
     pub fn run_frame(&mut self, input: &Input, font: &Font) {
-        self.waiting = false;
         self.tick_music_player();
         self.tick_sfx_pool();
-        self.peripherals
-            .tick_all(&mut self.memory, self.frame_count);
+        super::rtc::write_time(&mut self.memory);
         self.frame_count = self.frame_count.wrapping_add(1);
 
         self.run_frame_lua(input, font);
-        self.waiting = true;
     }
 }

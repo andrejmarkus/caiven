@@ -324,3 +324,8 @@ export function floodCells(
   }
   return cells;
 }
+
+export function hexToRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16) || 0;
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}

@@ -28,18 +28,6 @@ pub fn load_cart(vm: &mut Vm, path: &Path, input: &Input, font: &Font) -> Result
     let cart = caiven_cart::open(path)
         .with_context(|| format!("failed to load cart from {}", path.display()))?;
 
-    for section in &cart.sections {
-        if section.kind == SectionKind::ModManifest {
-            let manifest = String::from_utf8_lossy(&section.data);
-            let registered = vm.registered_peripheral_names();
-            for required in manifest.lines().map(str::trim).filter(|s| !s.is_empty()) {
-                if !registered.contains(&required) {
-                    anyhow::bail!("cart requires mod '{}' but it is not loaded", required);
-                }
-            }
-        }
-    }
-
     let lua_source = vm.load_cart_sections(&cart.sections);
 
     let mut sections: Vec<SectionLayout> = Vec::new();
@@ -74,11 +62,7 @@ pub fn load_cart(vm: &mut Vm, path: &Path, input: &Input, font: &Font) -> Result
         .with_context(|| format!("failed to load Lua cart {}", path.display()))?;
 
     if !sections.iter().any(|s| s.kind == SectionKind::Palette) {
-        let palette_bytes: Vec<u8> = vm
-            .get_palette()
-            .iter()
-            .flat_map(|c| [c.get_r(), c.get_g(), c.get_b()])
-            .collect();
+        let palette_bytes: Vec<u8> = vm.get_palette().iter().flat_map(|c| c.to_rgb()).collect();
         vm.load_section_to_ram(PALETTE_RAM_BASE, &palette_bytes);
         sections.push(SectionLayout {
             kind: SectionKind::Palette,

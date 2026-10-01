@@ -3,6 +3,3 @@ version = 1
 title = "sprite_flip_rotate"
 author = ""
 entry = "main.lua"
-
-[mods]
-require = []

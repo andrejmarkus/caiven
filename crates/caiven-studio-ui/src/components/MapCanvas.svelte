@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import {
-    collisionCellEdits, moveCursor, strokeCells, type CollisionBrush, type CollisionEdit, type StrokeTool,
+    collisionCellEdits, hexToRgb, moveCursor, strokeCells, type CollisionBrush, type CollisionEdit, type StrokeTool,
   } from '../lib/editorMath';
   import {
     MAP_H, MAP_PX_H, MAP_PX_W, MAP_W, SCREEN_TILES_H, SCREEN_TILES_W, TILE_SIZE,
@@ -85,11 +85,6 @@
     onSelectionChange?.(selectRegion);
   });
 
-  function color(hex: string): [number, number, number, number] {
-    const value = hex || '#000000';
-    return [parseInt(value.slice(1, 3), 16), parseInt(value.slice(3, 5), 16), parseInt(value.slice(5, 7), 16), 255];
-  }
-
   // The full-map image is kept between renders so a paint stroke can repaint
   // only the tiles it touched. Rebuilding all 16384 tiles costs ~23 ms, which
   // a per-pointer-move redraw cannot afford; a dirty repaint is a handful of
@@ -130,7 +125,7 @@
     const context = canvas.getContext('2d');
     if (!context) return;
     const image = context.createImageData(MAP_PX_W, MAP_PX_H);
-    const colors = palette.map(color);
+    const colors = palette.map((hex) => [...hexToRgb(hex), 255]);
     for (let tileY = 0; tileY < MAP_H; tileY += 1) for (let tileX = 0; tileX < MAP_W; tileX += 1) {
       paintTile(image, colors, tileX, tileY);
     }
@@ -160,7 +155,7 @@
     if (!canvas || !buffer) { render(); return; }
     const context = canvas.getContext('2d');
     if (!context) return;
-    const colors = palette.map(color);
+    const colors = palette.map((hex) => [...hexToRgb(hex), 255]);
     let x0 = MAP_W, y0 = MAP_H, x1 = -1, y1 = -1;
     for (const offset of offsets) {
       const tileX = offset % MAP_W, tileY = Math.floor(offset / MAP_W);

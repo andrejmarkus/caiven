@@ -260,7 +260,6 @@ function installBridge() {
     if (command === 'studio_write_palette') { const slot = Number(args.slot); const hex = String(args.hex); const bytes = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16)); banks.palette.get(active.palette)!.splice(slot * 3, 3, ...bytes); sync('palette'); return null; }
     if (command === 'studio_write_map_cells') { for (const cell of args.cells as { offset: number; tile: number }[]) banks.map.get(active.map)![cell.offset] = cell.tile; sync('map'); return null; }
     if (command === 'studio_write_collision_cells') { for (const cell of args.cells as { offset: number; value: number }[]) collision.get(active.map)![cell.offset] = cell.value; sync('map'); return null; }
-    if (command === 'studio_read_collision_types') return structuredClone(collisionTypes);
     if (command === 'studio_write_collision_types') { collisionTypes = args.types as typeof collisionTypes; return null; }
     if (command === 'studio_write_memory') {
       const address = Number(args.address); const bytes = args.bytes as number[];

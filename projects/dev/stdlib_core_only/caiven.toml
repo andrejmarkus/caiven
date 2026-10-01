@@ -3,6 +3,3 @@ version = 1
 title = "Core Only"
 author = "caiven"
 entry = "main.lua"
-
-[mods]
-require = []

@@ -1639,9 +1639,9 @@ fn bundled_module_syntax_error_reports_module_location() {
 }
 
 #[test]
-fn rtc_peripheral_ticks_and_is_readable_from_lua() {
+fn rtc_ticks_and_is_readable_from_lua() {
     let mut vm = make_vm();
-    // RealTimeClock::init runs in Vm::new(), before any cart loads.
+    // The RTC is first written in Vm::new(), before any cart loads.
     let hour = vm.peek_memory(RTC_RAM_BASE);
     let minute = vm.peek_memory(RTC_RAM_BASE + 1);
     let second = vm.peek_memory(RTC_RAM_BASE + 2);

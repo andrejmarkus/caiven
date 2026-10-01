@@ -1,5 +1,4 @@
 pub mod input;
-pub mod peripheral;
 pub mod rendering;
 pub mod runtime;
 pub mod settings;

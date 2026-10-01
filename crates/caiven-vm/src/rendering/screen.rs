@@ -21,20 +21,11 @@ impl ScreenLayer {
     }
 
     pub fn set_pixel(&mut self, position: Vec2, color: Color) {
-        if position.get_x() >= self.width || position.get_y() >= self.height {
+        if position.x >= self.width || position.y >= self.height {
             return;
         }
-        let i = (position.get_y() * self.width + position.get_x()) as usize * RGBA_BYTES;
-        self.pixels[i..i + RGBA_BYTES].copy_from_slice(&[
-            color.get_r(),
-            color.get_g(),
-            color.get_b(),
-            color.get_a(),
-        ]);
-    }
-
-    pub fn set_pixels(&mut self, data: Vec<u8>) {
-        self.pixels = data;
+        let i = (position.y * self.width + position.x) as usize * RGBA_BYTES;
+        self.pixels[i..i + RGBA_BYTES].copy_from_slice(&color.to_rgba());
     }
 
     pub fn clear(&mut self) {

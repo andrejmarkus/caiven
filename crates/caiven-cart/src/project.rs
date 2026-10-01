@@ -169,8 +169,6 @@ fn supports_png(kind: SectionKind) -> bool {
 #[derive(Serialize, Deserialize)]
 struct CaivenToml {
     cart: CartTable,
-    #[serde(default)]
-    mods: ModsTable,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -187,12 +185,6 @@ struct CartTable {
 
 fn default_entry() -> String {
     DEFAULT_ENTRY.to_string()
-}
-
-#[derive(Serialize, Deserialize, Default)]
-struct ModsTable {
-    #[serde(default)]
-    require: Vec<String>,
 }
 
 /// Returns `true` if `path` looks like a project (a directory containing
@@ -354,22 +346,14 @@ pub fn load_project(path: &Path) -> Result<Cart, CartError> {
         });
     }
 
-    if !manifest.mods.require.is_empty() {
-        sections.push(CartSection {
-            kind: SectionKind::ModManifest,
-            data: manifest.mods.require.join("\n").into_bytes(),
-        });
-    }
-
     Ok(Cart { header, sections })
 }
 
 /// Writes `header`, entry `lua` source, sibling `modules` (project-relative
 /// path -> source, e.g. `ui/panel.lua`), and asset `sections` out as a
 /// project directory at `dir`, creating it if needed. Sections with no asset
-/// file mapping (`Meta`, `LuaSource`, `Custom`) are ignored; `ModManifest`
-/// is folded into `caiven.toml`'s `[mods].require` instead of a `.hex` file,
-/// and `CollisionTypes` is written to `collision_types.json` (omitted when
+/// file mapping (`Meta`, `LuaSource`, `Custom`) are ignored, and
+/// `CollisionTypes` is written to `collision_types.json` (omitted when
 /// the table is exactly the built-in types).
 /// Asset sections that trim to empty have their `.hex`/`.png` file removed
 /// if present, so deleting all sprites in the editor cleans up the file
@@ -391,19 +375,6 @@ pub fn save_project(
 ) -> Result<(), CartError> {
     std::fs::create_dir_all(dir)?;
 
-    let mut require = Vec::new();
-    for (kind, data) in sections {
-        if *kind == SectionKind::ModManifest {
-            let text = String::from_utf8_lossy(data);
-            require.extend(
-                text.lines()
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(str::to_string),
-            );
-        }
-    }
-
     // Preserve an already-declared entry path instead of forcing it back to
     // `main.lua` on every save — a manifest hand-edited to point `entry`
     // elsewhere must keep pointing there.
@@ -419,7 +390,6 @@ pub fn save_project(
             author: header.author.clone(),
             entry: entry_rel.clone(),
         },
-        mods: ModsTable { require },
     };
     let manifest_text =
         toml::to_string_pretty(&manifest).map_err(|e| CartError::MissingEntry(e.to_string()))?;
@@ -572,10 +542,7 @@ mod tests {
         // Collision is hex-only (no PNG codec) so this test exercises the
         // generic save/load plumbing independent of asset format choice —
         // PNG-vs-hex behavior gets its own tests below.
-        let sections = vec![
-            (SectionKind::Collision, vec![1u8, 2, 3, 0]),
-            (SectionKind::ModManifest, b"rtc\ninput".to_vec()),
-        ];
+        let sections = vec![(SectionKind::Collision, vec![1u8, 2, 3, 0])];
 
         save_project(dir.path(), &header, lua, &[], &sections, &[]).unwrap();
         let cart = load_project(dir.path()).unwrap();
@@ -598,13 +565,19 @@ mod tests {
             .find(|s| s.kind == SectionKind::Collision)
             .unwrap();
         assert_eq!(collision.data, vec![1, 2, 3]);
+    }
 
-        let manifest = cart
-            .sections
-            .iter()
-            .find(|s| s.kind == SectionKind::ModManifest)
-            .unwrap();
-        assert_eq!(String::from_utf8_lossy(&manifest.data), "rtc\ninput");
+    #[test]
+    fn legacy_mods_table_is_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(MANIFEST_FILE),
+            "[cart]\nversion = 1\ntitle = \"Old\"\n\n[mods]\nrequire = [\"rtc\"]\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join(DEFAULT_ENTRY), "-- old\n").unwrap();
+        let cart = load_project(dir.path()).unwrap();
+        assert_eq!(cart.header.title, "Old");
     }
 
     #[test]

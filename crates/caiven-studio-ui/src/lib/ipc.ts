@@ -163,7 +163,6 @@ const fallback: StudioBootstrap = {
   activeSpriteBank: 'default',
   activeMapBank: 'default',
   collision: Array(COLLISION_LEN).fill(0),
-  collisionTypes: structuredClone(defaultCollisionTypes),
   sfx: Array(SFX_BANK_LEN).fill(0),
   music: Array(MUSIC_BANK_LEN).fill(0),
   paletteBanks: ['default'],
@@ -425,14 +424,8 @@ export async function writeCollisionCells(cells: { offset: number; value: number
   if (isTauri()) await invoke('studio_write_collision_cells', { cells });
 }
 
-export async function readCollisionTypes(): Promise<CollisionType[]> {
-  if (isTauri()) return invoke<CollisionType[]>('studio_read_collision_types');
-  return structuredClone(fallback.collisionTypes);
-}
-
 export async function writeCollisionTypes(types: CollisionType[]): Promise<void> {
   if (isTauri()) await invoke('studio_write_collision_types', { types });
-  else fallback.collisionTypes = structuredClone(types);
 }
 
 export async function assetBank(

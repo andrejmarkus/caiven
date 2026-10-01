@@ -3,6 +3,7 @@
 //! No external OAuth crate — just three providers with well-known,
 //! stable endpoints, hand-rolled to keep the dependency surface small.
 
+use argon2::password_hash::rand_core::{OsRng, RngCore};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::Deserialize;
@@ -89,8 +90,7 @@ impl OAuthIdentity {
 /// Random URL-safe PKCE code verifier (43 chars from 32 random bytes).
 pub fn new_code_verifier() -> String {
     let mut bytes = [0u8; 32];
-    use rand_core_compat::fill_random;
-    fill_random(&mut bytes);
+    OsRng.fill_bytes(&mut bytes);
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
@@ -105,22 +105,23 @@ pub fn build_authorize_url(
     redirect_uri: &str,
     state: &str,
     code_challenge: &str,
-) -> String {
-    let mut url = url_lite::Builder::new(provider.authorize_url());
-    url.push("client_id", &cfg.client_id);
-    url.push("redirect_uri", redirect_uri);
-    url.push("response_type", "code");
-    url.push("scope", provider.scope());
-    url.push("state", state);
-    // Discord and GitHub both accept PKCE params even though only Google
-    // strictly requires the modern flow; harmless to send everywhere.
-    url.push("code_challenge", code_challenge);
-    url.push("code_challenge_method", "S256");
+) -> anyhow::Result<String> {
+    let mut params = vec![
+        ("client_id", cfg.client_id.as_str()),
+        ("redirect_uri", redirect_uri),
+        ("response_type", "code"),
+        ("scope", provider.scope()),
+        ("state", state),
+        // Discord and GitHub both accept PKCE params even though only Google
+        // strictly requires the modern flow; harmless to send everywhere.
+        ("code_challenge", code_challenge),
+        ("code_challenge_method", "S256"),
+    ];
     if provider == Provider::Google {
-        url.push("access_type", "online");
-        url.push("prompt", "select_account");
+        params.push(("access_type", "online"));
+        params.push(("prompt", "select_account"));
     }
-    url.finish()
+    Ok(reqwest::Url::parse_with_params(provider.authorize_url(), &params)?.into())
 }
 
 #[derive(Deserialize)]
@@ -273,58 +274,6 @@ async fn fetch_identity(
     }
 }
 
-/// Tiny query-string builder so we don't pull in `url` just for this.
-mod url_lite {
-    pub struct Builder {
-        base: String,
-        first: bool,
-    }
-
-    impl Builder {
-        pub fn new(base: &str) -> Self {
-            Builder {
-                base: base.to_string(),
-                first: true,
-            }
-        }
-
-        pub fn push(&mut self, key: &str, value: &str) {
-            self.base.push(if self.first { '?' } else { '&' });
-            self.first = false;
-            self.base.push_str(key);
-            self.base.push('=');
-            self.base.push_str(&percent_encode(value));
-        }
-
-        pub fn finish(self) -> String {
-            self.base
-        }
-    }
-
-    fn percent_encode(s: &str) -> String {
-        let mut out = String::with_capacity(s.len());
-        for b in s.bytes() {
-            match b {
-                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                    out.push(b as char)
-                }
-                _ => out.push_str(&format!("%{b:02X}")),
-            }
-        }
-        out
-    }
-}
-
-/// Thin wrapper so `new_code_verifier` doesn't need `argon2`'s rand_core
-/// re-export threaded through the module signature.
-mod rand_core_compat {
-    use argon2::password_hash::rand_core::{OsRng, RngCore};
-
-    pub fn fill_random(bytes: &mut [u8]) {
-        OsRng.fill_bytes(bytes);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::OAuthIdentity;
@@ -342,5 +291,25 @@ mod tests {
     fn account_link_email_requires_provider_verification() {
         assert_eq!(identity(true).verified_email(), Some("user@example.test"));
         assert_eq!(identity(false).verified_email(), None);
+    }
+
+    #[test]
+    fn authorize_url_encodes_query_params() {
+        let cfg = super::ProviderConfig {
+            client_id: "id&x".into(),
+            client_secret: String::new(),
+        };
+        let url = super::build_authorize_url(
+            super::Provider::Google,
+            &cfg,
+            "https://port.test/cb?a=1",
+            "st",
+            "ch",
+        )
+        .expect("authorize URL builds");
+        assert!(url.starts_with("https://accounts.google.com/o/oauth2/v2/auth?client_id=id%26x&"));
+        assert!(url.contains("redirect_uri=https%3A%2F%2Fport.test%2Fcb%3Fa%3D1&"));
+        assert!(url.contains("scope=openid+email+profile&"));
+        assert!(url.ends_with("&prompt=select_account"));
     }
 }

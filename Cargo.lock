@@ -1025,7 +1025,6 @@ dependencies = [
  "anyhow",
  "caiven-cart",
  "caiven-core",
- "chrono",
  "log",
  "mlua",
  "mlua-sys",

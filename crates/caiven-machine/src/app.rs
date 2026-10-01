@@ -88,14 +88,6 @@ impl App {
         let cart = caiven_cart::open(path)
             .with_context(|| format!("failed to load cart from {}", path.display()))?;
 
-        for section in &cart.sections {
-            if section.kind == SectionKind::ModManifest {
-                let manifest = String::from_utf8_lossy(&section.data);
-                let registered = self.core.vm.registered_peripheral_names();
-                check_mod_manifest(&manifest, &registered)?;
-            }
-        }
-
         // Asset RAM must be in place before the Lua load, since it runs
         // `_init()` immediately.
         let lua_source = self
@@ -295,17 +287,6 @@ fn capture_bind(
         error!("failed to write controls.toml: {e}");
     }
     shell.bind_captured(label);
-}
-
-/// Checks that every peripheral a cart's `ModManifest` section declares it
-/// needs is present in `registered`. Blank lines are ignored.
-fn check_mod_manifest(manifest: &str, registered: &[&str]) -> Result<()> {
-    for required in manifest.lines().map(str::trim).filter(|s| !s.is_empty()) {
-        if !registered.contains(&required) {
-            anyhow::bail!("cart requires mod '{}' but it is not loaded", required);
-        }
-    }
-    Ok(())
 }
 
 /// What a physical key or pad button resolves to through `controls.toml`.
@@ -1046,9 +1027,7 @@ pub fn run() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        App, check_mod_manifest, load_settings, report_vm_fault, save_settings, should_redraw,
-    };
+    use super::{App, load_settings, report_vm_fault, save_settings, should_redraw};
     use crate::platform::scaling::{AspectMode, ScaleMode};
     use crate::shell::settings::Settings;
     use crate::shell::state::{BOOT_DURATION, Screen, ShellState};
@@ -1107,27 +1086,6 @@ mod tests {
             &app.core.vm.world_pixels()[old_pixel..old_pixel + 4],
             background
         );
-    }
-
-    #[test]
-    fn passes_when_all_required_peripherals_registered() {
-        assert!(check_mod_manifest("rtc\ninput", &["rtc", "input", "audio"]).is_ok());
-    }
-
-    #[test]
-    fn fails_when_a_peripheral_is_missing() {
-        let err = check_mod_manifest("rtc\nmissing_mod", &["rtc"]).unwrap_err();
-        assert!(err.to_string().contains("missing_mod"));
-    }
-
-    #[test]
-    fn ignores_blank_lines_and_surrounding_whitespace() {
-        assert!(check_mod_manifest("\n  rtc  \n\n", &["rtc"]).is_ok());
-    }
-
-    #[test]
-    fn empty_manifest_always_passes() {
-        assert!(check_mod_manifest("", &[]).is_ok());
     }
 
     #[test]

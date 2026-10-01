@@ -8,14 +8,7 @@ pub fn draw_character(
     position: Vec2,
     color: Color,
 ) {
-    draw_character_at(
-        font,
-        layer,
-        ch,
-        position.get_x() as i64,
-        position.get_y() as i64,
-        color,
-    );
+    draw_character_at(font, layer, ch, position.x as i64, position.y as i64, color);
 }
 
 /// Signed-position glyph draw: pixels off any edge are clipped one by one,
@@ -52,8 +45,8 @@ pub fn draw_text(font: &Font, layer: &mut ScreenLayer, text: &str, position: Vec
         font,
         layer,
         text,
-        position.get_x() as i64,
-        position.get_y() as i64,
+        position.x as i64,
+        position.y as i64,
         color,
     );
 }

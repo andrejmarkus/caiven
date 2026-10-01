@@ -3,6 +3,3 @@ version = 1
 title = "All Stdlib Modules"
 author = "caiven"
 entry = "main.lua"
-
-[mods]
-require = []

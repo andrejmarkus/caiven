@@ -16,7 +16,7 @@
     EditorRevealRequest, ExampleSummary, LocalCart, PortCart, PortSession, PreludeModule, Screen, SourceBuffer,
   } from '../types';
   import {
-    autotileEdits, composeGroup, decomposeGroup, dragPanScroll, flipHorizontal, flipVertical, MAP_ZOOM_LEVELS,
+    autotileEdits, composeGroup, decomposeGroup, dragPanScroll, flipHorizontal, flipVertical, hexToRgb, MAP_ZOOM_LEVELS,
     moveRegion, nextMapZoom, pasteRegion, regionValues, rotateClockwise, rotateCounterClockwise,
     type CollisionBrush, type CollisionEdit, type PixelRegion,
   } from '../lib/editorMath';
@@ -605,11 +605,6 @@
 
   function rgbToHex([r, g, b]: [number, number, number]): string {
     return `#${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
-  }
-
-  function hexToRgb(hex: string): [number, number, number] {
-    const n = parseInt(hex.slice(1), 16) || 0;
-    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   }
 
   // Type-table edits share the map history; typing a name or dragging a color

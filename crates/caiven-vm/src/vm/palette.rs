@@ -47,10 +47,6 @@ impl Palette {
         &self.colors
     }
 
-    pub fn set_colors(&mut self, colors: Vec<Color>) {
-        self.colors = colors;
-    }
-
     pub fn get_color(&self, index: usize) -> Color {
         if index < self.colors.len() {
             self.colors[index]

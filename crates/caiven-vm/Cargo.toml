@@ -24,7 +24,6 @@ sdl2-dynamic = ["dep:sdl2"]
 
 [dependencies]
 anyhow = { workspace = true }
-chrono = { workspace = true }
 caiven-cart = { workspace = true }
 caiven-core = { workspace = true }
 log = { workspace = true }

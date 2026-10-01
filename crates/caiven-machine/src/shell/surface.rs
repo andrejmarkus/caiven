@@ -179,11 +179,6 @@ impl Surface {
         self.pixmap.data()
     }
 
-    /// Borrowed view of the surface, for compositing it into something else.
-    pub fn pixmap_ref(&self) -> PixmapRef<'_> {
-        self.pixmap.as_ref()
-    }
-
     /// The glyph cache, so a screen can measure text before laying it out.
     pub fn fonts(&mut self) -> &mut Fonts {
         &mut self.fonts

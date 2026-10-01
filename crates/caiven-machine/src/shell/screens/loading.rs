@@ -43,7 +43,6 @@ fn stage_label(kind: SectionKind) -> &'static str {
             "collision"
         }
         SectionKind::Meta => "meta",
-        SectionKind::ModManifest => "mods",
         SectionKind::Custom(_) => "data",
     }
 }

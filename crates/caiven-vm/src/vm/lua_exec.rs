@@ -18,8 +18,8 @@ use super::palette::Palette;
 use super::save_data::SaveData;
 use super::sfx::{MusicPlayer, resolve_song_step};
 use super::{
-    AssetBankKind, AssetBanks, Camera, PooledSfx, Vm, VmFault, allocate_sfx_voice,
-    release_sfx_voice, silence_music_voices, unpack_sfx_handle,
+    AssetBankKind, AssetBanks, PooledSfx, Vm, VmFault, allocate_sfx_voice, release_sfx_voice,
+    silence_music_voices, unpack_sfx_handle,
 };
 use crate::input::{Button, Input};
 use crate::rendering::font::Font;
@@ -1378,9 +1378,9 @@ fn plot(layer: &mut ScreenLayer, x: i64, y: i64, color: Color) {
     layer.set_pixel(Vec2::new(x as u32, y as u32), color);
 }
 
-fn cam_offset(camera: &RefCell<&mut Camera>) -> (i64, i64) {
+fn cam_offset(camera: &RefCell<&mut Vec2>) -> (i64, i64) {
     let c = camera.borrow();
-    (c.get_x() as i32 as i64, c.get_y() as i32 as i64)
+    (c.x as i32 as i64, c.y as i32 as i64)
 }
 
 /// Intersects the rectangle `[x, x+w) x [y, y+h)` with the screen
@@ -1518,7 +1518,7 @@ fn register_builtins<'scope, 'env>(
     ui: &'env RefCell<&'env mut ScreenLayer>,
     memory: &'env RefCell<&'env mut Memory>,
     palette: &'env RefCell<&'env mut Palette>,
-    camera: &'env RefCell<&'env mut Camera>,
+    camera: &'env RefCell<&'env mut Vec2>,
     music_player: &'env RefCell<&'env mut MusicPlayer>,
     sfx_pool: &'env RefCell<&'env mut [PooledSfx; SFX_VOICE_COUNT]>,
     next_sfx_age: &'env RefCell<&'env mut u64>,
@@ -1824,7 +1824,7 @@ fn register_builtins<'scope, 'env>(
         scope.create_function_mut(|_, (x, y): (i64, i64)| {
             // Stored as i32 bit patterns so negative scroll survives the u32 slot.
             let to_slot = |v: i64| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32 as u32;
-            camera.borrow_mut().set_position(to_slot(x), to_slot(y));
+            **camera.borrow_mut() = Vec2::new(to_slot(x), to_slot(y));
             Ok(())
         })?,
     )?;
@@ -2406,7 +2406,6 @@ impl Vm {
         });
         self.fault = None;
         self.fault_message = None;
-        self.waiting = false;
         self.call_stack.clear();
         self.selected_frame = 0;
         // Values of the old Lua state panic on use once it is gone.
@@ -2425,10 +2424,6 @@ impl Vm {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         std::mem::take(&mut *output)
-    }
-
-    pub fn has_lua_script(&self) -> bool {
-        self.script.is_some()
     }
 
     /// Runs the top-level code and `_init()` a deferred load still owes, now
@@ -2564,8 +2559,7 @@ impl Vm {
             // `run_frame` ticks these; this path grew separately and didn't, so
             // Studio's Running state was silent even though a sound was "active".
             self.tick_audio_players();
-            self.peripherals
-                .tick_all(&mut self.memory, self.frame_count);
+            super::rtc::write_time(&mut self.memory);
             self.frame_count = self.frame_count.wrapping_add(1);
         }
 
@@ -3041,7 +3035,6 @@ impl Vm {
 
         self.fault = None;
         self.fault_message = None;
-        self.waiting = false;
         self.call_stack.clear();
         self.selected_frame = 0;
         Ok(())

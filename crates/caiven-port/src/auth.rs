@@ -577,7 +577,7 @@ pub async fn audit(
 /// password reset.
 pub async fn is_breached_password(client: &reqwest::Client, password: &str) -> bool {
     let digest = Sha1::digest(password.as_bytes());
-    let hex = to_hex_upper(&digest);
+    let hex = to_hex(&digest).to_uppercase();
     let (prefix, suffix) = hex.split_at(5);
 
     let url = format!("https://api.pwnedpasswords.com/range/{prefix}");
@@ -603,10 +603,6 @@ fn pwned_response_contains_suffix(body: &str, suffix: &str) -> bool {
         line.split_once(':')
             .is_some_and(|(candidate, _count)| candidate.eq_ignore_ascii_case(suffix))
     })
-}
-
-fn to_hex_upper(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02X}")).collect()
 }
 
 async fn user_for_session(db: &DatabaseConnection, session_token: &str) -> Option<users::Model> {

@@ -41,12 +41,10 @@ header, table or another payload, a CRC mismatch, and anything but exactly one
 | `0x05` | `MusicBank` | Default music bank |
 | `0x06` | `Palette` | Default palette, RGB triples |
 | `0x07` | `Meta` | Studio metadata (JSON); runtimes ignore it |
-| `0x08` | `ModManifest` | Required peripherals, one per line |
-| `0x09`–`0x0D` | `SpriteBank`, `MapBank`, `PaletteBank`, `SfxBanks`, `MusicBanks` | Named bank: `[name_len u8][name][data]` |
-| `0x0E` | `Collision` | Default collision layer, 1 byte per map cell |
-| `0x0F` | `CollisionBank` | Named collision layer, same wrapper as other banks |
-| `0x10` | `CollisionTypes` | `[count u8]`, then per type `id u8, flags u8, rgb[3], name_len u8, name` |
-| `0x11` | — | Retired (was the `[stdlib]` module list); loaders ignore it, never reuse the id |
+| `0x08`–`0x0C` | `SpriteBank`, `MapBank`, `PaletteBank`, `SfxBanks`, `MusicBanks` | Named bank: `[name_len u8][name][data]` |
+| `0x0D` | `Collision` | Default collision layer, 1 byte per map cell |
+| `0x0E` | `CollisionBank` | Named collision layer, same wrapper as other banks |
+| `0x0F` | `CollisionTypes` | `[count u8]`, then per type `id u8, flags u8, rgb[3], name_len u8, name` |
 
 Asset payloads may be shorter than their region; loaders zero-pad them. Bank
 names are 1–31 of `A-Z a-z 0-9 _ -`. The content hash Port uses for
@@ -63,10 +61,9 @@ version = 1        # required
 title = "My Game"  # required
 author = ""
 entry = "main.lua"
-
-[mods]
-require = []
 ```
+
+A legacy `[mods]` table is ignored on load and dropped on save.
 
 | File | Content |
 | --- | --- |

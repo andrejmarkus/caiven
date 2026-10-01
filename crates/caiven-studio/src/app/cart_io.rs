@@ -14,7 +14,7 @@ pub struct SectionLayout {
     pub kind: SectionKind,
     pub ram_base: usize,
     pub len: usize,
-    /// Non-RAM sections such as `ModManifest` must be copied verbatim when
+    /// Non-RAM sections such as `Custom` must be copied verbatim when
     /// saving; RAM-backed assets leave this as `None` and are read from the VM.
     pub preserved_data: Option<Vec<u8>>,
 }

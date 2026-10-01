@@ -13,8 +13,6 @@ pub enum SectionKind {
     Palette,
     /// Studio-only metadata (JSON), carried through untouched by runtimes.
     Meta,
-    /// Peripherals the cart requires (`[mods] require`), newline-joined.
-    ModManifest,
     /// Additional sprite sheet.
     SpriteBank,
     /// Additional tile map.
@@ -32,7 +30,6 @@ pub enum SectionKind {
     /// Cart-global collision-type table (names/colors/shapes). Small
     /// metadata, not RAM-backed — see `encode_collision_types`.
     CollisionTypes,
-    // 0x0011 is retired (was the `[stdlib]` module list); never reuse it.
     /// Any id this build doesn't know; carried through byte-for-byte.
     Custom(u16),
 }
@@ -47,15 +44,14 @@ impl SectionKind {
             Self::MusicBank => 0x0005,
             Self::Palette => 0x0006,
             Self::Meta => 0x0007,
-            Self::ModManifest => 0x0008,
-            Self::SpriteBank => 0x0009,
-            Self::MapBank => 0x000A,
-            Self::PaletteBank => 0x000B,
-            Self::SfxBanks => 0x000C,
-            Self::MusicBanks => 0x000D,
-            Self::Collision => 0x000E,
-            Self::CollisionBank => 0x000F,
-            Self::CollisionTypes => 0x0010,
+            Self::SpriteBank => 0x0008,
+            Self::MapBank => 0x0009,
+            Self::PaletteBank => 0x000A,
+            Self::SfxBanks => 0x000B,
+            Self::MusicBanks => 0x000C,
+            Self::Collision => 0x000D,
+            Self::CollisionBank => 0x000E,
+            Self::CollisionTypes => 0x000F,
             Self::Custom(n) => n,
         }
     }
@@ -69,15 +65,14 @@ impl SectionKind {
             0x0005 => Self::MusicBank,
             0x0006 => Self::Palette,
             0x0007 => Self::Meta,
-            0x0008 => Self::ModManifest,
-            0x0009 => Self::SpriteBank,
-            0x000A => Self::MapBank,
-            0x000B => Self::PaletteBank,
-            0x000C => Self::SfxBanks,
-            0x000D => Self::MusicBanks,
-            0x000E => Self::Collision,
-            0x000F => Self::CollisionBank,
-            0x0010 => Self::CollisionTypes,
+            0x0008 => Self::SpriteBank,
+            0x0009 => Self::MapBank,
+            0x000A => Self::PaletteBank,
+            0x000B => Self::SfxBanks,
+            0x000C => Self::MusicBanks,
+            0x000D => Self::Collision,
+            0x000E => Self::CollisionBank,
+            0x000F => Self::CollisionTypes,
             n => Self::Custom(n),
         }
     }
@@ -91,7 +86,6 @@ impl SectionKind {
             Self::MusicBank => "MusicBank",
             Self::Palette => "Palette",
             Self::Meta => "Meta",
-            Self::ModManifest => "ModManifest",
             Self::SpriteBank => "SpriteBank",
             Self::MapBank => "MapBank",
             Self::PaletteBank => "PaletteBank",
@@ -210,6 +204,38 @@ pub fn decode_collision_types(data: &[u8]) -> Vec<caiven_core::CollisionType> {
 pub struct CartSection {
     pub kind: SectionKind,
     pub data: Vec<u8>,
+}
+
+#[cfg(test)]
+mod wire_id_tests {
+    use super::SectionKind::*;
+    use super::*;
+
+    #[test]
+    fn wire_ids_are_dense_and_round_trip() {
+        let kinds = [
+            LuaSource,
+            SpriteSheet,
+            Map,
+            SfxBank,
+            MusicBank,
+            Palette,
+            Meta,
+            SpriteBank,
+            MapBank,
+            PaletteBank,
+            SfxBanks,
+            MusicBanks,
+            Collision,
+            CollisionBank,
+            CollisionTypes,
+        ];
+        for (i, kind) in kinds.into_iter().enumerate() {
+            assert_eq!(kind.to_u16(), i as u16 + 1, "{}", kind.name());
+            assert_eq!(SectionKind::from_u16(kind.to_u16()), kind);
+        }
+        assert_eq!(SectionKind::from_u16(0x0010), Custom(0x0010));
+    }
 }
 
 #[cfg(test)]

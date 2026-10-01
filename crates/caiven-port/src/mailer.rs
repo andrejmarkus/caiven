@@ -163,7 +163,7 @@ const P_STYLE: &str = "margin:0 0 16px;color:#9A9898;font-size:15px;line-height:
 
 /// Escapes text pulled into HTML (IP addresses, passkey labels, etc. are
 /// interpolated into alert bodies upstream before reaching us).
-fn escape_html(s: &str) -> String {
+pub(crate) fn escape_html(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")

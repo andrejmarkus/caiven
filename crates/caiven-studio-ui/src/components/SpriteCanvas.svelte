@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { moveCursor, regionFromPoints, strokeCells, type PixelRegion, type StrokeTool } from '../lib/editorMath';
+  import { hexToRgb, moveCursor, regionFromPoints, strokeCells, type PixelRegion, type StrokeTool } from '../lib/editorMath';
 
   export type SpriteTool = StrokeTool | 'pick' | 'select';
   export type Pixel = { index: number; color: number };
@@ -62,16 +62,11 @@
     if (cursor >= width * height) cursor = 0;
   });
 
-  function color(hex: string): [number, number, number, number] {
-    const value = hex || '#000000';
-    return [parseInt(value.slice(1, 3), 16), parseInt(value.slice(3, 5), 16), parseInt(value.slice(5, 7), 16), 255];
-  }
-
   function render() {
     if (!canvas) return;
     const context = canvas.getContext('2d');
     if (!context) return;
-    const colors = palette.map(color);
+    const colors = palette.map((hex) => [...hexToRgb(hex), 255]);
     for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
       const index = y * width + x;
       const value = draft.get(index) ?? sprite[index] ?? 0;
