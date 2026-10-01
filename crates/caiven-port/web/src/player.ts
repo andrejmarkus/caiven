@@ -116,6 +116,8 @@ class AudioEngine {
   // against a single rAF tick's worth of jitter (~16.6ms at 60Hz).
   private nextChunkTime = 0;
   private muted = false;
+  private volume = 1;
+  private gain: GainNode | null = null;
   private static readonly LOOKAHEAD_SEC = 0.015;
 
   constructor(module: CaivenModuleInstance) {
@@ -138,8 +140,11 @@ class AudioEngine {
         numberOfOutputs: 1,
         outputChannelCount: [1],
       });
-      node.connect(ctx.destination);
+      const gain = ctx.createGain();
+      gain.gain.value = this.volume;
+      node.connect(gain).connect(ctx.destination);
       this.node = node;
+      this.gain = gain;
       this.nextChunkTime = ctx.currentTime;
     }).catch(() => {
       // Audio is optional; retry on the next interaction after a load failure.
@@ -153,6 +158,11 @@ class AudioEngine {
     if (!this.ctx) return;
     if (muted) void this.ctx.suspend();
     else void this.ctx.resume();
+  }
+
+  setVolume(volume: number): void {
+    this.volume = volume;
+    if (this.gain) this.gain.gain.value = volume;
   }
 
   /// Tops up the worklet's queue to stay ~LOOKAHEAD_SEC ahead of the audio
@@ -182,6 +192,7 @@ class AudioEngine {
   stop(): void {
     this.node?.disconnect();
     this.node = null;
+    this.gain = null;
     void this.ctx?.close();
     this.ctx = null;
     this.nextChunkTime = 0;
@@ -223,6 +234,7 @@ export class CartPlayer {
   private touchEls: HTMLElement[] = [];
   private clock = new FrameClock();
   private running = false;
+  private paused = false;
   private saveKey: string | null;
   private lastGood: Uint8Array | null = null;
   private touched = false;
@@ -412,6 +424,17 @@ export class CartPlayer {
     this.audio.setMuted(muted);
   }
 
+  /// 0..1, applied on top of the cart's own mix.
+  setVolume(volume: number): void {
+    this.audio.setVolume(volume);
+  }
+
+  /// Freezes the game on its last frame; no ticks, so no sound either.
+  setPaused(paused: boolean): void {
+    this.paused = paused;
+    this.clock.reset();
+  }
+
   start(onFault?: (message: string) => void, onFps?: (fps: number) => void): void {
     if (this.running) return;
     this.running = true;
@@ -432,7 +455,7 @@ export class CartPlayer {
     let fpsStarted = performance.now();
     const frame = (now: number) => {
       if (!this.running) return;
-      const steps = document.hidden ? 0 : this.clock.advance(now);
+      const steps = document.hidden || this.paused ? 0 : this.clock.advance(now);
       frames += this.faulted ? 0 : steps;
       if (this.touched && !this.faulted) this.engagedFrames += steps;
       const elapsed = now - fpsStarted;
@@ -445,7 +468,7 @@ export class CartPlayer {
       // A reload's first frame advances 0 steps; painting then would flash
       // the new VM's empty framebuffer over the last good picture.
       let painted = false;
-      if (!this.faulted) {
+      if (!this.faulted && !this.paused) {
         painted = steps > 0;
         this.module.ccall('caiven_tick', null, ['number'], [steps]);
         this.loadedFrames += steps;

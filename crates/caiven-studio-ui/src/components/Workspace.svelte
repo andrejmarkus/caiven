@@ -22,11 +22,11 @@
   } from '../lib/editorMath';
   import { emptyHistory, pushEntry, undoEntry, redoEntry, type HistoryEntry, type HistoryState } from '../lib/history';
   import { fileName, shortcut } from '../lib/format';
-  import { moduleKey } from '../lib/luaModules';
+  import { moduleKey } from '@caiven/ui/lua-modules';
 
   const copyCutPaste = [shortcut('⌘C'), shortcut('⌘X'), shortcut('⌘V')].join(' / ');
   const clipboardHint = `${shortcut('⌘C')} copy · ${shortcut('⌘X')} cut · ${shortcut('⌘V')}`;
-  import type LuaEditorModule from './LuaEditor.svelte';
+  import type { LuaEditor as LuaEditorModule } from '@caiven/ui/lua-editor';
   import MapCanvas from './MapCanvas.svelte';
   import SpriteCanvas, { type Pixel, type SpriteTool } from './SpriteCanvas.svelte';
   import {
@@ -156,7 +156,7 @@
   let LuaEditorComponent: typeof LuaEditorModule | null = $state(null);
   $effect(() => {
     if (screen === 'code' && !LuaEditorComponent) {
-      import('./LuaEditor.svelte').then((m) => { LuaEditorComponent = m.default; });
+      import('@caiven/ui/lua-editor').then((m) => { LuaEditorComponent = m.LuaEditor; });
     }
   });
 

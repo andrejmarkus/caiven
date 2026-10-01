@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Annotation, EditorState, RangeSet, StateEffect, StateField } from '@codemirror/state';
+  import { Annotation, EditorState, Prec, RangeSet, StateEffect, StateField } from '@codemirror/state';
   import {
     Decoration, EditorView, GutterMarker, drawSelection, dropCursor, gutter, gutterLineClass, highlightActiveLine,
     highlightActiveLineGutter, highlightSpecialChars, hoverTooltip, keymap, lineNumbers,
@@ -13,13 +13,16 @@
   import { searchKeymap } from '@codemirror/search';
   import { lua } from '@codemirror/legacy-modes/mode/lua';
   import { tags as t } from '@lezer/highlight';
-  import type {
-    ApiEntry, Breakpoint, Diagnostic, EditorInsertRequest, EditorRevealRequest, PreludeModule,
-  } from '../types';
-  import { sourceOffset, watchPathAt } from '../lib/editorMath';
   import {
-    availableApi, builtinAliasEntries, declaresLocal, localName, moduleKey, projectEntries, requireNameAt, scanModule, type ProjectModule,
-  } from '../lib/luaModules';
+    availableApi, builtinAliasEntries, declaresLocal, localName, moduleKey, projectEntries, requireNameAt, scanModule,
+    sourceOffset, watchPathAt, type ApiEntry, type PreludeModule, type ProjectModule,
+  } from './lua-modules';
+
+  type Diagnostic = { severity: string; title: string; detail: string; path: string; line: number | null };
+  type Breakpoint = { source: string; line: number };
+  type EditorInsertRequest = { id: number; source: string; text: string };
+  /** `length` selects that many characters from the revealed position. */
+  type EditorRevealRequest = { id: number; source: string; line: number; column: number; length?: number };
 
   // CodeMirror's own `defaultHighlightStyle` assumes a light background —
   // against this editor's dark theme it renders near-black text on black,
@@ -40,30 +43,35 @@
 
   interface Props {
     value: string;
-    path: string;
-    initialCursor: number;
+    path?: string;
+    initialCursor?: number;
     api: ApiEntry[];
     preludeModules: PreludeModule[];
-    diagnostics: Diagnostic[];
-    breakpoints: Breakpoint[];
+    diagnostics?: Diagnostic[];
+    breakpoints?: Breakpoint[];
     /** Line of this source the paused frame stopped on. */
-    pausedLine: number | null;
+    pausedLine?: number | null;
     /** Reads a value for the hover while paused; null otherwise. */
-    onPeek: ((expression: string) => Promise<string | null>) | null;
-    insertRequest: EditorInsertRequest | null;
-    revealRequest: EditorRevealRequest | null;
-    onInsertHandled: (id: number) => void;
-    onRevealHandled: (id: number) => void;
+    onPeek?: ((expression: string) => Promise<string | null>) | null;
+    insertRequest?: EditorInsertRequest | null;
+    revealRequest?: EditorRevealRequest | null;
+    onInsertHandled?: (id: number) => void;
+    onRevealHandled?: (id: number) => void;
     onChange: (value: string) => void;
-    onCursor: (source: string, offset: number) => void;
-    onToggleBreakpoint: (source: string, line: number) => void;
+    onCursor?: (source: string, offset: number) => void;
+    /** Without it there is no breakpoint gutter. */
+    onToggleBreakpoint?: (source: string, line: number) => void;
+    /** Bound to Mod-Enter. */
+    onRun?: () => void;
     /** Every cart source, for `require` names and project symbols. */
-    projectModules: ProjectModule[];
+    projectModules?: ProjectModule[];
+    label?: string;
   }
 
   let {
-    value, path, initialCursor, api, preludeModules, diagnostics, breakpoints, pausedLine, onPeek, insertRequest, revealRequest,
-    onInsertHandled, onRevealHandled, onChange, onCursor, onToggleBreakpoint, projectModules,
+    value, path = 'main.lua', initialCursor = 0, api, preludeModules, diagnostics = [], breakpoints = [], pausedLine = null,
+    onPeek = null, insertRequest = null, revealRequest = null, onInsertHandled, onRevealHandled, onChange, onCursor,
+    onToggleBreakpoint, onRun, projectModules = [], label = 'Lua source',
   }: Props = $props();
   let host: HTMLDivElement;
   let view: EditorView | undefined;
@@ -271,8 +279,8 @@
       markerLines.add(doc.lineAt(from).number);
     });
     const known = new Set(breakpoints.filter((breakpoint) => breakpoint.source === path).map((breakpoint) => breakpoint.line));
-    for (const line of known) if (!markerLines.has(line)) onToggleBreakpoint(path, line);
-    for (const line of markerLines) if (!known.has(line)) onToggleBreakpoint(path, line);
+    for (const line of known) if (!markerLines.has(line)) onToggleBreakpoint?.(path, line);
+    for (const line of markerLines) if (!known.has(line)) onToggleBreakpoint?.(path, line);
   }
 
   function syncBreakpoints() {
@@ -299,7 +307,7 @@
       scrollIntoView: true,
     });
     view.focus();
-    onInsertHandled(insertRequest.id);
+    onInsertHandled?.(insertRequest.id);
   }
 
   function applyReveal() {
@@ -307,11 +315,11 @@
     handledReveal = revealRequest.id;
     const anchor = sourceOffset(view.state.doc.toString(), revealRequest.line, revealRequest.column);
     view.dispatch({
-      selection: { anchor },
+      selection: { anchor, head: Math.min(anchor + (revealRequest.length ?? 0), view.state.doc.length) },
       effects: EditorView.scrollIntoView(anchor, { y: 'center' }),
     });
     view.focus();
-    onRevealHandled(revealRequest.id);
+    onRevealHandled?.(revealRequest.id);
   }
 
   /** Best-effort lexical scan (not a parser) for a module's conventional
@@ -381,13 +389,15 @@
           syntaxHighlighting(luaHighlightStyle, { fallback: true }),
           StreamLanguage.define(lua), autocompletion({ override: [completions] }), apiHover, valueHover,
           breakpointField, pausedField,
-          gutter({
+          EditorView.contentAttributes.of({ 'aria-label': label }),
+          onRun ? Prec.highest(keymap.of([{ key: 'Mod-Enter', run: () => { onRun?.(); return true; } }])) : [],
+          !onToggleBreakpoint ? [] : gutter({
             class: 'cm-breakpoint-gutter',
             markers: (editor) => editor.state.field(breakpointField),
             initialSpacer: () => marker,
             domEventHandlers: {
               mousedown(editor, block) {
-                onToggleBreakpoint(path, editor.state.doc.lineAt(block.from).number);
+                onToggleBreakpoint?.(path, editor.state.doc.lineAt(block.from).number);
                 return true;
               },
             },
@@ -398,7 +408,7 @@
             if (update.docChanged && !update.transactions.some((transaction) => transaction.annotation(externalDocument))) {
               onChange(update.state.doc.toString());
             }
-            if (update.selectionSet || update.docChanged) onCursor(path, update.state.selection.main.head);
+            if (update.selectionSet || update.docChanged) onCursor?.(path, update.state.selection.main.head);
             if (update.docChanged) syncDiagnostics();
             if (update.docChanged && !update.transactions.some((transaction) => transaction.annotation(externalDocument))) {
               clearTimeout(breakpointTimer);

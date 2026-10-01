@@ -1,0 +1,1875 @@
+{
+  "api": [
+    {
+      "category": "Console builtins",
+      "doc": "Clear the world and UI layers to transparent, which shows as pure black — not palette color 0. Use fill_screen(0) for the palette background.",
+      "name": "clear_screen",
+      "params": [],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Set a single pixel to a palette color.",
+      "name": "set_pixel",
+      "params": [
+        {
+          "name": "x",
+          "ty": "number"
+        },
+        {
+          "name": "y",
+          "ty": "number"
+        },
+        {
+          "name": "color_index",
+          "ty": "u8"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Draw sprite sprite_id with its top-left at (x, y), camera-relative. flip_x/flip_y mirror the sprite (default false); rotate is 0/90/180/270 degrees clockwise (default 0, any other value is a Lua error). Rotation is applied before flipping. w/h are optional sizes in sprite units, not pixels (default 1, 1) — sprite_id is the block's top-left sprite and adjacent sheet slots fill the rest; a block that would run past the sheet edge, or a w/h below 1, is a Lua error.",
+      "name": "sprite",
+      "params": [
+        {
+          "name": "sprite_id",
+          "ty": "u8"
+        },
+        {
+          "name": "x",
+          "ty": "number"
+        },
+        {
+          "name": "y",
+          "ty": "number"
+        },
+        {
+          "name": "flip_x",
+          "ty": "bool?"
+        },
+        {
+          "name": "flip_y",
+          "ty": "bool?"
+        },
+        {
+          "name": "rotate",
+          "ty": "number?"
+        },
+        {
+          "name": "w",
+          "ty": "number?"
+        },
+        {
+          "name": "h",
+          "ty": "number?"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "True while button_index is held down. 0=Up 1=Down 2=Left 3=Right 4=A 5=B 6=Select. START is reserved by the console for its pause menu and never reaches a cart.",
+      "name": "button_down",
+      "params": [
+        {
+          "name": "button_index",
+          "ty": "u8"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "True on the single frame button_index was first pressed. Same indices as button_down; an out-of-range index is always false.",
+      "name": "button_pressed",
+      "params": [
+        {
+          "name": "button_index",
+          "ty": "u8"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "True on the single frame button_index was released. Same indices as button_down; an out-of-range index is always false.",
+      "name": "button_released",
+      "params": [
+        {
+          "name": "button_index",
+          "ty": "u8"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Draw text on the UI layer at (x, y).",
+      "name": "draw_text",
+      "params": [
+        {
+          "name": "text",
+          "ty": "string"
+        },
+        {
+          "name": "x",
+          "ty": "number"
+        },
+        {
+          "name": "y",
+          "ty": "number"
+        },
+        {
+          "name": "color_index",
+          "ty": "u8"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Draw an integer on the UI layer at (x, y).",
+      "name": "draw_number",
+      "params": [
+        {
+          "name": "value",
+          "ty": "number"
+        },
+        {
+          "name": "x",
+          "ty": "number"
+        },
+        {
+          "name": "y",
+          "ty": "number"
+        },
+        {
+          "name": "color_index",
+          "ty": "u8"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Fill the entire world layer with one color.",
+      "name": "fill_screen",
+      "params": [
+        {
+          "name": "color_index",
+          "ty": "u8"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Draw a line from (x0, y0) to (x1, y1), camera-relative.",
+      "name": "draw_line",
+      "params": [
+        {
+          "name": "x0",
+          "ty": "number"
+        },
+        {
+          "name": "y0",
+          "ty": "number"
+        },
+        {
+          "name": "x1",
+          "ty": "number"
+        },
+        {
+          "name": "y1",
+          "ty": "number"
+        },
+        {
+          "name": "color_index",
+          "ty": "u8"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Draw a rectangle outline, camera-relative.",
+      "name": "draw_rect",
+      "params": [
+        {
+          "name": "x",
+          "ty": "number"
+        },
+        {
+          "name": "y",
+          "ty": "number"
+        },
+        {
+          "name": "w",
+          "ty": "number"
+        },
+        {
+          "name": "h",
+          "ty": "number"
+        },
+        {
+          "name": "color_index",
+          "ty": "u8"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Draw a filled rectangle, camera-relative.",
+      "name": "fill_rect",
+      "params": [
+        {
+          "name": "x",
+          "ty": "number"
+        },
+        {
+          "name": "y",
+          "ty": "number"
+        },
+        {
+          "name": "w",
+          "ty": "number"
+        },
+        {
+          "name": "h",
+          "ty": "number"
+        },
+        {
+          "name": "color_index",
+          "ty": "u8"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Draw a circle outline, camera-relative.",
+      "name": "draw_circle",
+      "params": [
+        {
+          "name": "cx",
+          "ty": "number"
+        },
+        {
+          "name": "cy",
+          "ty": "number"
+        },
+        {
+          "name": "r",
+          "ty": "number"
+        },
+        {
+          "name": "color_index",
+          "ty": "u8"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Draw a filled circle, camera-relative.",
+      "name": "fill_circle",
+      "params": [
+        {
+          "name": "cx",
+          "ty": "number"
+        },
+        {
+          "name": "cy",
+          "ty": "number"
+        },
+        {
+          "name": "r",
+          "ty": "number"
+        },
+        {
+          "name": "color_index",
+          "ty": "u8"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Set the camera's world-space offset.",
+      "name": "set_camera",
+      "params": [
+        {
+          "name": "x",
+          "ty": "number"
+        },
+        {
+          "name": "y",
+          "ty": "number"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Set palette slot index to an RGB color.",
+      "name": "set_palette_color",
+      "params": [
+        {
+          "name": "index",
+          "ty": "number"
+        },
+        {
+          "name": "r",
+          "ty": "u8"
+        },
+        {
+          "name": "g",
+          "ty": "u8"
+        },
+        {
+          "name": "b",
+          "ty": "u8"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Draw a w x h block of map tiles starting at cell (cx, cy) to screen position (sx, sy).",
+      "name": "draw_map",
+      "params": [
+        {
+          "name": "cx",
+          "ty": "number"
+        },
+        {
+          "name": "cy",
+          "ty": "number"
+        },
+        {
+          "name": "sx",
+          "ty": "number"
+        },
+        {
+          "name": "sy",
+          "ty": "number"
+        },
+        {
+          "name": "w",
+          "ty": "number"
+        },
+        {
+          "name": "h",
+          "ty": "number"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Read the tile id at map cell (x, y); 0 if out of bounds.",
+      "name": "get_tile",
+      "params": [
+        {
+          "name": "x",
+          "ty": "number"
+        },
+        {
+          "name": "y",
+          "ty": "number"
+        }
+      ],
+      "returns": "u8"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Write a tile id at map cell (x, y); no-op if out of bounds.",
+      "name": "set_tile",
+      "params": [
+        {
+          "name": "x",
+          "ty": "number"
+        },
+        {
+          "name": "y",
+          "ty": "number"
+        },
+        {
+          "name": "tile",
+          "ty": "u8"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Read the collision-type id at map cell (tx, ty); 0 if out of bounds. The id indexes the cart's collision-type table (0/1/2 built-in as walkable/solid/hazard, 3-255 free for custom types) — see collision_type_name/collision_is_solid.",
+      "name": "get_collision",
+      "params": [
+        {
+          "name": "tx",
+          "ty": "number"
+        },
+        {
+          "name": "ty",
+          "ty": "number"
+        }
+      ],
+      "returns": "u8"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Write the collision-type id at map cell (tx, ty); no-op if out of bounds.",
+      "name": "set_collision",
+      "params": [
+        {
+          "name": "tx",
+          "ty": "number"
+        },
+        {
+          "name": "ty",
+          "ty": "number"
+        },
+        {
+          "name": "value",
+          "ty": "u8"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Look up a collision type's id by name; 0 (walkable) if no type has that name.",
+      "name": "collision_type_id",
+      "params": [
+        {
+          "name": "name",
+          "ty": "string"
+        }
+      ],
+      "returns": "u8"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Look up a collision type's name by id; \"\" if the id is undefined.",
+      "name": "collision_type_name",
+      "params": [
+        {
+          "name": "id",
+          "ty": "u8"
+        }
+      ],
+      "returns": "string"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "True if the collision type with this id is flagged solid. Used by collision.tile_solid/box_touches_solid; undefined ids are never solid.",
+      "name": "collision_is_solid",
+      "params": [
+        {
+          "name": "id",
+          "ty": "u8"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "True if the collision type with this id is flagged one-way (passable from below/the side, landed on only when descending from above). Undefined ids are never one-way.",
+      "name": "collision_is_one_way",
+      "params": [
+        {
+          "name": "id",
+          "ty": "u8"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "True if the collision type with this id is flagged slope-left (floor rises right-to-left; walking left goes uphill). Undefined ids are never a slope.",
+      "name": "collision_is_slope_left",
+      "params": [
+        {
+          "name": "id",
+          "ty": "u8"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "True if the collision type with this id is flagged slope-right (floor rises left-to-right; walking right goes uphill). Undefined ids are never a slope.",
+      "name": "collision_is_slope_right",
+      "params": [
+        {
+          "name": "id",
+          "ty": "u8"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Switch the sprite RAM window to the named bank; false when it does not exist. \"default\" is the bank that auto-loads at boot.",
+      "name": "load_sprite_bank",
+      "params": [
+        {
+          "name": "name",
+          "ty": "string"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Switch the map RAM window to the named bank; false when it does not exist. \"default\" is the bank that auto-loads at boot.",
+      "name": "load_map_bank",
+      "params": [
+        {
+          "name": "name",
+          "ty": "string"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Switch the palette RAM window to the named bank; false when it does not exist. \"default\" is the bank that auto-loads at boot.",
+      "name": "load_palette_bank",
+      "params": [
+        {
+          "name": "name",
+          "ty": "string"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Switch the SFX RAM window to the named bank; false when it does not exist. \"default\" is the bank that auto-loads at boot.",
+      "name": "load_sfx_bank",
+      "params": [
+        {
+          "name": "name",
+          "ty": "string"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Switch the music RAM window to the named bank; false when it does not exist. \"default\" is the bank that auto-loads at boot.",
+      "name": "load_music_bank",
+      "params": [
+        {
+          "name": "name",
+          "ty": "string"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Start sound effect id on a free (or, if all are busy, oldest) voice. opts.volume (default 1.0) scales the step's authored volume. Returns a handle for stop_sfx. Multiple concurrent play_sfx calls are independently audible.",
+      "name": "play_sfx",
+      "params": [
+        {
+          "name": "id",
+          "ty": "u8"
+        },
+        {
+          "name": "opts",
+          "ty": "{volume: number}?"
+        }
+      ],
+      "returns": "integer"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Stops the voice handle refers to (release ramp, not an instant cut). Silent no-op if that voice already finished or was reused by a later play_sfx call.",
+      "name": "stop_sfx",
+      "params": [
+        {
+          "name": "handle",
+          "ty": "integer"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "True if handle refers to a voice that is still actively playing. A stale handle (finished naturally, or its voice reused by a later play_sfx call) returns false, not an error.",
+      "name": "is_sfx_playing",
+      "params": [
+        {
+          "name": "handle",
+          "ty": "integer"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Start music track id, looping.",
+      "name": "play_music",
+      "params": [
+        {
+          "name": "id",
+          "ty": "u8"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Play the music bank's song order table from start_step (default 0), chaining patterns and honoring the bank's loop point. start_step is clamped into range; a song with nothing to play is a silent no-op.",
+      "name": "play_music_song",
+      "params": [
+        {
+          "name": "start_step",
+          "ty": "u8?"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Stop the currently playing music track.",
+      "name": "stop_music",
+      "params": [],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "True while a music track is playing.",
+      "name": "is_music_playing",
+      "params": [],
+      "returns": "bool"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Runtime-only output multiplier, clamped to [0, 1]. Not persisted to cart data.",
+      "name": "set_master_volume",
+      "params": [
+        {
+          "name": "volume",
+          "ty": "number"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Runtime-only multiplier applied to music channels only, clamped to [0, 1]. Not persisted to cart data.",
+      "name": "set_music_volume",
+      "params": [
+        {
+          "name": "volume",
+          "ty": "number"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Runtime-only multiplier applied to all SFX voices, clamped to [0, 1]. Not persisted to cart data.",
+      "name": "set_sfx_volume",
+      "params": [
+        {
+          "name": "volume",
+          "ty": "number"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Replace the persisted save blob with data (string/number/bool/nested-table keys and values only). Errors if the packed size exceeds 4KiB or a value can't be serialized.",
+      "name": "save_data",
+      "params": [
+        {
+          "name": "data",
+          "ty": "table"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Return the persisted save blob, or {} if save_data has never been called.",
+      "name": "load_data",
+      "params": [],
+      "returns": "table"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Read the real-time clock as (hour, minute, second).",
+      "name": "real_time",
+      "params": [],
+      "returns": "(u8, u8, u8)"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Number of frames run since the cart loaded.",
+      "name": "frame_count",
+      "params": [],
+      "returns": "number"
+    },
+    {
+      "category": "Console builtins",
+      "doc": "Seconds since the cart loaded, assuming 60 frames per second.",
+      "name": "time",
+      "params": [],
+      "returns": "number"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Linear interpolation from a to b at t (0..1).",
+      "name": "lerp",
+      "params": [
+        {
+          "name": "a",
+          "ty": "number"
+        },
+        {
+          "name": "b",
+          "ty": "number"
+        },
+        {
+          "name": "t",
+          "ty": "number"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "v restricted to the [lo, hi] range.",
+      "name": "clamp",
+      "params": [
+        {
+          "name": "v",
+          "ty": "number"
+        },
+        {
+          "name": "lo",
+          "ty": "number"
+        },
+        {
+          "name": "hi",
+          "ty": "number"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Identity easing curve: ease_linear(t) == t.",
+      "name": "ease_linear",
+      "params": [
+        {
+          "name": "t",
+          "ty": "number"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Quadratic ease-in curve over t (0..1).",
+      "name": "ease_in_quad",
+      "params": [
+        {
+          "name": "t",
+          "ty": "number"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Quadratic ease-out curve over t (0..1).",
+      "name": "ease_out_quad",
+      "params": [
+        {
+          "name": "t",
+          "ty": "number"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Quadratic ease-in-then-out curve over t (0..1).",
+      "name": "ease_in_out_quad",
+      "params": [
+        {
+          "name": "t",
+          "ty": "number"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "True if the two axis-aligned boxes overlap.",
+      "name": "collision.aabb_overlap",
+      "params": [
+        {
+          "name": "x1",
+          "ty": "number"
+        },
+        {
+          "name": "y1",
+          "ty": "number"
+        },
+        {
+          "name": "w1",
+          "ty": "number"
+        },
+        {
+          "name": "h1",
+          "ty": "number"
+        },
+        {
+          "name": "x2",
+          "ty": "number"
+        },
+        {
+          "name": "y2",
+          "ty": "number"
+        },
+        {
+          "name": "w2",
+          "ty": "number"
+        },
+        {
+          "name": "h2",
+          "ty": "number"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "True if the collision type at (tx, ty) is flagged solid (see collision_is_solid) — any type with the SOLID flag, not just the built-in id 1.",
+      "name": "collision.tile_solid",
+      "params": [
+        {
+          "name": "tx",
+          "ty": "number"
+        },
+        {
+          "name": "ty",
+          "ty": "number"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "True if the pixel-space box overlaps any solid map tile.",
+      "name": "collision.box_touches_solid",
+      "params": [
+        {
+          "name": "x",
+          "ty": "number"
+        },
+        {
+          "name": "y",
+          "ty": "number"
+        },
+        {
+          "name": "w",
+          "ty": "number"
+        },
+        {
+          "name": "h",
+          "ty": "number"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Axis-separated swept move of a w×h box from (x, y) by (dx, dy) against SOLID tiles (both axes), ONE_WAY tiles (vertical only, landed on only when descending from above), and SLOPE_LEFT/SLOPE_RIGHT tiles (vertical only, floor height sampled per pixel column). Returns nx, ny, and touch = {ground, ceiling, left, right} reporting which sides were blocked this call. Non-number arguments are a regular Lua error.",
+      "name": "movement.move_and_collide",
+      "params": [
+        {
+          "name": "x",
+          "ty": "number"
+        },
+        {
+          "name": "y",
+          "ty": "number"
+        },
+        {
+          "name": "w",
+          "ty": "number"
+        },
+        {
+          "name": "h",
+          "ty": "number"
+        },
+        {
+          "name": "dx",
+          "ty": "number"
+        },
+        {
+          "name": "dy",
+          "ty": "number"
+        }
+      ],
+      "returns": "number, number, table"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Creates tween state; ease defaults to ease_linear.",
+      "name": "tween.new",
+      "params": [
+        {
+          "name": "from",
+          "ty": "number"
+        },
+        {
+          "name": "to",
+          "ty": "number"
+        },
+        {
+          "name": "frames",
+          "ty": "number"
+        },
+        {
+          "name": "ease?",
+          "ty": "function"
+        }
+      ],
+      "returns": "table"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Advances tw by one frame and returns its current value; tw.done flips true on arrival.",
+      "name": "tween.update",
+      "params": [
+        {
+          "name": "tw",
+          "ty": "table"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Creates animation state cycling through a list of sprite ids.",
+      "name": "anim.new",
+      "params": [
+        {
+          "name": "frames",
+          "ty": "table"
+        },
+        {
+          "name": "frame_len",
+          "ty": "number"
+        }
+      ],
+      "returns": "table"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Advances anim by one frame, looping back to the first frame at the end.",
+      "name": "anim.update",
+      "params": [
+        {
+          "name": "anim",
+          "ty": "table"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "The sprite id anim is currently showing.",
+      "name": "anim.sprite",
+      "params": [
+        {
+          "name": "anim",
+          "ty": "table"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Spawns a particle with the given position, velocity, palette color, and lifetime in frames.",
+      "name": "Particles.spawn",
+      "params": [
+        {
+          "name": "x",
+          "ty": "number"
+        },
+        {
+          "name": "y",
+          "ty": "number"
+        },
+        {
+          "name": "vx",
+          "ty": "number"
+        },
+        {
+          "name": "vy",
+          "ty": "number"
+        },
+        {
+          "name": "color",
+          "ty": "u8"
+        },
+        {
+          "name": "life",
+          "ty": "number"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Advances all particles by one frame, dropping any past their lifetime.",
+      "name": "Particles.update",
+      "params": [],
+      "returns": "nil"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Draws every live particle as a single pixel.",
+      "name": "Particles.draw",
+      "params": [],
+      "returns": "nil"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Removes all particles.",
+      "name": "Particles.clear",
+      "params": [],
+      "returns": "nil"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Number of live particles.",
+      "name": "Particles.count",
+      "params": [],
+      "returns": "number"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Construct a 2D vector. Supports +, -, unary -, * (Vec2 * number or number * Vec2), and == (component equality). tostring(v) gives \"(x, y)\".",
+      "name": "Vec2.new",
+      "params": [
+        {
+          "name": "x",
+          "ty": "number"
+        },
+        {
+          "name": "y",
+          "ty": "number"
+        }
+      ],
+      "returns": "Vec2"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Magnitude of the vector.",
+      "name": "Vec2:length",
+      "params": [],
+      "returns": "number"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Squared magnitude — avoids a sqrt when only comparing magnitudes.",
+      "name": "Vec2:length_squared",
+      "params": [],
+      "returns": "number"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Unit-length copy of the vector. A zero-length vector returns Vec2.new(0, 0), not an error.",
+      "name": "Vec2:normalize",
+      "params": [],
+      "returns": "Vec2"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Dot product with another Vec2.",
+      "name": "Vec2:dot",
+      "params": [
+        {
+          "name": "other",
+          "ty": "Vec2"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Distance to another Vec2.",
+      "name": "Vec2:distance",
+      "params": [
+        {
+          "name": "other",
+          "ty": "Vec2"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Random integer in [lo, hi], inclusive. Deterministic per cart run unless the cart calls math.randomseed().",
+      "name": "random_range",
+      "params": [
+        {
+          "name": "lo",
+          "ty": "number"
+        },
+        {
+          "name": "hi",
+          "ty": "number"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Random float in [lo, hi).",
+      "name": "random_float",
+      "params": [
+        {
+          "name": "lo",
+          "ty": "number"
+        },
+        {
+          "name": "hi",
+          "ty": "number"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Random element of a non-empty array-like table. Errors on an empty table.",
+      "name": "choice",
+      "params": [
+        {
+          "name": "t",
+          "ty": "table"
+        }
+      ],
+      "returns": "any"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Fisher-Yates shuffle of t, in place. Returns t.",
+      "name": "shuffle",
+      "params": [
+        {
+          "name": "t",
+          "ty": "table"
+        }
+      ],
+      "returns": "table"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Whether two circles overlap. Exactly-tangent circles (distance == sum of radii) count as not overlapping.",
+      "name": "collision.circle_overlap",
+      "params": [
+        {
+          "name": "x1",
+          "ty": "number"
+        },
+        {
+          "name": "y1",
+          "ty": "number"
+        },
+        {
+          "name": "r1",
+          "ty": "number"
+        },
+        {
+          "name": "x2",
+          "ty": "number"
+        },
+        {
+          "name": "y2",
+          "ty": "number"
+        },
+        {
+          "name": "r2",
+          "ty": "number"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Whether (px, py) is inside the rect (x, y, w, h). The left/top edges count as inside; the right/bottom edges don't (half-open, matching collision.aabb_overlap's convention).",
+      "name": "collision.point_in_rect",
+      "params": [
+        {
+          "name": "px",
+          "ty": "number"
+        },
+        {
+          "name": "py",
+          "ty": "number"
+        },
+        {
+          "name": "x",
+          "ty": "number"
+        },
+        {
+          "name": "y",
+          "ty": "number"
+        },
+        {
+          "name": "w",
+          "ty": "number"
+        },
+        {
+          "name": "h",
+          "ty": "number"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Whether (px, py) is inside or exactly on the circle centered at (cx, cy) with radius r.",
+      "name": "collision.point_in_circle",
+      "params": [
+        {
+          "name": "px",
+          "ty": "number"
+        },
+        {
+          "name": "py",
+          "ty": "number"
+        },
+        {
+          "name": "cx",
+          "ty": "number"
+        },
+        {
+          "name": "cy",
+          "ty": "number"
+        },
+        {
+          "name": "r",
+          "ty": "number"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Bundle a sprite_id, Vec2 pos, and optional flip_x/flip_y/rotate (defaults false/false/0) into one drawable object. opts = { sprite_id, pos, flip_x, flip_y, rotate }.",
+      "name": "Actor.new",
+      "params": [
+        {
+          "name": "opts",
+          "ty": "table"
+        }
+      ],
+      "returns": "Actor"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Draw the sprite at its current pos via the sprite() builtin. Move it by reassigning .pos (e.g. s.pos = s.pos + v).",
+      "name": "Actor:draw",
+      "params": [],
+      "returns": "nil"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Calls scene.enter(scene) if present, then pushes scene onto the top of the stack.",
+      "name": "Scenes.push",
+      "params": [
+        {
+          "name": "scene",
+          "ty": "table"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Calls the top scene's exit(scene) if present, then removes it. Errors if the stack is empty.",
+      "name": "Scenes.pop",
+      "params": [],
+      "returns": "nil"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Pops the current top scene (calling its exit) and pushes scene (calling its enter) in its place. Errors if the stack is empty.",
+      "name": "Scenes.switch",
+      "params": [
+        {
+          "name": "scene",
+          "ty": "table"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Calls the top scene's update(scene) if present. A no-op on an empty stack.",
+      "name": "Scenes.update",
+      "params": [],
+      "returns": "nil"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Calls the top scene's draw(scene) if present. A no-op on an empty stack.",
+      "name": "Scenes.draw",
+      "params": [],
+      "returns": "nil"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "The scene table on top of the stack, or nil if the stack is empty.",
+      "name": "Scenes.current",
+      "params": [],
+      "returns": "table?"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Adds e to the entity list. e.update(e) and e.draw(e) are called if present; e.dead = true removes it on the next update_all(). Errors if e is not a table.",
+      "name": "Entities.add",
+      "params": [
+        {
+          "name": "e",
+          "ty": "table"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Calls e.update(e) on every live entity (if present), then removes any entity with e.dead == true.",
+      "name": "Entities.update_all",
+      "params": [],
+      "returns": "nil"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Calls e.draw(e) on every live entity (if present), in the order they were added.",
+      "name": "Entities.draw_all",
+      "params": [],
+      "returns": "nil"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Removes all entities.",
+      "name": "Entities.clear",
+      "params": [],
+      "returns": "nil"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Number of live entities.",
+      "name": "Entities.count",
+      "params": [],
+      "returns": "number"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Entities in this list whose .pos (a Vec2) and .w/.h box overlaps (x, y, w, h), via collision.aabb_overlap. Entities missing .pos/.w/.h are silently skipped (not an error) — matches the caller-defined entity shape convention used everywhere else in this module.",
+      "name": "Entities.overlapping",
+      "params": [
+        {
+          "name": "x",
+          "ty": "number"
+        },
+        {
+          "name": "y",
+          "ty": "number"
+        },
+        {
+          "name": "w",
+          "ty": "number"
+        },
+        {
+          "name": "h",
+          "ty": "number"
+        }
+      ],
+      "returns": "table"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Returns a fresh, independent entity list with its own add/update_all/draw_all/clear/count/overlapping methods, for carts that want one list per scene instead of the shared default list.",
+      "name": "Entities.new",
+      "params": [],
+      "returns": "table"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Tracks entity's position (entity.pos, a Vec2, or entity.x/entity.y) on every Camera.update() call. opts = { lerp, deadzone_x, deadzone_y }, all optional: lerp defaults to 1 (instant snap), deadzone_x/deadzone_y default to 0 (camera moves on any target movement). Errors immediately if entity has neither .pos nor .x/.y.",
+      "name": "Camera.follow",
+      "params": [
+        {
+          "name": "entity",
+          "ty": "table"
+        },
+        {
+          "name": "opts",
+          "ty": "table?"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Stops following the current target. Camera.update() then holds its last position.",
+      "name": "Camera.unfollow",
+      "params": [],
+      "returns": "nil"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Adds random jitter (up to +/- amount per axis) on top of the followed position for duration frames, linearly decaying to 0.",
+      "name": "Camera.shake",
+      "params": [
+        {
+          "name": "amount",
+          "ty": "number"
+        },
+        {
+          "name": "duration",
+          "ty": "number"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Gameplay stdlib",
+      "doc": "Advances follow smoothing and shake decay by one frame, then calls set_camera() with the result. A no-op position-wise if Camera.follow() was never called. The computed position is clamped to >= 0 before calling set_camera, so the view never scrolls past the world origin.",
+      "name": "Camera.update",
+      "params": [],
+      "returns": "nil"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "Load a module once: a built-in one (require \"camera\") or a cart file (require \"ui.hud\" loads ui/hud.lua).",
+      "name": "require",
+      "params": [
+        {
+          "name": "name",
+          "ty": "string"
+        }
+      ],
+      "returns": "any"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "Absolute value of x.",
+      "name": "math.abs",
+      "params": [
+        {
+          "name": "x",
+          "ty": "number"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "Largest integer <= x.",
+      "name": "math.floor",
+      "params": [
+        {
+          "name": "x",
+          "ty": "number"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "Smallest integer >= x.",
+      "name": "math.ceil",
+      "params": [
+        {
+          "name": "x",
+          "ty": "number"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "Square root of x.",
+      "name": "math.sqrt",
+      "params": [
+        {
+          "name": "x",
+          "ty": "number"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "Sine of x (radians).",
+      "name": "math.sin",
+      "params": [
+        {
+          "name": "x",
+          "ty": "number"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "Cosine of x (radians).",
+      "name": "math.cos",
+      "params": [
+        {
+          "name": "x",
+          "ty": "number"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "Largest of the given numbers.",
+      "name": "math.max",
+      "params": [
+        {
+          "name": "...",
+          "ty": "number"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "Smallest of the given numbers.",
+      "name": "math.min",
+      "params": [
+        {
+          "name": "...",
+          "ty": "number"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "Random number: [0,1) with no args, [1,m] with one, [m,n] with two.",
+      "name": "math.random",
+      "params": [
+        {
+          "name": "m?",
+          "ty": "number"
+        },
+        {
+          "name": "n?",
+          "ty": "number"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "Set the RNG seed. The console seeds to 1 by default at cart load, so runs are deterministic unless a cart calls this itself (e.g. math.randomseed(os.time()) for per-run variety).",
+      "name": "math.randomseed",
+      "params": [
+        {
+          "name": "x",
+          "ty": "number"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "Floating-point infinity.",
+      "name": "math.huge",
+      "params": [],
+      "returns": "number"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "Substring from index i to j (inclusive, 1-based).",
+      "name": "string.sub",
+      "params": [
+        {
+          "name": "s",
+          "ty": "string"
+        },
+        {
+          "name": "i",
+          "ty": "number"
+        },
+        {
+          "name": "j?",
+          "ty": "number"
+        }
+      ],
+      "returns": "string"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "Length of s in bytes.",
+      "name": "string.len",
+      "params": [
+        {
+          "name": "s",
+          "ty": "string"
+        }
+      ],
+      "returns": "number"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "printf-style string formatting.",
+      "name": "string.format",
+      "params": [
+        {
+          "name": "fmt",
+          "ty": "string"
+        },
+        {
+          "name": "...",
+          "ty": "any"
+        }
+      ],
+      "returns": "string"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "Start/end indices of the first pattern match, or nil.",
+      "name": "string.find",
+      "params": [
+        {
+          "name": "s",
+          "ty": "string"
+        },
+        {
+          "name": "pattern",
+          "ty": "string"
+        },
+        {
+          "name": "init?",
+          "ty": "number"
+        }
+      ],
+      "returns": "number, number"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "Replace occurrences of pattern with repl; returns result and count.",
+      "name": "string.gsub",
+      "params": [
+        {
+          "name": "s",
+          "ty": "string"
+        },
+        {
+          "name": "pattern",
+          "ty": "string"
+        },
+        {
+          "name": "repl",
+          "ty": "string"
+        },
+        {
+          "name": "n?",
+          "ty": "number"
+        }
+      ],
+      "returns": "string, number"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "First match of pattern in s, or nil.",
+      "name": "string.match",
+      "params": [
+        {
+          "name": "s",
+          "ty": "string"
+        },
+        {
+          "name": "pattern",
+          "ty": "string"
+        },
+        {
+          "name": "init?",
+          "ty": "number"
+        }
+      ],
+      "returns": "string"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "s repeated n times.",
+      "name": "string.rep",
+      "params": [
+        {
+          "name": "s",
+          "ty": "string"
+        },
+        {
+          "name": "n",
+          "ty": "number"
+        }
+      ],
+      "returns": "string"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "s converted to upper case.",
+      "name": "string.upper",
+      "params": [
+        {
+          "name": "s",
+          "ty": "string"
+        }
+      ],
+      "returns": "string"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "s converted to lower case.",
+      "name": "string.lower",
+      "params": [
+        {
+          "name": "s",
+          "ty": "string"
+        }
+      ],
+      "returns": "string"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "Insert value into t, at pos if given, else at the end.",
+      "name": "table.insert",
+      "params": [
+        {
+          "name": "t",
+          "ty": "table"
+        },
+        {
+          "name": "pos?",
+          "ty": "number"
+        },
+        {
+          "name": "value",
+          "ty": "any"
+        }
+      ],
+      "returns": "nil"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "Remove and return the element at pos (default: last).",
+      "name": "table.remove",
+      "params": [
+        {
+          "name": "t",
+          "ty": "table"
+        },
+        {
+          "name": "pos?",
+          "ty": "number"
+        }
+      ],
+      "returns": "any"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "Concatenate t[i..j] with sep between elements.",
+      "name": "table.concat",
+      "params": [
+        {
+          "name": "t",
+          "ty": "table"
+        },
+        {
+          "name": "sep?",
+          "ty": "string"
+        },
+        {
+          "name": "i?",
+          "ty": "number"
+        },
+        {
+          "name": "j?",
+          "ty": "number"
+        }
+      ],
+      "returns": "string"
+    },
+    {
+      "category": "Lua standard library",
+      "doc": "Sort t in place, optionally with a custom comparator.",
+      "name": "table.sort",
+      "params": [
+        {
+          "name": "t",
+          "ty": "table"
+        },
+        {
+          "name": "comp?",
+          "ty": "function"
+        }
+      ],
+      "returns": "nil"
+    }
+  ],
+  "preludeModules": [
+    {
+      "export": "Vec2",
+      "name": "vec2"
+    },
+    {
+      "export": "Actor",
+      "name": "actor"
+    },
+    {
+      "export": "collision",
+      "name": "collision"
+    },
+    {
+      "export": "movement",
+      "name": "movement"
+    },
+    {
+      "export": "tween",
+      "name": "tween"
+    },
+    {
+      "export": "anim",
+      "name": "anim"
+    },
+    {
+      "export": "Particles",
+      "name": "particles"
+    },
+    {
+      "export": "Scenes",
+      "name": "scenes"
+    },
+    {
+      "export": "Entities",
+      "name": "entities"
+    },
+    {
+      "export": "Camera",
+      "name": "camera"
+    }
+  ]
+}

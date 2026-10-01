@@ -2,6 +2,8 @@
   import { tick } from 'svelte';
   import { api, ApiError, type Cart, type CartDetail, type FunnelEvent } from '../api';
   import { CartPlayer } from '../player';
+  import AudioControls from '../components/AudioControls.svelte';
+  import { applyAudio } from '../lib/audio-prefs.svelte';
   import { currentUser, setUser } from '../stores.svelte';
   import { link, navigate, route } from '../router.svelte';
   import { parseCav, luaSource, withLuaSource, type Cav } from '../lib/cav.js';
@@ -13,13 +15,15 @@
   import RotateIcon from '@lucide/svelte/icons/rotate-ccw';
   import UploadIcon from '@lucide/svelte/icons/upload-cloud';
   import CopyIcon from '@lucide/svelte/icons/copy';
+  import StopIcon from '@lucide/svelte/icons/square';
+  import type { LuaEditor as LuaEditorType } from '@caiven/ui/lua-editor';
+  import type { ApiEntry, PreludeModule } from '@caiven/ui/lua-modules';
 
   let { id }: { id: string } = $props();
 
   type RunError = { line: number | null; detail: string; hint: string | null; runtime: boolean };
   type Draft = { source: string; title: string; description: string; remixable: boolean; saved_at: string };
 
-  const LINE_HEIGHT = 20;
   // Long enough to skip half-typed words, short enough to feel live.
   const AUTO_RUN_MS = 700;
   const draftKey = $derived(draftKeyFor(id));
@@ -30,13 +34,17 @@
   let source = $state('');
   let ranSource = $state<string | null>(null);
   let runError = $state<RunError | null>(null);
+  let stopped = $state(false);
   let loading = $state(true);
   let error = $state('');
   let restored = $state(false);
   let canvas = $state<HTMLCanvasElement | undefined>();
   let touchContainer = $state<HTMLDivElement | undefined>();
-  let editor = $state<HTMLTextAreaElement | undefined>();
-  let scrollTop = $state(0);
+  // CodeMirror is the largest chunk; only this page pays for it.
+  let LuaEditor = $state<typeof LuaEditorType | null>(null);
+  let luaApi = $state<{ api: ApiEntry[]; preludeModules: PreludeModule[] } | null>(null);
+  let editorFailed = $state(false);
+  let reveal = $state<{ id: number; source: string; line: number; column: number; length?: number } | null>(null);
   let player: CartPlayer | null = null;
   let bootGeneration = 0;
   let reportedRan = false;
@@ -62,7 +70,9 @@
   const runOk = $derived(ranSource === source && !runError);
   const canPublish = $derived(changed && runOk);
   const constants = $derived(findConstants(source));
-  const lineCount = $derived(source.split('\n').length);
+  const diagnostics = $derived(runError?.line
+    ? [{ severity: 'error', title: `Line ${runError.line}`, detail: runError.detail, path: 'main.lua', line: runError.line }]
+    : []);
   const runKey = /Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘Enter' : 'Ctrl+Enter';
   const shareUrl = $derived(published ? `${window.location.origin}/play/${published.id}` : '');
   const needsVerify = $derived(!!currentUser.value?.email && !currentUser.value.email_verified);
@@ -122,6 +132,7 @@
       const loaded = await CartPlayer.load(canvas, withLuaSource(parsed, text), null);
       if (generation !== bootGeneration) { loaded.stop(); return; }
       player = loaded;
+      applyAudio(player);
       ranSource = text;
       if (touchContainer) player.mountTouchControls(touchContainer);
       player.start(onFault, () => confirmRan());
@@ -152,9 +163,12 @@
     runError = { ...parsed, hint: errorHint(parsed.detail), runtime: true };
   }
 
-  function run(focusGame = true) {
+  // Typing reruns with resume = false, so a stopped game stays stopped while you edit.
+  function run(focusGame = true, resume = true) {
     if (!player || !cav) return;
     attempted = source;
+    // A failed load falls back to the last working build, so Run resumes either way.
+    if (resume) { player.setPaused(false); stopped = false; }
     let bytes: Uint8Array;
     try {
       bytes = withLuaSource(cav, source);
@@ -166,30 +180,24 @@
     if (failure) {
       const parsed = parseLuaError(failure);
       runError = { ...parsed, hint: errorHint(parsed.detail), runtime: false };
-      if (parsed.line) scrollToLine(parsed.line);
       return;
     }
     runError = null;
     ranSource = source;
     if (changed && !reportedRan) ranPending = source;
-    if (focusGame) canvas?.focus();
+    if (focusGame && !stopped) canvas?.focus();
   }
 
-  function scrollToLine(line: number) {
-    if (!editor) return;
-    editor.scrollTop = Math.max(0, (line - 4) * LINE_HEIGHT);
+  function stop() {
+    player?.setPaused(true);
+    stopped = true;
   }
 
   function selectConstant(line: number) {
-    if (!editor) return;
-    const lines = source.split('\n');
-    const start = lines.slice(0, line - 1).reduce((n, l) => n + l.length + 1, 0);
-    const text = lines[line - 1];
+    const text = source.split('\n')[line - 1] ?? '';
     const at = text.indexOf('=') + 1;
     const value = /-?\d+(?:\.\d+)?/.exec(text.slice(at));
-    editor.focus();
-    if (value) editor.setSelectionRange(start + at + value.index, start + at + value.index + value[0].length);
-    scrollToLine(line);
+    reveal = { id: (reveal?.id ?? 0) + 1, source: 'main.lua', line, column: value ? at + value.index + 1 : 1, length: value?.[0].length };
   }
 
   function tweak(line: number, value: string) {
@@ -204,10 +212,6 @@
     clearDraft();
     restored = false;
     run(false);
-  }
-
-  function onEditorKey(e: KeyboardEvent) {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run(); }
   }
 
   async function openPublish() {
@@ -281,6 +285,12 @@
   }
 
   $effect(() => {
+    Promise.all([import('@caiven/ui/lua-editor'), import('@caiven/ui/lua-api.json')])
+      .then(([editor, json]) => { luaApi = json.default; LuaEditor = editor.LuaEditor; })
+      .catch(() => (editorFailed = true));
+  });
+
+  $effect(() => {
     id; boot();
     return () => { ++bootGeneration; player?.stop(); player = null; };
   });
@@ -289,7 +299,7 @@
     const text = source;
     if (loading) return;
     const timer = setTimeout(() => {
-      if (text !== ranSource && text !== attempted) run(false);
+      if (text !== ranSource && text !== attempted) run(false, false);
     }, AUTO_RUN_MS);
     return () => clearTimeout(timer);
   });
@@ -305,7 +315,7 @@
   });
 </script>
 
-<div class="flex min-h-[calc(100vh-4rem)] flex-col bg-[#0d0d0d]">
+<div class="flex min-h-[calc(100vh-4rem)] flex-col bg-[#0d0d0d] lg:h-[calc(100dvh-4rem)]">
   <div class="flex flex-wrap items-center gap-3 border-b border-void-800 px-4 py-3 md:px-7">
     <a href="/play/{id}" use:link class="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeftIcon class="size-4" />Back to game</a>
     {#if cart}<span class="text-sm text-foreground">Remixing <strong>{cart.title}</strong> <span class="text-muted-foreground">by @{cart.owner ?? cart.author}</span></span>{/if}
@@ -359,14 +369,18 @@
       </form>
     {/if}
 
-    <div class="grid flex-1 gap-4 p-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] md:p-6">
-      <section class="flex flex-col gap-3" aria-label="Game">
+    <div class="grid flex-1 gap-4 p-4 md:p-6 lg:min-h-0 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
+      <section class="flex flex-col gap-3 lg:overflow-y-auto" aria-label="Game">
         <div class="relative aspect-3/2 w-full overflow-hidden rounded-lg bg-black shadow-2xl shadow-black/60">
           <canvas bind:this={canvas} width="192" height="128" class="block size-full" style="image-rendering: pixelated;"></canvas>
           <div class="scanline-overlay crt-vignette pointer-events-none absolute inset-0 opacity-65"></div>
           <div bind:this={touchContainer} class="touch-overlay pointer-events-none absolute inset-0"></div>
+          {#if stopped}<div class="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/55 text-sm font-semibold tracking-widest text-foreground" data-testid="game-stopped">STOPPED</div>{/if}
         </div>
-        <p class="text-xs text-muted-foreground">Click the game to play · arrows move · Z or Space = A button · X = B button</p>
+        <div class="flex flex-wrap items-center gap-3">
+          <p class="text-xs text-muted-foreground">Click the game to play · arrows move · Z or Space = A button · X = B button</p>
+          <div class="ml-auto"><AudioControls onchange={() => applyAudio(player)} /></div>
+        </div>
         {#if constants.length}
           <div class="surface-panel rounded-lg p-3">
             <p class="mb-2 text-sm font-semibold">Change one thing</p>
@@ -381,45 +395,43 @@
             </div>
           </div>
         {/if}
-      </section>
-
-      <section class="flex min-h-[420px] flex-col gap-2" aria-label="Code">
-        <div class="flex items-center gap-2">
-          <span class="text-sm font-semibold">Lua</span>
-          {#if restored}<span class="text-xs text-muted-foreground">Restored your saved edit</span>{/if}
-          <span class="ml-auto text-xs text-muted-foreground">Reruns as you type · {runKey}</span>
-          <Button size="sm" onclick={() => run()} class={changed && ranSource !== source ? 'ember-glow' : ''}><PlayIcon class="size-4" fill="currentColor" />Run</Button>
-        </div>
         {#if runError}
           <div class="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm" role="alert">
             <p class="font-semibold text-destructive">{runError.line ? `Line ${runError.line}: ` : ''}{runError.detail}</p>
             {#if runError.hint}<p class="mt-1 text-foreground">{runError.hint}</p>{/if}
             <p class="mt-1 text-xs text-muted-foreground">{runError.runtime ? 'The game stopped here. Fix the line and it reruns.' : 'Your last working version is still running. Your edit is kept. Fix it and it reruns.'}</p>
           </div>
+        {:else if stopped}
+          <p class="text-sm text-muted-foreground" role="status">Stopped. Press Run to start it again.</p>
         {:else if changed && runOk}
           <p class="text-sm text-primary" role="status">It runs. That's your change in the game.</p>
         {/if}
-        <div class="relative flex min-h-0 flex-1 overflow-hidden rounded-md border border-border bg-black/50 font-mono text-[13px]">
-          <div class="pointer-events-none select-none overflow-hidden border-r border-border px-2 text-right text-muted-foreground" style="line-height: {LINE_HEIGHT}px; padding-top: 8px;" aria-hidden="true">
-            <div style="transform: translateY({-scrollTop}px)">
-              {#each { length: lineCount } as _, i}<div class:text-destructive={runError?.line === i + 1} class:font-bold={runError?.line === i + 1}>{i + 1}</div>{/each}
-            </div>
-          </div>
-          <div class="relative min-w-0 flex-1">
-            {#if runError?.line}<div class="pointer-events-none absolute inset-x-0 bg-destructive/25" style="top: {8 + (runError.line - 1) * LINE_HEIGHT - scrollTop}px; height: {LINE_HEIGHT}px;" data-testid="error-line"></div>{/if}
-            <textarea
-              bind:this={editor}
-              bind:value={source}
-              onscroll={(e) => (scrollTop = e.currentTarget.scrollTop)}
-              onkeydown={onEditorKey}
-              spellcheck="false"
-              autocapitalize="off"
-              wrap="off"
-              aria-label="Lua source"
-              class="absolute inset-0 size-full resize-none bg-transparent px-3 text-foreground outline-none"
-              style="line-height: {LINE_HEIGHT}px; padding-top: 8px; padding-bottom: 8px; white-space: pre; tab-size: 2;"
-            ></textarea>
-          </div>
+      </section>
+
+      <section class="flex h-[70dvh] min-h-[420px] flex-col gap-2 lg:order-first lg:h-auto lg:min-h-0" aria-label="Code">
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-semibold">Lua</span>
+          {#if restored}<span class="text-xs text-muted-foreground">Restored your saved edit</span>{/if}
+          <span class="ml-auto text-xs text-muted-foreground">Reruns as you type · {runKey}</span>
+          <Button size="sm" variant="secondary" disabled={stopped || !!runError?.runtime} onclick={stop}><StopIcon class="size-4" fill="currentColor" />Stop</Button>
+          <Button size="sm" onclick={() => run()} class={changed && ranSource !== source ? 'ember-glow' : ''}><PlayIcon class="size-4" fill="currentColor" />Run</Button>
+        </div>
+        <div class="flex min-h-0 flex-1 overflow-hidden rounded-md border border-border">
+          {#if LuaEditor && luaApi}
+            <LuaEditor
+              value={source}
+              api={luaApi.api}
+              preludeModules={luaApi.preludeModules}
+              {diagnostics}
+              revealRequest={reveal}
+              onChange={(text) => (source = text)}
+              onRun={() => run()}
+            />
+          {:else if editorFailed}
+            <p class="m-auto p-4 text-sm text-destructive" role="alert">Couldn't load the code editor. Reload the page to try again.</p>
+          {:else}
+            <p class="m-auto text-sm text-muted-foreground">Loading editor…</p>
+          {/if}
         </div>
       </section>
     </div>

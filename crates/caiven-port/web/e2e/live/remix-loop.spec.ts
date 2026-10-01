@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { test, expect, type Page, type APIResponse } from '@playwright/test';
 import { parseCav, withLuaSource } from '../../src/lib/cav.js';
+import { editorText, fillEditor } from '../support/editor';
 
 // Runs after full-stack.spec.ts (files run in name order on one worker),
 // which registers the first — admin — account.
@@ -53,9 +54,9 @@ test('anonymous player remixes a seed cart and publishes a linked child', async 
   // 5-9: remix, see real Lua, change it, rerun, see the difference.
   await page.getByRole('link', { name: 'Remix this' }).click();
   const editor = page.getByLabel('Lua source');
-  await expect(editor).toHaveValue(SEED);
+  await expect.poll(() => editorText(editor)).toBe(SEED);
   await expect.poll(() => centerPixel(page), { timeout: 30_000 }).toEqual(original);
-  await editor.fill(SEED.replace('= 8', '= 12'));
+  await fillEditor(editor, SEED.replace('= 8', '= 12'));
   await editor.press('Control+Enter');
   await expect.poll(() => centerPixel(page)).not.toEqual(original);
   const remixed = await centerPixel(page);
@@ -71,7 +72,7 @@ test('anonymous player remixes a seed cart and publishes a linked child', async 
   await page.getByLabel('Password').fill(remixer.password);
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL(new RegExp(`/remix/${seed.id}`));
-  await expect(editor).toHaveValue(SEED.replace('= 8', '= 12'));
+  await expect.poll(() => editorText(editor)).toBe(SEED.replace('= 8', '= 12'));
 
   // 13-16: publish creates a new cart with structured parent attribution.
   const form = page.getByRole('form', { name: 'Publish your remix' });
@@ -103,9 +104,9 @@ test('anonymous player remixes a seed cart and publishes a linked child', async 
   await other.goto(`/play/${childId}`);
   await other.getByRole('link', { name: 'Remix this' }).click();
   const otherEditor = other.getByLabel('Lua source');
-  await expect(otherEditor).toHaveValue(SEED.replace('= 8', '= 12'));
+  await expect.poll(() => editorText(otherEditor)).toBe(SEED.replace('= 8', '= 12'));
   await expect.poll(() => centerPixel(other), { timeout: 30_000 }).toEqual(remixed);
-  await otherEditor.fill(SEED.replace('= 8', '= 9'));
+  await fillEditor(otherEditor, SEED.replace('= 8', '= 9'));
   await otherEditor.press('Control+Enter');
   await expect.poll(() => centerPixel(other)).not.toEqual(remixed);
   await other.getByRole('button', { name: 'Publish my version' }).click();

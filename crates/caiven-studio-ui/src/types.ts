@@ -85,19 +85,8 @@ export interface ExampleSummary {
   description: string;
 }
 
-export interface ApiEntry {
-  name: string;
-  params: { name: string; ty: string }[];
-  returns: string;
-  doc: string;
-  category: string;
-}
-
-export interface PreludeModule {
-  name: string;
-  /** Conventional local for the module's table, e.g. `Camera`. */
-  export: string;
-}
+import type { ApiEntry, PreludeModule } from '@caiven/ui/lua-modules';
+export type { ApiEntry, PreludeModule };
 
 export type CollisionShape = 'none' | 'solid' | 'one_way' | 'slope_left' | 'slope_right';
 

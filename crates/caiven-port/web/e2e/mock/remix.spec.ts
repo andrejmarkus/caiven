@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import { test, expect } from '../support/fixtures';
 import { parseCav, withLuaSource } from '../../src/lib/cav.js';
+import { editorText, fillEditor } from '../support/editor';
 
 const SEED = 'local COLOR = 8\nfunction _update()\n  fill_screen(COLOR)\nend\n';
 
@@ -15,8 +16,9 @@ async function pixel(page: Page): Promise<number[]> {
 
 async function setSource(page: Page, source: string) {
   const editor = page.getByLabel('Lua source');
-  await editor.fill(source);
-  await editor.press('Control+Enter');
+  await fillEditor(editor, source);
+  // CodeMirror replays Enter without modifiers on Android, so the mobile project can't use Ctrl+Enter.
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
 }
 
 test('play → remix → change → run → publish after login → child is linked', async ({ page, mock }) => {
@@ -26,7 +28,7 @@ test('play → remix → change → run → publish after login → child is lin
   await page.goto('/play/demo');
   await page.getByRole('link', { name: 'Remix this' }).click();
   await expect(page).toHaveURL(/\/remix\/demo$/);
-  await expect(page.getByLabel('Lua source')).toHaveValue(SEED);
+  await expect.poll(() => editorText(page.getByLabel('Lua source'))).toBe(SEED);
   await expect.poll(() => mock.calls('POST', '/api/v1/carts/demo/funnel').length).toBeGreaterThan(0);
 
   await expect.poll(() => pixel(page), { timeout: 30_000 }).not.toEqual([0, 0, 0, 0]);
@@ -37,7 +39,7 @@ test('play → remix → change → run → publish after login → child is lin
   const chip = page.getByRole('spinbutton', { name: 'COLOR' });
   await chip.fill('12');
   await chip.dispatchEvent('change');
-  await expect(page.getByLabel('Lua source')).toHaveValue(SEED.replace('= 8', '= 12'));
+  await expect.poll(() => editorText(page.getByLabel('Lua source'))).toBe(SEED.replace('= 8', '= 12'));
   await expect.poll(() => pixel(page)).not.toEqual(before);
   const changed = await pixel(page);
   await expect(page.getByText("It runs. That's your change in the game.")).toBeVisible();
@@ -45,7 +47,7 @@ test('play → remix → change → run → publish after login → child is lin
   // A broken edit keeps the last working build running and marks the line.
   await setSource(page, 'local COLOR = 3\nfunction _update()\n  fill_screen(COLOR\nend\n');
   await expect(page.getByRole('alert')).toContainText('Line 4');
-  await expect(page.getByTestId('error-line')).toBeVisible();
+  await expect(page.locator('.cm-lintRange-error')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Publish my version' })).toBeDisabled();
   await expect.poll(() => pixel(page)).toEqual(changed);
 
@@ -60,7 +62,7 @@ test('play → remix → change → run → publish after login → child is lin
   await expect.poll(opened).toBe(1);
   await mock.loginAs('player');
   await page.goto(decodeURIComponent(new URL(page.url()).searchParams.get('next')!));
-  await expect(page.getByLabel('Lua source')).toHaveValue(SEED.replace('= 8', '= 12'));
+  await expect.poll(() => editorText(page.getByLabel('Lua source'))).toBe(SEED.replace('= 8', '= 12'));
   await expect(page.getByText('Restored your saved edit')).toBeVisible();
   const form = page.getByRole('form', { name: 'Publish your remix' });
   await expect(form).toBeVisible();
@@ -114,6 +116,90 @@ test('home Start here row lists curated remixable carts and opens Quick Remix', 
   await expect(page).toHaveURL(/\/remix\/demo$/);
 });
 
+test('the remix editor highlights Lua and completes console API names', async ({ page, mock }) => {
+  mock.carts[0].remixable = true;
+  mock.cartBytes = Buffer.from(withLuaSource(parseCav(new Uint8Array(mock.cartBytes)), SEED));
+  await page.goto('/remix/demo');
+  const editor = page.getByLabel('Lua source');
+  await expect(editor.locator('.cm-line').first().locator('span').first()).toHaveText('local');
+
+  await editor.press('Control+End');
+  await editor.pressSequentially('fill_scr');
+  const option = page.locator('.cm-tooltip-autocomplete').getByText('fill_screen', { exact: true });
+  await expect(option).toBeVisible();
+  await editor.press('Tab');
+  await expect.poll(() => editorText(editor)).toContain('fill_screen(');
+
+  if (test.info().project.name === 'mobile-chromium') return;
+  await fillEditor(editor, 'local COLOR = 3\nfunction _update()\n  fill_screen(COLOR\nend\n');
+  await editor.press('Control+Enter');
+  await expect(page.getByRole('alert')).toContainText('Line 4');
+  await expect.poll(() => editorText(editor)).toBe('local COLOR = 3\nfunction _update()\n  fill_screen(COLOR\nend\n');
+});
+
+test('long code scrolls inside the editor, left of a game that stays in view', async ({ page, mock }) => {
+  test.skip(test.info().project.name === 'mobile-chromium', 'side by side is the desktop layout');
+  const long = SEED + Array.from({ length: 200 }, (_, i) => `-- line ${i}`).join('\n') + '\n';
+  mock.carts[0].remixable = true;
+  mock.cartBytes = Buffer.from(withLuaSource(parseCav(new Uint8Array(mock.cartBytes)), long));
+  await page.goto('/remix/demo');
+  const editor = page.getByLabel('Lua source');
+  await expect(editor).toBeVisible();
+  const [code, game] = await Promise.all([editor.boundingBox(), page.locator('canvas').boundingBox()]);
+  expect(code!.x).toBeLessThan(game!.x);
+
+  await editor.click();
+  await editor.press('Control+End');
+  await expect(page.getByText('-- line 199')).toBeInViewport();
+  await expect(page.locator('canvas')).toBeInViewport({ ratio: 1 });
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
+  // The error shows under the game, so the editor doesn't jump.
+  await setSource(page, 'local COLOR = 3\nfunction _update()\n  fill_screen(COLOR\nend\n');
+  const alert = page.getByRole('alert');
+  await expect(alert).toContainText('Line 4');
+  expect((await editor.boundingBox())!.y).toBe(code!.y);
+  expect((await alert.boundingBox())!.x).toBeGreaterThanOrEqual(game!.x);
+});
+
+test('Stop freezes the game until Run, even while edits rerun', async ({ page, mock }) => {
+  const BLINK = 'local t = 0\nfunction _update()\n  t = t + 1\n  fill_screen(t // 6 % 2 == 0 and 8 or 12)\nend\n';
+  mock.carts[0].remixable = true;
+  mock.cartBytes = Buffer.from(withLuaSource(parseCav(new Uint8Array(mock.cartBytes)), BLINK));
+  await page.goto('/remix/demo');
+  await expect.poll(() => pixel(page), { timeout: 30_000 }).not.toEqual([0, 0, 0, 0]);
+  const first = await pixel(page);
+  await expect.poll(() => pixel(page)).not.toEqual(first);
+
+  await page.getByRole('button', { name: 'Stop', exact: true }).click();
+  await expect(page.getByTestId('game-stopped')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeDisabled();
+  const frozen = await pixel(page);
+  await page.waitForTimeout(400);
+  expect(await pixel(page)).toEqual(frozen);
+
+  // A typed edit still reruns (and would report errors) but stays stopped.
+  await fillEditor(page.getByLabel('Lua source'), BLINK.replace('// 6', '// 3'));
+  // Past the auto-run delay.
+  await page.waitForTimeout(1_000);
+  await expect(page.getByTestId('game-stopped')).toBeVisible();
+  await expect(page.getByText('Stopped. Press Run to start it again.')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(page.getByTestId('game-stopped')).toHaveCount(0);
+  const resumed = await pixel(page);
+  await expect.poll(() => pixel(page)).not.toEqual(resumed);
+
+  // Run on a broken edit still resumes: the last working build plays on.
+  await page.getByRole('button', { name: 'Stop', exact: true }).click();
+  await fillEditor(page.getByLabel('Lua source'), BLINK.replace('2 == 0', '2 =='));
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Line 4');
+  await expect(page.getByTestId('game-stopped')).toHaveCount(0);
+  const fallback = await pixel(page);
+  await expect.poll(() => pixel(page)).not.toEqual(fallback);
+});
+
 test('typed edits rerun on their own once typing pauses', async ({ page, mock }) => {
   mock.carts[0].remixable = true;
   mock.cartBytes = Buffer.from(withLuaSource(parseCav(new Uint8Array(mock.cartBytes)), SEED));
@@ -123,14 +209,14 @@ test('typed edits rerun on their own once typing pauses', async ({ page, mock })
   const before = await pixel(page);
 
   // No Run, no Ctrl+Enter: the pause alone reruns it.
-  await page.getByLabel('Lua source').fill(SEED.replace('= 8', '= 12'));
+  await fillEditor(page.getByLabel('Lua source'), SEED.replace('= 8', '= 12'));
   await expect.poll(() => pixel(page)).not.toEqual(before);
   await expect(page.getByText("It runs. That's your change in the game.")).toBeVisible();
   await expect(page.getByRole('button', { name: 'Publish my version' })).toBeEnabled();
   const changed = await pixel(page);
 
   // A half-typed line shows the error and leaves the working build alone.
-  await page.getByLabel('Lua source').fill('local COLOR = 3\nfunction _update()\n  fill_screen(COLOR\nend\n');
+  await fillEditor(page.getByLabel('Lua source'), 'local COLOR = 3\nfunction _update()\n  fill_screen(COLOR\nend\n');
   await expect(page.getByRole('alert')).toContainText('Line 4');
   await expect.poll(() => pixel(page)).toEqual(changed);
 });
@@ -192,7 +278,7 @@ test('an unconfirmed email keeps the remix, and the email link returns to Publis
 
   // The author's "try" value is one click away.
   await page.getByRole('button', { name: 'Try COLOR = 12' }).click();
-  await expect(page.getByLabel('Lua source')).toHaveValue(SEED_TRY.replace('= 8', '= 12'));
+  await expect.poll(() => editorText(page.getByLabel('Lua source'))).toBe(SEED_TRY.replace('= 8', '= 12'));
   await expect.poll(() => pixel(page)).not.toEqual(before);
   await expect(page.getByRole('button', { name: 'Try COLOR = 12' })).toHaveCount(0);
 
@@ -207,7 +293,7 @@ test('an unconfirmed email keeps the remix, and the email link returns to Publis
   player.email_verified = true;
   await page.goto('/verify-email?token=mock-token');
   await expect(page).toHaveURL(/\/remix\/demo\?publish=1$/);
-  await expect(page.getByLabel('Lua source')).toHaveValue(SEED_TRY.replace('= 8', '= 12'));
+  await expect.poll(() => editorText(page.getByLabel('Lua source'))).toBe(SEED_TRY.replace('= 8', '= 12'));
   await expect(form).toBeVisible();
   await expect(form.getByTestId('verify-notice')).toHaveCount(0);
   await form.getByRole('button', { name: /Publish as @player/ }).click();
@@ -293,7 +379,7 @@ test('a rerun never blanks the game, and broken code recovers without a reload',
   // Fixing it runs again in the same page, and the edit is still there.
   await setSource(page, SEED.replace('= 8', '= 12'));
   await expect(page.getByRole('alert')).toHaveCount(0);
-  await expect(page.getByLabel('Lua source')).toHaveValue(SEED.replace('= 8', '= 12'));
+  await expect.poll(() => editorText(page.getByLabel('Lua source'))).toBe(SEED.replace('= 8', '= 12'));
   await expect.poll(() => pixel(page)).toEqual(changed);
   expect(ranCalls(mock)).toBe(1);
 });
@@ -326,7 +412,7 @@ test('publish keeps the remix through a dropped connection and an expired sessio
   mock.fault({ method: 'POST', path: '/api/v1/carts', offline: true, once: true });
   await submit.click();
   await expect(form.getByRole('alert')).toContainText("Couldn't reach Port. Your remix is saved here.");
-  await expect(page.getByLabel('Lua source')).toHaveValue(edit);
+  await expect.poll(() => editorText(page.getByLabel('Lua source'))).toBe(edit);
 
   mock.fault({ method: 'POST', path: '/api/v1/carts', status: 401, body: { error: 'Unauthorized' }, once: true });
   await submit.click();
@@ -336,7 +422,7 @@ test('publish keeps the remix through a dropped connection and an expired sessio
   await page.getByLabel('Password').fill('GoodPass!1');
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
   await expect(page).toHaveURL(/\/remix\/demo\?publish=1$/);
-  await expect(page.getByLabel('Lua source')).toHaveValue(edit);
+  await expect.poll(() => editorText(page.getByLabel('Lua source'))).toBe(edit);
   await expect(form).toBeVisible();
   await submit.dblclick();
   await expect(page.getByText("Published. It's yours now.")).toBeVisible();
@@ -359,7 +445,7 @@ test('a second click on the email link, or a dead one, still leads back to Publi
   mock.fault({ method: 'POST', path: '/api/v1/auth/verify-email', status: 400, body: { error: 'invalid or expired token' }, once: true });
   await page.goto('/verify-email?token=used-token');
   await expect(page).toHaveURL(/\/remix\/demo\?publish=1$/);
-  await expect(page.getByLabel('Lua source')).toHaveValue(edit);
+  await expect.poll(() => editorText(page.getByLabel('Lua source'))).toBe(edit);
 
   // Not confirmed and the link is dead: the page points back to the saved remix.
   mock.users.get('player')!.email_verified = false;
@@ -368,7 +454,7 @@ test('a second click on the email link, or a dead one, still leads back to Publi
   await expect(page.getByText('invalid or expired token')).toBeVisible();
   await page.getByRole('link', { name: 'Back to your remix' }).click();
   await expect(page).toHaveURL(/\/remix\/demo\?publish=1$/);
-  await expect(page.getByLabel('Lua source')).toHaveValue(edit);
+  await expect.poll(() => editorText(page.getByLabel('Lua source'))).toBe(edit);
 });
 
 test('a malformed return path after sign-in lands on Home, not another site', async ({ page, mock }) => {

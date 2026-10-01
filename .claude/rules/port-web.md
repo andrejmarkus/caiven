@@ -30,3 +30,11 @@ paths:
 - `e2e/support/mock-api.ts` matches routes with escaped regexes
   (`\/api\/v1\/carts`); an API path rename must grep for that form too, or
   mocked routes silently stop matching.
+- The remix editor is CodeMirror (contenteditable): read it with
+  `editorText` and set it with `fillEditor` from `e2e/support/editor.ts`,
+  never `toHaveValue`/`fill`. Under `mobile-chromium` (Android UA)
+  CodeMirror replays Enter without modifiers, so Ctrl+Enter inserts a
+  newline there; click Run instead.
+- Its completion data is `@caiven/ui/lua-api.json`, generated from
+  `api_registry`; `caiven-vm/tests/lua_api_json_sync.rs` fails when stale
+  and its header has the regenerate command.

@@ -3,8 +3,8 @@ import test from 'node:test';
 import {
   autotileBitmask, autotileEdits, collisionCellEdits, composeGroup, decomposeGroup, dragPanScroll, filledRectangle,
   flipHorizontal, flipVertical, floodCells, moveCursor, moveRegion, nextMapZoom, pasteRegion, rasterLine,
-  rectangleOutline, regionFromPoints, regionValues, rotateClockwise, rotateCounterClockwise, sourceOffset,
-  strokeCells, watchPathAt,
+  rectangleOutline, regionFromPoints, regionValues, rotateClockwise, rotateCounterClockwise,
+  strokeCells,
 } from '../src/lib/editorMath.ts';
 
 test('rasterLine bridges skipped pointer cells', () => {
@@ -38,26 +38,6 @@ test('mouse wheel zoom changes continuously and clamps at limits', () => {
 test('right-button drag pans map opposite pointer movement', () => {
   assert.equal(dragPanScroll(200, 100, 140), 160);
   assert.equal(dragPanScroll(200, 100, 60), 240);
-});
-
-test('source navigation resolves exact one-based line and column', () => {
-  const source = 'local x = 1\n  sprite(7, x, 8)\nreturn x';
-  assert.equal(sourceOffset(source, 2, 3), 14);
-  assert.equal(sourceOffset(source, 99, 99), source.length);
-  assert.equal(sourceOffset(source, 0, 0), 0);
-});
-
-test('a hover reads the watch path up to the part under the pointer', () => {
-  const text = '  if player.bag[2].hp > 0 then self:move() end';
-  const at = (word: string) => watchPathAt(text, text.indexOf(word))?.path ?? null;
-  assert.deepEqual(watchPathAt(text, text.indexOf('player') + 2), { from: 5, to: 11, path: 'player' });
-  assert.equal(at('bag'), 'player.bag');
-  assert.equal(at('[2]'), 'player.bag[2]');
-  assert.equal(at('hp'), 'player.bag[2].hp');
-  assert.equal(at('self'), 'self');
-  assert.equal(at('if'), null, 'keyword');
-  assert.equal(at('move'), null, 'method name');
-  assert.equal(at('>'), null);
 });
 
 test('collision cell edits only report cells whose brush value actually changes', () => {

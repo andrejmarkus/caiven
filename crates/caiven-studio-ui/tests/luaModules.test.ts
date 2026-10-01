@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  availableApi, builtinAliasEntries, declaresLocal, localName, moduleKey, projectEntries, requireNameAt, scanModule,
-} from '../src/lib/luaModules.ts';
+  availableApi, builtinAliasEntries, declaresLocal, localName, moduleKey, projectEntries, requireNameAt, scanModule, sourceOffset, watchPathAt,
+} from '../../caiven-ui/src/components/ui/lua-editor/lua-modules.ts';
 
 const ENEMY = `local M = {}
 local helper = {}
@@ -87,4 +87,24 @@ test('local declarations are recognised, globals and fields are not', () => {
   assert.ok(!declaresLocal('Camera = {}', 'Camera'));
   assert.ok(!declaresLocal('local CameraRig = 1', 'Camera'));
   assert.equal(localName('ui.hud'), 'hud');
+});
+
+test('source navigation resolves exact one-based line and column', () => {
+  const source = 'local x = 1\n  sprite(7, x, 8)\nreturn x';
+  assert.equal(sourceOffset(source, 2, 3), 14);
+  assert.equal(sourceOffset(source, 99, 99), source.length);
+  assert.equal(sourceOffset(source, 0, 0), 0);
+});
+
+test('a hover reads the watch path up to the part under the pointer', () => {
+  const text = '  if player.bag[2].hp > 0 then self:move() end';
+  const at = (word: string) => watchPathAt(text, text.indexOf(word))?.path ?? null;
+  assert.deepEqual(watchPathAt(text, text.indexOf('player') + 2), { from: 5, to: 11, path: 'player' });
+  assert.equal(at('bag'), 'player.bag');
+  assert.equal(at('[2]'), 'player.bag[2]');
+  assert.equal(at('hp'), 'player.bag[2].hp');
+  assert.equal(at('self'), 'self');
+  assert.equal(at('if'), null, 'keyword');
+  assert.equal(at('move'), null, 'method name');
+  assert.equal(at('>'), null);
 });

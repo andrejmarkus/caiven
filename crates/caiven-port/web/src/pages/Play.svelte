@@ -7,8 +7,8 @@
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import MaximizeIcon from '@lucide/svelte/icons/maximize-2';
   import MinimizeIcon from '@lucide/svelte/icons/minimize-2';
-  import VolumeIcon from '@lucide/svelte/icons/volume-2';
-  import VolumeOffIcon from '@lucide/svelte/icons/volume-x';
+  import AudioControls from '../components/AudioControls.svelte';
+  import { applyAudio } from '../lib/audio-prefs.svelte';
   import RotateIcon from '@lucide/svelte/icons/rotate-ccw';
   import CodeIcon from '@lucide/svelte/icons/code-xml';
   import GitForkIcon from '@lucide/svelte/icons/git-fork';
@@ -23,7 +23,6 @@
   let error = $state('');
   let fault = $state('');
   let fullscreen = $state(false);
-  let muted = $state(false);
   let fps = $state(60);
   let player: CartPlayer | null = null;
   let bootGeneration = 0;
@@ -51,7 +50,7 @@
       const loadedPlayer = await CartPlayer.load(canvas, bytes, cartId);
       if (generation !== bootGeneration) { loadedPlayer.stop(); return; }
       player = loadedPlayer;
-      player.setMuted(muted);
+      applyAudio(player);
       if (touchContainer) player.mountTouchControls(touchContainer);
       const running = loadedPlayer;
       player.start((message) => (fault = message), (value) => {
@@ -69,7 +68,6 @@
       error = e instanceof Error ? e.message : String(e); loading = false;
     }
   }
-  function toggleMute() { muted = !muted; player?.setMuted(muted); }
   function toggleFullscreen() { if (!stage) return; document.fullscreenElement ? void document.exitFullscreen() : void stage.requestFullscreen(); }
   $effect(() => {
     id; boot();
@@ -86,7 +84,7 @@
     <div class="ml-auto flex items-center gap-2">
       {#if cart?.remixable}<a href="/remix/{id}" use:link class={buttonVariants({ size: 'sm', class: 'ember-glow' })}><CodeIcon class="size-4" />Remix this</a>{/if}
       <span class="label-mono mr-1 flex items-center gap-2 text-[10px] text-muted-foreground"><span class="size-2 rounded-full bg-primary shadow-[0_0_8px_var(--color-ember)]"></span>{fps} fps</span>
-      <button onclick={toggleMute} aria-label={muted ? 'Unmute' : 'Mute'} class="flex size-9 items-center justify-center rounded-md border border-void-700 text-muted-foreground hover:bg-void-800">{#if muted}<VolumeOffIcon class="size-4" />{:else}<VolumeIcon class="size-4" />{/if}</button>
+      <AudioControls onchange={() => applyAudio(player)} />
       <button onclick={boot} aria-label="Restart cart" class="flex size-9 items-center justify-center rounded-md border border-void-700 text-muted-foreground hover:bg-void-800"><RotateIcon class="size-4" /></button>
       <button onclick={toggleFullscreen} class="flex h-9 items-center gap-2 rounded-md border border-void-700 px-3 text-sm font-semibold text-foreground hover:bg-void-800">{#if fullscreen}<MinimizeIcon class="size-4" />Exit{:else}<MaximizeIcon class="size-4" />Fullscreen{/if}</button>
     </div>

@@ -16,7 +16,7 @@ friction?
 | --- | --- | --- |
 | Play | `/play/:id` | Unchanged: WASM runtime, no account. **Remix this** shows when the cart is remixable. |
 | Remix | `/remix/:id` | GAME \| CODE. The cart's real `LuaSource` section, pulled from the same `.cav` the player downloads. |
-| Change | same page | A textarea editor with line numbers. **Change one thing** chips list top-level numeric constants (`local SPEED = 2`), and editing a chip rewrites that Lua line. A constant whose comment says `-- try N` gets a **try N** button that writes that value. |
+| Change | same page | Studio's code editor (shared `@caiven/ui/lua-editor`): Lua highlighting, API completion and hover docs, the error line marked. **Change one thing** chips list top-level numeric constants (`local SPEED = 2`), and editing a chip rewrites that Lua line. A constant whose comment says `-- try N` gets a **try N** button that writes that value. |
 | See result | same page | A 700 ms pause in typing reruns it (a broken edit isn't retried until it changes); Run / Ctrl+Enter reruns right away. Each run rebuilds the `.cav` in the browser (`src/lib/cav.js`) and restarts it in the same WASM module (`CartPlayer.reload`). |
 | Errors | same page | The real Lua message, the line number, a highlighted line, a one-line plain-language hint for common errors (`src/lib/remix.js`), and the edit is kept. On a load error the last working build keeps running. |
 | Publish | same page | Enabled only after a changed version has run cleanly. Creates a **new cart** with a structured parent link, uploads the current frame as its screenshot, and shows a share URL. |
