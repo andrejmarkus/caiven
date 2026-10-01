@@ -68,6 +68,11 @@ revision) — a console's plastic and steel, not a glowing cave.
   color at small monospace sizes — no separate soft tint needed this time),
   `ERROR` = `destructive`. Studio's other syntax colors (`BUILTIN`, `STRING`,
   `NUMBER`, `COMMENT`) stay their own per-token-type scheme, unrelated to brand.
+- **Port emails** (`crates/caiven-port/src/mailer.rs`) — light card (`ink` page,
+  white card, `void-900`/`void-800` text) so body copy stays readable in every
+  mail client; `ember` button with `ember-ink` label; text links use `#8A4A0B`
+  (dark ember) since `ember` on white fails contrast. Logo is
+  `assets/email-logo.png`, embedded as an inline CID image.
 
 ## Rules of thumb
 

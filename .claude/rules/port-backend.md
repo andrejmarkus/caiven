@@ -28,3 +28,6 @@ paths:
   (FK cascade or explicit scrub in `delete_account`), and a line in the
   privacy table. Admin removal of others' content goes through
   `admin::moderate` so the owner gets a DSA statement of reasons.
+- Email images: Gmail/Outlook strip SVG and `data:` URIs. Embed images as
+  inline CID parts (`mailer::build_message`, `multipart/related`), never link
+  them from Port (remote images are blocked by default).

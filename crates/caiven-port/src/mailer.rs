@@ -7,7 +7,7 @@
 //! text-only clients and screen readers, plus an HTML body styled to match
 //! Caiven's "Obsidian & Ember" brand (see `docs/brand-colors.md`).
 
-use lettre::message::{MultiPart, SinglePart, header::ContentType};
+use lettre::message::{Attachment, MultiPart, SinglePart, header::ContentType};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
@@ -46,23 +46,7 @@ impl Mailer {
         plain: String,
         html: String,
     ) -> anyhow::Result<()> {
-        let email = Message::builder()
-            .from(self.from.parse()?)
-            .to(to.parse()?)
-            .subject(subject)
-            .multipart(
-                MultiPart::alternative()
-                    .singlepart(
-                        SinglePart::builder()
-                            .header(ContentType::TEXT_PLAIN)
-                            .body(plain),
-                    )
-                    .singlepart(
-                        SinglePart::builder()
-                            .header(ContentType::TEXT_HTML)
-                            .body(html),
-                    ),
-            )?;
+        let email = build_message(&self.from, to, subject, plain, html)?;
         self.transport.send(email).await?;
         Ok(())
     }
@@ -156,10 +140,46 @@ pub async fn send_or_log_alert(mailer: Option<&Mailer>, to: &str, subject: &str,
 // --- Brand email shell ------------------------------------------------
 //
 // Inline-styled, table-based HTML so it renders consistently across mail
-// clients (no external CSS/fonts/images). Colors are the "Obsidian & Ember"
-// tokens from docs/brand-colors.md.
+// clients (no external CSS/fonts). A light card keeps body text readable in
+// every client; ember stays the button color.
 
-const P_STYLE: &str = "margin:0 0 16px;color:#9A9898;font-size:15px;line-height:1.6;";
+const LOGO_CID: &str = "caiven-logo";
+const LOGO_PNG: &[u8] = include_bytes!("../assets/email-logo.png");
+const P_STYLE: &str = "margin:0 0 16px;color:#3F3E3E;font-size:15px;line-height:1.6;";
+
+/// Text + HTML alternatives; the HTML carries the logo as an inline CID part
+/// because Gmail and Outlook strip SVG and `data:` images.
+fn build_message(
+    from: &str,
+    to: &str,
+    subject: &str,
+    plain: String,
+    html: String,
+) -> anyhow::Result<Message> {
+    let logo = Attachment::new_inline(LOGO_CID.to_string())
+        .body(LOGO_PNG.to_vec(), ContentType::parse("image/png")?);
+    Ok(Message::builder()
+        .from(from.parse()?)
+        .to(to.parse()?)
+        .subject(subject)
+        .multipart(
+            MultiPart::alternative()
+                .singlepart(
+                    SinglePart::builder()
+                        .header(ContentType::TEXT_PLAIN)
+                        .body(plain),
+                )
+                .multipart(
+                    MultiPart::related()
+                        .singlepart(
+                            SinglePart::builder()
+                                .header(ContentType::TEXT_HTML)
+                                .body(html),
+                        )
+                        .singlepart(logo),
+                ),
+        )?)
+}
 
 /// Escapes text pulled into HTML (IP addresses, passkey labels, etc. are
 /// interpolated into alert bodies upstream before reaching us).
@@ -184,7 +204,7 @@ fn paragraphs_to_html(text: &str) -> String {
         .join("")
 }
 
-/// Wraps `body_html` in the branded email shell: dark card, Caiven mark,
+/// Wraps `body_html` in the branded email shell: light card, Caiven logo,
 /// heading, body, optional ember CTA button, and footer.
 fn email_shell(heading: &str, body_html: &str, cta: Option<(&str, &str)>) -> String {
     let heading = escape_html(heading);
@@ -199,8 +219,8 @@ fn email_shell(heading: &str, body_html: &str, cta: Option<(&str, &str)>) -> Str
     </td>
   </tr>
 </table>
-<p style="margin:0 0 24px;color:#727070;font-size:13px;line-height:1.5;">Or paste this link into your browser:<br>
-  <a href="{link}" style="color:#FEB05D;word-break:break-all;">{link}</a>
+<p style="margin:0 0 24px;color:#605E5E;font-size:13px;line-height:1.5;">Or paste this link into your browser:<br>
+  <a href="{link}" style="color:#8A4A0B;word-break:break-all;">{link}</a>
 </p>"#
             )
         }
@@ -210,20 +230,24 @@ fn email_shell(heading: &str, body_html: &str, cta: Option<(&str, &str)>) -> Str
     format!(
         r#"<!doctype html>
 <html>
-  <body style="margin:0;padding:32px 16px;background-color:#2B2A2A;font-family:Helvetica,Arial,sans-serif;">
+  <head>
+    <meta name="color-scheme" content="light">
+    <meta name="supported-color-schemes" content="light">
+  </head>
+  <body style="margin:0;padding:32px 16px;background-color:#F5F2F2;font-family:Helvetica,Arial,sans-serif;">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:480px;margin:0 auto;">
       <tr>
-        <td style="background-color:#3F3E3E;border:1px solid #605E5E;border-radius:12px;padding:32px;">
+        <td style="background-color:#FFFFFF;border:1px solid #E4E1E1;border-radius:12px;padding:32px;">
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;">
             <tr>
-              <td style="width:32px;height:32px;background-color:#3B3E48;border-radius:8px;text-align:center;vertical-align:middle;font-family:Helvetica,Arial,sans-serif;font-weight:700;font-size:16px;color:#FFFFFF;border-bottom:3px solid #FEB05D;">C</td>
-              <td style="padding-left:10px;font-family:Helvetica,Arial,sans-serif;font-weight:700;font-size:16px;color:#F5F2F2;">Caiven</td>
+              <td style="vertical-align:middle;"><img src="cid:{LOGO_CID}" width="36" height="36" alt="" style="display:block;border:0;"></td>
+              <td style="padding-left:10px;vertical-align:middle;font-family:Helvetica,Arial,sans-serif;font-weight:700;font-size:18px;color:#2B2A2A;">Caiven</td>
             </tr>
           </table>
-          <h1 style="margin:0 0 16px;color:#F5F2F2;font-size:20px;line-height:1.3;">{heading}</h1>
+          <h1 style="margin:0 0 16px;color:#2B2A2A;font-size:22px;line-height:1.3;">{heading}</h1>
           {body_html}
           {cta_html}
-          <p style="margin:24px 0 0;padding-top:16px;border-top:1px solid #605E5E;color:#727070;font-size:12px;line-height:1.5;">Automated message from Caiven — please don't reply to this email.</p>
+          <p style="margin:24px 0 0;padding-top:16px;border-top:1px solid #E4E1E1;color:#605E5E;font-size:12px;line-height:1.5;">Automated message from Caiven — please don't reply to this email.</p>
         </td>
       </tr>
     </table>
@@ -249,6 +273,24 @@ mod tests {
         assert!(html.contains("Confirm your email"));
         assert!(html.contains("https://port.caiven.dev/verify-email?token=abc123"));
         assert!(html.contains("#FEB05D"));
+    }
+
+    #[test]
+    fn message_embeds_logo_referenced_by_shell() -> anyhow::Result<()> {
+        let html = email_shell("Hi", "<p>body</p>", None);
+        assert!(html.contains("src=\"cid:caiven-logo\""));
+        let msg = build_message(
+            "Caiven <no-reply@caiven.dev>",
+            "a@b.dev",
+            "Hi",
+            "body".into(),
+            html,
+        )?;
+        let raw = String::from_utf8_lossy(&msg.formatted()).to_string();
+        assert!(raw.contains("multipart/related"));
+        assert!(raw.contains("Content-ID: <caiven-logo>"));
+        assert!(raw.contains("Content-Type: image/png"));
+        Ok(())
     }
 
     #[test]
