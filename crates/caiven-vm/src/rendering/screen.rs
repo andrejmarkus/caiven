@@ -60,8 +60,8 @@ impl Screen {
     /// Composes an opaque frame: pixels no layer drew are the console's black
     /// backdrop, so screenshots and canvases never show through.
     pub fn construct(&self, out: &mut [u8], world: &[u8], ui: &[u8]) {
-        for pixel in out.chunks_exact_mut(RGBA_BYTES) {
-            pixel.copy_from_slice(&[0, 0, 0, 255]);
+        for pixel in out.as_chunks_mut::<RGBA_BYTES>().0 {
+            *pixel = [0, 0, 0, 255];
         }
         for layer_pixels in [world, ui, self.debug.get_pixels()] {
             for i in (0..out.len()).step_by(RGBA_BYTES) {
