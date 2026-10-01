@@ -388,7 +388,7 @@ pub fn run() -> Result<()> {
             result?;
             Ok(())
         }
-        Some(Command::Edit { file }) => crate::studio::run_studio(file.clone()),
+        Some(Command::Edit { file }) => crate::tauri_app::run(file.clone()),
         // Debug-only escape hatch for WebDriver-based UI automation: some
         // drivers append their own argv when launching the target process,
         // which our subcommand parser then rejects, so the automated path
@@ -398,8 +398,8 @@ pub fn run() -> Result<()> {
         #[cfg(debug_assertions)]
         None if std::env::var_os("CAIVEN_STUDIO_EDIT_PATH").is_some() => {
             let path = std::env::var_os("CAIVEN_STUDIO_EDIT_PATH").map(PathBuf::from);
-            crate::studio::run_studio(path)
+            crate::tauri_app::run(path)
         }
-        None => crate::studio::run_studio(None),
+        None => crate::tauri_app::run(None),
     }
 }

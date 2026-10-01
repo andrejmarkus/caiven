@@ -112,16 +112,6 @@ impl ShellInput {
         None
     }
 
-    /// Whether B is down and has not yet become START — the window where a
-    /// hold indicator would be drawn.
-    pub fn b_hold_progress(&self) -> Option<f32> {
-        if self.b_promoted {
-            return None;
-        }
-        let held = self.b_held?;
-        Some((held.as_secs_f32() / LONG_PRESS.as_secs_f32()).clamp(0.0, 1.0))
-    }
-
     /// Forgets any hold in progress. Used when the shell changes screen out
     /// from under the player, so a stale timer cannot fire into the new one.
     pub fn reset(&mut self) {
@@ -225,23 +215,6 @@ mod tests {
         run(&mut input, 5);
         assert_eq!(input.press(ShellButton::Down), Some(ShellButton::Down));
         assert_eq!(input.release(ShellButton::B), Some(ShellButton::B));
-    }
-
-    #[test]
-    fn hold_progress_runs_zero_to_one_then_stops_reporting() {
-        let mut input = ShellInput::new();
-        assert_eq!(input.b_hold_progress(), None);
-        input.press(ShellButton::B);
-        assert_eq!(input.b_hold_progress(), Some(0.0));
-        input.tick(LONG_PRESS / 2);
-        let half = input.b_hold_progress().expect("mid-hold");
-        assert!((half - 0.5).abs() < 0.01, "got {half}");
-        input.tick(LONG_PRESS);
-        assert_eq!(
-            input.b_hold_progress(),
-            None,
-            "the hold already fired; there is nothing left to indicate"
-        );
     }
 
     #[test]

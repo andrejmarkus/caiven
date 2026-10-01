@@ -1,16 +1,6 @@
 use crate::rendering::{font::Font, screen::ScreenLayer};
 use caiven_core::{Color, Vec2};
 
-pub fn draw_character(
-    font: &Font,
-    layer: &mut ScreenLayer,
-    ch: char,
-    position: Vec2,
-    color: Color,
-) {
-    draw_character_at(font, layer, ch, position.x as i64, position.y as i64, color);
-}
-
 /// Signed-position glyph draw: pixels off any edge are clipped one by one,
 /// so text straddling the screen edge still shows its visible part.
 pub fn draw_character_at(
@@ -38,17 +28,6 @@ pub fn draw_character_at(
             }
         }
     }
-}
-
-pub fn draw_text(font: &Font, layer: &mut ScreenLayer, text: &str, position: Vec2, color: Color) {
-    draw_text_at(
-        font,
-        layer,
-        text,
-        position.x as i64,
-        position.y as i64,
-        color,
-    );
 }
 
 pub fn draw_text_at(
@@ -101,7 +80,7 @@ mod tests {
     fn lowercase_falls_back_to_uppercase_glyph() {
         let font = font_with_a_only();
         let mut layer = ScreenLayer::new(16, 16);
-        draw_character(&font, &mut layer, 'a', Vec2::new(0, 0), white());
+        draw_character_at(&font, &mut layer, 'a', 0, 0, white());
         // Falls back to 'A's glyph, so the same 15 pixels light up.
         assert_eq!(drawn_pixel_count(&layer), 15);
     }
@@ -119,7 +98,7 @@ mod tests {
     fn unmapped_char_draws_nothing() {
         let font = font_with_a_only();
         let mut layer = ScreenLayer::new(16, 16);
-        draw_character(&font, &mut layer, '~', Vec2::new(0, 0), white());
+        draw_character_at(&font, &mut layer, '~', 0, 0, white());
         assert_eq!(drawn_pixel_count(&layer), 0);
     }
 }

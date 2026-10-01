@@ -113,7 +113,7 @@ impl App {
         self.cart_id = cart_library::cart_id(path);
 
         if let Some(id) = &self.cart_id {
-            let path = save_data_io::save_data_path(&save_data_io::saves_dir(), id);
+            let path = save_data_io::save_data_path(&save_state::saves_dir(), id);
             if let Ok(bytes) = std::fs::read(&path)
                 && let Some(data) = caiven_vm::vm::SaveData::decode(&bytes)
             {
@@ -932,7 +932,7 @@ pub fn run() -> Result<()> {
         }
 
         if app.core.vm.save_data().is_dirty() {
-            let dir = save_data_io::saves_dir();
+            let dir = save_state::saves_dir();
             if let Some(id) = &app.cart_id {
                 let _ = std::fs::create_dir_all(&dir);
                 let path = save_data_io::save_data_path(&dir, id);

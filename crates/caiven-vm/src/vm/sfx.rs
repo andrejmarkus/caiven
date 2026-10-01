@@ -22,33 +22,13 @@ pub fn note_to_freq(note: u8) -> f32 {
     440.0 * 2.0f32.powf((note as f32 - 49.0) / 12.0)
 }
 
-const NOTE_NAMES: [&str; 12] = [
-    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
-];
-
-pub fn note_name(note: u8) -> String {
-    if note == 0 {
-        return "---".to_string();
-    }
-    // Note 1 is 27.5 Hz (A0), so names count from A, not C.
-    let semitones_from_c0 = note as usize + 8;
-    format!(
-        "{}{}",
-        NOTE_NAMES[semitones_from_c0 % 12],
-        semitones_from_c0 / 12
-    )
-}
-
 #[cfg(test)]
-mod note_name_tests {
-    use super::{note_name, note_to_freq};
+mod note_tests {
+    use super::note_to_freq;
 
     #[test]
-    fn names_match_frequencies() {
-        assert_eq!(note_name(49), "A4");
+    fn a4_is_440_hz() {
         assert!((note_to_freq(49) - 440.0).abs() < 0.01);
-        assert_eq!(note_name(1), "A0");
-        assert_eq!(note_name(4), "C1");
     }
 }
 

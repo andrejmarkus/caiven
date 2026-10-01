@@ -108,8 +108,6 @@ export const MUSIC_ORDER_STEPS = 32;
 export const MUSIC_SONG_LEN = MUSIC_ORDER_STEPS + 1;
 /** Byte offset of the song order table within a music bank. */
 export const MUSIC_ORDER_OFFSET = MUSIC_PATTERN_COUNT * MUSIC_PATTERN_ROWS * MUSIC_CHANNEL_COUNT;
-/** Byte offset of the loop-point byte within a music bank. */
-export const MUSIC_LOOP_POINT_OFFSET = MUSIC_ORDER_OFFSET + MUSIC_ORDER_STEPS;
 /** Music bank byte length — one byte per channel per row, then the song section. */
 export const MUSIC_BANK_LEN =
   MUSIC_PATTERN_COUNT * MUSIC_PATTERN_ROWS * MUSIC_CHANNEL_COUNT + MUSIC_SONG_LEN;

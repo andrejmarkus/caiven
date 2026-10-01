@@ -202,8 +202,6 @@ pub const RTC_RAM_BASE: usize = MemRegion::Rtc.base();
 /// out-of-band in a cart section — it is deliberately not a `MemRegion`
 /// and has no RAM window.
 pub const COLLISION_RAM_BASE: usize = MemRegion::Collision.base();
-/// RAM base address of general-purpose/heap space.
-pub const HEAP_RAM_BASE: usize = MemRegion::Heap.base();
 
 // Compile-time guard: the memory map must fit the address space. Resizing a region so
 // the map overflows fails the build here instead of silently corrupting addresses.

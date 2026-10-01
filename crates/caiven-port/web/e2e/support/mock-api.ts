@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import type { BrowserContext, Page, Route } from '@playwright/test';
+import type { Page, Route } from '@playwright/test';
 
 export interface Invocation {
   method: string;
@@ -327,8 +327,4 @@ export class MockApi {
 
 declare global {
   interface Window { __CAIVEN_PORT_E2E__?: Readonly<{ mode: 'mock' | 'live' }>; }
-}
-
-export async function clearBrowserState(context: BrowserContext): Promise<void> {
-  await context.clearCookies();
 }

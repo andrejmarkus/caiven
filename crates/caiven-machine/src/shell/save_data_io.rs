@@ -5,11 +5,6 @@
 
 use std::path::{Path, PathBuf};
 
-/// Where save data lives: the same `saves/` as save states.
-pub fn saves_dir() -> PathBuf {
-    super::save_state::saves_dir()
-}
-
 /// The save-data file for a given cart id. `id` must already be a V56-safe
 /// single path component (`cart_library::cart_id` guarantees this).
 pub fn save_data_path(dir: &Path, id: &str) -> PathBuf {
