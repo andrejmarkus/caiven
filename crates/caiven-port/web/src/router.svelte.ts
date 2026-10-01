@@ -46,6 +46,10 @@ export function safeNext(fallback = '/'): string {
   }
 }
 
+export function setTitle(page: string): void {
+  document.title = `${page} · Caiven`;
+}
+
 export function link(node: HTMLAnchorElement): { destroy(): void } {
   function onClick(e: MouseEvent) {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;

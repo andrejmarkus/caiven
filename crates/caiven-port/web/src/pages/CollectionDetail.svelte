@@ -3,7 +3,7 @@
   import { currentUser } from '../stores.svelte';
   import CartCard from '../components/CartCard.svelte';
   import { Button } from '@caiven/ui/button';
-  import { navigate } from '../router.svelte';
+  import { navigate, setTitle } from '../router.svelte';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import TrashIcon from '@lucide/svelte/icons/trash-2';
@@ -26,6 +26,7 @@
     catch (e) { error = e instanceof Error ? e.message : String(e); }
   }
   $effect(() => { slug; load(); });
+  $effect(() => { if (collection) setTitle(collection.title); });
   async function toggleFollow() {
     if (!collection) return;
     if (!currentUser.value) { navigate(`/login?next=/collections/${slug}`); return; }

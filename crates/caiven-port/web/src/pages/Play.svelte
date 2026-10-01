@@ -3,7 +3,7 @@
   import { api, type CartDetail } from '../api';
   import { CartPlayer } from '../player';
   import { playSessionId, rememberCart } from '../history';
-  import { link } from '../router.svelte';
+  import { link, setTitle } from '../router.svelte';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import MaximizeIcon from '@lucide/svelte/icons/maximize-2';
   import MinimizeIcon from '@lucide/svelte/icons/minimize-2';
@@ -68,6 +68,7 @@
       error = e instanceof Error ? e.message : String(e); loading = false;
     }
   }
+  $effect(() => { if (cart) setTitle(`Play ${cart.title}`); });
   function toggleFullscreen() { if (!stage) return; document.fullscreenElement ? void document.exitFullscreen() : void stage.requestFullscreen(); }
   $effect(() => {
     id; boot();

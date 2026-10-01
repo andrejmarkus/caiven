@@ -1,6 +1,6 @@
 <script lang="ts">
   import './app.css';
-  import { route, matchRoute } from './router.svelte';
+  import { route, matchRoute, setTitle } from './router.svelte';
   import { hydrateUser, currentUser } from './stores.svelte';
   import AppShell from './components/AppShell.svelte';
   import Home from './pages/Home.svelte';
@@ -35,6 +35,18 @@
   const protectedPage = $derived(
     ['activity', 'dashboard', 'settings', 'upload', 'admin'].includes(match.name),
   );
+  const titles: Record<string, string> = {
+    browse: 'Browse games', tags: 'Tags', collections: 'Collections', jams: 'Game jams',
+    activity: 'Activity', library: 'Library', dashboard: 'Dashboard', settings: 'Settings',
+    login: 'Log in', register: 'Sign up', upload: 'Upload', privacy: 'Privacy', terms: 'Terms',
+    report: 'Report content', notfound: 'Page not found',
+  };
+  // Detail pages set their own title once their data loads.
+  $effect(() => {
+    const page = titles[match.name];
+    if (page) setTitle(page);
+    else if (match.name === 'home') document.title = 'Caiven Port — play and remix tiny games in your browser';
+  });
 </script>
 
 <Toaster position="bottom-right" />

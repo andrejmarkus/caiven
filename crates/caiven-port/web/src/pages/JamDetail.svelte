@@ -3,7 +3,7 @@
   import { currentUser } from '../stores.svelte';
   import CartCard from '../components/CartCard.svelte';
   import { Button } from '@caiven/ui/button';
-  import { navigate } from '../router.svelte';
+  import { navigate, setTitle } from '../router.svelte';
 
   let { slug }: { slug: string } = $props();
   let jam = $state<JamInfo | null>(null);
@@ -22,6 +22,7 @@
       if (currentUser.value) mine = (await api.userProfile(currentUser.value.username, 0, 100)).carts;
     } catch (e) { error = e instanceof Error ? e.message : String(e); }
   }
+  $effect(() => { if (jam) setTitle(jam.title); });
   $effect(() => {
     slug; load();
     const timer = window.setInterval(() => (now = Date.now()), 30000);

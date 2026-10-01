@@ -279,6 +279,19 @@ pub async fn get(db: &DatabaseConnection, id: &str) -> Result<Option<Cart>> {
     Ok(Some(to_cart(db, m).await?))
 }
 
+/// `(id, uploaded_at)` of the newest carts, for `sitemap.xml`.
+// ponytail: one sitemap capped at the 50k-URL protocol limit; add a sitemap index past that.
+pub async fn sitemap_carts(db: &DatabaseConnection) -> Result<Vec<(String, String)>> {
+    Ok(CartEntity::find()
+        .select_only()
+        .columns([carts::Column::Id, carts::Column::UploadedAt])
+        .order_by_desc(carts::Column::UploadedAt)
+        .limit(50_000)
+        .into_tuple()
+        .all(db)
+        .await?)
+}
+
 /// Direct remix count plus the newest few, for the cart detail page.
 pub async fn remixes_of(
     db: &DatabaseConnection,

@@ -5,7 +5,7 @@
   import CommentList from '../components/CommentList.svelte';
   import CartCard from '../components/CartCard.svelte';
   import { currentUser } from '../stores.svelte';
-  import { navigate, link } from '../router.svelte';
+  import { navigate, link, setTitle } from '../router.svelte';
   import { Button, buttonVariants } from '@caiven/ui/button';
   import PlayIcon from '@lucide/svelte/icons/play';
   import DownloadIcon from '@lucide/svelte/icons/download';
@@ -38,6 +38,7 @@
     finally { loading = false; }
   }
   $effect(() => { id; load(); });
+  $effect(() => { if (cart) setTitle(cart.title); });
   async function rate(score: number) { if (!cart) return; await api.rateCart(cart.id, score); await load(); }
   async function follow() {
     if (!cart?.owner) return;

@@ -3,7 +3,7 @@
   import { currentUser } from '../stores.svelte';
   import CartCard from '../components/CartCard.svelte';
   import { Button } from '@caiven/ui/button';
-  import { navigate } from '../router.svelte';
+  import { navigate, setTitle } from '../router.svelte';
 
   let { username }: { username: string } = $props();
   let profile = $state<UserProfile | null>(null);
@@ -11,6 +11,7 @@
   let error = $state('');
   async function load() { loading = true; try { profile = await api.userProfile(username, 0, 100); } catch (e) { error = e instanceof Error ? e.message : String(e); } finally { loading = false; } }
   $effect(() => { username; load(); });
+  $effect(() => { if (profile) setTitle(`@${profile.username}`); });
   async function follow() {
     if (!profile) return;
     if (!currentUser.value) { navigate(`/login?next=/author/${username}`); return; }

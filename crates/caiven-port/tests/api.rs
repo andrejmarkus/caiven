@@ -3553,7 +3553,7 @@ async fn shared_cart_links_carry_escaped_preview_tags() {
     let client = test_client(dir.path()).await;
     std::fs::write(
         dir.path().join("web/index.html"),
-        "<html><head><title>Caiven Port</title></head><body></body></html>",
+        "<html><head><title>Caiven Port</title><!-- meta --><meta name=\"description\" content=\"site\" /><!-- /meta --></head><body></body></html>",
     )
     .unwrap();
     let owner = register_get_token_and_logout(&client, "owner").await;
@@ -3606,6 +3606,27 @@ async fn shared_cart_links_carry_escaped_preview_tags() {
         r#"<meta property="og:url" content="http://localhost:8080/play/{child_id}" />"#
     )));
 
+    assert!(
+        !page.contains(r#"content="site""#),
+        "cart tags replace defaults: {page}"
+    );
+    assert!(page.contains(&format!(
+        r#"<link rel="canonical" href="http://localhost:8080/cart/{child_id}" />"#
+    )));
+
+    let robots = client.get("/robots.txt").dispatch().await;
+    let robots = robots.into_string().await.unwrap();
+    assert!(robots.contains("Disallow: /settings") && !robots.contains("/api"));
+    assert!(robots.contains("Sitemap: http://localhost:8080/sitemap.xml"));
+    let sitemap = client.get("/sitemap.xml").dispatch().await;
+    assert_eq!(sitemap.content_type(), Some(ContentType::XML));
+    let sitemap = sitemap.into_string().await.unwrap();
+    assert!(sitemap.contains("<loc>http://localhost:8080/browse</loc>"));
+    assert!(sitemap.contains(&format!(
+        "<loc>http://localhost:8080/cart/{parent_id}</loc>"
+    )));
+    assert!(sitemap.contains(&format!("<loc>http://localhost:8080/cart/{child_id}</loc>")));
+
     // Unknown carts and other routes still get the plain SPA shell.
     let plain = client
         .get("/cart/missing")
@@ -3614,7 +3635,7 @@ async fn shared_cart_links_carry_escaped_preview_tags() {
         .into_string()
         .await
         .unwrap();
-    assert!(plain.contains("<title>Caiven Port</title>") && !plain.contains("og:"));
+    assert!(plain.contains("<title>Caiven Port</title>") && plain.contains(r#"content="site""#));
 }
 
 #[rocket::async_test]

@@ -3,7 +3,12 @@
 
 use std::path::PathBuf;
 
-use rocket::{State, fs::NamedFile, get, response::content::RawHtml};
+use rocket::{
+    State,
+    fs::NamedFile,
+    get,
+    response::content::{RawHtml, RawText, RawXml},
+};
 
 use crate::{PortState, db, handlers::valid_id, mailer::escape_html};
 
@@ -13,6 +18,67 @@ pub async fn fallback(path: PathBuf, state: &State<PortState>) -> Option<NamedFi
         return None;
     }
     NamedFile::open(state.web_dir.join("index.html")).await.ok()
+}
+
+// `/api/` stays crawlable: the rendered SPA fetches its content from there.
+#[get("/robots.txt")]
+pub fn robots(state: &State<PortState>) -> RawText<String> {
+    let mut body = String::from("User-agent: *\n");
+    for path in [
+        "/admin",
+        "/dashboard",
+        "/settings",
+        "/profile",
+        "/library",
+        "/activity",
+        "/upload",
+        "/login",
+        "/register",
+        "/verify-email",
+        "/forgot-password",
+        "/reset-password",
+        "/link-studio",
+        "/report",
+        "/remix/",
+    ] {
+        body.push_str(&format!("Disallow: {path}\n"));
+    }
+    body.push_str(&format!("\nSitemap: {}/sitemap.xml\n", origin(state)));
+    RawText(body)
+}
+
+#[get("/sitemap.xml")]
+pub async fn sitemap(state: &State<PortState>) -> RawXml<String> {
+    let origin = origin(state);
+    let mut xml = String::from(
+        r#"<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">"#,
+    );
+    for path in [
+        "",
+        "/browse",
+        "/tags",
+        "/collections",
+        "/jams",
+        "/privacy",
+        "/terms",
+    ] {
+        xml.push_str(&format!("<url><loc>{origin}{path}</loc></url>"));
+    }
+    // A DB hiccup still serves the static pages rather than a 500.
+    for (id, uploaded_at) in db::sitemap_carts(&state.db).await.unwrap_or_default() {
+        xml.push_str(&format!(
+            "<url><loc>{origin}/cart/{}</loc><lastmod>{}</lastmod></url>",
+            escape_html(&id),
+            escape_html(&uploaded_at)
+        ));
+    }
+    xml.push_str("</urlset>");
+    RawXml(xml)
+}
+
+/// Crawlers need absolute URLs; a wrong origin only breaks previews and crawling.
+fn origin(state: &PortState) -> &str {
+    state.base_url.as_deref().unwrap_or(&state.local_origin)
 }
 
 #[get("/play/<id>", rank = 19)]
@@ -66,9 +132,13 @@ async fn render_cart_page(
         " Play it in your browser."
     });
 
-    // Preview crawlers need absolute URLs; a wrong origin only breaks a preview.
-    let origin = state.base_url.as_deref().unwrap_or(&state.local_origin);
+    let origin = origin(state);
     let mut tags = vec![
+        meta("description", &description),
+        format!(
+            "<link rel=\"canonical\" href=\"{}\" />",
+            escape_html(&format!("{origin}/cart/{}", cart.id))
+        ),
         meta("og:type", "website"),
         meta("og:site_name", "Caiven"),
         meta("og:title", &cart.title),
@@ -116,8 +186,14 @@ fn with_head(html: &str, title: &str, tags: &str) -> String {
         }
         _ => html.to_string(),
     };
-    match html.find("</head>") {
-        Some(at) => format!("{}{tags}{}", &html[..at], &html[at..]),
-        None => html,
+    // Cart tags replace the shell's site-wide defaults between the markers.
+    const START: &str = "<!-- meta -->";
+    const END: &str = "<!-- /meta -->";
+    match (html.find(START), html.find(END), html.find("</head>")) {
+        (Some(start), Some(end), _) if start < end => {
+            format!("{}{tags}{}", &html[..start], &html[end + END.len()..])
+        }
+        (_, _, Some(at)) => format!("{}{tags}{}", &html[..at], &html[at..]),
+        _ => html,
     }
 }
