@@ -20,6 +20,17 @@ services:
       dockerfile: crates/caiven-port/Dockerfile
     environment:
       DATABASE_URL: postgres://caiven:caiven@db:5432/caiven
+    # `docker compose up --watch` rebuilds and restarts on local source edits.
+    develop:
+      watch:
+        - { action: rebuild, path: ../caiven-port/src }
+        - { action: rebuild, path: ../caiven-port/Cargo.toml }
+        - { action: rebuild, path: ../caiven-port/web, ignore: [node_modules/, dist/, test-results/, playwright-report/] }
+        - { action: rebuild, path: ../caiven-ui/src }
+        - { action: rebuild, path: ../migration }
+        - { action: rebuild, path: ../caiven-cart }
+        - { action: rebuild, path: ../caiven-core }
+        - { action: rebuild, path: ../../Cargo.lock }
     ports:
       - "8080:8080"
     depends_on:

@@ -17,7 +17,11 @@ RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/li
 WORKDIR /app
 COPY . .
 
-RUN cargo build --locked --release -p caiven-port
+# Cache mounts keep incremental rebuilds fast; the binary is copied out of the cached target.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/app/target \
+    cargo build --locked --release -p caiven-port \
+    && cp target/release/caiven-port /usr/local/bin/caiven-port
 
 # Runtime stage
 FROM debian:bookworm-slim
@@ -26,7 +30,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/target/release/caiven-port /usr/local/bin/caiven-port
+COPY --from=builder /usr/local/bin/caiven-port /usr/local/bin/caiven-port
 COPY --from=web /app/crates/caiven-port/web/dist /app/web
 
 RUN groupadd --gid 10001 caiven \
