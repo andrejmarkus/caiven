@@ -2478,6 +2478,23 @@ fn studio_remove_recent(
     state.request(|reply| CoreCommand::RemoveRecent { path, reply })
 }
 
+/// PNG data URL of a recent cart run headlessly, like the Port publish cover.
+#[tauri::command(async)]
+fn studio_recent_cover(path: PathBuf) -> Result<String, String> {
+    use base64::Engine as _;
+    // Only carts already in history; this command must not become a file reader.
+    if !recent::load().contains(&path) {
+        return Err(format!("Not a recent cart: {}", path.display()));
+    }
+    let cart = caiven_cart::open(&path).map_err(|error| error.to_string())?;
+    let png = crate::port_client::capture_screenshot(&cart, caiven_vm::VmConfig::default(), 30)
+        .map_err(|error| format!("{error:#}"))?;
+    Ok(format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(png)
+    ))
+}
+
 #[tauri::command]
 fn studio_read_memory(
     address: usize,
@@ -2878,6 +2895,7 @@ pub fn run(initial_path: Option<PathBuf>) -> anyhow::Result<()> {
             studio_peek_value,
             studio_clear_output,
             studio_remove_recent,
+            studio_recent_cover,
             studio_read_memory,
             studio_write_memory,
             studio_write_map_cells,

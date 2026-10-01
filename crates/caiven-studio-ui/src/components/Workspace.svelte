@@ -32,7 +32,7 @@
   import {
     MAP_H, MAP_PX_H, MAP_PX_W, MAP_W, MUSIC_CHANNEL_COUNT, MUSIC_ORDER_OFFSET, MUSIC_ORDER_STEPS,
     MUSIC_PATTERN_COUNT, MUSIC_PATTERN_LEN, MUSIC_PATTERN_ROWS, SCREEN_HEIGHT, SCREEN_RGBA_LEN, SCREEN_WIDTH,
-    SPRITE_SHEET_COLS,
+    SPRITE_SHEET_COLS, recentCover,
   } from '../lib/ipc';
 
   /** Music channel timbres, fixed by column. Mirrors `audio::MUSIC_VOICE_KINDS`. */
@@ -233,6 +233,14 @@
   let loginName = $state('');
   let loginPassword = $state('');
   let coverCanvas = $state<HTMLCanvasElement>();
+  let recentCovers = $state<Record<string, string | null>>({});
+  $effect(() => {
+    for (const item of recent.slice(0, 4)) {
+      if (item in recentCovers) continue;
+      recentCovers[item] = null;
+      recentCover(item).then((url) => { recentCovers[item] = url; });
+    }
+  });
   let treeWidth = $state(230);
   let treeResizing = $state(false);
   let projectStatePath = $state('');
@@ -1469,7 +1477,7 @@
             <article class="recent-card">
               <button class="recent-open" onclick={() => onOpenLocal(item)}>
                 <span class="mini-cover" style={`--seed:${i}`}>
-                  {#each Array(64) as _, p}<i style={`background:${palette[(p * 7 + i * 3) % 16]}`}></i>{/each}
+                  {#if recentCovers[item]}<img src={recentCovers[item]} alt="" />{:else}{#each Array(64) as _, p}<i style={`background:${palette[(p * 7 + i * 3) % 16]}`}></i>{/each}{/if}
                 </span>
                 <span><strong>{fileName(item)}</strong><code>{item}</code></span>
                 <small>Recent</small>

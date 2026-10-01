@@ -57,8 +57,12 @@ impl Screen {
         &mut self.debug
     }
 
+    /// Composes an opaque frame: pixels no layer drew are the console's black
+    /// backdrop, so screenshots and canvases never show through.
     pub fn construct(&self, out: &mut [u8], world: &[u8], ui: &[u8]) {
-        out.fill(0);
+        for pixel in out.as_chunks_mut::<RGBA_BYTES>().0 {
+            *pixel = [0, 0, 0, 255];
+        }
         for layer_pixels in [world, ui, self.debug.get_pixels()] {
             for i in (0..out.len()).step_by(RGBA_BYTES) {
                 let a = layer_pixels[i + 3];
@@ -68,5 +72,20 @@ impl Screen {
                 out[i..i + RGBA_BYTES].copy_from_slice(&layer_pixels[i..i + RGBA_BYTES]);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn construct_fills_undrawn_pixels_with_opaque_black() {
+        let screen = Screen::new(2, 1);
+        let world = [255, 0, 0, 255, 0, 0, 0, 0];
+        let ui = [0; 8];
+        let mut out = [7; 8];
+        screen.construct(&mut out, &world, &ui);
+        assert_eq!(out, [255, 0, 0, 255, 0, 0, 0, 255]);
     }
 }

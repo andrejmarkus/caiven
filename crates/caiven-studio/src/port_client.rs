@@ -6,6 +6,7 @@
 use anyhow::{Context, Result};
 use caiven_vm::input::Input;
 use caiven_vm::rendering::font::Font;
+use caiven_vm::rendering::screen::Screen;
 use caiven_vm::{Vm, VmConfig};
 
 pub(crate) fn build_multipart(
@@ -57,18 +58,12 @@ pub(crate) fn capture_screenshot(
         }
     }
 
-    let world = vm.world_pixels();
-    let ui = vm.ui_pixels();
-    let pixel_count = (config.width * config.height) as usize;
-    let mut rgba = vec![0u8; pixel_count * 4];
-    for i in 0..pixel_count {
-        let base = i * 4;
-        if ui[base + 3] > 0 {
-            rgba[base..base + 4].copy_from_slice(&ui[base..base + 4]);
-        } else {
-            rgba[base..base + 4].copy_from_slice(&world[base..base + 4]);
-        }
-    }
+    let mut rgba = vec![0u8; (config.width * config.height) as usize * 4];
+    Screen::new(config.width, config.height).construct(
+        &mut rgba,
+        vm.world_pixels(),
+        vm.ui_pixels(),
+    );
 
     let img = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(config.width, config.height, rgba)
         .context("failed to create image buffer")?;
@@ -272,6 +267,21 @@ mod tests {
             tried >= 24,
             "expected six try values per starter, ran {tried}"
         );
+    }
+
+    // `clear_screen()` leaves layers transparent; a cover must still be a
+    // whole picture, not a PNG that shows the page behind it.
+    #[test]
+    fn screenshot_is_opaque_after_clear_screen() {
+        let png = capture_screenshot(
+            &cart("function _update() clear_screen() draw_text('A', 0, 0, 1) end"),
+            VmConfig::default(),
+            1,
+        )
+        .unwrap();
+        let image = image::load_from_memory(&png).unwrap().to_rgba8();
+        assert!(image.pixels().all(|pixel| pixel[3] == 255));
+        assert_eq!(image.get_pixel(191, 127).0, [0, 0, 0, 255]);
     }
 
     #[test]
