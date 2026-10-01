@@ -6,8 +6,9 @@ local ROCKS_PER_SECOND = 2    -- try 20
 local ROCK_SIZE = 5           -- try 25
 local PLAYER_SPEED = 2.5      -- try 8
 local SPEED_UP = 0.002        -- try 0.02
-local SHAKE = 6               -- try 25
+local STARS = 40              -- try 300
 
+local SHAKE = 6               -- screen shake on a crash
 local CLOSE = 7               -- clearance in pixels that counts as a near miss
 local ROCK_COLORS = { 10, 11, 12 }
 
@@ -87,7 +88,7 @@ end
 function _init()
   local h, m, s = real_time()
   math.randomseed(h * 3600 + m * 60 + s)
-  for i = 1, 40 do
+  for i = 1, STARS do
     stars[i] = { x = random_range(0, W), y = random_range(0, H), s = random_float(0.2, 1) }
   end
   set_music_volume(0.5)

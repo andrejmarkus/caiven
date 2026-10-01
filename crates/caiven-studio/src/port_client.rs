@@ -254,10 +254,7 @@ mod tests {
                 tried += 1;
             }
         }
-        // These only act on a game event the scripted input never reaches:
-        // passing a pipe, and crashing into a rock.
-        let event_gated = ["hop SPEED_UP = 0.3", "meteor SHAKE = 25"];
-        unchanged.retain(|label| !event_gated.contains(&label.as_str()));
+        // No exceptions: a try button that shows nothing reads as "editing is broken".
         assert!(
             unchanged.is_empty(),
             "look the same for 10 s: {unchanged:#?}"

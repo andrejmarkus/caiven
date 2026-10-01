@@ -17,7 +17,7 @@ friction?
 | Play | `/play/:id` | Unchanged: WASM runtime, no account. **Remix this** shows when the cart is remixable. |
 | Remix | `/remix/:id` | GAME \| CODE. The cart's real `LuaSource` section, pulled from the same `.cav` the player downloads. |
 | Change | same page | Studio's code editor (shared `@caiven/ui/lua-editor`): Lua highlighting, API completion and hover docs, the error line marked. **Change one thing** chips list top-level numeric constants (`local SPEED = 2`), and editing a chip rewrites that Lua line. A constant whose comment says `-- try N` gets a **try N** button that writes that value. |
-| See result | same page | A 700 ms pause in typing reruns it (a broken edit isn't retried until it changes); Run / Ctrl+Enter reruns right away. Each run rebuilds the `.cav` in the browser (`src/lib/cav.js`) and restarts it in the same WASM module (`CartPlayer.reload`). |
+| See result | same page | A 700 ms pause in typing reruns it (a broken edit isn't retried until it changes); Run / Ctrl+Enter reruns right away; **Stop** freezes the game until Run, and edits made while stopped stay stopped. Each run rebuilds the `.cav` in the browser (`src/lib/cav.js`) and restarts it in the same WASM module (`CartPlayer.reload`). |
 | Errors | same page | The real Lua message, the line number, a highlighted line, a one-line plain-language hint for common errors (`src/lib/remix.js`), and the edit is kept. On a load error the last working build keeps running. |
 | Publish | same page | Enabled only after a changed version has run cleanly. Creates a **new cart** with a structured parent link, uploads the current frame as its screenshot, and shows a share URL. |
 | Lineage | `/cart/:id` | "Remixed from *X* by @y", "N remixes", and a list of recent remixes. |
@@ -91,10 +91,12 @@ round-trips. Seed carts should be single-file.
 ### Lineage model
 
 Columns on `carts`, written once at create time and never updated
-(`m20260923_000018_remix_lineage`):
+(baseline migration `m20260929_000001_initial_schema`):
 
 - `parent_cart_id`: the cart that was remixed.
-- `parent_version`: the parent version remixed from (its latest at publish).
+- `parent_version`: the parent's latest version at publish time, not the
+  version the draft was opened from. Starters in a running experiment must
+  not get new versions.
 - `root_cart_id`: the original of the chain. It's stored rather than walked
   because it never changes, and it makes "from this cartridge" and challenge
   queries one indexed lookup on both SQLite and Postgres.
@@ -177,7 +179,7 @@ data beyond the hash. Nothing expires them yet; add a periodic delete of rows
 older than the analysis window before the table matters.
 
 To remove: delete `handlers/funnel.rs` and its two routes, drop
-`funnel_events` (migration down), and remove the `recordFunnel` calls in
+`funnel_events` (a new migration), and remove the `recordFunnel` calls in
 `Play.svelte` and `Remix.svelte`.
 
 ## Future compatibility

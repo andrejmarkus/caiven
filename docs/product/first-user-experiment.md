@@ -158,6 +158,5 @@ loop that spreads between people need different next steps.
 Each has six constants at the top with `-- try N` hints, surfaced as
 **try N** buttons. A wild value is undone with **Start over**, and each game
 restarts on A. A test plays each **try N** alone for 10 s against the shipped
-game: 22 of 24 change the picture. Hop `SPEED_UP` only shows after a pipe is
-passed and Meteor `SHAKE` only on a crash, so a person who tries those first
-may see nothing yet. Watch for that in the notes.
+game: all 24 change the picture, with no exceptions allowed. Event-only
+constants (Hop `SPEED_UP`, Meteor `SHAKE`) stay in the code without a hint.

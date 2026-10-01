@@ -5,11 +5,11 @@ local GRAVITY = 0.22       -- try 0.05
 local FLAP = 3.2           -- try 6
 local GAP = 46             -- try 20
 local PIPE_SPEED = 1.2     -- try 3
-local SPEED_UP = 0.03      -- try 0.3
+local PIPE_WIDTH = 14      -- try 40
 local SHAKE = 5            -- try 20
 
 local PIPE_SPACING = 84
-local PIPE_WIDTH = 14
+local SPEED_UP = 0.03      -- extra speed per pipe passed
 local BIRD_X, BIRD_R = 44, 4
 
 local W, H = 192, 128
