@@ -397,6 +397,11 @@ export async function clearOutput(): Promise<void> {
   else fallback.output = [];
 }
 
+export async function recentCover(path: string): Promise<string | null> {
+  if (!isTauri()) return null;
+  return invoke<string>('studio_recent_cover', { path }).catch(() => null);
+}
+
 export async function removeRecent(path: string): Promise<string[]> {
   if (isTauri()) return invoke<string[]>('studio_remove_recent', { path });
   fallback.recent = fallback.recent.filter((candidate) => candidate !== path);

@@ -278,6 +278,7 @@ function installBridge() {
       return [];
     }
     if (command === 'studio_clear_output') return null;
+    if (command === 'studio_recent_cover') throw new Error('No cover in E2E');
     if (command === 'studio_remove_recent') { recent = recent.filter((path) => path !== args.path); return [...recent]; }
     if (command === 'studio_write_meta') return null;
     if (command === 'studio_create_module') { const name = String(args.name); if (!/^[\w/-]+\.lua$/.test(name)) throw new Error('Module name must end in .lua'); const source = { path: `/carts/test/${name}`, name, text: '', dirty: true }; sources.push(source); persistSources(); return source; }
