@@ -138,8 +138,7 @@
   <div class="screen-stage">
     <div class="console-screen" class:running>
       <canvas bind:this={canvas} width={SCREEN_WIDTH} height={SCREEN_HEIGHT} aria-label="Cart framebuffer"></canvas>
-      <div class="scanline-overlay"></div>
-      <div class="crt-vignette"></div>
+      <div class="screen-filter"></div>
       {#if !running}
         <div class="pause-scrim">
           {#if scriptError}

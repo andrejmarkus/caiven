@@ -363,7 +363,7 @@
       <section class="flex flex-col gap-3 lg:overflow-y-auto" aria-label="Game">
         <div class="relative aspect-3/2 w-full overflow-hidden rounded-lg bg-black shadow-2xl shadow-black/60">
           <canvas bind:this={canvas} width="192" height="128" class="block size-full touch-manipulation" style="image-rendering: pixelated;"></canvas>
-          <div class="scanline-overlay crt-vignette pointer-events-none absolute inset-0 opacity-65"></div>
+          <div class="screen-filter pointer-events-none absolute inset-0"></div>
           <div bind:this={touchContainer} class="touch-overlay pointer-events-none absolute inset-0"></div>
           {#if stopped}<div class="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/55 text-sm font-semibold tracking-widest text-foreground" data-testid="game-stopped">STOPPED</div>{/if}
         </div>

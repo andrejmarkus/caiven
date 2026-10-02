@@ -324,7 +324,7 @@ button:active:not(:disabled) { transform: translateY(1px); }
 }
 .console-screen.running { box-shadow: 0 0 0 1px rgba(254,176,93,.35), 0 0 60px rgba(254,176,93,.16); }
 .console-screen canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
-.console-screen .scanline-overlay, .console-screen .crt-vignette, .focus-screen .scanline-overlay, .focus-screen .crt-vignette {
+.console-screen .screen-filter, .focus-screen .screen-filter {
   position: absolute; inset: 0; pointer-events: none;
 }
 .pause-scrim {

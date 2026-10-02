@@ -111,7 +111,7 @@
       {#if fakeFullscreen}<button onclick={toggleFullscreen} aria-label="Exit fullscreen" class="absolute top-[max(0.75rem,env(safe-area-inset-top))] right-[max(0.75rem,env(safe-area-inset-right))] z-10 flex size-9 items-center justify-center rounded-md border border-void-700 bg-black/60 text-muted-foreground"><MinimizeIcon class="size-4" /></button>{/if}
       <div class="relative aspect-3/2 w-[min(100%,1152px,120dvh)] overflow-hidden rounded-lg bg-black shadow-2xl shadow-black/60">
         <canvas bind:this={canvas} width="192" height="128" class="block size-full touch-manipulation" style="image-rendering: pixelated;"></canvas>
-        <div class="scanline-overlay crt-vignette pointer-events-none absolute inset-0 opacity-65"></div>
+        <div class="screen-filter pointer-events-none absolute inset-0"></div>
         {#if fault}<div class="absolute inset-0 flex flex-col items-center justify-center bg-black/90 p-5 text-center"><strong class="font-mono text-sm text-destructive">Cart crashed</strong><p class="mt-2 font-mono text-xs text-white">{fault}</p></div>{/if}
         <div bind:this={touchContainer} class="touch-overlay pointer-events-none absolute inset-0"></div>
       </div>

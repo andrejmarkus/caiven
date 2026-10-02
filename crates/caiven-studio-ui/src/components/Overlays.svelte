@@ -490,7 +490,7 @@
         <Button class="focus-exit" onclick={onClose}><Minimize2 size={16} />Exit focus <kbd>esc</kbd></Button>
         <div class="focus-screen">
           <canvas class="focus-pixels" bind:this={focusCanvas} width={SCREEN_WIDTH} height={SCREEN_HEIGHT} aria-label="Cart framebuffer"></canvas>
-          <div class="scanline-overlay"></div><div class="crt-vignette"></div>
+          <div class="screen-filter"></div>
           {#if pauseReason?.kind === 'breakpoint' || pauseReason?.kind === 'step'}
             <div class="focus-breakpoint-banner">
               {pauseReason.kind === 'step' ? 'Step' : 'Breakpoint'} <strong>{pauseReason.source}:{pauseReason.line ?? '?'}</strong>
