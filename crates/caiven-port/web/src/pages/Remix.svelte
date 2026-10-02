@@ -305,7 +305,7 @@
   });
 </script>
 
-<div class="flex min-h-[calc(100dvh-4rem)] flex-col bg-[#0d0d0d] lg:h-[calc(100dvh-4rem)]">
+<div class="flex min-h-[calc(100dvh-8rem-2px-env(safe-area-inset-top)-env(safe-area-inset-bottom))] md:min-h-[calc(100dvh-4rem)] flex-col bg-[#0d0d0d] lg:h-[calc(100dvh-4rem)]">
   <div class="flex flex-wrap items-center gap-3 border-b border-void-800 px-4 py-3 md:px-7">
     <a href="/play/{id}" use:link class="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeftIcon class="size-4" />Back to game</a>
     {#if cart}<span class="text-sm text-foreground">Remixing <strong>{cart.title}</strong> <span class="text-muted-foreground">by @{cart.owner ?? cart.author}</span></span>{/if}
@@ -359,7 +359,7 @@
       </form>
     {/if}
 
-    <div class="grid flex-1 gap-4 p-4 md:p-6 lg:min-h-0 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
+    <div class="grid flex-1 grid-cols-1 gap-4 p-4 md:p-6 lg:min-h-0 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
       <section class="flex flex-col gap-3 lg:overflow-y-auto" aria-label="Game">
         <div class="relative aspect-3/2 w-full overflow-hidden rounded-lg bg-black shadow-2xl shadow-black/60">
           <canvas bind:this={canvas} width="192" height="128" class="block size-full touch-manipulation" style="image-rendering: pixelated;"></canvas>
@@ -399,10 +399,10 @@
       </section>
 
       <section class="flex h-[70dvh] min-h-[420px] flex-col gap-2 lg:order-first lg:h-auto lg:min-h-0" aria-label="Code">
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
           <span class="text-sm font-semibold">Lua</span>
           {#if restored}<span class="text-xs text-muted-foreground">Restored your saved edit</span>{/if}
-          <span class="ml-auto text-xs text-muted-foreground">Reruns as you type · {runKey}</span>
+          <span class="ml-auto text-xs text-muted-foreground"><span class="hidden sm:inline">Reruns as you type · {runKey}</span></span>
           <Button size="sm" variant="secondary" disabled={stopped || !!runError?.runtime} onclick={stop}><StopIcon class="size-4" fill="currentColor" />Stop</Button>
           <Button size="sm" onclick={() => run()} class={changed && ranSource !== source ? 'ember-glow' : ''}><PlayIcon class="size-4" fill="currentColor" />Run</Button>
         </div>

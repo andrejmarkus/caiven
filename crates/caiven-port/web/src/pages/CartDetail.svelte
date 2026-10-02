@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { api, type CartDetail, type CollectionInfo, type UserProfile } from '../api';
   import RatingStars from '../components/RatingStars.svelte';
   import ScreenshotImg from '../components/ScreenshotImg.svelte';
@@ -23,6 +24,7 @@
   let error = $state('');
   let tab = $state<'overview' | 'comments' | 'versions'>('overview');
   let adding = $state(false);
+  let picker = $state<HTMLDivElement>();
   const isOwner = $derived(!!cart && !!currentUser.value && (cart.owner === currentUser.value.username || currentUser.value.is_admin));
 
   async function load() {
@@ -49,7 +51,11 @@
   async function openCollections() {
     if (!currentUser.value) { navigate(`/login?next=/cart/${id}`); return; }
     adding = !adding;
-    if (adding) collections = await api.listCollections({ owner: currentUser.value.username, per_page: 100 });
+    if (!adding) return;
+    collections = await api.listCollections({ owner: currentUser.value.username, per_page: 100 });
+    // On phones the panel opens below the fold, behind the tab bar.
+    await tick();
+    picker?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
   async function toggleRemixable() {
     if (!cart) return;
@@ -91,7 +97,7 @@
             {#if isOwner}<a href="/upload?cart={cart.id}" use:link class={buttonVariants({ variant: 'secondary', size: 'lg' })}>New version</a>{/if}
           </div>
           {#if isOwner}<label class="mt-4 flex items-center gap-2 text-sm text-muted-foreground"><input type="checkbox" checked={cart.remixable} onchange={toggleRemixable} />Let others remix this cart (shows its Lua source in the browser)</label>{/if}
-          {#if adding}<div class="surface-panel mt-3 max-w-md rounded-lg p-3">{#each collections.filter((c) => !c.carts.some((x) => x.id === id)) as collection}<button onclick={() => add(collection.slug)} class="flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm hover:bg-secondary"><span>{collection.title}</span><span>+</span></button>{:else}<p class="p-2 text-sm text-muted-foreground">No available owned collections.</p>{/each}</div>{/if}
+          {#if adding}<div bind:this={picker} class="surface-panel mt-3 max-w-md scroll-mb-24 rounded-lg p-3">{#each collections.filter((c) => !c.carts.some((x) => x.id === id)) as collection}<button onclick={() => add(collection.slug)} class="flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm hover:bg-secondary"><span>{collection.title}</span><span>+</span></button>{:else}<p class="p-2 text-sm text-muted-foreground">No available owned collections.</p>{/each}</div>{/if}
         </div>
         <div class="min-w-0 flex-1 basis-[340px] md:max-w-[430px]">
           <a href="/play/{cart.id}" use:link class="cart-notch relative block aspect-3/2 overflow-hidden border border-border bg-black">

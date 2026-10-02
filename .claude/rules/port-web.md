@@ -62,3 +62,9 @@ paths:
   touch implicitly captures the pointer, so d-pad buttons release it to let
   a thumb slide. `viewport-fit=cover` is on: new fixed/edge UI must pad with
   `env(safe-area-inset-*)`.
+- Full-height pages (`Play`, `Remix`) must subtract the mobile tab bar
+  too: below `md` it is header + tabs = `8rem + 2px` (both `box-content`
+  with a 1px border) plus both safe-area insets. Segmented controls that
+  can't wrap get `min-w-0 overflow-x-auto`, or the phone zooms the page out.
+  A grid with only `lg:grid-cols-*` needs `grid-cols-1` below it: the
+  implicit `auto` column grows to its widest child (Remix, 2026-10).

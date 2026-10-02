@@ -73,3 +73,28 @@ test('Add to Home Screen metadata resolves to real icons', async ({ page }) => {
     expect(res.headers()['content-type']).toContain('image/png');
   }
 });
+
+test('narrow phone pages never scroll sideways and the player fits above the tab bar', async ({ page, mock }, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith('mobile'), 'phone layout');
+  await mock.loginAs('admin');
+  mock.carts[0].remixable = true;
+  await page.setViewportSize({ width: 360, height: 740 });
+  for (const [path, ready] of [['/browse', 'heading'], ['/collections/staff-picks', 'heading'], ['/dashboard', 'heading'], ['/remix/demo', 'Lua source']]) {
+    await page.goto(path);
+    await expect(ready === 'heading' ? page.getByRole('heading', { level: 1 }) : page.getByLabel(ready)).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth), path).toBeLessThanOrEqual(360);
+  }
+  await page.goto('/play/demo');
+  await expect(page.getByRole('link', { name: 'Remix this' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth), '/play/demo').toBeLessThanOrEqual(360);
+  const controls = await page.getByTestId('controls').boundingBox();
+  const tabs = await page.locator('nav.fixed').boundingBox();
+  expect(controls!.y + controls!.height).toBeLessThanOrEqual(tabs!.y);
+
+  await page.setViewportSize({ width: 360, height: 600 });
+  await page.goto('/cart/demo');
+  await page.getByRole('button', { name: 'Add to collection' }).click();
+  const picker = page.getByText('No available owned collections.');
+  const tabTop = (await page.locator('nav.fixed').boundingBox())!.y;
+  await expect.poll(async () => { const box = await picker.boundingBox(); return box ? box.y + box.height : Infinity; }).toBeLessThanOrEqual(tabTop);
+});

@@ -72,7 +72,7 @@
       <div class="label-mono text-[10px] text-accent-foreground">{collection.kind === 'editorial' ? 'Editor’s pick' : `Curated by ${collection.owner}`}</div>
       <div class="mt-2 flex flex-wrap items-start justify-between gap-4">
         <div><h1 class="text-3xl font-bold">{collection.title}</h1><p class="mt-2 max-w-2xl text-muted-foreground">{collection.description}</p><p class="mt-4 font-mono text-xs text-muted-foreground">{collection.cart_count} carts · {collection.follower_count} followers</p></div>
-        <div class="flex gap-2">
+        <div class="flex flex-wrap gap-2">
           <Button variant={collection.followed_by_me ? 'secondary' : 'default'} onclick={toggleFollow}>{collection.followed_by_me ? 'Following' : 'Follow shelf'}</Button>
           {#if canEdit}<Button variant="secondary" onclick={openEditor}><PencilIcon />Edit</Button><Button variant="secondary" onclick={openPicker}><PlusIcon />Add cart</Button><Button variant="destructive" size="icon" onclick={destroy} aria-label="Delete collection"><TrashIcon /></Button>{/if}
         </div>

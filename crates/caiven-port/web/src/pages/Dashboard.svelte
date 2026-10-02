@@ -57,9 +57,9 @@
       <section class="surface-panel min-w-0 flex-1 basis-[360px] overflow-hidden rounded-lg">
         <h2 class="p-5 font-semibold">Your carts</h2>
         {#each data.carts as cart}
-          <div class="flex items-center gap-3 border-t border-[var(--border-subtle)] px-5 py-3">
-            <a href="/cart/{cart.id}" use:link class="min-w-0 flex-1 text-foreground"><strong class="block truncate text-sm">{cart.title}</strong><span class="font-mono text-[10px] text-muted-foreground">v{cart.latest_version} · {cart.rating_avg.toFixed(1)}★</span></a>
-            <span class="font-mono text-xs text-muted-foreground">{cart.plays} plays</span>
+          <div class="flex items-center gap-1 border-t sm:gap-3 border-[var(--border-subtle)] px-5 py-3">
+            <a href="/cart/{cart.id}" use:link class="min-w-0 flex-1 text-foreground"><strong class="block truncate text-sm">{cart.title}</strong><span class="font-mono text-[10px] text-muted-foreground">v{cart.latest_version} · {cart.rating_avg.toFixed(1)}★<span class="sm:hidden"> · {cart.plays} plays</span></span></a>
+            <span class="hidden font-mono text-xs text-muted-foreground sm:inline">{cart.plays} plays</span>
             <Button size="icon" variant="ghost" onclick={() => start(cart)} aria-label="Edit"><PencilIcon /></Button>
             <a href="/upload?cart={cart.id}" use:link class={buttonVariants({ variant: 'ghost', size: 'icon' })} aria-label="New version"><UploadIcon /></a>
             <AlertDialog.Root><AlertDialog.Trigger class={buttonVariants({ variant: 'ghost', size: 'icon' })}><TrashIcon /></AlertDialog.Trigger><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>Delete “{cart.title}”?</AlertDialog.Title><AlertDialog.Description>Removes every version. Cannot be undone.</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel>Cancel</AlertDialog.Cancel><AlertDialog.Action variant="destructive" onclick={() => remove(cart.id)}>Delete</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>

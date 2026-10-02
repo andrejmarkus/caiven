@@ -73,9 +73,9 @@
       <h1 class="page-title">Browse carts</h1>
       <p class="mt-1 text-sm text-muted-foreground">{loading ? 'Searching the Port…' : `${total} ${total === 1 ? 'cart' : 'carts'}${tag ? ` tagged ${tag}` : ''}`}</p>
     </div>
-    <div class="flex items-center gap-2">
+    <div class="flex max-w-full items-center gap-2">
       <span class="label-mono text-[10px] text-muted-foreground">Sort</span>
-      <div class="flex rounded-md border border-border bg-card p-1">
+      <div class="flex min-w-0 overflow-x-auto rounded-md border border-border bg-card p-1">
         {#each sorts as item}
           <Button type="button" variant={sort === item.value ? 'default' : 'ghost'} size="sm" onclick={() => applySort(item.value)}>{item.label}</Button>
         {/each}
