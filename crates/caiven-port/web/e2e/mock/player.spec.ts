@@ -4,6 +4,11 @@ test('repository cart boots shipped WASM, paints canvas, records play, and persi
   await page.goto('/play/demo');
   const canvas = page.locator('canvas');
   await expect(canvas).toBeVisible({ timeout: 30_000 });
+  const box = (await canvas.boundingBox())!;
+  const viewport = page.viewportSize()!;
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+  expect(box.width).toBeGreaterThan(Math.min(900, viewport.width - 64));
   await expect.poll(() => mock.calls('POST', '/api/v1/carts/demo/play').length, { timeout: 30_000 }).toBe(1);
   await expect.poll(async () => canvas.evaluate((node: HTMLCanvasElement) => {
     const pixels = node.getContext('2d')!.getImageData(0, 0, node.width, node.height).data;

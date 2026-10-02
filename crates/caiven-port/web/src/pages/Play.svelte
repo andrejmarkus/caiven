@@ -102,7 +102,7 @@
   {#if loading}<div class="flex flex-1 items-center justify-center text-sm text-muted-foreground">Booting cart…</div>
   {:else}
     <div bind:this={stage} class="stage flex flex-1 items-center justify-center p-4 md:p-8">
-      <div class="relative aspect-3/2 w-[min(620px,108vh)] overflow-hidden rounded-lg bg-black shadow-2xl shadow-black/60">
+      <div class="relative aspect-3/2 w-[min(100%,1152px,120dvh)] overflow-hidden rounded-lg bg-black shadow-2xl shadow-black/60">
         <canvas bind:this={canvas} width="192" height="128" class="block size-full" style="image-rendering: pixelated;"></canvas>
         <div class="scanline-overlay crt-vignette pointer-events-none absolute inset-0 opacity-65"></div>
         {#if fault}<div class="absolute inset-0 flex flex-col items-center justify-center bg-black/90 p-5 text-center"><strong class="font-mono text-sm text-destructive">Cart crashed</strong><p class="mt-2 font-mono text-xs text-white">{fault}</p></div>{/if}
@@ -124,4 +124,5 @@
 
 <style>
   .stage:fullscreen { height: 100vh; background: #000; }
+  .stage:fullscreen > div { width: min(100%, (100vh - 4rem) * 1.5); }
 </style>
