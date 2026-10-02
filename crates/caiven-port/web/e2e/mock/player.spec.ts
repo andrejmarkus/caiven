@@ -49,3 +49,36 @@ test('volume reaches the game audio and follows the viewer to remix', async ({ p
   await page.getByRole('button', { name: 'Unmute' }).click();
   await expect(page.getByRole('slider', { name: 'Volume' })).toHaveValue('0.25');
 });
+
+test('fullscreen falls back to covering the viewport without the Fullscreen API', async ({ page }) => {
+  await page.addInitScript(() => { delete (Element.prototype as Partial<Element>).requestFullscreen; });
+  await page.goto('/play/demo');
+  await expect(page.locator('canvas')).toBeVisible({ timeout: 30_000 });
+  await page.getByRole('button', { name: 'Fullscreen' }).click();
+  const viewport = page.viewportSize()!;
+  const covering = () => page.evaluate(({ width, height }) => document.elementFromPoint(width - 1, height - 1)?.closest('.stage') !== null
+    && document.elementFromPoint(1, 1)?.closest('.stage') !== null, viewport);
+  await expect.poll(covering).toBe(true);
+  await page.getByRole('button', { name: 'Exit fullscreen' }).click();
+  await expect.poll(covering).toBe(false);
+  await expect(page.getByRole('button', { name: 'Fullscreen' })).toBeVisible();
+});
+
+test('a thumb sliding across the d-pad moves the press to the new button', async ({ page }, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith('mobile'), 'touch controls only show on touch screens');
+  await page.goto('/play/demo');
+  const left = page.locator('.touch-btn.left');
+  const up = page.locator('.touch-btn.up');
+  await expect(left).toBeVisible({ timeout: 30_000 });
+  const center = async (button: typeof left) => { const b = (await button.boundingBox())!; return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; };
+  const from = await center(left);
+  const to = await center(up);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [from] });
+  await expect(left).toHaveClass(/pressed/);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [to] });
+  await expect(up).toHaveClass(/pressed/);
+  await expect(left).not.toHaveClass(/pressed/);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect(up).not.toHaveClass(/pressed/);
+});

@@ -80,7 +80,7 @@
   });
 </script>
 
-<header class="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-border bg-background/95 px-4 backdrop-blur md:px-7">
+<header class="sticky top-0 z-30 box-content flex h-16 pt-[env(safe-area-inset-top)] items-center gap-4 border-b border-border bg-background/95 px-4 backdrop-blur md:px-7">
   <a href="/" use:link class="flex items-center gap-2 md:hidden">
     <Logo size={28} />
     <span class="font-display text-sm font-semibold text-foreground">Caiven Port</span>

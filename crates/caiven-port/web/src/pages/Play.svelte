@@ -69,7 +69,13 @@
     }
   }
   $effect(() => { if (cart) setTitle(`Play ${cart.title}`); });
-  function toggleFullscreen() { if (!stage) return; document.fullscreenElement ? void document.exitFullscreen() : void stage.requestFullscreen(); }
+  let fakeFullscreen = $state(false);
+  function toggleFullscreen() {
+    if (!stage) return;
+    // iPhone Safari has no element fullscreen API; cover the viewport instead.
+    if (!stage.requestFullscreen) { fullscreen = fakeFullscreen = !fakeFullscreen; return; }
+    document.fullscreenElement ? void document.exitFullscreen() : void stage.requestFullscreen();
+  }
   $effect(() => {
     id; boot();
     const onFull = () => (fullscreen = document.fullscreenElement === stage);
@@ -78,7 +84,7 @@
   });
 </script>
 
-<div class="flex min-h-[calc(100vh-4rem)] flex-col bg-[#0d0d0d]">
+<div class="flex min-h-[calc(100dvh-4rem)] flex-col bg-[#0d0d0d]">
   <div class="flex flex-wrap items-center gap-3 border-b border-void-800 px-4 py-3 md:px-7">
     <a href="/cart/{id}" use:link class="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeftIcon class="size-4" />{cart?.title ?? 'Back to cart'}</a>
     {#if cart}<span class="font-mono text-xs text-muted-foreground">{cart.owner ?? cart.author} · v{cart.latest_version}</span>{/if}
@@ -101,9 +107,10 @@
   {#if error}<div class="m-5 rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-destructive">{error}</div>{/if}
   {#if loading}<div class="flex flex-1 items-center justify-center text-sm text-muted-foreground">Booting cart…</div>
   {:else}
-    <div bind:this={stage} class="stage flex flex-1 items-center justify-center p-4 md:p-8">
+    <div bind:this={stage} class:fake-fullscreen={fakeFullscreen} class="stage flex flex-1 items-center justify-center p-4 md:p-8">
+      {#if fakeFullscreen}<button onclick={toggleFullscreen} aria-label="Exit fullscreen" class="absolute top-[max(0.75rem,env(safe-area-inset-top))] right-[max(0.75rem,env(safe-area-inset-right))] z-10 flex size-9 items-center justify-center rounded-md border border-void-700 bg-black/60 text-muted-foreground"><MinimizeIcon class="size-4" /></button>{/if}
       <div class="relative aspect-3/2 w-[min(100%,1152px,120dvh)] overflow-hidden rounded-lg bg-black shadow-2xl shadow-black/60">
-        <canvas bind:this={canvas} width="192" height="128" class="block size-full" style="image-rendering: pixelated;"></canvas>
+        <canvas bind:this={canvas} width="192" height="128" class="block size-full touch-manipulation" style="image-rendering: pixelated;"></canvas>
         <div class="scanline-overlay crt-vignette pointer-events-none absolute inset-0 opacity-65"></div>
         {#if fault}<div class="absolute inset-0 flex flex-col items-center justify-center bg-black/90 p-5 text-center"><strong class="font-mono text-sm text-destructive">Cart crashed</strong><p class="mt-2 font-mono text-xs text-white">{fault}</p></div>{/if}
         <div bind:this={touchContainer} class="touch-overlay pointer-events-none absolute inset-0"></div>
@@ -124,5 +131,6 @@
 
 <style>
   .stage:fullscreen { height: 100vh; background: #000; }
-  .stage:fullscreen > div { width: min(100%, (100vh - 4rem) * 1.5); }
+  .stage.fake-fullscreen { position: fixed; inset: 0; z-index: 100; background: #000; }
+  .stage:fullscreen > div, .stage.fake-fullscreen > div { width: min(100%, (100dvh - 4rem) * 1.5); }
 </style>

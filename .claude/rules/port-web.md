@@ -53,3 +53,12 @@ paths:
   (e.g. the AppShell footer); use `mx-auto w-full max-w-* px-6` instead.
   Check layout positions on the text's top edge: flex items stretch, so a
   box's bottom can look right while its text sits mid-page.
+- iPhone Safari has no `Element.requestFullscreen`; calling it throws. The
+  player falls back to a fixed full-viewport stage (`fake-fullscreen` in
+  `Play.svelte`), covered by a mock e2e that deletes the API.
+- Other iOS traps: fields under 16px auto-zoom on focus (iOS-only 16px rule
+  in `app.css`); a touch `pointerdown` is not a user activation, so audio
+  unlocks on `pointerup`; `100vh` overshoots behind the toolbar, use `dvh`;
+  touch implicitly captures the pointer, so d-pad buttons release it to let
+  a thumb slide. `viewport-fit=cover` is on: new fixed/edge UI must pad with
+  `env(safe-area-inset-*)`.

@@ -51,7 +51,7 @@
         </Button>
       </div>
     {/if}
-    <main class="flex min-h-[calc(100vh-4rem)] flex-col pb-16 md:pb-0">
+    <main class="flex min-h-[calc(100dvh-4rem)] flex-col pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
       <div class="flex-1">{@render children()}</div>
       <footer class="mx-auto flex w-full max-w-[92rem] flex-wrap px-6 gap-x-5 gap-y-1 py-6 text-xs text-muted-foreground">
         <a href="/terms" use:link class="hover:text-foreground">Terms</a>

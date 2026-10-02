@@ -13,7 +13,7 @@
   ];
 </script>
 
-<nav class="fixed inset-x-0 bottom-0 z-40 flex h-16 border-t border-border bg-card md:hidden">
+<nav class="fixed inset-x-0 bottom-0 z-40 box-content flex h-16 pb-[env(safe-area-inset-bottom)] border-t border-border bg-card md:hidden">
   {#each tabs as tab}
     <a
       href={tab.href}

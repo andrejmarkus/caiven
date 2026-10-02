@@ -127,7 +127,8 @@ class AudioEngine {
   ensureStarted(): void {
     if (this.muted) return;
     if (this.ctx) {
-      if (this.ctx.state === 'suspended') void this.ctx.resume();
+      // iOS reports 'interrupted' after a call or app switch.
+      if (this.ctx.state !== 'running') void this.ctx.resume().catch(() => {});
       return;
     }
     const AudioCtx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -383,16 +384,23 @@ export class CartPlayer {
       const el = document.createElement('div');
       el.className = `touch-btn ${cls}`;
       el.textContent = label;
-      const press = (e: Event) => {
+      const press = (e: PointerEvent) => {
         e.preventDefault();
+        // Touch implicitly captures the pointer; release it so a sliding thumb moves between buttons.
+        if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
         this.audio.ensureStarted();
+        el.classList.add('pressed');
         this.setButton(btn, true);
       };
       const release = (e: Event) => {
         e.preventDefault();
+        // A touch pointerdown is not a user activation; pointerup is, so audio unlocks here.
+        this.audio.ensureStarted();
+        el.classList.remove('pressed');
         this.setButton(btn, false);
       };
       el.addEventListener('pointerdown', press);
+      el.addEventListener('pointerenter', (e) => { if (e.buttons) press(e); });
       el.addEventListener('pointerup', release);
       el.addEventListener('pointerleave', release);
       el.addEventListener('pointercancel', release);

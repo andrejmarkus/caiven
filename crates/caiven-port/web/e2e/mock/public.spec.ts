@@ -58,3 +58,18 @@ test('search bar previews matches and opens one with the keyboard', async ({ pag
   await search.press('Enter');
   await expect(page).toHaveURL(/\/cart\/orbit$/);
 });
+
+test('Add to Home Screen metadata resolves to real icons', async ({ page }) => {
+  await page.goto('/');
+  const head = await page.evaluate(() => ({
+    manifest: document.querySelector<HTMLLinkElement>('link[rel=manifest]')!.href,
+    touchIcon: document.querySelector<HTMLLinkElement>('link[rel=apple-touch-icon]')!.href,
+  }));
+  const manifest = await (await page.request.get(head.manifest)).json();
+  expect(manifest.display).toBe('standalone');
+  for (const url of [head.touchIcon, ...manifest.icons.map((icon: { src: string }) => new URL(icon.src, head.manifest).href)]) {
+    const res = await page.request.get(url);
+    expect(res.status(), url).toBe(200);
+    expect(res.headers()['content-type']).toContain('image/png');
+  }
+});

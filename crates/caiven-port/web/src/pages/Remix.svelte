@@ -305,7 +305,7 @@
   });
 </script>
 
-<div class="flex min-h-[calc(100vh-4rem)] flex-col bg-[#0d0d0d] lg:h-[calc(100dvh-4rem)]">
+<div class="flex min-h-[calc(100dvh-4rem)] flex-col bg-[#0d0d0d] lg:h-[calc(100dvh-4rem)]">
   <div class="flex flex-wrap items-center gap-3 border-b border-void-800 px-4 py-3 md:px-7">
     <a href="/play/{id}" use:link class="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeftIcon class="size-4" />Back to game</a>
     {#if cart}<span class="text-sm text-foreground">Remixing <strong>{cart.title}</strong> <span class="text-muted-foreground">by @{cart.owner ?? cart.author}</span></span>{/if}
@@ -362,7 +362,7 @@
     <div class="grid flex-1 gap-4 p-4 md:p-6 lg:min-h-0 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
       <section class="flex flex-col gap-3 lg:overflow-y-auto" aria-label="Game">
         <div class="relative aspect-3/2 w-full overflow-hidden rounded-lg bg-black shadow-2xl shadow-black/60">
-          <canvas bind:this={canvas} width="192" height="128" class="block size-full" style="image-rendering: pixelated;"></canvas>
+          <canvas bind:this={canvas} width="192" height="128" class="block size-full touch-manipulation" style="image-rendering: pixelated;"></canvas>
           <div class="scanline-overlay crt-vignette pointer-events-none absolute inset-0 opacity-65"></div>
           <div bind:this={touchContainer} class="touch-overlay pointer-events-none absolute inset-0"></div>
           {#if stopped}<div class="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/55 text-sm font-semibold tracking-widest text-foreground" data-testid="game-stopped">STOPPED</div>{/if}
