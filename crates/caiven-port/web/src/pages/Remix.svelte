@@ -234,11 +234,6 @@
     try { await api.resendVerification(); resend = 'sent'; } catch { resend = 'failed'; }
   }
 
-  // Confirming happens in another tab; coming back here should unlock Publish.
-  function refreshUser() {
-    if (needsVerify) api.me().then(setUser).catch(() => {});
-  }
-
   async function screenshot(): Promise<Blob | null> {
     if (!canvas) return null;
     return new Promise((resolve) => canvas!.toBlob((blob) => resolve(blob), 'image/png'));
@@ -307,11 +302,6 @@
   $effect(() => {
     source; title; description; remixable;
     if (!loading && cav) saveDraft();
-  });
-
-  $effect(() => {
-    window.addEventListener('focus', refreshUser);
-    return () => window.removeEventListener('focus', refreshUser);
   });
 </script>
 

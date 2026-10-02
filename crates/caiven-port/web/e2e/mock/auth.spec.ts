@@ -45,3 +45,11 @@ test('registration, duplicate conflict, invalid login, MFA, OAuth presentation',
   await page.getByRole('button', { name: /verify/i }).click();
   await expect(page).toHaveURL('/');
 });
+
+test('confirming the email clears the banner without a reload', async ({ page, mock }) => {
+  mock.users.get('player')!.email_verified = false;
+  await mock.loginAs('player');
+  await page.goto('/verify-email?token=mock-token');
+  await expect(page.getByText('Your email is confirmed.')).toBeVisible();
+  await expect(page.getByText('Confirm your email to publish')).toHaveCount(0);
+});

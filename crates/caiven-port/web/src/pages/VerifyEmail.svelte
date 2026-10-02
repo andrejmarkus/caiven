@@ -21,9 +21,9 @@
     api
       .verifyEmail(token)
       .then(async () => {
+        await api.me().then(setUser).catch(() => {});
         status = 'ok';
         if (!remixId) return;
-        await api.me().then(setUser).catch(() => {});
         navigate(`/remix/${remixId}?publish=1`);
       })
       .catch(async (e) => {

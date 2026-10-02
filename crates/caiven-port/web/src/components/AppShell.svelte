@@ -3,7 +3,7 @@
   import NavRail from './NavRail.svelte';
   import TopBar from './TopBar.svelte';
   import MobileTabs from './MobileTabs.svelte';
-  import { currentUser } from '../stores.svelte';
+  import { currentUser, setUser } from '../stores.svelte';
   import { link } from '../router.svelte';
   import { api } from '../api';
   import { Button } from '@caiven/ui/button';
@@ -23,7 +23,14 @@
   const needsVerification = $derived(
     !!currentUser.value?.email && !currentUser.value.email_verified,
   );
+
+  // Confirming happens in another tab; coming back here should clear the banner.
+  function refreshUser() {
+    if (needsVerification) api.me().then(setUser).catch(() => {});
+  }
 </script>
+
+<svelte:window onfocus={refreshUser} />
 
 <div class="flex min-h-screen bg-background">
   <NavRail />

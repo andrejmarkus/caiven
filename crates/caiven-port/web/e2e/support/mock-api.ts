@@ -278,7 +278,7 @@ export class MockApi {
       this.carts.unshift(created); return this.json(route, created);
     }
     // Chromium reports a bodiless 204 fulfil as net::ERR_ABORTED, which the browser guard would flag.
-    if (path === '/api/v1/auth/verify-email' && method === 'POST') return route.fulfill({ status: 200, contentType: 'application/json', body: '' });
+    if (path === '/api/v1/auth/verify-email' && method === 'POST') { if (this.user) this.user.email_verified = true; return route.fulfill({ status: 200, contentType: 'application/json', body: '' }); }
     if (/^\/api\/v1\/carts\/[^/]+\/(funnel|screenshot)$/.test(path) && method === 'POST') return route.fulfill({ status: 200, contentType: 'application/json', body: '' });
     const cartMatch = path.match(/^\/api\/v1\/carts\/([^/]+)$/);
     if (cartMatch && method === 'GET') { const found = this.carts.find((x) => x.id === cartMatch[1]); if (!found) return this.json(route, { error: 'cart not found' }, 404); const parent = this.carts.find((x) => x.id === found.parent_cart_id); const remixes = this.carts.filter((x) => x.parent_cart_id === found.id); return this.json(route, { ...found, versions: found.versions ?? [version()], own_rating: found.own_rating ?? null, parent: parent ? cartRef(parent) : null, remix_count: remixes.length, recent_remixes: remixes.slice(0, 6).map(cartRef) }); }
