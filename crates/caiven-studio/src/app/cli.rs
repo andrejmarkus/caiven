@@ -73,7 +73,7 @@ enum Command {
         /// before uploading)
         cart: PathBuf,
         /// Port base URL
-        #[arg(long, env = "CAIVEN_PORT_URL", default_value = "http://localhost:8080")]
+        #[arg(long, env = "CAIVEN_PORT_URL", default_value = "https://caiven.net")]
         url: String,
         /// Per-user port API token (create one via the port web UI Profile
         /// page, or by logging into Caiven Studio's port tab)

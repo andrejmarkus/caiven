@@ -2264,8 +2264,8 @@
           <div class="account-avatar"><UserRound size={28} /></div>
           <span class="account-status">Not linked</span>
           <h2>Link Port account</h2>
-          <p>Required before publishing. The browser handles sign-in — Studio never sees your password.</p>
-          <label class="server-url-field">Port server<Input value={serverUrlDraft} placeholder="http://localhost:8080" onblur={(event) => { serverUrlDraft = event.currentTarget.value; onSetServerUrl(serverUrlDraft); }} onkeydown={(event) => { if (event.key === 'Enter') { event.currentTarget.blur(); } }} /><small>Self-hosting or joining a community instance? Point Studio at it here — leave blank for {portAccount.portUrl || 'the default'}.</small></label>
+          <p>Required before publishing. The browser handles sign-in, so Studio never sees your password.</p>
+          <label class="server-url-field">Port server<Input value={serverUrlDraft} placeholder="https://caiven.net" onblur={(event) => { serverUrlDraft = event.currentTarget.value; onSetServerUrl(serverUrlDraft); }} onkeydown={(event) => { if (event.key === 'Enter') { event.currentTarget.blur(); } }} /><small>Self-hosting or joining a community instance? Point Studio at it here — leave blank for {portAccount.portUrl || 'the default'}.</small></label>
           <Button disabled={portBusy} onclick={onPortLink}>Link Port account</Button>
         {/if}
         {#if portError}

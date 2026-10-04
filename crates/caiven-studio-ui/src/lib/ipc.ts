@@ -470,7 +470,7 @@ export async function readAssetIndex(): Promise<AssetIndex> {
 }
 
 export async function portSession(): Promise<PortSession> {
-  return isTauri() ? invoke<PortSession>('port_session') : { authenticated: false, username: '', portUrl: 'http://localhost:8080' };
+  return isTauri() ? invoke<PortSession>('port_session') : { authenticated: false, username: '', portUrl: 'https://caiven.net' };
 }
 
 export interface PortLinkPending { requestId: string; pollSecret: string; expiresAt: string; userCode: string; }
@@ -490,7 +490,7 @@ export async function portLogout(): Promise<PortSession> {
 }
 
 export async function portSetUrl(url: string): Promise<PortSession> {
-  if (!isTauri()) return { authenticated: false, username: '', portUrl: url || 'http://localhost:8080' };
+  if (!isTauri()) return { authenticated: false, username: '', portUrl: url || 'https://caiven.net' };
   return invoke<PortSession>('port_set_url', { url });
 }
 

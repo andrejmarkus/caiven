@@ -45,11 +45,11 @@ const PER_PAGE: u32 = 24;
 
 /// The configured Port server, in priority order: a value set on the
 /// Settings screen (not implemented yet — T48 only reads the env override),
-/// then `CAIVEN_PORT_URL`, then the same localhost default `caiven-studio`
+/// then `CAIVEN_PORT_URL`, then the same public default `caiven-studio`
 /// falls back to.
 pub fn port_url() -> String {
     std::env::var("CAIVEN_PORT_URL")
-        .unwrap_or_else(|_| "http://localhost:8080".to_string())
+        .unwrap_or_else(|_| "https://caiven.net".to_string())
         .trim_end_matches('/')
         .to_string()
 }
@@ -166,13 +166,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn port_url_reads_env_with_localhost_fallback() {
+    fn port_url_reads_env_with_public_fallback() {
         let _guard = ENV_LOCK.lock().unwrap();
         // SAFETY: test-only env mutation, serialized by ENV_LOCK above.
         unsafe {
             std::env::remove_var("CAIVEN_PORT_URL");
         }
-        assert_eq!(port_url(), "http://localhost:8080");
+        assert_eq!(port_url(), "https://caiven.net");
 
         unsafe {
             std::env::set_var("CAIVEN_PORT_URL", "https://cave.example/");

@@ -63,7 +63,7 @@ cargo run -p caiven-machine -- game.cav    # packed cart
 
 | Flag               | Default                       | Description |
 | :------------------| :------------------------------| :-----------|
-| `--url`            | `http://localhost:8080`       | Port base URL (env: `CAIVEN_PORT_URL`) |
+| `--url`            | `https://caiven.net`          | Port base URL (env: `CAIVEN_PORT_URL`) |
 | `--api-key`        | _(empty, required)_           | Your Port API token (env: `CAIVEN_PORT_API_KEY`). Create one on the Profile page of the Port website, or sign in from Studio's PORT tab. |
 | `--title`          | cart header                   | Override the cart title |
 | `--author`         | cart header                   | Override the author |

@@ -196,6 +196,8 @@ fn load_saved_url() -> Option<String> {
     }
 }
 
+const DEFAULT_PORT_URL: &str = "https://caiven.net";
+
 fn port_url() -> String {
     if let Some(saved) = load_saved_url().and_then(|url| validate_port_url(&url).ok()) {
         return saved;
@@ -203,7 +205,7 @@ fn port_url() -> String {
     std::env::var("CAIVEN_PORT_URL")
         .ok()
         .and_then(|url| validate_port_url(&url).ok())
-        .unwrap_or_else(|| "http://localhost:8080".to_string())
+        .unwrap_or_else(|| DEFAULT_PORT_URL.to_string())
 }
 
 fn parse_saved_token(text: &str, base: &str) -> Option<(String, String)> {
@@ -221,7 +223,7 @@ fn parse_saved_token(text: &str, base: &str) -> Option<(String, String)> {
 
 fn load_token(base: &str) -> Option<(String, String)> {
     let env_base =
-        std::env::var("CAIVEN_PORT_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+        std::env::var("CAIVEN_PORT_URL").unwrap_or_else(|_| DEFAULT_PORT_URL.to_string());
     if let Ok(token) = std::env::var("CAIVEN_PORT_API_KEY")
         && !token.is_empty()
         && validate_port_url(&env_base).ok().as_deref() == Some(base)
@@ -831,7 +833,7 @@ mod tests {
         );
 
         let cleared = port_set_url(String::new()).unwrap();
-        assert_eq!(cleared.port_url, "http://localhost:8080");
+        assert_eq!(cleared.port_url, super::DEFAULT_PORT_URL);
         assert_eq!(load_saved_url(), None);
     }
 
