@@ -281,12 +281,12 @@ test('art, sound, asset reference, and navigation flow', async ({ page, e2e }) =
   await expect(rowHandles.nth(4)).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Control+v');
   await expect(cells.nth(4 * 4)).toHaveText('SFX 01');
-  await expect(cells.nth(5 * 4)).toHaveText('—');
+  await expect(cells.nth(5 * 4)).toHaveText('-');
 
   // Whole-pattern copy/paste clones pattern 00's cells into pattern 01.
   await page.getByRole('button', { name: 'Copy pattern' }).click();
   await page.locator('.pattern-list > button').nth(1).click();
-  await expect(cells.first()).toHaveText('—');
+  await expect(cells.first()).toHaveText('-');
   await page.getByRole('button', { name: /^Paste into/ }).click();
   await expect(cells.first()).toHaveText('SFX 01');
   await expect(cells.nth(4 * 4)).toHaveText('SFX 01');
@@ -420,7 +420,7 @@ test('project, library, Port account, download, and publish flow', async ({ page
 
 test('navigation reaches every top-level Studio screen', async ({ page, e2e: _e2e }) => {
   const destinations = [
-    ['Start', 'Make small worlds.'], ['Code', 'Project'], ['Art', 'Sprite'], ['Sound', 'Sound effects'],
+    ['Start', 'Make a game in Lua.'], ['Code', 'Project'], ['Art', 'Sprite'], ['Sound', 'Sound effects'],
     ['Assets', 'Assets'], ['Cart', 'Cart details'], ['Library', 'Library'], ['Account', 'Account'], ['Docs', 'API reference'],
   ];
   for (const [title, text] of destinations) {

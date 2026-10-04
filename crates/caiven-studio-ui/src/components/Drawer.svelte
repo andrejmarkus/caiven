@@ -150,7 +150,7 @@
                 {/each}
               </Select.Content>
             </Select.Root>
-            <code class="memory-range">{formatMemoryAddress(resolvedMemoryBase)}–{formatMemoryAddress(memoryEnd)}</code>
+            <code class="memory-range">{formatMemoryAddress(resolvedMemoryBase)}-{formatMemoryAddress(memoryEnd)}</code>
           </div>
           {#if memoryRows.length}
             <div class="memory-grid">

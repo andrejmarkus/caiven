@@ -215,7 +215,7 @@
   <section class="frame-time">
     <div>
       <span class="eyebrow">Frame time</span>
-      <strong>{running ? `${frameTime.toFixed(1)} ms` : '—'}</strong>
+      <strong>{running ? `${frameTime.toFixed(1)} ms` : '-'}</strong>
       <code>budget 16.6 ms</code>
     </div>
     <div class="frame-bars">

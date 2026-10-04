@@ -116,7 +116,7 @@
               <span class="h-8 w-12 shrink-0 overflow-hidden rounded-sm"><ScreenshotImg id={cart.id} hasScreenshot={cart.has_screenshot} /></span>
               <span class="min-w-0">
                 <span class="block truncate text-sm font-medium">{cart.title}</span>
-                <span class="label-mono block truncate text-[10px] text-muted-foreground">{cart.owner ?? cart.author}</span>
+                <span class="block truncate text-xs text-muted-foreground">{cart.owner ?? cart.author}</span>
               </span>
             </a>
           </li>

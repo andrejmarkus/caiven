@@ -89,7 +89,7 @@
           <p class="mt-5 max-w-[70ch] text-base leading-relaxed text-muted-foreground">{cart.description}</p>
           <div class="mt-5 flex flex-wrap gap-2">{#each cart.tags as tag}<a href="/browse?tag={encodeURIComponent(tag)}" use:link class="rounded-full border border-border px-3 py-1 text-sm text-muted-foreground hover:border-primary hover:text-primary">{tag}</a>{/each}</div>
           <div class="mt-7 flex flex-wrap gap-2">
-            <a href="/play/{cart.id}" use:link class={buttonVariants({ size: 'lg', class: 'ember-glow' })}><PlayIcon fill="currentColor" />Play now</a>
+            <a href="/play/{cart.id}" use:link class={buttonVariants({ size: 'lg' })}><PlayIcon fill="currentColor" />Play now</a>
             {#if cart.remixable}<a href="/remix/{cart.id}" use:link class={buttonVariants({ variant: 'secondary', size: 'lg' })}><CodeIcon />Remix this</a>{/if}
             <a href={`/report?url=${encodeURIComponent(window.location.href)}`} use:link class="self-center text-xs text-muted-foreground hover:text-foreground hover:underline">Report</a>
             <a href={api.cartUrl(cart.id)} class={buttonVariants({ variant: 'secondary', size: 'lg' })}><DownloadIcon />.cav</a>
@@ -100,10 +100,9 @@
           {#if adding}<div bind:this={picker} class="surface-panel mt-3 max-w-md scroll-mb-24 rounded-lg p-3">{#each collections.filter((c) => !c.carts.some((x) => x.id === id)) as collection}<button onclick={() => add(collection.slug)} class="flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm hover:bg-secondary"><span>{collection.title}</span><span>+</span></button>{:else}<p class="p-2 text-sm text-muted-foreground">No available owned collections.</p>{/each}</div>{/if}
         </div>
         <div class="min-w-0 flex-1 basis-[340px] md:max-w-[430px]">
-          <a href="/play/{cart.id}" use:link class="cart-notch relative block aspect-3/2 overflow-hidden border border-border bg-black">
+          <a href="/play/{cart.id}" use:link class="relative block aspect-3/2 overflow-hidden rounded-lg border border-border bg-black">
             <ScreenshotImg id={cart.id} hasScreenshot={cart.has_screenshot} alt={cart.title} />
-            <div class="scanline-overlay crt-vignette pointer-events-none absolute inset-0 opacity-50"></div>
-            <span class="ember-glow absolute right-3 bottom-3 flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground"><PlayIcon class="size-6" fill="currentColor" /></span>
+            <span class="absolute right-3 bottom-3 flex size-12 items-center justify-center rounded-md bg-primary text-primary-foreground"><PlayIcon class="size-6" fill="currentColor" /></span>
           </a>
         </div>
       </div>

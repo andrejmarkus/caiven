@@ -107,7 +107,7 @@ test('home Start here row lists curated remixable carts and opens Quick Remix', 
   });
 
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Change one number. Make it yours.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Remix a starter' })).toBeVisible();
   // The curated row never takes over the editorial shelf.
   await expect(page.getByRole('heading', { name: 'Staff Picks' })).toBeVisible();
   // Closed carts stay out even when curated.

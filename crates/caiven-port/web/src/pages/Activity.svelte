@@ -21,7 +21,7 @@
         <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-secondary font-display font-semibold">{event.actor[0]?.toUpperCase()}</span>
         <div class="min-w-0 flex-1"><p class="text-sm text-muted-foreground"><strong class="text-foreground">{event.actor}</strong> {text(event)} · <time class="font-mono text-xs">{new Date(event.occurred_at).toLocaleDateString()}</time></p>
           <a href="/cart/{event.cart.id}" use:link class="mt-3 flex items-center gap-3 rounded-md border border-[var(--border-subtle)] bg-background p-3 text-foreground hover:border-primary hover:text-foreground">
-            <span class="cart-notch size-14 shrink-0 overflow-hidden bg-secondary"><ScreenshotImg id={event.cart.id} hasScreenshot={event.cart.has_screenshot} alt="" /></span>
+            <span class="rounded-sm size-14 shrink-0 overflow-hidden bg-secondary"><ScreenshotImg id={event.cart.id} hasScreenshot={event.cart.has_screenshot} alt="" /></span>
             <span class="min-w-0 flex-1"><strong class="block truncate">{event.cart.title}</strong><span class="mt-0.5 block truncate text-sm text-muted-foreground">{event.cart.description}</span></span>
             <span class="flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground">▶</span>
           </a>

@@ -70,13 +70,13 @@
           {#each section.rows as collection}
             <a href="/collections/{collection.slug}" use:link class="surface-panel flex flex-wrap gap-6 rounded-lg p-5 text-foreground hover:border-primary hover:text-foreground">
               <div class="min-w-0 flex-1 basis-[260px]">
-                <div class="label-mono text-[10px] text-accent-foreground">{collection.kind === 'editorial' ? 'Editor’s pick' : `By ${collection.owner}`}</div>
+                <div class="text-sm text-muted-foreground">{collection.kind === 'editorial' ? 'Editor’s pick' : `By ${collection.owner}`}</div>
                 <h3 class="mt-2 text-lg font-semibold">{collection.title}</h3>
                 <p class="mt-2 text-sm text-muted-foreground">{collection.description}</p>
                 <div class="mt-4 flex items-center gap-4 font-mono text-xs text-muted-foreground"><span>{collection.cart_count} carts</span><span class="flex items-center gap-1"><UsersIcon class="size-3.5" />{collection.follower_count}</span></div>
               </div>
               <div class="grid min-w-0 flex-1 basis-[420px] grid-cols-5 gap-2">
-                {#each collection.carts.slice(0, 5) as cart}<div class="cart-notch aspect-3/2 overflow-hidden bg-secondary"><ScreenshotImg id={cart.id} hasScreenshot={cart.has_screenshot} alt="" /></div>{/each}
+                {#each collection.carts.slice(0, 5) as cart}<div class="rounded-sm aspect-3/2 overflow-hidden bg-secondary"><ScreenshotImg id={cart.id} hasScreenshot={cart.has_screenshot} alt="" /></div>{/each}
               </div>
             </a>
           {/each}

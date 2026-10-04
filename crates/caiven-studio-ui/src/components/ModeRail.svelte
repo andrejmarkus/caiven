@@ -31,7 +31,7 @@
 <nav class="mode-rail" aria-label="Studio modes">
   {#each modes as mode}
     {@const Icon = mode.icon}
-    <Button variant="ghost" class={mode.active ? 'active' : undefined} title={`${mode.label}${mode.key ? ` — ${mode.key}` : ''}`} onclick={() => onNavigate(mode.id)}>
+    <Button variant="ghost" class={mode.active ? 'active' : undefined} title={`${mode.label}${mode.key ? ` (${mode.key})` : ''}`} onclick={() => onNavigate(mode.id)}>
       <Icon size={20} />
       <span>{mode.label}</span>
     </Button>

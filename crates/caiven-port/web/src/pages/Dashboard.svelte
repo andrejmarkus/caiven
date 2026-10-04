@@ -42,7 +42,7 @@
         {label:'average rating',value:data.rating_avg.toFixed(1),sub:'lifetime weighted average'},
         {label:'followers',value:data.followers,sub:`+${data.new_followers} this period`}
       ] as stat}
-        <div class="surface-panel rounded-lg p-5"><div class="label-mono text-[10px] text-muted-foreground">{stat.label}</div><strong class="mt-2 block font-display text-3xl">{stat.value}</strong><span class="mt-1 block font-mono text-xs text-primary">{stat.sub}</span></div>
+        <div class="surface-panel rounded-lg p-5"><div class="text-sm text-muted-foreground">{stat.label}</div><strong class="mt-2 block font-display text-3xl">{stat.value}</strong><span class="mt-1 block font-mono text-xs text-primary">{stat.sub}</span></div>
       {/each}
     </div>
     <div class="mt-5 flex flex-wrap items-start gap-5">
@@ -70,7 +70,7 @@
   {/if}
   {#if editing}
     <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <form onsubmit={(e) => { e.preventDefault(); save(); }} class="surface-panel w-full max-w-lg space-y-4 rounded-xl p-6">
+      <form onsubmit={(e) => { e.preventDefault(); save(); }} class="surface-panel w-full max-w-lg space-y-4 rounded-lg p-6">
         <h2 class="text-xl font-semibold">Edit cart</h2>
         <input bind:value={title} maxlength={64} required class="h-10 w-full rounded-md border border-border bg-background px-3" />
         <textarea bind:value={description} maxlength={512} rows={4} class="w-full rounded-md border border-border bg-background p-3"></textarea>

@@ -68,8 +68,8 @@
   <button onclick={() => history.back()} class="mb-5 flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeftIcon class="size-4" />Collections</button>
   {#if error}<div class="rounded-lg border border-destructive/50 p-4 text-destructive">{error}</div>{/if}
   {#if collection}
-    <header class="surface-panel rounded-xl p-6 md:p-8">
-      <div class="label-mono text-[10px] text-accent-foreground">{collection.kind === 'editorial' ? 'Editor’s pick' : `Curated by ${collection.owner}`}</div>
+    <header class="surface-panel rounded-lg p-6 md:p-8">
+      <div class="text-sm text-muted-foreground">{collection.kind === 'editorial' ? 'Editor’s pick' : `Curated by ${collection.owner}`}</div>
       <div class="mt-2 flex flex-wrap items-start justify-between gap-4">
         <div><h1 class="text-3xl font-bold">{collection.title}</h1><p class="mt-2 max-w-2xl text-muted-foreground">{collection.description}</p><p class="mt-4 font-mono text-xs text-muted-foreground">{collection.cart_count} carts · {collection.follower_count} followers</p></div>
         <div class="flex flex-wrap gap-2">
@@ -99,7 +99,7 @@
 </div>
 {#if editing}
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-    <form onsubmit={save} class="surface-panel w-full max-w-lg space-y-4 rounded-xl p-6">
+    <form onsubmit={save} class="surface-panel w-full max-w-lg space-y-4 rounded-lg p-6">
       <h2 class="text-xl font-semibold">Edit collection</h2>
       <input bind:value={title} maxlength={80} required class="h-10 w-full rounded-md border border-border bg-background px-3" />
       <textarea bind:value={description} maxlength={500} rows={4} class="w-full rounded-md border border-border bg-background p-3"></textarea>

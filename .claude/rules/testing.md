@@ -31,3 +31,6 @@ paths:
   the mock hold it (e.g. Studio e2e `approveLink()` gates `port_link_poll`).
 - CI's `desktop-tests` job runs Rust, frontend unit tests and the creator
   workflow on Windows and macOS; the rest of CI is Linux-only.
+- CodeMirror e2e that press `Control+End`/`Control+Home` fail when run
+  locally on macOS (CodeMirror binds those to Cmd there); they pass on
+  Linux CI. Don't read those local failures as regressions.

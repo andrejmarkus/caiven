@@ -40,13 +40,12 @@
 <div class="container-page py-8 md:py-10">
   {#if error}<div class="rounded-lg border border-destructive/50 p-4 text-destructive">{error}</div>{/if}
   {#if jam}
-    <header class="surface-panel relative overflow-hidden rounded-xl p-7 md:p-10">
-      <div class="absolute -top-36 -right-16 size-[460px] bg-[radial-gradient(ellipse_at_center,rgba(254,176,93,.14),transparent_70%)]"></div>
+    <header class="surface-panel relative overflow-hidden rounded-lg p-7 md:p-10">
       <div class="relative flex flex-wrap items-center gap-8">
-        <div class="min-w-0 flex-1 basis-[430px]"><div class="label-mono inline-flex rounded-full bg-accent px-3 py-1 text-[10px] text-accent-foreground">{jam.status}</div><h1 class="mt-4 text-3xl font-bold">{jam.title}</h1><p class="mt-3 max-w-2xl text-muted-foreground">{jam.description}</p>{#if jam.rules}<p class="mt-4 whitespace-pre-line text-sm text-foreground">{jam.rules}</p>{/if}<div class="mt-6 flex gap-7 font-mono text-sm"><span>{jam.entry_count} entries</span><span>{jam.creator_count} creators</span></div></div>
+        <div class="min-w-0 flex-1 basis-[430px]"><p class="text-sm text-muted-foreground capitalize">{jam.status}</p><h1 class="mt-4 text-3xl font-bold">{jam.title}</h1><p class="mt-3 max-w-2xl text-muted-foreground">{jam.description}</p>{#if jam.rules}<p class="mt-4 whitespace-pre-line text-sm text-foreground">{jam.rules}</p>{/if}<div class="mt-6 flex gap-7 font-mono text-sm"><span>{jam.entry_count} entries</span><span>{jam.creator_count} creators</span></div></div>
         {#if jam.status === 'open'}
           <div class="min-w-[280px]">
-            <div class="mb-4 flex justify-center gap-2">{#each [{n:days,l:'days'},{n:hours,l:'hrs'},{n:minutes,l:'min'}] as unit}<div class="w-20 rounded-md border border-border bg-background p-3 text-center"><strong class="block font-mono text-xl text-primary">{String(unit.n).padStart(2,'0')}</strong><span class="label-mono text-[9px] text-muted-foreground">{unit.l}</span></div>{/each}</div>
+            <div class="mb-4 flex justify-center gap-2">{#each [{n:days,l:'days'},{n:hours,l:'hrs'},{n:minutes,l:'min'}] as unit}<div class="w-20 rounded-md border border-border bg-background p-3 text-center"><strong class="block font-mono text-xl text-primary">{String(unit.n).padStart(2,'0')}</strong><span class="text-xs text-muted-foreground">{unit.l}</span></div>{/each}</div>
             {#if currentUser.value && mine.length}
               <select bind:value={selected} class="mb-2 h-10 w-full rounded-md border border-border bg-background px-3 text-sm"><option value="">Choose your cart…</option>{#each mine.filter((c) => !jam?.carts.some((x) => x.id === c.id)) as cart}<option value={cart.id}>{cart.title}</option>{/each}</select>
               <Button class="w-full" disabled={!selected} onclick={enter}>Enter selected cart</Button>

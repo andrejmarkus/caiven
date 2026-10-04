@@ -404,7 +404,7 @@
           {#if restored}<span class="text-xs text-muted-foreground">Restored your saved edit</span>{/if}
           <span class="ml-auto text-xs text-muted-foreground"><span class="hidden sm:inline">Reruns as you type · {runKey}</span></span>
           <Button size="sm" variant="secondary" disabled={stopped || !!runError?.runtime} onclick={stop}><StopIcon class="size-4" fill="currentColor" />Stop</Button>
-          <Button size="sm" onclick={() => run()} class={changed && ranSource !== source ? 'ember-glow' : ''}><PlayIcon class="size-4" fill="currentColor" />Run</Button>
+          <Button size="sm" onclick={() => run()} class={changed && ranSource !== source ? 'ring-2 ring-primary/50 ring-offset-2 ring-offset-background' : ''}><PlayIcon class="size-4" fill="currentColor" />Run</Button>
         </div>
         <div class="flex min-h-0 flex-1 overflow-hidden rounded-md border border-border">
           {#if LuaEditor && luaApi}

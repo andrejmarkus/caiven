@@ -56,16 +56,13 @@
 <aside class="hidden h-screen w-[236px] shrink-0 flex-col border-r border-border bg-background md:sticky md:top-0 md:flex">
   <a href="/" use:link class="flex items-center gap-3 px-5 py-[22px] text-foreground hover:text-foreground">
     <Logo size={30} />
-    <span>
-      <span class="block font-display text-base font-semibold leading-none">Caiven</span>
-      <span class="label-mono mt-1 block text-[10px] text-muted-foreground">Port</span>
-    </span>
+    <span class="font-display text-base font-bold">Caiven</span>
   </a>
 
   <nav class="flex flex-1 flex-col gap-5 overflow-y-auto px-3">
     {#each groups as group}
       <div>
-        <div class="label-mono px-2 pb-1.5 text-[10px] text-muted-foreground">{group.label}</div>
+        <div class="px-2.5 pb-1.5 text-xs text-muted-foreground">{group.label}</div>
         <div class="space-y-0.5">
           {#each group.items as item}
             <a
@@ -87,15 +84,11 @@
     {/each}
   </nav>
 
-  <div class="m-3 rounded-lg border border-border bg-card p-3.5">
-    <div class="font-display text-sm font-semibold">Build a cart</div>
-    <p class="mt-1 text-xs leading-relaxed text-muted-foreground">Caiven Studio is free, offline, and ships with the console.</p>
-    <a
-      href="https://github.com/andrejmarkus/caiven/releases/latest"
-      class="mt-3 flex h-8 items-center justify-center gap-2 rounded-md bg-secondary px-3 text-xs font-semibold text-foreground hover:bg-muted"
-    >
-      <DownloadIcon class="size-3.5" />
-      Get Studio
-    </a>
-  </div>
+  <a
+    href="https://github.com/andrejmarkus/caiven/releases/latest"
+    class="m-3 flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-muted-foreground hover:bg-secondary hover:text-foreground"
+  >
+    <DownloadIcon class="size-4" />
+    Download Studio
+  </a>
 </aside>

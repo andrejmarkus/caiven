@@ -45,7 +45,7 @@
   $effect(() => {
     const page = titles[match.name];
     if (page) setTitle(page);
-    else if (match.name === 'home') document.title = 'Caiven Port — play and remix tiny games in your browser';
+    else if (match.name === 'home') document.title = 'Caiven Port: play and remix tiny games in your browser';
   });
 </script>
 

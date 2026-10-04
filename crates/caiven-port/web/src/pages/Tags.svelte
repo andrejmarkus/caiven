@@ -33,7 +33,7 @@
           <div class="flex items-baseline gap-2"><h2 class="text-lg font-semibold">{tag.tag}</h2><span class="font-mono text-xs text-muted-foreground">{tag.count} carts</span></div>
           <div class="mt-4 grid grid-cols-3 gap-2">
             {#each previews[tag.tag] ?? [] as cart}
-              <div class="cart-notch aspect-3/2 overflow-hidden bg-secondary"><ScreenshotImg id={cart.id} hasScreenshot={cart.has_screenshot} alt="" /></div>
+              <div class="rounded-sm aspect-3/2 overflow-hidden bg-secondary"><ScreenshotImg id={cart.id} hasScreenshot={cart.has_screenshot} alt="" /></div>
             {/each}
           </div>
           <p class="mt-3 truncate text-sm text-muted-foreground">{(previews[tag.tag] ?? []).map((c) => c.title).join(' · ')}</p>

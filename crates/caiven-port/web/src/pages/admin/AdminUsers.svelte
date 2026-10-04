@@ -91,7 +91,7 @@
         {#each users as u (u.id)}
           <tr class="border-b border-border/50">
             <td class="py-2 pr-3 font-semibold">{u.username}</td>
-            <td class="py-2 pr-3 text-muted-foreground">{u.email ?? '—'}</td>
+            <td class="py-2 pr-3 text-muted-foreground">{u.email ?? '-'}</td>
             <td class="py-2 pr-3">{u.cart_count}</td>
             <td class="py-2 pr-3">
               <div class="flex gap-1.5">

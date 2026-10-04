@@ -50,7 +50,7 @@
   <form onsubmit={submit} class="mt-7 space-y-5">
     <div
       role="button" tabindex="0"
-      class="surface-panel flex flex-col items-center rounded-xl border-dashed p-10 text-center transition-colors"
+      class="surface-panel flex flex-col items-center rounded-lg border-dashed p-10 text-center transition-colors"
       class:border-primary={dragOver}
       ondragover={(e) => { e.preventDefault(); dragOver = true; }}
       ondragleave={() => (dragOver = false)}
@@ -61,7 +61,7 @@
       <p class="mt-2 text-sm text-muted-foreground">{cartFile ? `${(cartFile.size / 1024).toFixed(1)} KB` : 'Or publish from terminal: caiven-studio publish game.cav'}</p>
       <label class="mt-4 cursor-pointer rounded-md bg-secondary px-4 py-2 text-sm font-semibold">Browse files<input type="file" accept=".cav" class="sr-only" onchange={(e) => pick(e.currentTarget.files?.[0])} /></label>
     </div>
-    <div class="surface-panel space-y-5 rounded-xl p-6">
+    <div class="surface-panel space-y-5 rounded-lg p-6">
       {#if cartId}
         <label class="block text-sm font-semibold">Changelog<textarea bind:value={changelog} rows={4} placeholder="What changed in this version?" class="mt-2 w-full rounded-md border border-border bg-background p-3 font-normal"></textarea></label>
       {:else}

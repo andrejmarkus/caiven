@@ -476,7 +476,7 @@
                 class={listeningForButton === button ? 'listening' : undefined}
                 onclick={() => beginListening(button)}
               >
-                {#if listeningForButton === button}Press a key…{:else}{keymap[button]?.map((code) => keyLabel(code, keyboardLayout)).join(' / ') || '—'}{/if}
+                {#if listeningForButton === button}Press a key…{:else}{keymap[button]?.map((code) => keyLabel(code, keyboardLayout)).join(' / ') || '-'}{/if}
               </Button>
             </div>
           {/each}

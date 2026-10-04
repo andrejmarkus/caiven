@@ -443,7 +443,8 @@ export class CartPlayer {
     this.clock.reset();
   }
 
-  start(onFault?: (message: string) => void, onFps?: (fps: number) => void): void {
+  /// `focus: false` runs the game without taking keyboard focus (home page attract mode).
+  start(onFault?: (message: string) => void, onFps?: (fps: number) => void, focus = true): void {
     if (this.running) return;
     this.running = true;
     this.clock.reset();
@@ -457,7 +458,7 @@ export class CartPlayer {
     document.addEventListener('visibilitychange', this.onVisibilityChange);
     this.canvas.tabIndex = 0;
     this.canvas.addEventListener('click', this.onCanvasClick);
-    this.canvas.focus();
+    if (focus) this.canvas.focus();
 
     let frames = 0;
     let fpsStarted = performance.now();

@@ -89,8 +89,8 @@
     <a href="/cart/{id}" use:link class="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeftIcon class="size-4" />{cart?.title ?? 'Back to cart'}</a>
     {#if cart}<span class="font-mono text-xs text-muted-foreground">{cart.owner ?? cart.author} · v{cart.latest_version}</span>{/if}
     <div class="ml-auto flex items-center gap-2">
-      {#if cart?.remixable}<a href="/remix/{id}" use:link class={buttonVariants({ size: 'sm', class: 'ember-glow' })}><CodeIcon class="size-4" />Remix this</a>{/if}
-      <span class="label-mono mr-1 flex items-center gap-2 text-[10px] text-muted-foreground"><span class="size-2 rounded-full bg-primary shadow-[0_0_8px_var(--color-ember)]"></span>{fps} fps</span>
+      {#if cart?.remixable}<a href="/remix/{id}" use:link class={buttonVariants({ size: 'sm' })}><CodeIcon class="size-4" />Remix this</a>{/if}
+      <span class="mr-1 font-mono text-xs text-muted-foreground">{fps} fps</span>
       <AudioControls onchange={() => applyAudio(player)} />
       <button onclick={boot} aria-label="Restart cart" class="flex size-9 items-center justify-center rounded-md border border-void-700 text-muted-foreground hover:bg-void-800"><RotateIcon class="size-4" /></button>
       <button onclick={toggleFullscreen} aria-label={fullscreen ? 'Exit' : 'Fullscreen'} class="flex h-9 items-center gap-2 rounded-md border border-void-700 px-3 text-sm font-semibold text-foreground hover:bg-void-800">{#if fullscreen}<MinimizeIcon class="size-4" /><span class="hidden sm:inline">Exit</span>{:else}<MaximizeIcon class="size-4" /><span class="hidden sm:inline">Fullscreen</span>{/if}</button>

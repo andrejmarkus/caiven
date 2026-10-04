@@ -3,7 +3,6 @@
   import { currentUser } from '../stores.svelte';
   import { link } from '../router.svelte';
   import { Button } from '@caiven/ui/button';
-  import TrophyIcon from '@lucide/svelte/icons/trophy';
   import PlusIcon from '@lucide/svelte/icons/plus';
 
   let jams = $state<JamInfo[]>([]);
@@ -44,11 +43,10 @@
   {#if error}<div class="mt-6 rounded-lg border border-destructive/50 p-4 text-destructive">{error}</div>{/if}
   <div class="mt-7 space-y-5">
     {#each jams as jam}
-      <a href="/jams/{jam.slug}" use:link class="surface-panel relative block overflow-hidden rounded-xl p-7 text-foreground hover:border-primary hover:text-foreground">
-        <div class="absolute -top-28 -right-16 size-80 bg-[radial-gradient(ellipse_at_center,rgba(254,176,93,.12),transparent_70%)]"></div>
+      <a href="/jams/{jam.slug}" use:link class="surface-panel relative block overflow-hidden rounded-lg p-7 text-foreground hover:border-primary hover:text-foreground">
         <div class="relative flex flex-wrap items-center gap-7">
-          <div class="min-w-0 flex-1 basis-[460px]"><div class="label-mono flex items-center gap-2 text-[10px] text-primary"><TrophyIcon class="size-4" />{jam.status}</div><h2 class="mt-2 text-2xl font-bold">{jam.title}</h2><p class="mt-2 text-muted-foreground">{jam.description}</p></div>
-          <div class="flex gap-7 font-mono"><div><strong class="block text-xl">{jam.entry_count}</strong><span class="label-mono text-[9px] text-muted-foreground">entries</span></div><div><strong class="block text-xl">{jam.creator_count}</strong><span class="label-mono text-[9px] text-muted-foreground">creators</span></div></div>
+          <div class="min-w-0 flex-1 basis-[460px]"><p class="text-sm text-muted-foreground capitalize">{jam.status}</p><h2 class="mt-2 text-2xl font-bold">{jam.title}</h2><p class="mt-2 text-muted-foreground">{jam.description}</p></div>
+          <div class="flex gap-7 font-mono"><div><strong class="block text-xl">{jam.entry_count}</strong><span class="text-xs text-muted-foreground">entries</span></div><div><strong class="block text-xl">{jam.creator_count}</strong><span class="text-xs text-muted-foreground">creators</span></div></div>
         </div>
       </a>
     {:else}

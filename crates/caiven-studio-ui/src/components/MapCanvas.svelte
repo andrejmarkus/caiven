@@ -500,7 +500,7 @@
       linear-gradient(to bottom, rgba(245,242,242,.28) 1px, transparent 1px);
     background-size: var(--tile-pct-x) 100%, 100% var(--tile-pct-y), var(--screen-pct-x) 100%, 100% var(--screen-pct-y);
   }
-  .map-screen-region { left: 0; top: 0; width: var(--screen-pct-x); height: var(--screen-pct-y); border: 2px solid var(--color-ember); box-shadow: var(--shadow-glow-ember); }
+  .map-screen-region { left: 0; top: 0; width: var(--screen-pct-x); height: var(--screen-pct-y); border: 2px solid var(--color-ember); box-shadow: var(--ring-ember); }
   .map-screen-region span { position: absolute; left: 3px; top: 3px; color: var(--color-ember); font-family: var(--font-mono); font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
   .screen-label { position: absolute; padding: 2px 3px; color: rgba(245,242,242,.55); font-family: var(--font-mono); font-size: 8px; letter-spacing: .06em; text-transform: uppercase; pointer-events: none; }
   .map-selection { position: absolute; border: 1px dashed var(--color-ember); background: rgba(254,176,93,.12); pointer-events: none; }

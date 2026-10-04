@@ -1,14 +1,13 @@
 <script lang="ts">
   import { api, type Cart, type CollectionInfo, type JamInfo, type TagCount } from '../api';
   import CartCard from '../components/CartCard.svelte';
-  import ScreenshotImg from '../components/ScreenshotImg.svelte';
+  import AttractScreen from '../components/AttractScreen.svelte';
+  import { currentUser } from '../stores.svelte';
   import { link } from '../router.svelte';
   import { buttonVariants } from '@caiven/ui/button';
   import { Skeleton } from '@caiven/ui/skeleton';
-  import PlayIcon from '@lucide/svelte/icons/play';
-  import StarIcon from '@lucide/svelte/icons/star';
+  import MaximizeIcon from '@lucide/svelte/icons/maximize-2';
   import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
-  import TrophyIcon from '@lucide/svelte/icons/trophy';
   import CodeIcon from '@lucide/svelte/icons/code';
 
   let top = $state<Cart[]>([]);
@@ -62,63 +61,55 @@
   });
 </script>
 
-<div class="container-page space-y-14 py-7 md:py-10">
+<div class="container-page space-y-14 py-7 md:py-12">
   {#if error}
     <div class="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">{error}</div>
   {/if}
 
   {#if loading}
-    <Skeleton class="h-[460px] w-full rounded-xl" />
+    <Skeleton class="h-[420px] w-full rounded-lg" />
   {:else if featured}
-    <section class="surface-panel relative overflow-hidden rounded-xl">
-      <div class="pointer-events-none absolute -top-40 -left-28 size-[520px] bg-[radial-gradient(ellipse_at_center,rgba(254,176,93,.16),transparent_68%)]"></div>
-      <div class="relative flex flex-wrap items-center gap-9 p-6 md:p-11">
-        <div class="min-w-0 flex-1 basis-[420px]">
-          <div class="label-mono inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-[10px] font-semibold text-accent-foreground">
-            <StarIcon class="size-3 fill-current" />
-            Cart of the week
-          </div>
-          <h1 class="mt-5 text-4xl leading-tight font-bold tracking-tight md:text-5xl">{featured.title}</h1>
-          <p class="mt-4 max-w-[52ch] text-base leading-relaxed text-muted-foreground md:text-lg">
-            {featured.description || 'A tiny world built for the Caiven fantasy console.'}
+    <div class="space-y-6">
+      {#if !currentUser.value}
+        <p class="max-w-[60ch] text-lg text-muted-foreground md:text-xl">
+          <strong class="text-foreground">Caiven is a fantasy console.</strong> Every game here is a small Lua program you can play, open, change and publish again.
+        </p>
+      {/if}
+      <section class="-mx-6 grid items-center gap-8 bg-black/25 px-6 py-8 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] md:gap-12 md:rounded-lg md:p-10 lg:mx-0">
+        <div class="min-w-0 md:order-2">
+          <AttractScreen cart={featured} />
+        </div>
+        <div class="min-w-0 md:order-1">
+          <p class="text-sm text-muted-foreground">Cart of the week</p>
+          <h1 class="mt-2 text-4xl leading-tight md:text-5xl">{featured.title}</h1>
+          {#if featured.description}
+            <p class="mt-4 max-w-[46ch] text-base leading-relaxed text-muted-foreground md:text-lg">{featured.description}</p>
+          {/if}
+          <p class="mt-5 text-sm text-muted-foreground">
+            by <a href={featured.owner ? `/author/${featured.owner}` : undefined} use:link class="font-semibold text-foreground">{featured.owner ?? featured.author}</a>
+            <span class="ml-3 font-mono">{featured.plays.toLocaleString()} plays</span>
+            {#if featured.rating_count}<span class="ml-3 font-mono">{featured.rating_avg.toFixed(1)} rating</span>{/if}
           </p>
-          <div class="mt-6 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-            <a href={featured.owner ? `/author/${featured.owner}` : undefined} use:link class="font-semibold text-foreground">
-              {featured.owner ?? featured.author}
-            </a>
-            <span class="text-border">|</span>
-            <span class="text-primary">{featured.rating_count ? `${featured.rating_avg.toFixed(1)} ★` : 'New'}</span>
-            <span class="text-border">|</span>
-            <span class="font-mono">{featured.plays.toLocaleString()} plays</span>
-          </div>
           <div class="mt-7 flex flex-wrap gap-3">
-            <a href="/play/{featured.id}" use:link class={buttonVariants({ size: 'lg', class: 'ember-glow h-12' })}>
-              <PlayIcon data-icon="inline-start" fill="currentColor" />
-              Play in browser
+            {#if featured.remixable}
+              <a href="/remix/{featured.id}" use:link class={buttonVariants({ size: 'lg', class: 'h-12 px-6' })}>
+                <CodeIcon data-icon="inline-start" />Remix this game
+              </a>
+            {/if}
+            <a href="/play/{featured.id}" use:link class={buttonVariants({ variant: featured.remixable ? 'secondary' : 'default', size: 'lg', class: 'h-12 px-6' })}>
+              <MaximizeIcon data-icon="inline-start" />Full screen
             </a>
-            <a href="/cart/{featured.id}" use:link class={buttonVariants({ variant: 'secondary', size: 'lg', class: 'h-12' })}>Cart details</a>
-          </div>
-          <div class="mt-5 flex flex-wrap gap-2">
-            {#each featured.tags as tag}
-              <a href="/browse?tag={encodeURIComponent(tag)}" use:link class="rounded-full border border-border px-3 py-1 text-sm text-muted-foreground hover:border-primary hover:text-primary">{tag}</a>
-            {/each}
           </div>
         </div>
-        <a href="/cart/{featured.id}" use:link class="cart-notch relative mx-auto aspect-3/2 w-full max-w-[420px] flex-1 basis-[340px] overflow-hidden border border-border bg-secondary">
-          <ScreenshotImg id={featured.id} hasScreenshot={featured.has_screenshot} alt={featured.title} />
-          <div class="scanline-overlay pointer-events-none absolute inset-0 opacity-30"></div>
-          <span class="label-mono absolute top-3 left-3 rounded bg-black/60 px-2 py-1 text-[10px] text-white/60">192 × 128 · 16 col</span>
-        </a>
-      </div>
-    </section>
+      </section>
+    </div>
   {/if}
 
   {#if starters.length}
     <section>
       <div class="mb-5">
-        <div class="label-mono mb-1.5 text-[10px] text-primary">Start here</div>
-        <h2 class="text-xl font-semibold">Change one number. Make it yours.</h2>
-        <p class="mt-1 text-sm text-muted-foreground">Tiny games built to be remixed in your browser. No install, no account until you publish.</p>
+        <h2 class="text-xl">Remix a starter</h2>
+        <p class="mt-1 text-sm text-muted-foreground">Open the code in your browser and change it. You only need an account to publish.</p>
       </div>
       <div class="cart-grid">
         {#each starters as cart (cart.id)}
@@ -137,12 +128,11 @@
     <section>
       <div class="mb-5 flex items-end justify-between gap-4">
         <div>
-          <div class="label-mono mb-1.5 text-[10px] text-accent-foreground">Editor’s pick</div>
-          <h2 class="text-xl font-semibold">{shelf.title}</h2>
-          <p class="mt-1 text-sm text-muted-foreground">{shelf.description}</p>
+          <h2 class="text-xl">{shelf.title}</h2>
+          {#if shelf.description}<p class="mt-1 text-sm text-muted-foreground">{shelf.description}</p>{/if}
         </div>
-        <a href="/collections/{shelf.slug}" use:link class="flex items-center gap-1 text-sm text-muted-foreground hover:text-primary">
-          Open shelf <ArrowRightIcon class="size-4" />
+        <a href="/collections/{shelf.slug}" use:link class="flex shrink-0 items-center gap-1 text-sm text-muted-foreground hover:text-primary">
+          See all <ArrowRightIcon class="size-4" />
         </a>
       </div>
       <div class="cart-grid">
@@ -152,33 +142,26 @@
   {/if}
 
   {#if openJam}
-    <section class="surface-panel relative overflow-hidden rounded-xl p-6 md:p-8">
-      <div class="pointer-events-none absolute -top-28 -right-20 size-96 bg-[radial-gradient(ellipse_at_center,rgba(254,176,93,.14),transparent_70%)]"></div>
-      <div class="relative flex flex-wrap items-center gap-7">
-        <div class="min-w-0 flex-1 basis-[460px]">
-          <div class="label-mono flex items-center gap-2 text-[10px] text-primary"><TrophyIcon class="size-4" />Submissions open</div>
-          <h2 class="mt-2 text-2xl font-bold">{openJam.title}</h2>
-          <p class="mt-2 max-w-2xl text-muted-foreground">{openJam.description}</p>
-        </div>
-        <div class="flex items-center gap-5">
-          <div><strong class="block font-mono text-xl">{openJam.entry_count}</strong><span class="label-mono text-[9px] text-muted-foreground">entries</span></div>
-          <div><strong class="block font-mono text-xl">{openJam.creator_count}</strong><span class="label-mono text-[9px] text-muted-foreground">creators</span></div>
-          <a href="/jams/{openJam.slug}" use:link class={buttonVariants({ size: 'lg' })}>Enter jam</a>
-        </div>
+    <section class="flex flex-wrap items-center gap-x-8 gap-y-4 border-y border-border py-6">
+      <div class="min-w-0 flex-1 basis-[420px]">
+        <h2 class="text-2xl">{openJam.title}</h2>
+        <p class="mt-1 max-w-2xl text-muted-foreground">{openJam.description}</p>
+        <p class="mt-2 font-mono text-sm text-muted-foreground">Jam open: {openJam.entry_count} {openJam.entry_count === 1 ? 'entry' : 'entries'} from {openJam.creator_count} {openJam.creator_count === 1 ? 'creator' : 'creators'}</p>
       </div>
+      <a href="/jams/{openJam.slug}" use:link class={buttonVariants({ size: 'lg' })}>Enter jam</a>
     </section>
   {/if}
 
   {#each [
-    { title: 'Trending this week', sub: 'Most played in the last seven days', carts: trending, href: '/browse?sort=trending' },
-    { title: 'New remixes', sub: 'Someone changed a game and made it theirs', carts: newRemixes, href: '/browse?sort=remixes' },
-    { title: 'Most remixed', sub: 'The games people keep changing', carts: mostRemixed, href: '/browse?sort=remixed' },
-    { title: 'Fresh off Studio', sub: 'New and recently updated carts', carts: recent, href: '/browse?sort=new' },
+    { title: 'Trending this week', carts: trending, href: '/browse?sort=trending' },
+    { title: 'New remixes', carts: newRemixes, href: '/browse?sort=remixes' },
+    { title: 'Most remixed', carts: mostRemixed, href: '/browse?sort=remixed' },
+    { title: 'New carts', carts: recent, href: '/browse?sort=new' },
   ] as section}
     {#if section.carts.length}
       <section>
         <div class="mb-5 flex items-end justify-between">
-          <div><h2 class="text-xl font-semibold">{section.title}</h2><p class="mt-1 text-sm text-muted-foreground">{section.sub}</p></div>
+          <h2 class="text-xl">{section.title}</h2>
           <a href={section.href} use:link class="flex items-center gap-1 text-sm text-muted-foreground hover:text-primary">See all <ArrowRightIcon class="size-4" /></a>
         </div>
         <div class="cart-grid">{#each section.carts as cart (cart.id)}<CartCard {cart} compact />{/each}</div>
@@ -188,10 +171,10 @@
 
   {#if tags.length}
     <section>
-      <h2 class="text-xl font-semibold">Find your kind of tiny</h2>
+      <h2 class="text-xl">Tags</h2>
       <div class="mt-4 flex flex-wrap gap-2">
         {#each tags.slice(0, 16) as tag}
-          <a href="/browse?tag={encodeURIComponent(tag.tag)}" use:link class="rounded-full border border-border px-3 py-1.5 text-sm text-muted-foreground hover:border-primary hover:text-primary">{tag.tag} <span class="font-mono text-xs text-foreground">{tag.count}</span></a>
+          <a href="/browse?tag={encodeURIComponent(tag.tag)}" use:link class="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:border-primary hover:text-primary">{tag.tag} <span class="font-mono text-xs text-foreground">{tag.count}</span></a>
         {/each}
       </div>
     </section>

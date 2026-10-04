@@ -98,3 +98,27 @@ test('narrow phone pages never scroll sideways and the player fits above the tab
   const tabTop = (await page.locator('nav.fixed').boundingBox())!.y;
   await expect.poll(async () => { const box = await picker.boundingBox(); return box ? box.y + box.height : Infinity; }).toBeLessThanOrEqual(tabTop);
 });
+
+test('home hero runs the featured cart live and plays it in place', async ({ page }) => {
+  test.skip(test.info().project.name === 'mobile-chromium', 'touch taps open the full player instead');
+  await page.goto('/');
+  const screen = page.getByLabel(/Ember Quest, running/);
+  await expect(page.getByText('Click the screen to play it here.')).toBeVisible();
+  await screen.click();
+  await expect(screen).toBeFocused();
+  await expect(page.getByText('Arrows move. Z and X are the A and B buttons.')).toBeVisible();
+});
+
+test('home hero stays a still screenshot under reduced motion', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Ember Quest', level: 1 })).toBeVisible();
+  await expect(page.getByText(/(Click|Tap) the screen to play/)).toHaveCount(0);
+});
+
+test('a still home hero opens the full player on click', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/');
+  await page.locator('canvas[aria-label="Play Ember Quest"]').click();
+  await expect(page).toHaveURL(/\/play\/demo$/);
+});

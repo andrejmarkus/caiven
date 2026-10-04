@@ -3,11 +3,10 @@
 @import 'tw-animate-css';
 @import 'shadcn-svelte/tailwind.css';
 @import '@fontsource-variable/inter';
-@import '@fontsource-variable/space-grotesk';
 @import '@fontsource-variable/jetbrains-mono';
 
 @theme {
-  --font-display: 'Space Grotesk Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, monospace;
   --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, monospace;
 
@@ -79,8 +78,8 @@
   --border: var(--color-void-600);
   --input: var(--color-void-600);
   --ring: var(--color-ember);
-  --radius: 0.5rem;
-  --shadow-glow-ember: 0 0 0 1px rgb(254 176 93 / 0.35), 0 0 24px rgb(254 176 93 / 0.18);
+  --radius: 0.375rem;
+  --ring-ember: 0 0 0 1px var(--color-ember);
   --border-subtle: color-mix(in oklch, var(--color-void-600) 60%, transparent);
 
   /* logo mark is the mineral — obsidian, not the UI's ember interactive color */
@@ -109,8 +108,8 @@
   h3,
   h4 {
     font-family: var(--font-display);
-    letter-spacing: -0.01em;
-    font-weight: 600;
+    letter-spacing: -0.02em;
+    font-weight: 700;
   }
 
   a {
@@ -149,21 +148,6 @@
     flex: 1;
   }
 
-  .text-glow {
-    text-shadow: 0 0 24px color-mix(in oklab, var(--color-ember) 55%, transparent);
-  }
-
-  /* keying notch on a cartridge shell — sharp hardware edges, not a rounded tile */
-  .cart-notch {
-    clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%);
-  }
-
-  .label-mono {
-    font-family: var(--font-mono);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-
   .scanline-overlay {
     background-image: repeating-linear-gradient(
       to bottom,
@@ -172,10 +156,6 @@
       transparent 1px,
       transparent 3px
     );
-  }
-
-  .crt-vignette {
-    background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
   }
 
   /* game player filter shared by Studio and Port; one scanline per screen row (128) so it looks the same at any scale */
@@ -196,11 +176,7 @@
   }
 
   .surface-panel {
-    @apply border-border bg-card border shadow-sm;
-  }
-
-  .ember-glow {
-    box-shadow: var(--shadow-glow-ember);
+    @apply border-border bg-card border;
   }
 
   @media (max-width: 639px) {

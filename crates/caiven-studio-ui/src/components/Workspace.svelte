@@ -1008,7 +1008,7 @@
   // byte3 packs pan (bits 0-3, 0=center) and attack/release envelope levels
   // (bits 4-5 / 6-7, each 0-3). Mirrors crates/caiven-vm/src/vm/sfx.rs::decode_byte3.
   const PAN_LABELS = ['C', 'L1', 'R1', 'L2', 'R2', 'L3', 'R3', 'L4', 'R4', 'L5', 'R5', 'L6', 'R6', 'L7', 'R7', 'HL'];
-  const ENV_LABELS = ['—', 'fast', 'med', 'slow'];
+  const ENV_LABELS = ['-', 'fast', 'med', 'slow'];
 
   const sfxPan = (step: number) => sfxByte(step, 3) & 0x0f;
   const sfxAttack = (step: number) => (sfxByte(step, 3) >> 4) & 0x03;
@@ -1431,11 +1431,9 @@
 
   {#if screen === 'welcome'}
     <section class="welcome-screen">
-      <div class="welcome-glow"></div>
       <div class="welcome-copy">
-        <span class="eyebrow">Caiven Studio</span>
-        <h1>Make small worlds.<br /><em>Keep every pixel.</em></h1>
-        <p>Write real Lua, draw directly into cart memory, and publish something playable before idea cools.</p>
+        <h1>Make a game in Lua.</h1>
+        <p>Write the code, draw the sprites, and publish something playable in one sitting.</p>
         <div class="welcome-actions">
           <Button onclick={onNew}><Plus size={16} />New cart</Button>
           <Button variant="outline" onclick={onOpen}><FolderOpen size={16} />Open project</Button>
@@ -1568,7 +1566,7 @@
         {/each}
         <button
           class:active={tool === 'select'}
-          title={`Select — marquee a region, then ${copyCutPaste} to copy/cut/paste`}
+          title={`Select: marquee a region, then ${copyCutPaste} to copy/cut/paste`}
           onclick={() => tool = 'select'}
         ><BoxSelect size={18} /></button>
         <span></span>
@@ -1598,7 +1596,7 @@
         />
         <div class="map-zoom sprite-zoom" aria-label="Sprite zoom">{#each MAP_ZOOM_LEVELS as value}<button class:active={Math.abs(spriteZoom - value) < 0.02} onclick={() => spriteZoom = value}>{value * 100}%</button>{/each}</div>
         {#if tool === 'select'}
-          <p class="map-note subtle">{spriteSelection ? `${spriteSelection.w} × ${spriteSelection.h} selected` : 'Drag to select a region'} — {clipboardHint} paste.</p>
+          <p class="map-note subtle">{spriteSelection ? `${spriteSelection.w} × ${spriteSelection.h} selected` : 'Drag to select a region'}. {clipboardHint} paste.</p>
         {/if}
         <div class="palette-strip">
           {#each palette as color, index}<button aria-label={`Color ${index}`} class:active={selectedColor === index} style={`--swatch:${color}`} onclick={() => selectedColor = index}></button>{/each}
@@ -1612,7 +1610,7 @@
           class="sprite-sheet"
           bind:this={spriteSheetEl}
           role="application"
-          aria-label="Sprite sheet — drag to select an adjacent group of slots to edit as one canvas."
+          aria-label="Sprite sheet. Drag to select an adjacent group of slots to edit as one canvas."
           onpointerdown={beginSpriteSheetDrag}
           onpointermove={moveSpriteSheetDrag}
           onpointerup={finishSpriteSheetDrag}
@@ -1624,7 +1622,7 @@
               class:active={inSpriteSheetGroup(index)}
               class:previewed={inSpriteSheetDragPreview(index)}
               class:empty={!spriteUsed[index]}
-              title={`Sprite ${index.toString().padStart(3, '0')}${spriteUsed[index] ? '' : ' — empty'}`}
+              title={`Sprite ${index.toString().padStart(3, '0')}${spriteUsed[index] ? '' : ' (empty)'}`}
             >
               {#if spriteUsed[index]}
                 {#each Array(64) as _, p}<i style={`background:${palette[spriteSheet[index * 64 + p] ?? 0]}`}></i>{/each}
@@ -1644,17 +1642,17 @@
         {/each}
         <button
           class:active={mapTool === 'rect-outline'}
-          title="Rectangle outline — border only, no fill"
+          title="Rectangle outline: border only, no fill"
           onclick={() => mapTool = 'rect-outline'}
         ><SquareDashed size={18} /></button>
         <button
           class:active={mapTool === 'autotile'}
-          title="Autotile — paints a terrain tile and matches its edges to its neighbors automatically"
+          title="Autotile: paints a terrain tile and matches its edges to its neighbors automatically"
           onclick={() => mapTool = 'autotile'}
         ><Puzzle size={18} /></button>
         <button
           class:active={mapTool === 'select'}
-          title={`Select — marquee a region, then ${copyCutPaste} to copy/cut/place`}
+          title={`Select: marquee a region, then ${copyCutPaste} to copy/cut/place`}
           onclick={() => mapTool = 'select'}
         ><BoxSelect size={18} /></button>
         <span></span>
@@ -1732,7 +1730,7 @@
       </div>
       <aside class="map-inspector">
         <span class="eyebrow">Minimap</span>
-        <div class="minimap" onclick={recenterFromMinimap} onkeydown={recenterFromMinimapKey} role="button" tabindex="0" aria-label="Minimap — click to jump to a location">
+        <div class="minimap" onclick={recenterFromMinimap} onkeydown={recenterFromMinimapKey} role="button" tabindex="0" aria-label="Minimap. Click to jump to a location">
           <canvas bind:this={minimapCanvas} width={MAP_W} height={MAP_H}></canvas>
           <div
             class="minimap-viewport"
@@ -1743,21 +1741,21 @@
           <div class="collision-edit-note">
             <span class="eyebrow"><ShieldCheck size={13} />Collision painting</span>
             <strong>{collisionTypeById.get(mapTool === 'erase' ? 0 : collisionBrush)?.name ?? 'walkable'} brush</strong>
-            <p>Per cell — painting only changes the cells under the brush, independent of which sprite tile they show.</p>
+            <p>Per cell: painting only changes the cells under the brush, independent of which sprite tile they show.</p>
           </div>
         {/if}
         {#if mapTool === 'autotile'}
           <div class="collision-edit-note">
             <span class="eyebrow"><Puzzle size={13} />Autotile</span>
             <strong>Paints tile {selectedTile.toString().padStart(3, '0')}'s terrain</strong>
-            <p>Placing or removing a tile updates its edges and its neighbors' — the sheet's next 15 tiles after this terrain's first must be its edge/corner variants.</p>
+            <p>Placing or removing a tile updates its edges and its neighbors'. The sheet's next 15 tiles after this terrain's first must be its edge/corner variants.</p>
           </div>
         {/if}
         {#if mapTool === 'select'}
           <div class="collision-edit-note">
             <span class="eyebrow"><BoxSelect size={13} />Region select</span>
             <strong>{mapSelection ? `${mapSelection.w} × ${mapSelection.h} selected` : 'Drag to select a region'}</strong>
-            <p>{clipboardHint} places the clipboard as a stamp — click or drag to drop it.</p>
+            <p>{clipboardHint} places the clipboard as a stamp. Click or drag to drop it.</p>
             {#if mapSelection}
               <div class="selection-ops">
                 <button title={`Paste in place (${shortcut('⇧⌘V')})`} disabled={!mapClipboard} onclick={pasteInPlace}>Paste in place</button>
@@ -1791,7 +1789,7 @@
           <div class="stamp-library" aria-label="Saved stamps">
             {#each mapStampLibrary as entry (entry.name)}
               <span class="stamp-chip">
-                <button title={`${entry.name} — ${entry.w} × ${entry.h}`} onclick={() => loadStamp(entry.name)}>{entry.name}</button>
+                <button title={`${entry.name}, ${entry.w} × ${entry.h}`} onclick={() => loadStamp(entry.name)}>{entry.name}</button>
                 <button title={`Delete ${entry.name}`} aria-label={`Delete ${entry.name}`} onclick={() => deleteStamp(entry.name)}><X size={11} /></button>
               </span>
             {/each}
@@ -1801,7 +1799,7 @@
           class="tile-picker"
           bind:this={pickerEl}
           role="application"
-          aria-label="Tile picker — same layout as the sprite sheet. Drag to select a multi-tile stamp."
+          aria-label="Tile picker, same layout as the sprite sheet. Drag to select a multi-tile stamp."
           onpointerdown={beginPickerDrag}
           onpointermove={movePickerDrag}
           onpointerup={finishPickerDrag}
@@ -1809,8 +1807,8 @@
         >
           {#each Array(256) as _, i}
             <button
-              aria-label={`Tile ${i.toString().padStart(3, '0')}${spriteUsed[i] ? '' : ' — empty'}`}
-              title={`Tile ${i.toString().padStart(3, '0')}${spriteUsed[i] ? '' : ' — empty'}`}
+              aria-label={`Tile ${i.toString().padStart(3, '0')}${spriteUsed[i] ? '' : ' (empty)'}`}
+              title={`Tile ${i.toString().padStart(3, '0')}${spriteUsed[i] ? '' : ' (empty)'}`}
               tabindex="-1"
               class:active={inStamp(i)}
               class:previewed={inPickerPreview(i)}
@@ -1822,8 +1820,8 @@
             </button>
           {/each}
         </div>
-        <div class="inspector-row"><span>Cell</span><code>{mapHover ? `${mapHover.x}, ${mapHover.y}` : '—'}</code></div>
-        <div class="inspector-row"><span>Hovered tile</span><code>{mapHover ? `${mapHover.tile.toString().padStart(3,'0')} · ${collisionTypeById.get(collision[mapHover.y * MAP_W + mapHover.x] ?? 0)?.name ?? 'unknown'}` : '—'}</code></div>
+        <div class="inspector-row"><span>Cell</span><code>{mapHover ? `${mapHover.x}, ${mapHover.y}` : '-'}</code></div>
+        <div class="inspector-row"><span>Hovered tile</span><code>{mapHover ? `${mapHover.tile.toString().padStart(3,'0')} · ${collisionTypeById.get(collision[mapHover.y * MAP_W + mapHover.x] ?? 0)?.name ?? 'unknown'}` : '-'}</code></div>
         <div class="inspector-row">
           <span>Selected</span>
           <code>{mapStamp ? `${mapStamp.w} × ${mapStamp.h} stamp` : `${selectedTile.toString().padStart(3,'0')} · 0x${selectedTile.toString(16).padStart(2,'0')}`}</code>
@@ -2022,7 +2020,7 @@
                   class:noise
                   class:empty
                   disabled={empty}
-                  title={empty ? 'No note on this step' : noise ? 'Noise — click for square' : 'Square — click for noise'}
+                  title={empty ? 'No note on this step' : noise ? 'Noise, click for square' : 'Square, click for noise'}
                   onclick={() => setSfxCells([{ step, field: 2, value: noise ? 0 : 1 }])}
                 >
                   {#if empty}·{:else if noise}<svg viewBox="0 0 20 10" aria-hidden="true"><polyline points="0,5 2,2 4,8 6,3 8,7 10,1 12,9 14,4 16,6 18,2 20,5" /></svg>
@@ -2108,7 +2106,7 @@
                 class="song-slot"
                 aria-label={`Song step ${step}: ${slot ? `pattern ${slot - 1}` : 'empty'}`}
                 onclick={() => changeSongStep(step)}
-              >{slot ? (slot - 1).toString().padStart(2,'0') : '—'}</button>
+              >{slot ? (slot - 1).toString().padStart(2,'0') : '-'}</button>
               <button
                 class="song-loop"
                 aria-label={`${songLoopStep === step ? 'Clear' : 'Set'} loop point at step ${step}`}
@@ -2137,7 +2135,7 @@
               aria-pressed={musicRowSelected(row)}
               onpointerdown={(event) => startRowSelect(row, event.shiftKey)}
               onpointerenter={() => extendRowSelect(row)}
-            >{row.toString(16).toUpperCase().padStart(2,'0')}</button>{#each MUSIC_CHANNEL_LABELS as _, channel}{@const cell = music[selectedPattern * MUSIC_PATTERN_LEN + row * MUSIC_CHANNEL_COUNT + channel] ?? 0}<button class="music-cell" onclick={() => changeMusic(row, channel)}>{cell ? `SFX ${(cell - 1).toString().padStart(2,'0')}` : '—'}</button>{/each}</div>
+            >{row.toString(16).toUpperCase().padStart(2,'0')}</button>{#each MUSIC_CHANNEL_LABELS as _, channel}{@const cell = music[selectedPattern * MUSIC_PATTERN_LEN + row * MUSIC_CHANNEL_COUNT + channel] ?? 0}<button class="music-cell" onclick={() => changeMusic(row, channel)}>{cell ? `SFX ${(cell - 1).toString().padStart(2,'0')}` : '-'}</button>{/each}</div>
           {/each}
         </div>
         <p class="music-hints">
@@ -2256,7 +2254,7 @@
           <div class="account-avatar pending"><Globe size={28} /></div>
           <span class="account-status pending">Browser opened</span>
           <h2>Finish linking in Port</h2>
-          <p>Sign in or register in the browser tab, then enter this code to approve Caiven Studio — Studio picks it up automatically.</p>
+          <p>Sign in or register in the browser tab, then enter this code to approve Caiven Studio. Studio picks it up automatically.</p>
           <p class="port-link-code">{portLinkUserCode || '········'}</p>
           <p class="account-expiry">Link expires {portLinkExpiresAt ? new Date(portLinkExpiresAt).toLocaleTimeString() : 'soon'}.</p>
           <Button variant="outline" disabled={portBusy} onclick={onPortLinkCancel}>Cancel</Button>
@@ -2265,7 +2263,7 @@
           <span class="account-status">Not linked</span>
           <h2>Link Port account</h2>
           <p>Required before publishing. The browser handles sign-in, so Studio never sees your password.</p>
-          <label class="server-url-field">Port server<Input value={serverUrlDraft} placeholder="https://caiven.net" onblur={(event) => { serverUrlDraft = event.currentTarget.value; onSetServerUrl(serverUrlDraft); }} onkeydown={(event) => { if (event.key === 'Enter') { event.currentTarget.blur(); } }} /><small>Self-hosting or joining a community instance? Point Studio at it here — leave blank for {portAccount.portUrl || 'the default'}.</small></label>
+          <label class="server-url-field">Port server<Input value={serverUrlDraft} placeholder="https://caiven.net" onblur={(event) => { serverUrlDraft = event.currentTarget.value; onSetServerUrl(serverUrlDraft); }} onkeydown={(event) => { if (event.key === 'Enter') { event.currentTarget.blur(); } }} /><small>Self-hosting or joining a community instance? Point Studio at it here, or leave blank for {portAccount.portUrl || 'the default'}.</small></label>
           <Button disabled={portBusy} onclick={onPortLink}>Link Port account</Button>
         {/if}
         {#if portError}

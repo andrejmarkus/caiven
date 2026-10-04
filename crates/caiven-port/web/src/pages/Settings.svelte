@@ -334,7 +334,7 @@
               <span class="mb-1.5 block text-xs font-semibold text-muted-foreground">Confirm new password</span>
               <Input type="password" bind:value={confirmPassword} autocomplete="new-password" minlength={8} maxlength={128} required />
             </label>
-            <p class="font-mono text-[11px] text-muted-foreground">8–128 characters · needs an uppercase letter and a special character</p>
+            <p class="font-mono text-[11px] text-muted-foreground">8 to 128 characters · needs an uppercase letter and a special character</p>
             <Button type="submit" disabled={busyPassword}>
               {#if busyPassword}<Spinner data-icon="inline-start" />{/if}
               Update password
@@ -353,7 +353,7 @@
               <span class="mb-1.5 block text-xs font-semibold text-muted-foreground">Confirm new password</span>
               <Input type="password" bind:value={confirmPassword} autocomplete="new-password" minlength={8} maxlength={128} required />
             </label>
-            <p class="font-mono text-[11px] text-muted-foreground">8–128 characters · needs an uppercase letter and a special character</p>
+            <p class="font-mono text-[11px] text-muted-foreground">8 to 128 characters · needs an uppercase letter and a special character</p>
             <Button type="submit" disabled={busyPassword}>
               {#if busyPassword}<Spinner data-icon="inline-start" />{/if}
               Set password
@@ -409,7 +409,7 @@
         </div>
       {/each}
       <form onsubmit={createToken} class="flex gap-2 border-t border-[var(--border-subtle)] p-6">
-        <Input bind:value={tokenName} maxlength={64} placeholder="Token name — Studio on laptop" class="min-w-0 flex-1" />
+        <Input bind:value={tokenName} maxlength={64} placeholder="Token name, e.g. Studio on laptop" class="min-w-0 flex-1" />
         <Button type="submit">Create token</Button>
       </form>
     </section>
@@ -483,7 +483,7 @@
           </div>
         {/each}
         <form onsubmit={addPasskey} class="flex gap-2 border-t border-[var(--border-subtle)] p-6">
-          <Input bind:value={passkeyLabel} maxlength={64} placeholder="Passkey name — e.g. YubiKey" class="min-w-0 flex-1" />
+          <Input bind:value={passkeyLabel} maxlength={64} placeholder="Passkey name, e.g. YubiKey" class="min-w-0 flex-1" />
           <Button type="submit" disabled={passkeyBusy}>
             {#if passkeyBusy}<Spinner data-icon="inline-start" />{/if}
             Add passkey
