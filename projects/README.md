@@ -1,19 +1,19 @@
 # projects/
 
-Editable project sources (`caiven.toml` + `main.lua` + PNG/hex assets — see
-`crates/caiven-cart/src/project.rs`) for Caiven's demo content. Two
-independent sets, not shared files even where names overlap:
+Source projects for the demo carts. Each one has a `caiven.toml`, a
+`main.lua` and PNG or hex asset files (the loader lives in
+`crates/caiven-cart/src/project.rs`). The three sets below are independent,
+even where two projects share a name.
 
-- `showcase/` — polished examples meant to be remixed by end users directly
-  in Caiven Studio's Examples gallery
-  (`crates/caiven-studio/src/studio/examples.rs`). Builds to
+- `showcase/` holds the examples in Studio's Examples gallery
+  (`crates/caiven-studio/src/studio/examples.rs`). They build to
   `crates/caiven-studio/resources/examples/<name>.cav`.
-- `remix/` — Quick Remix starters: single-file, shapes only, a few top-level
-  constants to change. Published to a Port as remixable carts with
-  `scripts/remix-seeds/publish.sh`; not built to a checked-in `.cav`.
-- `dev/` — technical/edge-case projects for manual developer testing and
-  automated tests/CI in equal measure (handheld packaging, cart-format
-  compat checks, Port e2e smoke test). Builds to `carts/dev/<name>.cav`.
+- `remix/` holds Quick Remix starters: one file, shapes only, a few
+  constants at the top to change. `scripts/remix-seeds/publish.sh` publishes
+  them to a Port as remixable carts. They have no checked-in `.cav`.
+- `dev/` holds edge-case projects for manual testing and CI: handheld
+  packaging, cart format checks and the Port e2e smoke test. They build to
+  `carts/dev/<name>.cav`.
 
-Run `scripts/demo-carts/build.sh` after editing any project here to
-regenerate the corresponding `.cav` — never hand-edit the built binaries.
+After editing a project, run `scripts/demo-carts/build.sh` to rebuild its
+`.cav`.

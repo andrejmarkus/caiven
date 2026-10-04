@@ -3481,7 +3481,7 @@ async fn funnel_events_dedup_per_viewer_and_feed_admin_metrics() {
 }
 
 /// The limits an experiment readout has to be read with, pinned so a change
-/// to them is a deliberate one. See `docs/product/first-user-experiment.md`.
+/// to them is a deliberate one.
 #[rocket::async_test]
 async fn funnel_readout_semantics_for_an_experiment_window() {
     let dir = tempfile::tempdir().unwrap();

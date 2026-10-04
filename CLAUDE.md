@@ -28,7 +28,7 @@ themselves) that still reaches playable in one sitting.
 
 **The remix loop.** Caiven is a network of tiny playable programs; the loop
 to optimise is play → remix → change → publish → get remixed → return.
-Browser Quick Remix (`docs/product/quick-remix.md`) is Clock A; remixing is
+Browser Quick Remix (`docs/port.md#quick-remix`) is Clock A; remixing is
 opt-in per cart.
 
 **Seven-point gate.** A proposed API must pass all seven:
@@ -41,8 +41,7 @@ opt-in per cart.
 6. Only one obvious way — does not duplicate an existing call.
 7. Explainable to a beginner in one sentence.
 
-**Frozen hardware.** Target state; the code still carries the old numbers
-until the redesign phases land. Do not propose changes to these values.
+**Frozen hardware.** Do not propose changes to these values.
 
 | Spec | Value |
 | --- | --- |
@@ -68,8 +67,9 @@ an omission.
 
 **API tiers.** T0 builtins (Rust): only what cannot be written in Lua. T1
 prelude core: math-shaped, no game structure. T2 opt-in modules: the
-*readable-lesson cap* — pure Lua, roughly ≤ 100 lines, source readable in
-Studio, understandable in one sitting. A module is a teaching example, not a
+*readable-lesson cap* — pure Lua, ≤ 100 lines of code (blanks and comments
+excluded), source readable in Studio. `movement` is the one recorded
+exception. A module is a teaching example, not a
 black box.
 
 **Deliberate non-limits, do not re-argue.** No token limit and no code-size
@@ -151,17 +151,12 @@ switching to an unrelated task.
 
 - Design charter: `docs/product/design-charter.md` — binding product
   direction, frozen hardware, and the seven-point API gate.
-- Pending redesign: `docs/product/hardware-redesign-plan.md` — the Phase 2/3
-  change list moving the code to the charter's target hardware. The frozen
-  hardware table above is target state; the code still carries the old
-  numbers until those phases land.
 - Path-scoped rules: `.claude/rules/` (rust, vm-runtime, lua-api,
   cart-format, studio-tauri, studio-ui, port-backend, port-web, testing,
   security, performance, documentation, release).
 - Project skills: `.claude/skills/caiven-*` — see
   `docs/development/claude-code-workflow.md` for when to invoke each.
 - Repository audit: `docs/development/claude-code-audit.md`.
-- Product loop: `docs/product/product-development-loop.md`.
 - Nested `CLAUDE.md` files (e.g. `crates/caiven-studio/CLAUDE.md`) hold
   crate-specific operational detail — Claude Code loads these automatically
   when working in that directory.

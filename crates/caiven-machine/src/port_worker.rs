@@ -1,6 +1,5 @@
 //! Runs `port_client` requests on background threads so the SDL frame loop
-//! never blocks on them — see `docs/development/project-health.md`'s
-//! 2026-09-13 follow-up. One thread per request rather than a persistent
+//! never blocks on them. One thread per request rather than a persistent
 //! worker + job queue: Port requests are rare, user-triggered actions (open
 //! the Port screen, press SELECT to re-sort, press A to download), not a
 //! steady stream, so the extra machinery would buy nothing.

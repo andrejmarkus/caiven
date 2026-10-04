@@ -1,241 +1,179 @@
-# Caiven Design Charter
+# Caiven design charter
 
-This document is binding. It settles what Caiven is, what its hardware is, and
-which APIs are allowed to exist. It is not a wish list and not a roadmap — it is
-the rule that every future feature argument is decided against.
-
-A summary of this charter lives in `CLAUDE.md` so it loads into every session.
-Where the two disagree, this document wins; keep them in sync.
+This document sets what Caiven is, what its hardware is and which APIs may
+exist. Settle feature arguments against it.
 
 ## 1. Positioning
 
-Caiven is a fantasy console: a small, fixed, imaginary machine you write games
-for in real Lua 5.4. It is not a game engine, and the difference matters. An
-engine grows to meet whatever you ask of it. A console does not — its limits are
-the product, because a bounded machine is one you can finish a game on.
+Caiven is a fantasy console: a small, fixed, imaginary machine you program
+in real Lua 5.4. It keeps the same size whatever you build, and that limit
+helps you finish a game.
 
-It ships in an era where writing code by hand has become optional. That is the
-opportunity, not the threat. Caiven is where you still type it yourself: a place
-to keep the part of your mind that composes logic in working order, and a place
-where a beginner can acquire that part in the first place.
+Other tools will write code for you. Here you type it yourself, to keep
+your logic skills in shape or to learn them for the first time. The
+console ships no in-product LLM.
 
-**Caiven ships no in-product LLM.** The console is the human-craft antidote to
-the AI era. This is positioning, not an omission — deferred, not refused
-forever, but reversible only by an explicit recorded decision, never by a
-judgement call mid-task.
+## 2. Two clocks
 
-## 2. The spine — two clocks
+We hold two goals that pull against each other:
 
-Caiven holds two goals that pull in opposite directions:
+1. **Brain gym.** You write the game yourself, and typing the code is the
+   point.
+2. **Idea to playable in one sitting.** Our players have little patience,
+   so time to fun breaks ties.
 
-1. **Brain gym.** You write the game yourself. Typing the code is the product,
-   not a cost to be optimised away.
-2. **Idea to playable in one sitting.** The audience has no patience.
-   Time-to-fun is the metric that breaks every tie.
-
-Taken naively, goal 2 argues for helpers that write the game for you, which
-destroys goal 1. The resolution is to notice that these two goals measure
-different clocks.
+Goal 2 tempts us to add helpers that write the game for you, and those
+helpers would kill goal 1. We resolve the conflict by splitting the work
+into two clocks:
 
 | Clock | What it measures | Rule |
 | --- | --- | --- |
-| **A — friction** | Everything *around* the code: boot, reload, sprite/map/sfx editing, templates, defaults, error messages, export | Drive to zero. Spend engineering freely. No simplicity budget applies here. |
-| **B — authorship** | The game logic itself | Stays hand-typed. Small API, no autopilot, no framework that writes the game's structure for you. |
+| **A: friction** | Everything around the code: boot, reload, sprite, map and sfx editing, templates, defaults, error messages, export | Drive it to zero, and spend engineering time on it without a budget. |
+| **B: authorship** | The game logic | You type it. The API stays small, with no autopilot and no framework that writes the game's structure. |
 
-**The gate, in one sentence: does this remove friction, or does it remove
+**The gate in one sentence: does this remove friction, or does it remove
 authorship?**
 
-Friction is bought freely — there is no budget, no "that's enough polish", no
-argument that a smoother editor is scope creep. Authorship is never traded for
-speed, no matter how much time the trade would save. Speed comes from the
-tooling being excellent, never from the API doing the game for you.
+We keep polishing the editors, reload and error messages, and nobody on the
+project calls that scope creep. We never trade authorship for speed,
+however much time the trade would save. You get speed from the tools and
+write the game yourself.
 
 ## 3. Audience
 
-Two audiences, one API — deliberately, not as a compromise.
+We serve two audiences with one API:
 
-- **The absolute beginner.** Caiven teaches programming through something fun
-  and non-violent, and it teaches *real* Lua, so the knowledge transfers. This
-  is also the base skill for pair-programming with an AI later: you cannot
-  supervise code you have never written.
-- **The working programmer.** A gym. You keep the composition muscle from
-  atrophying, on a machine small enough that a session ends in a finished thing
-  rather than a backlog.
+- **Complete beginners.** You learn programming through a fun, non-violent
+  toy in real Lua, and your skills carry over to any Lua project.
+- **Working programmers.** You keep your skills sharp on a machine small
+  enough to finish a game in one session.
 
-One API serves both because the beginner's needs and the gym's needs point the
-same way: a small surface, readable names, immediate visible results, and no
-black boxes. Anything that would help one at the other's expense is the wrong
-design for both.
+Both groups want a small API, readable names, instant results and no hidden
+behavior. Reject a feature that helps one group at the other's expense.
 
-Assume the reader has no attention to spare. Every ritual before the first pixel
-is a place the audience leaves.
+Treat every setup step before the first pixel as a reason someone quits.
 
 ## 4. Fixed console, expandable cartridge
 
-Once the redesign phases land, **the console stops changing.** You never get a
-bigger screen, more colors, or more voices. Growth happens exclusively through
-the cartridge, via named banks.
-
-Target hardware:
+We won't grow the screen, the palette or the voice count. Carts grow through
+named banks only.
 
 | Spec | Value | Why |
 | --- | --- | --- |
-| **Screen** | 192 × 128 (24 × 16 tiles) | 48 text columns (3 px glyph + 1 px gap) fits a real sentence; 128 px gives 32 and breaks a beginner's first `draw_text`. 3:2 suits side-scrollers. 1.5× the tiles keeps scarcity intact. Unique among fantasy consoles. |
-| **Palette** | 16 colors, hand-designed | More colors means more sprite-editor time, and one-sitting is the metric. Identity comes from *which* 16: 4 hue ramps × 3 shades + black + white + 2 accents, so shading works without color theory. |
-| **Sprites** | 8 × 8, 256 per bank | 16×16 costs 4× the art time per sprite — the wall a no-patience beginner hits in the first ten minutes. Four 8×8 sprites make a 16×16 hero. The pain is paid off in tooling, not hardware. |
-| **Map** | 192 × 128 tiles + collision layer | At 192×128 a 64×64 map is ~10 screens, which one platformer level exhausts in a sitting — the exact failure the spine forbids. 192×128 is exactly 8 × 8 screens (a whole number in both directions, no partial trailing column) and ~64 screens total, generous for a full level. |
-| **Frame rate** | 60 Hz fixed | Non-negotiable for game feel. |
-| **Audio** | 6 voices: 4 typed music (2 pulse, 1 triangle, 1 noise) + 2 dedicated sfx | Typed channels make the tracker four scannable columns and answer "which channel?" by timbre. Reserved sfx voices mean a jump sound can never cut the melody — the most confusing audio bug a beginner meets. Classic consoles stole channels; authenticity loses to one-sitting. |
-| **Input** | 4 directions + 2 actions + Select; START reserved | Retro-correct, works on handhelds, and spares every cart a pointer-input branch. |
-| **RAM** | ~45 KiB general purpose (Work 16 KiB + Heap ~29 KiB), reached from Studio's memory view, not from Lua (no `peek`/`poke`) | Screen, map and collision occupy their own regions outside it, so widening them does not eat the memory a cart writes its own data into. Total addressable space is 112 KiB. |
-| **Save** | one blob (`save_data` / `load_data`) | Two save APIs violate "one obvious way". The blob is table-shaped, real Lua, and transferable. |
-| **Watchdog** | per-frame execution budget | An infinite loop must fail with a line number and a plain-language message, not hang the console. |
+| **Screen** | 192 × 128 (24 × 16 tiles) | 48 text columns (3 px glyph plus 1 px gap) fit a real sentence. A 128 px screen gives 32, so a beginner's first `draw_text` would wrap. The 3:2 shape suits side-scrollers, and 24 × 16 tiles keep space scarce. |
+| **Palette** | 16 hand-picked colors | More colors mean more time in the sprite editor. Four hue ramps of 3 shades, plus black, white and 2 accents, let you shade without knowing color theory. |
+| **Sprites** | 8 × 8, 256 per bank | A 16 × 16 sprite takes four times as long to draw, and an impatient beginner quits in the first ten minutes. Four 8 × 8 sprites make a 16 × 16 hero, and the sprite editor handles the grouping. |
+| **Map** | 192 × 128 tiles plus a collision layer | 8 × 8 screens, 64 in total, with no partial column at the edge. One map holds a full level. |
+| **Frame rate** | 60 Hz, fixed | Game feel depends on a fixed step. |
+| **Audio** | 6 voices: 4 typed music channels (2 pulse, 1 triangle, 1 noise) plus 2 for sound effects | Typed channels turn the tracker into four columns you can scan, and you can tell them apart by ear. Reserved sfx voices stop a jump sound from cutting the melody, the audio bug beginners find most confusing. Classic consoles stole music channels for sfx; we picked the model a beginner can follow. |
+| **Input** | 4 directions, 2 action buttons and Select; START reserved | Matches retro pads and handhelds, and keeps carts free of a pointer-input path. |
+| **RAM** | 46 KiB general purpose (16 KiB work plus 30 KiB heap), visible in Studio's memory view and hidden from Lua (no `peek` or `poke`) | Screen, map and collision live in their own regions and leave the cart's data space alone. Total address space is 112 KiB. |
+| **Save** | One blob (`save_data` / `load_data`) | One blob gives you one obvious way to save. It holds a real Lua table and moves between machines. |
+| **Watchdog** | A time limit per frame | An infinite loop stops with a line number and a plain message, and the console keeps running. |
 
 ### Banking
 
-Banking is the only expansion axis, and it is deliberately boring.
+Banks are the only way to grow a cart, and we keep them plain.
 
-- **Banks are named, not numbered.** `load_sprite_bank("forest")`, not
-  `load_sprite_bank(2)`. Self-documenting, consistent with the
-  long-descriptive-name rule, and it turns a hardware concept into a readable
-  one. Numeric ids are dropped rather than kept as an alias — one obvious way.
-- **Bank count is unbounded.** The 128 KiB packed cart cap is the real ceiling.
-- **Banking is invisible until needed.** The default bank auto-loads, so a
-  beginner finishes their first game without hearing the word. It appears in the
-  docs only where a cart outgrows one sheet — the same layering as the optional
-  size arguments on `sprite()`.
+- **Banks have names.** You write `load_sprite_bank("forest")`. The name
+  tells you what's inside and follows the long-name rule. Banks have no
+  numeric ids, so you get one way to pick a bank.
+- **A cart can hold any number of banks.** The 128 KiB packed cart cap sets
+  the ceiling.
+- **You meet banks when you need them.** The default bank loads by itself,
+  so a beginner can finish a first game without hearing the word. The docs
+  introduce banks where a cart outgrows one sheet, as they do with the
+  optional size arguments of `sprite()`.
 
 ## 5. API tiers
 
 | Tier | What | Rule |
 | --- | --- | --- |
-| **T0 — builtins** (Rust) | Hardware access: gfx, sprites, map, input, audio, storage, time | Only what *cannot* be written in Lua. If it can be Lua, it is not a builtin. |
-| **T1 — prelude core** (always on) | `lerp`, `clamp`, `random_range`, easing | Math-shaped, no game structure. Stays tiny. |
-| **T2 — opt-in modules** (`caiven.toml`) | `vec2`, `collision`, `tween`, `particles`, `scenes`, `entities`, `camera` | **Readable-lesson cap**: pure Lua, roughly ≤ 100 lines, source readable in Studio, understandable in one sitting. |
+| **T0: builtins** (Rust) | Hardware access: graphics, sprites, map, input, audio, storage, time | Only what Lua can't do. If you can write it in Lua, it stays out of T0. |
+| **T1: core library** (always loaded) | `lerp`, `clamp`, `random_range`, easing | Math only, with no game structure. Keep it small. |
+| **T2: opt-in modules** (`require`) | `actor`, `anim`, `camera`, `collision`, `entities`, `movement`, `particles`, `scenes`, `tween`, `vec2` | **Readable-lesson cap**: plain Lua, at most 100 lines of code (blank lines and comments don't count), source readable in Studio. |
 
-The T2 cap is how the two clocks coexist. A helper you could have written
-yourself, and can actually read, accelerates you without taking authorship away.
-One you cannot read has taken it. A T2 module is a teaching example, not a black
-box — the line count is a proxy for "you can read this in one sitting", and when
-it is exceeded the remedy is to split or simplify, never to raise the cap.
+You can read a T2 helper, and you could have written it, so using it speeds
+you up and leaves the game yours. A helper you can't read takes authorship
+away. Treat each T2 module as a teaching example. When a module outgrows the
+cap, split or simplify it and keep the cap at 100.
+
+**`movement` is the one exception.** It holds a single platformer solver
+(solid tiles, one-way platforms and slopes) in about 135 lines of code. You
+need the whole solver in view to follow it, so we keep it in one module. No
+other module gets an exception.
 
 ## 6. The gate
 
-A proposed API must pass **all seven** points. Failing one is a rejection, not a
-negotiation: report the failing point and stop.
+A proposed API must pass all seven points. If it fails one, name the
+failing point and reject it.
 
-1. Removes friction (Clock A) rather than authorship (Clock B).
-2. Fits an API tier and satisfies that tier's rule.
-3. Does not change the frozen hardware.
-4. Is not on the no-list.
-5. Produces a visible result on first use, with no setup ritual.
-6. Is the only obvious way — does not duplicate an existing call.
-7. Is explainable to a beginner in one sentence.
+1. It removes friction (Clock A) and leaves authorship (Clock B) alone.
+2. It fits an API tier and meets that tier's rule.
+3. It keeps the hardware in §4 as it is.
+4. It isn't on the no-list.
+5. It shows a visible result the first time you use it, with no setup.
+6. It is the one obvious way to do the job and duplicates no existing call.
+7. You can explain it to a beginner in one sentence.
 
-Point 1 fails most often. The test: a helper whose main value is saving the user
-keystrokes inside their game loop fails; a tool that deletes a step before the
-first pixel appears passes. Point 6 fails second most often — check
-`api_registry.rs` for a call that already does the job before adding another.
+Point 1 fails most often. A helper whose main value is saving keystrokes in
+your game loop fails it, and a tool that removes a step before the first
+pixel passes. Point 6 fails second most often, so check `api_registry.rs`
+for an existing call before you add one.
 
-### Worked verdicts
+### Example verdicts
 
-- **`entities` (the T2 mini-ECS)** — 57 lines, readable in a sitting, opt-in,
-  and it does not write the game's structure so much as hold a list. **Passes**,
-  on the strength of the readable-lesson cap. Had it been 400 lines of
-  systems-and-components machinery, point 2 would have failed it.
-- **A hypothetical `draw_sprite_rotated_scaled`** — **fails point 3**. Arbitrary
-  rotation and scaling is a different pixel pipeline, which is hardware. The
-  frozen spec is the answer; there is no version of this that gets in.
-- **Studio one-key "run cart"** — **passes all seven**, and is exactly the kind
-  of thing Clock A says to build without arguing about budget. It removes a step
-  before the first pixel and takes nothing from the game's code.
-
-If a verdict reached through the gate feels wrong, the gate is wrong and must be
-fixed by an explicit decision. Do not route around it case by case.
+- **`entities`, the small T2 entity list**, **passes**. It is opt-in, you
+  can read it in a sitting, and it holds a list without imposing a game
+  structure. A 400-line systems-and-components version would fail point 2.
+- **A made-up `draw_sprite_rotated_scaled`** **fails point 3**. Free
+  rotation and scaling need a different pixel pipeline, and the pipeline is
+  hardware.
+- **A one-key "run cart" in Studio** **passes all seven**. It removes a step
+  before the first pixel and leaves the game code alone.
 
 ## 7. Permanent no-list
 
-- **No 3D** — no mode 7, raycasting helpers, or matrix stack.
-- **No external I/O** — no network, filesystem, or subprocess. Cart data plus
-  the local save blob only. (This is a security boundary as well as a design
-  one.)
-- **No shaders, render targets, or blend-mode zoo.** Fixed pixel pipeline.
-- **No engine frameworks** — nothing that owns the game loop or requires two
-  documents to be read before the first pixel.
-- **No custom Lua dialect.** Real Lua 5.4 stays real; transferable knowledge is
-  the point.
+- **No 3D**: no mode 7, raycasting helpers or matrix stack.
+- **No external I/O**: no network, file system or subprocesses. A cart gets
+  its own data and the local save blob, and this rule doubles as a security
+  boundary.
+- **No shaders, render targets or pile of blend modes.** The pixel pipeline
+  stays fixed.
+- **No engine frameworks**: nothing that owns the game loop or makes you
+  read two documents before the first pixel.
+- **No custom Lua dialect.** Carts run real Lua 5.4 so your knowledge
+  transfers.
 - **No telemetry or analytics SDK.**
 - **No in-product LLM** (§1).
 
-## 8. Deliberate non-limits
+## 8. Limits we chose not to add
 
-Recorded so they are not re-argued:
-
-- **No token limit and no code-size limit.** Token limits punish readable code,
-  which is precisely what a beginner and a brain-gym reader need. This differs
-  from PICO-8 on purpose.
-- **The 128 KiB packed cart cap is an operations constraint**, not a design
-  forcing function — it keeps the Caiven Port database bounded. Storage policy.
-- **Long descriptive API names stay** (`draw_line`, not `line`). Readability
-  serves both audiences; abbreviations serve neither.
+- **No token limit and no code-size limit.** Token limits punish readable
+  code, and beginners learn from readable code. PICO-8 has a token limit;
+  we left it out on purpose.
+- **The 128 KiB packed cart cap protects Port's database** from unbounded
+  growth. It's an operations limit, so don't cite it in design arguments.
+- **Long descriptive API names stay** (`draw_line` over `line`). Full names
+  help both audiences read code.
 
 ## 9. The remix loop
 
-Recorded 2026-09-23 by the project owner. Caiven is a network of tiny
-playable programs. The loop it optimises is **play → remix → change →
-publish → get remixed → return**, and a remix is a stronger response than a
-like or a comment. The browser Quick Remix surface (`quick-remix.md`) is
-Clock A work: it deletes install, download, file and account steps between
-playing a game and changing it. The change itself is still typed in real
-Lua, so Clock B is untouched. Remixing is opt-in per cart, which keeps the
-creator-rights promise that source stays the creator's call. Loop
-measurement is first-party counts in Port's own database, which the §7
-"no telemetry SDK" rule allows.
+Caiven is a network of tiny playable programs. We optimize the loop
+**play → remix → change → publish → get remixed → return**, and we count a
+remix as a stronger signal than a like or a comment.
 
-## 10. Revision policy
+Browser Quick Remix ([Port](../port.md#quick-remix)) is Clock A work. It
+cuts the install, download, file and account steps between playing a game
+and changing it, and you still type the change in real Lua. Each creator
+decides whether others may remix their cart, because sharing source is the
+creator's call. Port counts the loop in its own database, which the §7
+no-telemetry rule allows.
 
-This charter changes only by an explicit, recorded decision from the project
-owner. It does not change through a judgement call taken mid-task, through an
-implementation finding it inconvenient, or through a feature that would be nice
-if only one line were relaxed. A rule that bends under pressure is not a
-constraint, and the constraints are the product.
+## 10. Changing this charter
 
-## Appendix A — T2 modules against the readable-lesson cap
-
-Measured from `crates/caiven-vm/src/vm/prelude/*.lua`, not estimated.
-
-| Module | Lines | Verdict |
-| --- | --- | --- |
-| `tween` | 30 | PASS |
-| `particles` | 32 | PASS |
-| `scenes` | 38 | PASS |
-| `core` (T1) | 50 | PASS — T1, not subject to the T2 cap |
-| `camera` | 56 | PASS |
-| `entities` | 57 | PASS |
-| `vec2` | 86 | PASS |
-| `collision` | 38 | PASS (post-split) |
-| `movement` | 229 (134 non-blank, non-comment) | OVER the ~100-line cap; kept as one solver, needs a further split or an explicit exception |
-
-`collision.lua` was originally 147 lines and the only breach, caused by one
-function: `move_and_collide`, carrying its slope solver
-(`solid_blocks_column`, `solid_blocks_row`, `slope_floor_y`) with it. The rest
-of the module — `aabb_overlap`, `circle_overlap`, `point_in_rect`,
-`point_in_circle`, `tile_solid`, `box_touches_solid` — was 6 short predicates
-in about 30 lines and already exemplary T2.
-
-**Split, not cut** — done in Phase 2 item 2.9. `collision.lua` kept the 6
-predicates (38 lines); the swept-movement solver moved into its own
-`movement` module, declared separately in `caiven.toml`. Both halves now read
-in one sitting, and a cart that only needs `aabb_overlap` stops paying for
-the slope math.
-
-## Appendix B — status
-
-The hardware table in §4 is **target state**. The 192 × 128 screen (item 2.1),
-the 128 × 128 map (item 2.2), the redesigned palette (item 2.3), the six
-typed audio voices (item 2.4), named banks (item 2.5), the `dset`/`dget`
-removal (item 2.6), the per-frame execution budget watchdog (item 2.7),
-optional `w`/`h` sprite-unit args on `sprite()` (item 2.8), and the
-`collision`/`movement` module split (item 2.9) have landed. The redesign
-lands phase by phase; the charter is what those phases are steering toward,
-and is authoritative in any disagreement with the code.
+Only the project owner changes this charter, by an explicit, recorded
+decision. An awkward implementation or a feature that needs one rule
+relaxed doesn't qualify. When the code disagrees with the charter, fix the
+code. When the gate gives a verdict that feels wrong, change the gate
+instead of working around it case by case.

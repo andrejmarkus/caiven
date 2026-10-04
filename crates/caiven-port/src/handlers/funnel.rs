@@ -2,7 +2,7 @@
 //! hashed viewer) — no timings, no paths, no raw IPs — so the table answers
 //! "how many people reached this step" and nothing finer. Removing it means
 //! dropping these two routes and the `funnel_events` table; nothing else
-//! reads it. See `docs/product/quick-remix.md`.
+//! reads it.
 
 use std::collections::{HashMap, HashSet};
 

@@ -1,16 +1,20 @@
 # Contributing to Caiven
 
-Start with [building from source](docs/building.md) and the
-[design charter](docs/product/design-charter.md). The charter defines the
-hardware and API constraints; product hardening must preserve existing creator
-projects, cartridge behavior, and ownership rights.
+Read [building from source](docs/building.md) and the
+[design charter](docs/product/design-charter.md) first. The charter fixes
+the hardware specs and sets the rules for new APIs. Changes must keep
+existing projects and carts working the same way, and must not touch
+creators' ownership of their games.
 
-## Development checks
+`CLAUDE.md` and `.claude/` hold instructions for the AI coding tools I use
+in development. The console ships no AI features.
 
-Install the documented system dependencies, then install both frontends with
-`npm ci` from their directories. Use the checked-in lockfiles.
+## Checks
 
-For Rust changes, run:
+Install the system dependencies listed in the build guide, then run `npm ci`
+in each frontend folder. Use the lockfiles in the repository.
+
+For Rust changes:
 
 ```bash
 cargo fmt --all -- --check
@@ -18,49 +22,56 @@ cargo clippy --locked --all-targets -- -D warnings -A unused-imports
 cargo test --locked --workspace
 ```
 
-For each changed frontend, run `npm run check`, `npm test`, `npm run build`,
-and its browser tests. Studio uses `npm run test:e2e`; Port uses
-`npm run test:e2e:mock` and `npm run test:e2e:live`. Browser tests require
-Playwright Chromium and permission to start local servers. Run
-`npm --prefix crates/caiven-studio-ui run check:ui` for shared UI changes.
+For each frontend you change, run `npm run check`, `npm test`,
+`npm run build` and its browser tests: `npm run test:e2e` for Studio,
+`npm run test:e2e:mock` and `npm run test:e2e:live` for Port. The browser
+tests need Playwright Chromium and must be able to start local servers. If
+you change shared UI code, also run
+`npm --prefix crates/caiven-studio-ui run check:ui`.
 
-Before a release, use the complete gates in
-[CI](.github/workflows/rust.yml), including dependency audits, documentation,
-shipped WASM, offline exports, and repeated browser tests. A locally passing
-subset does not replace the release gates.
+Before a release, run the full set of gates in
+[CI](.github/workflows/rust.yml). They add dependency audits, docs checks,
+the shipped WASM, offline exports and repeated browser test runs that a
+local subset skips.
 
-Run the native creator workflow after changes to Studio persistence, export,
-or Machine loading:
+### Creator workflow test
+
+If you change Studio saving, export or Machine loading, run:
 
 ```bash
 python3 scripts/creator-workflow/run.py
 ```
 
-Requires Python 3, Rust/system build dependencies, built Studio frontend assets,
-and Port's Playwright Chromium installation. The runner creates a temporary
-project through real Studio actor commands, edits Lua (including a sibling
-module), sprite, palette and sound bytes, saves and closes it, then reopens it
-in a separate process. It exports `.cav` and offline HTML, removes the source
-project, and checks Machine and Chromium playback, including visible movement
-from input. Temporary projects and isolated Studio history are cleaned up on
-success or failure. Each process has a ten-minute timeout.
+You need Python 3, the Rust and system build dependencies, built Studio
+frontend assets and Port's Playwright Chromium.
 
-This gate exercises native Rust handlers and Machine's actual loader/frame loop;
-it does not launch the Studio webview or SDL window, test Tauri IPC serialization,
-or certify physical audio/controllers. The two Rust stage tests are intentionally
-ignored in ordinary `cargo test`; this runner executes them explicitly in CI.
+The script creates a temporary project through Studio's backend commands. It
+edits Lua (including a second module), sprite, palette and sound data, saves
+and closes the project, then reopens it in a new process. Next it exports a
+`.cav` and an offline HTML file, deletes the source project, and plays both
+exports in Machine and Chromium, checking that input moves something on
+screen. It deletes its temporary files whether it passes or fails, and each
+process times out after ten minutes.
 
-## Review expectations
+The test covers the Rust command handlers and Machine's real loader and
+frame loop. It doesn't open the Studio window or an SDL window, doesn't test
+Tauri IPC serialization, and can't tell you whether audio or controllers
+work on real hardware. Plain `cargo test` skips its two Rust stage tests on
+purpose; CI runs them through this script.
 
-- Describe the user-visible problem, resulting behavior, and verification.
-- For defects, add a test that reproduces the failure before applying the fix.
-- Exercise malformed input, failure recovery, and authorization where relevant.
-- Document public API, CLI, environment, and format changes alongside code.
-- Preserve unknown cartridge sections and round-trip behavior. Format changes
-  require explicit compatibility decisions and tests.
-- Keep secrets, generated build output, and unrelated formatting out of patches.
-- State untested platforms and integration dependencies honestly.
+## Pull requests
 
-Report suspected vulnerabilities through [the security process](SECURITY.md).
-Release procedures live in [releasing.md](docs/releasing.md); service deployment
-and recovery live in [Port operations](docs/development/port-operations.md).
+- Describe the problem a user sees, what changes, and how you checked it.
+- For a bug, add a test that fails before your fix.
+- Test bad input, recovery from failure and permission checks where they
+  apply.
+- Update the docs in the same change when you alter a public API, CLI flag,
+  environment variable or file format.
+- Keep unknown cart sections intact and make sure carts round-trip. A format
+  change needs a written compatibility decision and tests.
+- Leave secrets, build output and unrelated formatting out of the diff.
+- Say which platforms and integrations you didn't test.
+
+Report security problems through [SECURITY.md](SECURITY.md). Release steps
+are in [releasing.md](docs/releasing.md). Port deployment and recovery are in
+[port-operations.md](docs/development/port-operations.md).

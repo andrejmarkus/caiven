@@ -1,4 +1,4 @@
-# 🎮 Caiven
+# Caiven
 
 ![Rust](https://img.shields.io/badge/rust-%23E32F26.svg?style=for-the-badge&logo=rust&logoColor=white)
 ![License](https://img.shields.io/badge/license-MPL--2.0-blue.svg?style=for-the-badge)
@@ -6,39 +6,42 @@
 [![Studio Release](https://img.shields.io/github/v/tag/andrejmarkus/caiven?filter=studio-v*&label=studio&style=for-the-badge)](https://github.com/andrejmarkus/caiven/releases?q=studio-v)
 [![Machine Release](https://img.shields.io/github/v/tag/andrejmarkus/caiven?filter=machine-v*&label=machine&style=for-the-badge)](https://github.com/andrejmarkus/caiven/releases?q=machine-v)
 
-**Play a tiny game. Change one thing. Make it yours.**
-
-**Caiven** is a retro-inspired fantasy console written in Rust. Every cart is real Lua 5.4 you can open and change: in the browser on Caiven Port (play → remix → publish, no install), or in the full desktop editor, Caiven Studio.
+Caiven is a small fantasy console written in Rust. Games run on Lua at
+192×128 pixels with a 16-color palette. You can open the source of any cart
+and change it, either in the browser on a Caiven Port server or in the
+desktop editor, Caiven Studio.
 
 ![Caiven Studio start screen](docs/assets/studio-start-screen.png)
 
-## 🚀 Quick Start
+## Getting started
 
-Grab whichever matches what you want to do — Studio and Machine release
-independently, so check both:
+Studio and Machine have separate release tags, so check both lists.
 
-- **Remix in the browser** — on a Caiven Port, open a cart, press **Remix this**, change a number, see it run, publish your version. No install. Run your own Port: [docs/port.md](docs/port.md).
-- **[Caiven Studio](https://github.com/andrejmarkus/caiven/releases?q=studio-v)** — the editor, to _make_ a game (code, sprites, sound, map). Windows/macOS/Linux installers.
-- **[Caiven Machine](https://github.com/andrejmarkus/caiven/releases?q=machine-v)** — the standalone player, to just _run_ a `.cav` cart someone shared with you. No editor.
+- **Browser.** Open a cart on a Caiven Port, press _Remix this_, edit the
+  code and publish your copy. To host your own Port, see
+  [docs/port.md](docs/port.md).
+- **[Caiven Studio](https://github.com/andrejmarkus/caiven/releases?q=studio-v)**
+  is the editor for code, sprites, sound and maps. Installers exist for
+  Windows, macOS and Linux.
+- **[Caiven Machine](https://github.com/andrejmarkus/caiven/releases?q=machine-v)**
+  plays `.cav` carts and has no editor.
 
-Install like any normal app and launch **Caiven Studio**, or unpack **Caiven Machine** and run:
+Machine takes a project folder or a cart file:
 
 ```bash
-./caiven-machine my-game/    # project dir, Ctrl+R restarts the cart
-./caiven-machine game.cav    # distribution cartridge
+./caiven-machine my-game/    # project folder; Ctrl+R restarts the cart
+./caiven-machine game.cav    # packed cart
 ```
 
-> **First launch warning?** Release builds aren't notarized/signed yet — your
-> OS will flag the app as untrusted the first time. macOS: right-click the
-> app → **Open** → **Open** again (or `xattr -dr com.apple.quarantine
-> /Applications/Caiven\ Studio.app`). Windows: **More info** → **Run
-> anyway**. See [code signing status](docs/releasing.md#code-signing-status)
-> for details.
+Release builds are not signed yet, so your OS will warn on first launch. On
+macOS, right-click the app and choose Open twice, or run
+`xattr -dr com.apple.quarantine /Applications/Caiven\ Studio.app`. On
+Windows, click More info, then Run anyway. Details are in
+[docs/releasing.md](docs/releasing.md#code-signing-status).
 
-Building from source, the Cargo workspace, and Studio/Machine CLI reference
-are in [docs/building.md](docs/building.md).
+To build from source, see [docs/building.md](docs/building.md).
 
-## 🐣 A taste of Caiven Lua
+## A short example
 
 ```lua
 function _init()
@@ -52,46 +55,59 @@ function _update()
 end
 ```
 
-`_init()` runs once, `_update()` runs every frame, optional `_draw()` runs right after it. Full walkthrough: [docs/tutorial.md](docs/tutorial.md). Full builtin list: [docs/api-reference.md](docs/api-reference.md).
+The console calls `_init()` once at start and `_update()` 60 times a second. If
+you define `_draw()`, it runs after each update. The
+[tutorial](docs/tutorial.md) builds a small game step by step, and the
+[API reference](docs/api-reference.md) lists every builtin.
 
-## ✨ Features
+## What's in the box
 
-- 🌙 **Real Lua 5.4** — embedded via `mlua` (vendored, no system Lua required)
-- 🎨 **Palette-based Graphics** — 192×128 resolution (24×16 tiles), 16-color palette built as 4 hue ramps × 3 shades plus black, white and 2 accents, swappable at runtime; sprites, 192×128 tilemap, shape primitives, camera
-- 🔊 **Audio Engine** — 6 voices: 4 typed music channels (pulse, pulse, triangle, noise) plus 2 reserved for sound effects, so an sfx never cuts the melody
-- 🧰 **Gameplay Stdlib** — tweens, easing, AABB/tile collision, particles, sprite-frame animation — pure Lua, preloaded into every cart
-- 🖌️ **Caiven Studio** — Tauri 2 + Svelte 5 editor: live console, code and asset workspaces, diagnostics, command palette, publishing flow
-- 🔍 **Debugger** — line breakpoints, pause/step-by-frame, script-globals inspector, live RAM view
-- 🌐 **Caiven Port** — self-hostable cart sharing server: accounts, versioning, ratings & comments, browser Play
+- Lua 5.4 through `mlua`, vendored, so you don't need Lua installed.
+- A 192×128 screen (24×16 tiles of 8×8 pixels) and a 16-color palette you
+  can change at runtime. Sprites, a tilemap, shape drawing and a camera.
+- Six audio voices: two pulse, one triangle and one noise channel for music,
+  plus two channels reserved for sound effects so a jump sound doesn't cut
+  the melody.
+- A Lua standard library loaded into each cart with tweens, easing,
+  collision checks, particles and sprite animation, written in plain Lua.
+- Caiven Studio, built on Tauri 2 and Svelte 5, with a live console,
+  code and asset editors, a debugger (breakpoints, frame stepping, globals
+  and RAM views) and a publish flow.
+- Caiven Port, a cart sharing server you can host yourself. It handles
+  accounts, versions, ratings, comments and in-browser play.
 
-> [!NOTE]
-> Caiven is creator-friendly: you own the games and assets you create, may sell them without royalties or a commercial-use fee, and do not have to publish your game source. See [Creator rights](CREATOR_RIGHTS.md).
+## Documentation
 
-## 📚 Documentation
+- [Design charter](docs/product/design-charter.md): the fixed hardware specs
+  and the rules for adding APIs
+- [Building from source](docs/building.md)
+- [Tutorial](docs/tutorial.md)
+- [API reference](docs/api-reference.md)
+- [Caiven Studio](docs/studio.md)
+- [Caiven Port](docs/port.md)
+- [Game controls](docs/controls.md) and `controls.toml` overrides
+- [Releasing](docs/releasing.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security](SECURITY.md)
+- [Running a Port in production](docs/development/port-operations.md)
+- [Handheld builds](docs/development/handheld-builds.md) for Miyoo, TrimUI
+  and Anbernic devices
 
-- [Design Charter](docs/product/design-charter.md) — what Caiven is, the frozen hardware, and the gate every API must pass
-- [Building from Source](docs/building.md) — prerequisites, install, CLI, project structure
-- [Tutorial: Your First Game](docs/tutorial.md)
-- [Built-in API Reference](docs/api-reference.md) — graphics, input, audio, stdlib, memory map
-- [Caiven Studio](docs/studio.md) — workspaces, keybindings, build
-- [Caiven Port](docs/port.md) — sharing server, REST API, Web Play
-- [Key Bindings (Game)](docs/controls.md) — defaults and `controls.toml` overrides
-- [Publishing a Release](docs/releasing.md)
-- [Contributing](CONTRIBUTING.md) — development checks and review expectations
-- [Security](SECURITY.md) — reporting and dependency exceptions
-- [Port operations](docs/development/port-operations.md) — probes, deployment, backup and recovery
-- [Handheld builds](docs/development/handheld-builds.md) — Miyoo, TrimUI, Anbernic
+The full index is in [docs/README.md](docs/README.md).
 
-Full index: [docs/README.md](docs/README.md).
+## License
 
-## 📜 License and creator policy
+The source code is under the [Mozilla Public License 2.0](LICENSE). If you
+distribute changes to MPL-covered files, you must publish those changes
+under MPL-2.0. Your own separate files and larger works can use other
+terms.
 
-Caiven's source code is licensed under the [Mozilla Public License 2.0](LICENSE). Modifications to MPL-covered source files that are distributed must remain available under MPL-2.0, while separate files and larger works may use other terms as permitted by the licence.
+You own the games you make with Caiven. You can sell them without paying
+royalties or buying a commercial license, and you don't have to publish
+their source. See [CREATOR_RIGHTS.md](CREATOR_RIGHTS.md).
 
-Games and cartridges made with Caiven remain the creator's property. They may be sold without royalties, revenue share, a separate commercial-use licence, or a requirement to publish game source. See [Creator rights](CREATOR_RIGHTS.md).
+Forks are welcome as long as they don't present themselves as official
+Caiven releases. See [TRADEMARKS.md](TRADEMARKS.md).
 
-The software licence does not grant rights to present unofficial forks as official Caiven releases. Normal descriptive use, community projects, and clearly identified forks are welcome under the [trademark policy](TRADEMARKS.md).
-
----
-
-<p align="center">Made with ❤️ and 🦀 by Andrej Markuš</p>
+Made by Andrej Markuš, with help from AI coding tools. The console has no
+AI features.

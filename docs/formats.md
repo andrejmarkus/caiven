@@ -1,9 +1,9 @@
 # Formats and public contracts
 
-Every persisted format and the Port API are at **version 1**, the first public
-baseline. A reader accepts exactly the version it knows and rejects anything
-else with a readable error; older shapes are never read. A change that would
-make old bytes misread bumps the version (see `.claude/rules/cart-format.md`).
+Each file format Caiven writes, and the Port API, is at version 1, the first
+public baseline. Readers accept only the version they know and reject
+anything else with a readable error. They don't read older layouts. If a
+change would make old files parse wrong, bump the version.
 
 | Contract | Version | Owner |
 | --- | --- | --- |
@@ -11,26 +11,27 @@ make old bytes misread bumps the version (see `.claude/rules/cart-format.md`).
 | Project `caiven.toml` | 1 | `crates/caiven-cart/src/project.rs` |
 | Save data (`save_data`/`load_data`) | 1 | `crates/caiven-vm/src/vm/save_data.rs` |
 | Machine save state | 1 | `crates/caiven-machine/src/shell/save_state.rs` |
-| Port REST API | `/api/v1` | `crates/caiven-port/src/handlers` — see [port.md](port.md) |
+| Port REST API | `/api/v1` | `crates/caiven-port/src/handlers`, see [port.md](port.md) |
 | Port database | baseline `m20260929_000001_initial_schema` | `crates/migration` |
 
 ## Cartridge `.cav`
 
-All integers little-endian. Maximum size 128 KiB.
+Integers are little-endian. A cart can be at most 128 KiB.
 
 | Offset | Bytes | Field |
 | --- | --- | --- |
 | 0 | 6 | Magic `CAIVEN` |
 | 6 | 2 | Format version `1` |
 | 8 | 2 | Section count `n` |
-| 10 | 32 | Title — UTF-8, zero-padded, cut on a character boundary |
-| 42 | 32 | Author — same encoding |
+| 10 | 32 | Title: UTF-8, zero-padded, cut on a character boundary |
+| 42 | 32 | Author, same encoding |
 | 74 | 14 × n | Section table: kind `u16`, offset `u32`, length `u32`, CRC-32 `u32` |
 | … | … | Payloads at their offsets |
 
-Readers reject: wrong magic or version, truncation, a payload overlapping the
-header, table or another payload, a CRC mismatch, and anything but exactly one
-`LuaSource`. Unknown kinds are carried through untouched.
+A reader rejects the file if the magic or version is wrong, the file is
+truncated, a payload overlaps the header, the table or another payload, a
+CRC doesn't match, or the cart has anything other than one `LuaSource`
+section. Readers keep sections of unknown kinds as they are.
 
 | Id | Kind | Payload |
 | --- | --- | --- |
@@ -46,14 +47,15 @@ header, table or another payload, a CRC mismatch, and anything but exactly one
 | `0x0E` | `CollisionBank` | Named collision layer, same wrapper as other banks |
 | `0x0F` | `CollisionTypes` | `[count u8]`, then per type `id u8, flags u8, rgb[3], name_len u8, name` |
 
-Asset payloads may be shorter than their region; loaders zero-pad them. Bank
-names are 1–31 of `A-Z a-z 0-9 _ -`. The content hash Port uses for
-duplicate detection covers the sections only (sorted), not the header.
+An asset payload can be shorter than its region, and the loader pads it
+with zeros. Bank names have 1 to 31 characters from `A-Z a-z 0-9 _ -`. Port
+detects duplicate uploads with a hash of the sorted sections; the header
+doesn't count.
 
 ## Project directory
 
-The authoring format: `caiven.toml`, the entry Lua file and its sibling
-modules, and one file per non-empty asset.
+You edit games in this format: `caiven.toml`, the entry Lua file and the
+modules next to it, and one file per non-empty asset.
 
 ```toml
 [cart]
@@ -63,7 +65,7 @@ author = ""
 entry = "main.lua"
 ```
 
-A legacy `[mods]` table is ignored on load and dropped on save.
+The loader ignores an old `[mods]` table, and saving removes it.
 
 | File | Content |
 | --- | --- |
@@ -75,14 +77,15 @@ A legacy `[mods]` table is ignored on load and dropped on save.
 ## Save data
 
 `CVSD`, version `u16` = 1, blob length `u32`, then the JSON blob (at most
-4096 bytes). Stored per cart: Machine `saves/<cart id>.cavdata`, Studio
-`<cart>.cav.data` or `<project>/.caiven.data`, browser `localStorage`
-`caiven:save:<key>` (base64).
+4096 bytes). Each cart has its own file. Machine writes
+`saves/<cart id>.cavdata`, Studio writes `<cart>.cav.data` or
+`<project>/.caiven.data`, and the browser writes base64 to `localStorage`
+under `caiven:save:<key>`.
 
 ## Machine save state
 
 `CVST`, version `u16` = 1, RAM length `u32` + RAM, palette length `u16` +
-palette. Stored as `saves/<cart id>.cavstate`.
+palette. Machine writes it to `saves/<cart id>.cavstate`.
 
 ## Studio debugger sidecar
 
@@ -92,7 +95,8 @@ TOML next to the cart (`<cart>.cav.dbg`) or inside the project
 
 ## Port database
 
-One baseline migration creates the whole schema. Schema changes are new
-migrations after it; a pre-baseline development database has to be
-recreated. When an account is deleted its carts stay public: `owner_id`
-becomes `NULL` (`ON DELETE SET NULL`) and the author reads `[deleted]`.
+One baseline migration creates the whole schema, and later schema changes
+go in new migrations after it. If you have a development database from
+before the baseline, recreate it. Deleting an account leaves its carts
+public: `owner_id` becomes `NULL` (`ON DELETE SET NULL`) and the author shows
+as `[deleted]`.

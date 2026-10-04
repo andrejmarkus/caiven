@@ -1,38 +1,47 @@
 # Caiven trademark policy
 
-The source-code licence does not grant rights to the Caiven name, logos, visual identity, or other project branding.
+The source code license doesn't give you rights to the Caiven name, logos,
+visual identity or other branding. This policy exists so users can tell
+official releases from other builds, while you stay free to talk about and
+share Caiven.
 
-This policy is intended to protect users from confusion while allowing normal community discussion and distribution.
+## Welcome uses
 
-## Uses that are welcome
+You can use the Caiven name, truthfully, to:
 
-You may use the Caiven name truthfully to:
-
-- describe compatibility, such as “made with Caiven” or “runs on Caiven”;
+- describe compatibility, such as "made with Caiven" or "runs on Caiven";
 - link to or discuss the official project;
 - identify an unmodified copy of an official Caiven release;
-- write tutorials, reviews, articles, videos, or books about Caiven; and
-- state that a fork was originally based on Caiven.
+- write tutorials, reviews, articles, videos or books about Caiven; and
+- say that your fork started from Caiven.
 
-These uses must not suggest endorsement, sponsorship, or official status when none exists.
+Don't suggest endorsement, sponsorship or official status that doesn't
+exist.
 
-## Forks and modified distributions
+## Forks and modified builds
 
-Forking and modifying the code is allowed under the software licence. A modified distribution should:
+The software license lets you fork and modify the code. If you distribute a
+modified version, please:
 
-- use a distinct project name and logo;
-- clearly state that it is an independent fork;
-- avoid naming or presentation that could be mistaken for an official Caiven release; and
-- remove official service credentials, update channels, and signing identities that it is not authorised to use.
+- give it its own name and logo;
+- state that it is an independent fork;
+- avoid names or presentation that people could mistake for an official
+  Caiven release; and
+- remove official service credentials, update channels and signing
+  identities you aren't authorized to use.
 
-A factual notice such as “Based on Caiven” is welcome.
+A factual line such as "Based on Caiven" is fine.
 
 ## Community projects
 
-Community groups, plug-ins, libraries, jams, and websites may use names such as “Caiven Community,” “Caiven tools,” or “Caiven game jam” when they clearly identify themselves as unofficial and independent.
+Groups, plugins, libraries, jams and websites can use names like "Caiven
+Community", "Caiven tools" or "Caiven game jam" if they say they are
+unofficial and independent.
 
 ## Permission
 
-For uses that require official branding or could imply a formal partnership, request written permission from the project maintainer.
+For uses that need official branding or could suggest a formal partnership,
+ask the maintainer for written permission.
 
-This policy does not limit nominative fair use or other rights provided by applicable law.
+This policy doesn't limit nominative fair use or other rights you have under
+applicable law.

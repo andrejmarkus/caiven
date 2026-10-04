@@ -1,42 +1,43 @@
 # Security
 
-Caiven processes untrusted cartridges and community content. Security-sensitive
-boundaries include cartridge parsing, the Lua sandbox, native filesystem access,
-Tauri IPC, account authentication, uploads, and release tooling.
+Caiven runs carts and community content from people you don't know. The
+sensitive areas are cart parsing, the Lua sandbox, native file access, Tauri
+IPC, account login, uploads and the release tooling.
 
 ## Reporting a vulnerability
 
-Use GitHub's **Report a vulnerability** action in this repository's Security tab
-when available. If private reporting is unavailable, ask the maintainer for a
-private channel before sharing exploit details. Do not post credentials, user
-data, or a working exploit in a public issue.
+Use **Report a vulnerability** on this repository's Security tab. If private
+reporting isn't available, ask the maintainer for a private channel before
+you share exploit details. Don't post credentials, user data or a working
+exploit in a public issue.
 
-Include the affected version or commit, platform, reproduction steps, expected
-and actual behavior, and a minimal synthetic sample. Avoid testing against
-other people's accounts or public servers without permission.
+Include the version or commit, your platform, steps to reproduce, what you
+expected and what happened, and a small made-up sample file. Don't test
+against other people's accounts or public servers without permission.
 
-There is no published response-time SLA or supported-version window yet.
-Report the exact version; do not assume an older release receives backports.
+The project has no published response time and no list of supported
+versions yet. Tell us the exact version you tested, and don't count on fixes
+being backported to older releases.
 
 ## Dependency review
 
-Run `cargo audit` and `npm audit --audit-level=high` in **both** frontend
-directories. Do not omit development dependencies: Svelte, Vite, CodeMirror,
-and their transforms participate in shipped bundles or build execution.
+Run `cargo audit`, and `npm audit --audit-level=high` in both frontend
+folders. Include dev dependencies: Svelte, Vite, CodeMirror and their
+transforms end up in the shipped bundles or run during the build.
 
-As of the 2026-09-14 review, the full Rust audit still fails for two existing
-exceptions in CI:
+At the 2026-09-14 review, the full Rust audit failed on two known advisories,
+which CI ignores:
 
-| Advisory | Dependency | Existing mitigation and limitation |
+| Advisory | Dependency | Mitigation and limits |
 | --- | --- | --- |
-| RUSTSEC-2026-0235 | rkyv 0.7.46 | Not present in the current host's active dependency graph; retained in the lockfile. Recheck all supported targets/features before relying on this exclusion. |
-| RUSTSEC-2026-0258 | h2 0.3.27 through Rocket/hyper | Remains in the active Port graph. Restrict backend network access and configure the TLS proxy to use HTTP/1.1 upstream. This is a deployment mitigation, not a patched dependency. |
+| RUSTSEC-2026-0235 | rkyv 0.7.46 | Absent from the active dependency graph on the current host, but still in the lockfile. Check every supported target and feature set before relying on this. |
+| RUSTSEC-2026-0258 | h2 0.3.27, via Rocket and hyper | Present in Port's active graph. Restrict the backend's network access and have the TLS proxy talk HTTP/1.1 to Port. The dependency itself is still unpatched. |
 
-CI ignores these two IDs, not all advisories. Maintainership and unsoundness
-warnings also remain. Review each exception before every release and whenever
-features, dependency versions, or deployment topology change. A passing CI
-audit with exceptions is not a clean full audit.
+CI ignores only these two IDs. Maintenance and unsoundness warnings still
+show up. Recheck both exceptions before each release and whenever features,
+dependency versions or the deployment setup change. A CI audit that passes
+with exceptions is not a clean audit.
 
-The runtime image excludes local `.env` files and runs as UID/GID 10001.
-Production deployment still needs the controls in
-[Port operations](docs/development/port-operations.md).
+The Port runtime image leaves out local `.env` files and runs as UID/GID
+10001. A production deployment still needs the controls listed in
+[port-operations.md](docs/development/port-operations.md).

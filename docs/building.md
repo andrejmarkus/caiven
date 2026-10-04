@@ -1,16 +1,16 @@
-# Building from Source
+# Building from source
 
-For contributors working on Caiven itself. If you just want to make or play
-games, use the [prebuilt downloads](../README.md#-quick-start) instead.
+This page is for people working on Caiven. To make or play games, use the
+[prebuilt downloads](../README.md#getting-started).
 
 ## Prerequisites
 
 - [Rust stable](https://rustup.rs/)
 - [Node.js 22](https://nodejs.org/) with npm
 - [Tauri system dependencies](https://v2.tauri.app/start/prerequisites/) for your OS
-- Linux only, for Machine audio and input: `libasound2-dev libxkbcommon-dev pkg-config`
+- On Linux, for Machine audio and input: `libasound2-dev libxkbcommon-dev pkg-config`
 
-## Installation
+## Install
 
 ```bash
 git clone https://github.com/andrejmarkus/caiven.git
@@ -22,20 +22,21 @@ npm --prefix crates/caiven-port/web run build
 cargo build --release --workspace
 ```
 
-Port and Studio consume the same shadcn-svelte components and theme from
-`crates/caiven-ui`. Run `npm --prefix crates/caiven-studio-ui run check:ui`
-after UI dependency or component changes to verify ownership and version parity.
+Port and Studio share their shadcn-svelte components and theme through
+`crates/caiven-ui`. After you change UI dependencies or components, run
+`npm --prefix crates/caiven-studio-ui run check:ui`. It checks that both
+apps use the shared components and the same versions.
 
-## Running
+## Run
 
-Launch Studio in development mode:
+Studio in development mode:
 
 ```bash
 cd crates/caiven-studio
 npm --prefix ../caiven-studio-ui exec tauri dev
 ```
 
-Studio CLI commands run from repository root:
+Studio CLI commands, from the repository root:
 
 ```bash
 cargo run -p caiven-studio -- [command]
@@ -43,56 +44,56 @@ cargo run -p caiven-studio -- [command]
 
 | Command                        | Description                                                           |
 | :----------------------------- | :---------------------------------------------------------------------|
-| _(no command)_                 | Launch Caiven Studio on its start screen                              |
-| `edit [file]`                  | Launch Caiven Studio, optionally opening a project dir or `.cav` file |
-| `inspect <path>`               | Print cart section table (project dir or `.cav`)                      |
-| `build <project> -o <out.cav>` | Build a project dir into a distribution `.cav` cartridge              |
-| `unpack <file.cav> -o <out>`   | Unpack a binary `.cav` into an editable project dir                   |
-| `export <project> --web -o <out.html>` | Export a self-contained, offline browser player                |
-| `publish <cart>`               | Upload a cart (`.cav` or project dir) to a caiven-port instance       |
+| _(no command)_                 | Open Studio on its start screen                                       |
+| `edit [file]`                  | Open Studio, optionally with a project folder or `.cav` file          |
+| `inspect <path>`               | Print the cart's section table (project folder or `.cav`)             |
+| `build <project> -o <out.cav>` | Pack a project folder into a `.cav`                                   |
+| `unpack <file.cav> -o <out>`   | Unpack a `.cav` into an editable project folder                       |
+| `export <project> --web -o <out.html>` | Export a single-file browser player that works offline        |
+| `publish <cart>`               | Upload a `.cav` or project folder to a Port server                    |
 
-To just run a cart (no editor), use `caiven-machine`:
+To play a cart without the editor, use `caiven-machine`:
 
 ```bash
-cargo run -p caiven-machine -- my-game/    # project dir, Ctrl+R restarts the cart
-cargo run -p caiven-machine -- game.cav    # distribution cartridge
+cargo run -p caiven-machine -- my-game/    # project folder; Ctrl+R restarts the cart
+cargo run -p caiven-machine -- game.cav    # packed cart
 ```
 
-**Publish flags:**
+### Publish flags
 
-| Flag               | Default                       | Description                                                                                                                                  |
-| :------------------| :------------------------------| :----------------------------------------------------------------------------------------------------------------------------------------------|
-| `--url`            | `http://localhost:8080`       | Port base URL (env: `CAIVEN_PORT_URL`)                                                                                                       |
-| `--api-key`        | _(empty, required)_           | Per-user port API token (env: `CAIVEN_PORT_API_KEY`) — mint one via the port web UI Profile page or by logging into Caiven Studio's PORT tab |
-| `--title`          | cart header                   | Override cart title                                                                                                                          |
-| `--author`         | cart header                   | Override author                                                                                                                              |
-| `--description`    | _(empty)_                     | Short description                                                                                                                            |
-| `--tags`           | _(empty)_                     | Comma-separated tags                                                                                                                         |
-| `--frames`         | `30`                          | Frames to run before screenshot                                                                                                              |
-| `--no-screenshot`  | —                              | Skip screenshot capture                                                                                                                      |
-| `--remixable`      | —                              | Let others remix the new cart in the browser (Quick Remix); a project dir is uploaded unminified so its Lua stays readable                  |
+| Flag               | Default                       | Description |
+| :------------------| :------------------------------| :-----------|
+| `--url`            | `http://localhost:8080`       | Port base URL (env: `CAIVEN_PORT_URL`) |
+| `--api-key`        | _(empty, required)_           | Your Port API token (env: `CAIVEN_PORT_API_KEY`). Create one on the Profile page of the Port website, or sign in from Studio's PORT tab. |
+| `--title`          | cart header                   | Override the cart title |
+| `--author`         | cart header                   | Override the author |
+| `--description`    | _(empty)_                     | Short description |
+| `--tags`           | _(empty)_                     | Comma-separated tags |
+| `--frames`         | `30`                          | Frames to run before taking the screenshot |
+| `--no-screenshot`  |                               | Skip the screenshot |
+| `--remixable`      |                               | Let others remix the cart in the browser (Quick Remix). Project folders upload unminified so the Lua stays readable. |
 
-## Project Structure
+## Project layout
 
-Cargo workspace with eight Rust crates and two frontend packages:
+The Cargo workspace has eight Rust crates and two frontend packages:
 
-| Crate                     | Description                                                                                                                                    |
-| :------------------------ | :--------------------------------------------------------------------------------------------------------------------------------------------- |
-| `crates/caiven-core`      | Shared types and memory map — `Color`, `Vec2`, RAM layout constants                                                                            |
-| `crates/caiven-cart`      | Cart formats: binary `.cav` (header, section layout, load/write) and the project-dir authoring format (`caiven.toml` + `.lua` + `.hex`/`.png`) |
-| `crates/caiven-vm`        | VM core: embedded Lua (`mlua`) execution, builtin API, renderer, audio, input, debugger hooks                                                  |
-| `crates/caiven-studio`    | Tauri shell, VM actor, Studio IPC, and CLI (`build`/`unpack`/`inspect`/`publish`)                                                              |
-| `crates/caiven-studio-ui` | Svelte 5 + Vite Studio frontend shared with Port brand tokens                                                                                  |
-| `crates/caiven-ui`        | Shared Svelte components and theme consumed by Studio and Port                                                                                 |
-| `crates/caiven-machine`   | Standalone cart runner (run mode: project dir or `.cav`, no editor/port; `Ctrl+R` restarts the cart)                                                 |
-| `crates/caiven-port`      | Cart sharing server                                                                                                                            |
-| `crates/caiven-web`       | WASM cart player (`wasm32-unknown-emscripten`) served by caiven-port's `/play/:id`                                                             |
-| `crates/migration`        | `sea-orm` database migrations for caiven-port                                                                                                  |
+| Crate                     | Description |
+| :------------------------ | :---------- |
+| `crates/caiven-core`      | Shared types and memory map: `Color`, `Vec2`, RAM layout constants |
+| `crates/caiven-cart`      | Cart formats: binary `.cav` (header, sections, load and write) and the project folder format (`caiven.toml`, `.lua`, `.hex` or `.png`) |
+| `crates/caiven-vm`        | The VM: Lua execution through `mlua`, builtin API, renderer, audio, input and debugger hooks |
+| `crates/caiven-studio`    | Tauri shell, VM thread, Studio IPC and the CLI (`build`, `unpack`, `inspect`, `publish`) |
+| `crates/caiven-studio-ui` | Studio frontend in Svelte 5 and Vite, using Port's brand tokens |
+| `crates/caiven-ui`        | Svelte components and theme shared by Studio and Port |
+| `crates/caiven-machine`   | Standalone player for a project folder or `.cav`, with no editor or Port features. `Ctrl+R` restarts the cart. |
+| `crates/caiven-port`      | Cart sharing server |
+| `crates/caiven-web`       | WASM player (`wasm32-unknown-emscripten`) that Port serves at `/play/:id` |
+| `crates/migration`        | `sea-orm` database migrations for Port |
 
-`carts/` contains packed cartridges; `projects/` contains editable projects.
-For a quick runtime check, use `cargo run -p caiven-machine -- carts/dev/smoke.cav`.
+`carts/` holds packed carts and `projects/` holds their sources. For a quick
+runtime check, run `cargo run -p caiven-machine -- carts/dev/smoke.cav`.
 
-## Verification
+## Checks
 
 ```bash
 cargo fmt --all -- --check
@@ -106,23 +107,23 @@ npm --prefix crates/caiven-port/web test
 node crates/caiven-web/smoke_test.mjs
 ```
 
-Install browser test dependencies once with
+Install the browser test dependencies once with
 `npm --prefix crates/caiven-port/web exec playwright install chromium`.
-Run Studio's browser suite with `npm --prefix crates/caiven-studio-ui run test:e2e`.
-Run Port's mocked and live server suites with
-`npm --prefix crates/caiven-port/web run test:e2e`.
+Studio's browser tests run with
+`npm --prefix crates/caiven-studio-ui run test:e2e`. Port's mocked and
+live-server tests run with `npm --prefix crates/caiven-port/web run test:e2e`.
 
 ## Browser runtime
 
-Port and Studio's HTML export share the checked-in runtime under
-`crates/caiven-port/web/public/wasm/`. After changing cartridge formats, the VM,
-or browser exports, activate an Emscripten SDK and run:
+Port and Studio's HTML export both use the WASM runtime checked in under
+`crates/caiven-port/web/public/wasm/`. If you change the cart format, the VM
+or the browser export, activate an Emscripten SDK and run:
 
 ```bash
 bash crates/caiven-web/build-web.sh
 ```
 
-This builds with the Cargo lockfile, updates both shipped runtime files, and
-smoke-tests the shipped artifact against a current cartridge, including the
-offline instantiation hook. Rebuild the Port frontend and Studio afterward so
-their assets include the refreshed runtime. Commit both generated files together.
+The script builds against the Cargo lockfile, updates both runtime files,
+and smoke-tests them with a current cart, including the offline startup
+hook. Rebuild the Port frontend and Studio afterwards so they pick up the
+new runtime, and commit both generated files together.

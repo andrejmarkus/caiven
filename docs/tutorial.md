@@ -1,25 +1,25 @@
-# Tutorial: Your First Game
+# Tutorial: your first game
 
-Caiven has two formats. You **author** a game as a plain project directory —
-`caiven.toml` + `main.lua` (plus any sibling `.lua` modules, `require()`-able
-from each other) + one asset file per non-empty section (`.png` by default,
-`.hex` also supported) — so `git diff` shows real changes instead of a binary
-blob. You **distribute** as a single `.cav` file built from the project dir
-with `caiven-studio build` (or Studio's Pack Cartridge). `caiven-studio
-unpack` goes the other way. Studio only edits project dirs — pointing it at a
-`.cav` prompts to unpack first.
+A game lives in a project folder: `caiven.toml`, `main.lua`, any
+other `.lua` files you `require()` from it, and one asset file per non-empty
+section (`.png` by default, `.hex` also works). Plain files keep `git diff`
+readable. When you want to share the game, you pack the folder into a single
+`.cav` file with `caiven-studio build` or Studio's Pack Cartridge command.
+`caiven-studio unpack` turns a `.cav` back into a folder. Studio edits
+folders only, so if you open a `.cav` it asks to unpack it first.
 
-1. **Launch Caiven Studio** and click **New cart** on the start screen:
+## 1. Create a project
+
+Start Studio and click **New cart** on the start screen:
 
 ```bash
 cargo run -p caiven-studio -- edit
 ```
 
-A folder picker asks for an empty project directory (the folder name becomes
-the cart title); Studio creates a blank `_init`/`_update` project and opens
-the Code workspace.
+Pick an empty folder. Its name becomes the cart title. Studio writes a blank
+project with `_init` and `_update` and opens the Code workspace.
 
-2. **Write your game logic:**
+## 2. Write the game
 
 ```lua
 local SPEED = 2
@@ -51,18 +51,31 @@ function _update()
 end
 ```
 
-3. **Draw your player** — press `F2` for the sprite tab and paint sprite 0.
+## 3. Draw the player
 
-4. **Iterate** — click the code editor's gutter to set a line breakpoint, the toolbar's Run/Pause/Reset drives execution (or `Ctrl+R` to rerun). Lua errors show with a line number and message straight in the status bar.
+Press `F2` to open the sprite tab and paint sprite 0.
 
-5. **Ship it** — `Ctrl+S` writes code + sprites + map + audio into the project dir (set title/author on the `F7` meta tab), then run it standalone with `caiven-machine my-game/` (restart it with `Ctrl+R`, no editor needed), or build + publish a distribution cartridge: File → Export → Pack Cartridge (.cav), then `publish game.cav` to share it on a port.
+## 4. Run and debug
 
-## Cart lifecycle functions
+The toolbar has Run, Pause and Reset. `Ctrl+R` reruns the cart. Click the
+gutter in the code editor to set a breakpoint. If your Lua code throws an
+error, the status bar shows the message and line number.
 
-| Function    | Purpose                                                                                                                                                  |
-| :---------- | :----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `_init()`   | Runs once when the cart loads                                                                                                                            |
-| `_update()` | Runs once per frame (called for you — no `wait()`/vsync call needed)                                                                                     |
-| `_draw()`   | Optional — runs once per frame, right after `_update()`. Split game logic from rendering if you like; carts with only `_update()` work exactly as before |
+## 5. Save and share
 
-See the full [API reference](api-reference.md) for every builtin function.
+`Ctrl+S` saves code, sprites, map and audio into the project folder. Set
+the title and author on the `F7` meta tab.
+
+To play the game without the editor, run `caiven-machine my-game/` (`Ctrl+R`
+restarts it). To share it, choose File → Export → Pack Cartridge (.cav),
+then run `publish game.cav` to upload it to a Port.
+
+## Lifecycle functions
+
+| Function    | When it runs         |
+| :---------- | :------------------- |
+| `_init()`   | Once, when the cart loads |
+| `_update()` | Once per frame. You don't call `wait()` or sync to the screen yourself. |
+| `_draw()`   | Optional. Once per frame, after `_update()`. Use it if you want drawing code separate from game logic. |
+
+The [API reference](api-reference.md) lists every builtin.
